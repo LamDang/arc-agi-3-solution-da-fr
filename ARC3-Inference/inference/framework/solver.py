@@ -7,6 +7,7 @@ import contextlib
 import copy
 import functools
 import html
+import logging
 import json
 import os
 import re
@@ -23,7 +24,13 @@ import arcengine
 import taaf.game
 from taaf.solver import Solver
 
+from inference.utils.animation import (
+    collapse_frames,
+    normalize_frames,
+    summarize_animation,
+)
 from inference.agent.action_names import (
+    reset_exposed,
     to_engine_action,
     to_model_action,
     to_model_actions,
@@ -34,7 +41,11 @@ from inference.agent.runtime_state import (
     RUNTIME_STATE_FILENAME,
     write_runtime_state,
 )
-from inference.agent.tool_agent import ToolAgent
+from inference.agent.tool_agent import (
+    _PRIORITY_UNTRIMMED_BASE,
+    ToolAgent,
+    _priority_gate,
+)
 from inference.framework.kaggle import (
     DEFAULT_QWEN_MODEL_DATASET_SOURCE,
     DEFAULT_SERVED_MODEL_NAME,
@@ -53,10 +64,242 @@ from inference.utils.viewer_artifacts import (
     reset_raw_events_sidecar,
 )
 
+log = logging.getLogger(__name__)
+
 AnalyzerFactory = Callable[[taaf.game.Game, int], Any]
 
-ANALYZER_RETRY_BACKOFF_SECONDS = 1.0
+def _env_number(name: str, default: float, cast=float) -> float:
+    """A numeric env override that cannot take the run down at import time."""
+    try:
+        return cast(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return cast(default)
+
+
+ANALYZER_RETRY_BACKOFF_SECONDS = max(
+    0.0, _env_number("ARC3_ANALYZER_RETRY_BACKOFF_SECONDS", 10.0)
+)
+# A request that fails outright - a dead endpoint, a refused connection - is
+# reported as retryable and the solver goes back to the top of the loop. With
+# no limit that is an infinite spin: nothing monitors the local server, so if
+# it exits mid-run every game retries once a second until its runtime budget is
+# gone, and the run finishes reporting whatever each game had reached with no
+# crash marker anywhere. Giving up after a run of consecutive failures makes
+# that visible - the run ends in seconds rather than at the wall clock, and the
+# games carry a note saying why. 0 restores the unlimited behaviour.
+# Negative means keep retrying; 0 means give up on the first failure. No
+# max(0, ...) clamp here - it would flatten a negative to zero and turn
+# "never give up" into "give up at once".
+# Kaggle requires an action within 15 minutes of the run starting. SGLang
+# needs about 10.5 of those to load weights - 6 on the main model, 3 more on the
+# MTP draft head, which is a second full pass over the same 206 shards - and the
+# notebook blocks on /health before playing anything, so a slow load spends the
+# whole allowance before a single action is issued and the submission scores
+# zero. With this set, the first N games to start execute one RESET straight
+# against the engine before touching the analyzer, which satisfies the clock
+# while the server is still loading; the HTTP retry loop then covers the rest of
+# the wait. 0 disables.
+WARMUP_ACTION_GAMES = _env_number("ARC3_WARMUP_ACTION_GAMES", 0, int)
+
+
+MAX_CONSECUTIVE_ANALYZER_FAILURES = _env_number("ARC3_MAX_ANALYZER_FAILURES", 10, int)
 DEFAULT_CANCEL_DRAIN_TIMEOUT_SECONDS = 120.0
+
+# No-op guard: width of the border frame treated as HUD (progress bars,
+# timers). 0 disables the guard. Simple v1 heuristic; see step_env.
+# arcengine renders a frame after every internal step(), so one action can come
+# back as a short animation whose intermediate frames the harness has always
+# discarded. Off by default: new information for the model, not a fix.
+ANIMATION_ENABLED = os.environ.get("ARC3_ANIMATION", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+NOOP_GUARD_BORDER_WIDTH = max(0, int(os.environ.get("ARC3_NOOP_GUARD_BORDER", "4")))
+# Print one line per action(...) call into the snippet's stdout. Costs a line of
+# tool output per call, which is charged against tool_output_tokens.
+# The patch-110 rewordings, behind one switch. They replaced "changed nothing"
+# with "no change inside the board area" across every guard message, because the
+# old phrasing was false in the case that matters - the HUD usually DID change.
+# The reasoning still looks right, but they shipped alongside the outcome line
+# in a run that lost 43% of the previous competition score, so the two need to
+# be separable before either can be judged. Off restores the wording of the run
+# that scored 4.05.
+NEW_NOOP_WORDING = os.environ.get(
+    "ARC3_NEW_CHANGED_PROMPTS", "0"
+).strip().lower() in ("1", "true", "yes", "on")
+ACTION_ECHO = os.environ.get("ARC3_ACTION_ECHO", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# When an action changes nothing, the sandbox arms a per-snippet latch and the
+# NEXT action(...) call is refused. Off restores the older behaviour of letting
+# the snippet keep acting on a state its own beliefs no longer describe.
+STALE_STATE_BLOCK = os.environ.get(
+    "ARC3_STALE_STATE_BLOCK", "0"
+).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Stops a batch at the first action that changes nothing inside the board, so a
+# wrong movement model costs one action rather than the whole sequence. It used
+# to be implied by ARC3_NOOP_GUARD_BORDER being positive, which conflated the
+# crop width with whether the guard runs at all - the border is also what
+# gameplay_changed means, and that is wanted independently. Off by default:
+# the guard converts actions into turns, which is a good trade only when tokens
+# are cheap relative to the action budget.
+# Level 1 pays the smallest share of the score - one part in N - and it is
+# where the model knows least, so it probes hardest: repeating an action to see
+# whether the repeat differs, retrying something that killed it to learn what
+# killed it. The guards read that as waste. Set to 2 to let level 1 run
+# unguarded and start guarding at level 2, where an action is worth more and
+# the model has a working model of the game.
+#
+# The batch no-op stop is deliberately NOT covered: it costs one action of a
+# planned sequence rather than refusing a deliberate probe, and a wrong
+# movement model is exactly as expensive on level 1 as anywhere. Nor is the
+# terminal latch, which stops a snippet acting after a level-up or a death -
+# that is a board that no longer exists, not a judgement about the action.
+GUARDS_FROM_LEVEL = max(1, int(os.environ.get("ARC3_GUARDS_FROM_LEVEL", "1") or 1))
+
+
+def _guards_active(level: Any) -> bool:
+    """Whether the per-action guards apply at this level."""
+    try:
+        return int(level) >= GUARDS_FROM_LEVEL
+    except (TypeError, ValueError):
+        return True  # unknown level: guard rather than not
+
+
+BATCH_NOOP_BLOCK = os.environ.get(
+    "ARC3_BATCH_NOOP_BLOCK", "0"
+).strip().lower() in ("1", "true", "yes", "on")
+
+
+_BLOCKED_VERDICTS = {
+    "known_noop": "BLOCKED (known no-op in this exact board state; never executed)",
+    "known_death": "BLOCKED (ended a previous attempt from this exact board state; never executed)",
+}
+
+
+def _action_verdict(item: dict) -> str:
+    """The one-word account of what an executed action did.
+
+    Shared with the per-action trace so the echo introduces no second
+    vocabulary for the model to learn."""
+    if item.get("game_over"):
+        return "GAME OVER (attempt ended immediately after this action)"
+    if item.get("run_complete") or item.get("done"):
+        return "RUN COMPLETE"
+    if item.get("level_completed"):
+        return "LEVEL COMPLETED"
+    changed = item.get("gameplay_changed")
+    if changed is False:
+        return (
+            "NO-OP (executed, no change inside the board area)"
+            if NEW_NOOP_WORDING
+            else "NO-OP (executed, changed nothing)"
+        )
+    if changed is True:
+        return "effect"
+    return "executed"
+
+
+def _build_action_echo(
+    requested_displays: list[str],
+    executed_payloads: list[dict],
+    stop_reason: str | None,
+) -> str:
+    """One line per action(...) call, for the snippet's own stdout.
+
+    A single action produces no per-action trace at all - the trace is built
+    only for batches, game overs and refusals - so the snippet's only account
+    of it arrives a turn later in the opener. Inside a loop that is too late to
+    branch on. This fills the gap at the moment of the call, in the trace's own
+    words, without repeating the trace for batches that already get one.
+    """
+    if not requested_displays:
+        return ""
+    if len(requested_displays) == 1:
+        if executed_payloads:
+            return f"[action] {requested_displays[0]} -> {_action_verdict(executed_payloads[0])}"
+        reason = f" | stop_reason: {stop_reason}" if stop_reason else ""
+        return f"[action] {requested_displays[0]} -> not executed{reason}"
+    ran = ", ".join(
+        str(item.get("action_display") or item.get("action_name") or "?")
+        for item in executed_payloads
+    )
+    line = (
+        f"[action] batch of {len(requested_displays)} actions, "
+        f"{len(executed_payloads)} executed"
+    )
+    if ran:
+        line += f": {ran}"
+    if stop_reason:
+        line += f" | stop_reason: {stop_reason}"
+    return line
+
+
+def _build_action_trace(
+    requested_displays: list[str],
+    executed_payloads: list[dict],
+    blocked_kind: str | None = None,
+) -> list[str]:
+    """One self-describing line per submitted action: index, name, verdict.
+
+    A guard refusal is called out at its own position rather than lumped in
+    with the generic SKIPPED verdict: the prompt tells the model to treat this
+    trace as the authoritative account of what happened, so a refusal that
+    reads as "skipped" would send it looking for an upstream cause that does
+    not exist. Positions AFTER the refusal are genuinely skipped and keep the
+    plain verdict.
+    """
+    trace: list[str] = []
+    blocked_position = len(executed_payloads) + 1 if blocked_kind else None
+    for position, name in enumerate(requested_displays, 1):
+        if blocked_position is not None and position == blocked_position:
+            trace.append(
+                f"{position}: {name} -> "
+                + _BLOCKED_VERDICTS.get(blocked_kind or "", "BLOCKED (never executed)")
+            )
+            continue
+        if position <= len(executed_payloads):
+            verdict = _action_verdict(executed_payloads[position - 1])
+        else:
+            verdict = "SKIPPED (never executed)"
+        trace.append(f"{position}: {name} -> {verdict}")
+    return trace
+
+
+def _interior_gameplay_changed(
+    previous_grid: list[list[int]] | None,
+    new_grid: list[list[int]] | None,
+    *,
+    border: int = NOOP_GUARD_BORDER_WIDTH,
+) -> bool:
+    """True when any cell outside the border frame differs between grids.
+
+    Falls back to a plain inequality check (treat as changed) when the guard
+    is disabled, grids are missing, shapes differ, or the border swallows the
+    whole grid — the guard must fail open.
+    """
+    if border <= 0 or previous_grid is None or new_grid is None:
+        return previous_grid != new_grid
+    rows = len(previous_grid)
+    cols = len(previous_grid[0]) if rows else 0
+    if rows != len(new_grid) or any(len(r) != cols for r in (previous_grid[0:1] + new_grid[0:1])):
+        return True
+    if rows <= 2 * border or cols <= 2 * border:
+        return previous_grid != new_grid
+    for r in range(border, rows - border):
+        prev_row = previous_grid[r]
+        new_row = new_grid[r]
+        if prev_row[border:cols - border] != new_row[border:cols - border]:
+            return True
+    return False
+
 _LOCAL_SERVER_PROCESS_ENV_KEYS = (
     "LOCAL_ANALYZER_API_KEY",
     "OPENAI_API_KEY",
@@ -90,6 +333,24 @@ def artifact_stem(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
 
 
+def _animation_chain(
+    previous_grid: tuple[tuple[int, ...], ...],
+    state: taaf.game.GameState | None,
+) -> list[tuple[tuple[int, ...], ...]]:
+    """The pre-action board, then each distinct state the action passed through.
+
+    `state.frame` is only `raw.frame[-1]`; the rest of that list is the
+    animation. Runs of identical grids collapse here rather than at render
+    time, because a single action can return dozens of frames and they stay in
+    memory until the next action replaces them.
+    """
+    if state is None:
+        return []
+    return collapse_frames(
+        previous_grid, normalize_frames(getattr(state.raw, "frame", None))
+    )
+
+
 def _grid_from_state(state: taaf.game.GameState | None) -> tuple[tuple[int, ...], ...]:
     if state is None:
         return ()
@@ -113,7 +374,7 @@ def _engine_action_names(game: taaf.game.Game) -> list[str]:
             name = arcengine.GameAction.from_id(int(action_id)).name
         except Exception:
             continue
-        if name == "RESET":
+        if name == "RESET" and not reset_exposed():
             continue
         if name not in names:
             names.append(name)
@@ -125,6 +386,46 @@ def _model_mouse_action_data(
 ) -> dict[str, int]:
     data = action_data or {}
     return {"row": int(data.get("y", 0)), "col": int(data.get("x", 0))}
+
+
+def _guard_action_data(action: Any) -> dict[str, Any]:
+    """Action data in the row/col form the guard signature expects.
+
+    ACTION6 carries x/y from the engine; `_format_action_display` already
+    translates it the same way, so the ledger and the guard agree on what
+    identifies a click."""
+    data = dict(getattr(action, "data", None) or {})
+    if getattr(getattr(action, "id", None), "name", "") == "ACTION6":
+        return _model_mouse_action_data(data)
+    return data
+
+
+def _stale_repeat(stale_after: str, action: Any) -> bool:
+    """Is this the same action that just changed nothing?
+
+    Compared on the DISPLAY form, which carries mouse coordinates - a click
+    somewhere else after a no-op click is a different action, and the repeat
+    guard's override is meaningful for it.
+    """
+    return str(stale_after).strip() == _format_action_display(
+        action.id.name, dict(action.data)
+    ).strip()
+
+
+def _stale_detail(action: Any, stale_after: str) -> str:
+    return (
+        f"{_format_action_display(action.id.name, dict(action.data))} was not "
+        f"executed. The action immediately before it, {stale_after}, was a "
+        + ("no-op - it produced no change inside the board area - so positions "
+           if NEW_NOOP_WORDING else
+           "no-op - it changed nothing outside the board border - so positions ")
+        +
+        "and paths computed since then may be wrong, which is why execution "
+        "has been halted here. Re-read current_frame and last_action_call_result, "
+        "work out why nothing moved, then act on what you find. "
+        "(StaleStateActionError can be caught if a snippet has good reason to "
+        "keep acting through no-ops.)"
+    )
 
 
 def _format_action_display(
@@ -182,6 +483,14 @@ class _HarnessGameSession:
     analysis_step: int = 0
     last_engine_action: str | None = None
     token_baseline: int = 0
+    # token_baseline is a cursor: it is dragged forward after every step so the
+    # engine can be told what that step cost, and so cannot answer "how much
+    # has this game spent". This one is captured once and never moved.
+    game_token_baseline: int = 0
+    # The last executed action's animation, or None. One record, not a
+    # history: the model reads it via animation() in the turn that follows,
+    # and older animations are almost never what it is asking about.
+    animation_record: dict[str, Any] | None = None
     _viewer_events_flushed: int = field(default=0, init=False, repr=False)
 
     def current_frame(self) -> Frame:
@@ -243,6 +552,30 @@ class _HarnessGameSession:
             return None
         return max(0.1, min(candidates))
 
+    def token_limit_reached(self) -> bool:
+        """Whether this game has generated its allowance.
+
+        Read from the analyzer rather than summed per step: should_stop is
+        passed into the analyzer and runs at every loop boundary, so reading a
+        counter that only advances when an action executes would leave a game
+        that deliberates without acting running past its allowance. The
+        analyzer's accumulator advances on every response.
+
+        Measured against a baseline captured at game start, which is 0 for the
+        per-game analyzer the solver builds but need not be if an
+        analyzer_factory hands back a shared one.
+        """
+        # getattr, not attribute access: the notebook unpickles a solver whose
+        # __dict__ was captured before this field existed, and __setstate__ does
+        # a plain dict update - it applies no dataclass defaults. A bare access
+        # would raise AttributeError here on the first turn of every game, since
+        # should_stop() runs this every time.
+        limit = getattr(self.solver, "max_generated_tokens_per_game", None)
+        if limit is None or limit <= 0:
+            return False
+        spent = _analyzer_reported_tokens(self.analyzer) - self.game_token_baseline
+        return spent >= limit
+
     def should_stop(self) -> bool:
         run = self.game.game_run
         if run is None or run.state != "playing":
@@ -258,7 +591,14 @@ class _HarnessGameSession:
             and self.action_count >= self.solver.max_actions_per_game
         ):
             return True
+        if self.token_limit_reached():
+            return True
         return False
+
+    def _queue_position(self) -> int:
+        """Position in the dispatch order, used only to break ties in the
+        untrimmed priority band so games do not all queue at one value."""
+        return max(0, int(self.game_index)) * 100 + max(0, int(self.pass_index))
 
     def play(self) -> None:
         run = self.game.game_run
@@ -267,12 +607,51 @@ class _HarnessGameSession:
         self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
         self.transcript_path.touch(exist_ok=True)
         self.token_baseline = _analyzer_reported_tokens(self.analyzer)
-        self.seed_initial_history()
-        self.write_runtime_state()
-        self._append_initial_viewer_event()
-        self.write_viewer_payload()
+        self.game_token_baseline = self.token_baseline
+        # A game that has not started yet sits in the top band, so every game
+        # gets going in queue order before any that has already trimmed comes
+        # back for a second turn.
+        gate = _priority_gate()
+        if gate is not None:
+            deadline = (
+                self.started_at + self.solver.max_runtime_s_per_game
+                if self.solver.max_runtime_s_per_game is not None else None
+            )
+            soft_remaining = self.solver.soft_time_remaining_seconds()
+            if soft_remaining is not None:
+                soft_deadline = time.monotonic() + soft_remaining
+                deadline = min(deadline, soft_deadline) if deadline is not None else soft_deadline
+            gate.configure_clock(self.started_at, deadline)
+            gate.acquire(_PRIORITY_UNTRIMMED_BASE - self._queue_position())
+        try:
+            self.seed_initial_history()
+            self.write_runtime_state()
+            self._append_initial_viewer_event()
+            self.write_viewer_payload()
+            self._play_inner()
+        finally:
+            if gate is not None:
+                gate.release()
+
+    def _play_inner(self) -> None:
+        run = self.game.game_run
+        if self.solver._claim_warmup_slot():
+            # Straight to the engine - _execute_auto_reset takes the same path
+            # and needs no analyzer, so this works with the endpoint still
+            # loading. One action off this game's budget buys the whole
+            # submission a deadline it would otherwise miss.
+            # warning, not info: _configure_logging only runs under run.py, so
+            # the notebook has no handler and falls back to logging's lastResort,
+            # which emits WARNING and above. An info line would vanish exactly
+            # where this message matters most.
+            log.warning(
+                "%s: warmup RESET issued before the analyzer is reachable",
+                run.game_id,
+            )
+            self._execute_auto_reset()
         try:
             retry_analysis_step: int | None = None
+            consecutive_failures = 0
             while not self.should_stop():
                 if (
                     _is_engine_game_over(self.game)
@@ -310,15 +689,42 @@ class _HarnessGameSession:
                 if result is None:
                     raise RuntimeError("Analyzer did not return a result.")
                 if result.retryable_failure:
+                    consecutive_failures += 1
+                    if (
+                        MAX_CONSECUTIVE_ANALYZER_FAILURES >= 0
+                        and consecutive_failures > MAX_CONSECUTIVE_ANALYZER_FAILURES
+                    ):
+                        log.error(
+                            "%s: analyzer failed %d times in a row; giving up on this "
+                            "game. The endpoint is probably down - nothing here can "
+                            "restart it.",
+                            run.game_id,
+                            consecutive_failures,
+                        )
+                        run.solver_note = (
+                            f"analyzer failed {consecutive_failures} times consecutively"
+                        )
+                        break
                     retry_analysis_step = analysis_step
                     if self.should_stop():
                         break
                     time.sleep(ANALYZER_RETRY_BACKOFF_SECONDS)
                     continue
 
+                # a turn that came back at all clears the run: the limit is for
+                # an endpoint that has stopped answering, not for a game that
+                # hits an occasional blip
+                consecutive_failures = 0
                 retry_analysis_step = None
                 if getattr(result, "yielded_control", False):
-                    retry_analysis_step = analysis_step
+                    # Reuse the step id only for a pure thinking continuation.
+                    # If this invocation already executed actions, the resumed
+                    # invocation opens with a fresh batch-summary prompt - a new
+                    # logical turn - and must get a fresh analysis_step, or the
+                    # viewer merges two turns into one card (and sums their
+                    # token usage).
+                    if not result.step_executed:
+                        retry_analysis_step = analysis_step
                     continue
                 if not result.step_executed:
                     continue
@@ -586,6 +992,14 @@ class _HarnessGameSession:
         }
 
     def step_env(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if str(arguments.get("query") or "").strip() == "animation":
+            # Routed through step_env so no analyzer-protocol signature has to
+            # change. Executes nothing and spends no action budget.
+            return {
+                "executed": False,
+                "query": "animation",
+                "record": self.animation_record if ANIMATION_ENABLED else None,
+            }
         requested_actions, error = self._normalize_actions(arguments)
         if error is not None or requested_actions is None:
             return self._error_payload(error or "Could not parse action request.")
@@ -601,10 +1015,84 @@ class _HarnessGameSession:
             for action in requested_actions
         ]
 
+        guard_hook = getattr(self, "action_guard_hook", None)
+        blocked_detail: str | None = None
+        blocked_kind: str | None = None
+
+        # Checked AFTER the per-position guards below, so a known death or a
+        # known no-op takes precedence: both name a specific action and offer an
+        # override, which is more actionable than a general staleness warning.
+        stale_after = (
+            arguments.get("stale_after")
+            if STALE_STATE_BLOCK and _guards_active(_level_number(self.game))
+            else None
+        )
+
         for batch_index, action in enumerate(requested_actions, start=1):
             if self.should_stop():
                 stop_reason = "stopped"
                 break
+            if (
+                stale_after
+                and batch_index == 1
+                and _stale_repeat(stale_after, action)
+            ):
+                # the model is re-issuing the action that just changed nothing;
+                # the staleness message is the correct one here, so take it
+                # before the repeat guard can claim the turn
+                blocked_kind = "stale_state"
+                blocked_detail = _stale_detail(action, stale_after)
+                stop_reason = blocked_kind
+                break
+            if guard_hook is not None:
+                # Per-position check: the hash is recomputed from the CURRENT
+                # board, so position N of a batch is judged against the state
+                # its predecessors actually produced - not the state the batch
+                # started in. This is what lets a fatal move be caught no
+                # matter which route reached it.
+                # The engine stores mouse coordinates as x/y; every consumer
+                # that identifies an action - the ledger, the action display,
+                # the guard signature - works in row/col. Passing action.data
+                # raw made every click share the signature "MOUSE" with no
+                # coordinates, so one no-op click poisoned clicking ANYWHERE
+                # from that board state. On a mouse-only game that is terminal:
+                # observed as 175 replies and one executed action in a run.
+                verdict = guard_hook(
+                    _grid_from_state(self.game.current_state),
+                    action.id.name,
+                    _guard_action_data(action),
+                    _level_number(self.game),
+                    [
+                        (later.id.name, _guard_action_data(later))
+                        for later in requested_actions[batch_index - 1:]
+                    ],
+                )
+                if verdict:
+                    blocked_kind, blocked_detail = verdict
+                    stop_reason = blocked_kind
+                    break
+            if stale_after and batch_index == 1:
+                # Ordering against the repeat guards above:
+                #
+                # Different action - the repeat guard wins. It names the action
+                # and its override is meaningful: the model may have reason to
+                # believe circumstances changed since that earlier visit.
+                #
+                # SAME action as the one that just no-opped - this message wins,
+                # and the check is placed before the guards for that case (see
+                # the early branch above). Telling a model that just watched X
+                # do nothing to "issue it again and it will execute" is advice
+                # to repeat a failure; worse, the guard's own override is
+                # already satisfied by this call, so without the swap the action
+                # would simply run with no message at all.
+                blocked_kind = "stale_state"
+                blocked_detail = _stale_detail(action, stale_after)
+                stop_reason = blocked_kind
+                break
+            # anything that reaches execution clears the flag: it can only
+            # happen when the check above declined to fire, and leaving a stale
+            # marker set behind an executed action would be a latent surprise
+            stale_after = None
             if action.id.value not in self.game.current_state.available_actions:
                 message = f"{_format_action_display(action.id.name, dict(action.data))} is not valid right now."
                 if executed_payloads:
@@ -636,8 +1124,35 @@ class _HarnessGameSession:
             if payload.get("level_completed"):
                 stop_reason = "level_completed"
                 break
+            if (
+                BATCH_NOOP_BLOCK
+                and NOOP_GUARD_BORDER_WIDTH > 0
+                and batch_size >= 2
+                and not payload.get("gameplay_changed", True)
+            ):
+                stop_reason = "no_op_action"
+                break
 
         if not executed_payloads:
+            if blocked_detail is not None:
+                # Nothing ran at all: report the refusal itself rather than a
+                # generic error, so the sandbox can raise the right exception.
+                return {
+                    **self._error_payload(blocked_detail),
+                    "executed": False,
+                    "stop_reason": blocked_kind,
+                    "stop_detail": blocked_detail,
+                    "requested_count": batch_size,
+                    "executed_count": 0,
+                    "stopped_early": True,
+                    "requested_actions": requested_displays,
+                    "skipped_actions": list(requested_displays),
+                    # the refused action is position 1 here, since nothing ran.
+                    # Omitting it left the next turn's opener saying "stopped
+                    # before None" - the later assignment for the partial-batch
+                    # case is never reached on this path.
+                    "blocked_action": requested_displays[0] if requested_displays else None,
+                }
             return self._error_payload("No action was executed.")
 
         final_payload = dict(executed_payloads[-1])
@@ -657,12 +1172,64 @@ class _HarnessGameSession:
         final_payload["stopped_early"] = len(executed_payloads) < batch_size
         if stop_reason is not None:
             final_payload["stop_reason"] = stop_reason
+        if final_payload["stopped_early"]:
+            final_payload["skipped_actions"] = requested_displays[len(executed_payloads):]
+        for item in executed_payloads:
+            if item.get("game_over"):
+                final_payload["fatal_action"] = str(item.get("action_display") or "")
+                break
+        if batch_size > 1 or final_payload.get("game_over") or blocked_kind:
+            final_payload["action_trace"] = _build_action_trace(
+                requested_displays, executed_payloads, blocked_kind
+            )
+            final_payload["gameplay_changed_per_action"] = [
+                bool(item.get("gameplay_changed", True)) for item in executed_payloads
+            ]
+        if ACTION_ECHO:
+            echo = _build_action_echo(requested_displays, executed_payloads, stop_reason)
+            if echo:
+                # consumed by the sandbox, which prints it and pops it: leaving
+                # it in the returned dict shows the model the same line twice,
+                # once on stdout and once in the payload it reads back
+                final_payload["action_echo"] = echo
+        if blocked_detail is not None:
+            final_payload["stop_detail"] = blocked_detail
+            final_payload["blocked_action"] = requested_displays[len(executed_payloads)]
+        if stop_reason == "no_op_action":
+            noop_index = len(executed_payloads)
+            final_payload["no_op_action_index"] = noop_index
+            final_payload["no_op_action"] = final_payload["executed_actions"][-1]
+            skipped = requested_displays[noop_index:]
+            final_payload["stop_detail"] = (
+                f"Action {noop_index} of {batch_size} "
+                + (
+                    f"({final_payload['executed_actions'][-1]!r}) EXECUTED but produced no "
+                    f"change inside the board area - only the outer {NOOP_GUARD_BORDER_WIDTH} "
+                    "cells, where a timer or remaining-steps bar usually sits, could have moved. "
+                    if NEW_NOOP_WORDING else
+                    f"({final_payload['executed_actions'][-1]!r}) EXECUTED but changed nothing "
+                    f"outside the {NOOP_GUARD_BORDER_WIDTH}-cell border (treated as HUD). "
+                )
+                +
+                f"Actions {noop_index + 1}-{batch_size} ({skipped!r}) were SKIPPED and did "
+                "not execute. Indices are 1-based positions in your submitted list. "
+                f"Net effect: only the first {max(0, noop_index - 1)} executed action(s) "
+                "changed the board; the final executed action moved nothing. Do NOT "
+                "update your position estimate by counting submitted moves - re-locate "
+                "the player from current_frame before planning. "
+                "The per-action verdicts are listed in action_trace. "
+                "This stop is about one action from one board state, not about batch "
+                "size - batching is still the right approach, and the stop is what keeps "
+                "a wrong movement model from costing the whole sequence."
+            )
         self.write_viewer_payload()
         return final_payload
 
     def _execute_auto_reset(self) -> None:
         action = arcengine.ActionInput(id=arcengine.GameAction.RESET, data={})
-        self._execute_action(action, batch_index=1, batch_size=1, generated_tokens=0)
+        self._execute_action(
+            action, batch_index=1, batch_size=1, generated_tokens=0, automatic=True
+        )
 
     def _execute_action(
         self,
@@ -672,6 +1239,7 @@ class _HarnessGameSession:
         batch_size: int,
         generated_tokens: int | None = None,
         flush_viewer_payload: bool = True,
+        automatic: bool = False,
     ) -> dict[str, Any]:
         previous_grid = _grid_from_state(self.game.current_state)
         previous_completed = int(self.game.current_state.levels_completed)
@@ -690,17 +1258,40 @@ class _HarnessGameSession:
             step=self.action_count,
             level=_level_number(self.game),
         )
-        self.history_entries.append(
-            HistoryEntry(action=action_display, frame=current_frame)
-        )
-        self.write_runtime_state()
 
         completed = int(new_state.levels_completed)
         reward = float(completed - previous_completed) / max(
             1.0, float(self.game.number_of_levels)
         )
         raw_state = new_state.raw.state
-        board_changed = previous_grid != _grid_from_state(new_state)
+        new_grid = _grid_from_state(new_state)
+        board_changed = previous_grid != new_grid
+        gameplay_changed = _interior_gameplay_changed(previous_grid, new_grid)
+        no_op = gameplay_changed is False
+        animation_summary = None
+        if ANIMATION_ENABLED and action.id.name != "RESET":
+            # The auto-reset after a death runs through here too. Letting it
+            # touch the record would clear the fatal action's animation before
+            # the model ever reads it - and a death is the case where those
+            # frames matter most, since the board it now sees is the restarted
+            # level and the death exists nowhere else.
+            chain = _animation_chain(previous_grid, new_state)
+            animation_summary = summarize_animation(chain)
+            # ONE record, replaced by every executed action - animated or not.
+            # A no-op that animated is the case this exists for, and the guards
+            # refuse the NEXT action without executing it, so the record still
+            # describes the animated one when the model reads the opener.
+            self.animation_record = (
+                {
+                    "action_display": action_display,
+                    "chain": chain,
+                    "summary": animation_summary,
+                    "step": self.action_count,
+                    "level": _level_number(self.game),
+                }
+                if animation_summary
+                else None
+            )
         level_completed = bool(
             new_state.just_won_level and raw_state != arcengine.GameState.WIN
         )
@@ -713,6 +1304,8 @@ class _HarnessGameSession:
             "state": raw_state.name,
             "valid_actions": to_model_actions(_engine_action_names(self.game)),
             "board_changed": board_changed,
+            "gameplay_changed": gameplay_changed,
+            "no_op": no_op,
             "done": raw_state == arcengine.GameState.WIN,
             "level_completed": level_completed,
             "game_over": raw_state == arcengine.GameState.GAME_OVER,
@@ -728,6 +1321,25 @@ class _HarnessGameSession:
             "batch_size": batch_size,
             **self.timing_payload(),
         }
+        if animation_summary:
+            payload["animation"] = animation_summary
+            # the raw chain, for rendering an image in the opener. Dropped by
+            # _compact_action_result, so it never reaches the model as text.
+            payload["animation_chain"] = chain
+        # Store the individual action before step_env folds results into a batch.
+        # Keep only compact metadata, without grids, animation chains, or clocks.
+        payload["automatic"] = automatic
+        result_keys = (
+            "executed", "action_num", "level", "score", "state", "valid_actions",
+            "board_changed", "gameplay_changed", "no_op", "done", "level_completed",
+            "game_over", "run_complete", "action_name", "action_data", "action_display",
+            "animation", "automatic",
+        )
+        individual_result = copy.deepcopy({k: payload[k] for k in result_keys if k in payload})
+        self.history_entries.append(
+            HistoryEntry(action=action_display, frame=current_frame, result=individual_result)
+        )
+        self.write_runtime_state()
         self._append_action_viewer_event(payload, current_frame)
         if flush_viewer_payload:
             self.write_viewer_payload()
@@ -743,6 +1355,12 @@ class HarnessSolver(Solver):
     analyzer_timeout: float | None = 120.0
     max_actions_per_game: int | None = None
     max_runtime_s_per_game: float | None = None
+    # Generated tokens a game may spend before it gives up, counted from the
+    # analyzer's own accumulator so it measures what the model produced rather
+    # than what was billed. A wall-clock limit means something different on
+    # every backend - and on a hosted API it moves hour to hour - so this is
+    # what makes an offline run comparable with a Kaggle one. None disables.
+    max_generated_tokens_per_game: int | None = None
     concurrency: int = 16
     save_request_logs: bool = False
     start_local_server: bool = False
@@ -816,6 +1434,7 @@ class HarnessSolver(Solver):
         state.pop("_local_servers", None)
         state.pop("_local_server_original_env", None)
         state.pop("_worker_pool", None)
+        state.pop("_warmup_lock", None)
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -829,6 +1448,7 @@ class HarnessSolver(Solver):
         self._local_servers = []
         self._local_server_original_env = {}
         self._worker_pool = None
+        self._warmup_lock = threading.Lock()
 
     def __deepcopy__(self, memo: dict[int, Any]) -> "HarnessSolver":
         cls = type(self)
@@ -845,6 +1465,8 @@ class HarnessSolver(Solver):
                 object.__setattr__(new, key, {})
             elif key == "_worker_pool":
                 object.__setattr__(new, key, None)
+            elif key == "_warmup_lock":
+                object.__setattr__(new, key, threading.Lock())
             else:
                 object.__setattr__(new, key, copy.deepcopy(value, memo))
         return new
@@ -879,6 +1501,12 @@ class HarnessSolver(Solver):
         )
 
     def _setup(self) -> None:
+        # Created here rather than in __init__ because the notebook unpickles a
+        # solver whose __dict__ predates these attributes, and __setstate__
+        # applies no dataclass defaults. _setup runs after unpickling, so the
+        # attributes always exist by the time a game asks for a slot.
+        self._warmup_remaining = WARMUP_ACTION_GAMES
+        self._warmup_lock = threading.Lock()
         if self.start_local_server:
             self._start_local_servers()
         self._worker_pool = ThreadPoolExecutor(
@@ -1178,6 +1806,23 @@ class HarnessSolver(Solver):
             return None
         return self._local_servers[int(game_index) % len(self._local_servers)]
 
+    def _claim_warmup_slot(self) -> bool:
+        """Whether this game should spend one action before the analyzer is up.
+
+        Claimed by whichever runners start first rather than by index: task
+        creation order and semaphore fairness both happen to give indices 0..N,
+        but neither is guaranteed by the API, and the cost of being wrong is a
+        game that never fires the action the deadline depends on.
+        """
+        lock = getattr(self, "_warmup_lock", None)
+        if lock is None:
+            return False
+        with lock:
+            if getattr(self, "_warmup_remaining", 0) <= 0:
+                return False
+            self._warmup_remaining -= 1
+            return True
+
     def _make_analyzer(
         self,
         game: taaf.game.Game,
@@ -1190,6 +1835,9 @@ class HarnessSolver(Solver):
             model=self.model,
             timeout=self.analyzer_timeout,
             save_request_logs=self.save_request_logs,
+            # queue position, so the untrimmed priority band has a deterministic
+            # order instead of every game tying at the same value
+            dispatch_index=index,
             api_key=(
                 local_server.api_key
                 if local_server is not None

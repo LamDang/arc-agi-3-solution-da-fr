@@ -62,15 +62,59 @@ def _corner_points(contour):
     return corners
 
 
-def _object_hash(cells, color):
-    """Translation-invariant signature of an object: its color plus its cell shape,
-    normalized so the top-left of its bounding box is the origin. Same shape + color
-    => same hash regardless of position, so objects can be matched across frames."""
+def _normalize_cells(cells):
     min_r = min(r for r, _ in cells)
     min_c = min(c for _, c in cells)
-    norm = sorted((r - min_r, c - min_c) for r, c in cells)
-    payload = repr((color, norm)).encode()
+    return sorted((r - min_r, c - min_c) for r, c in cells)
+
+
+def _rotate_cells_90(norm_cells):
+    """Rotate a normalized cell set 90 degrees clockwise; returns normalized."""
+    max_r = max(r for r, _ in norm_cells)
+    return sorted((c, max_r - r) for r, c in norm_cells)
+
+
+def _cells_hash(norm_cells, color):
+    payload = repr((color, norm_cells)).encode()
     return hashlib.sha1(payload).hexdigest()[:16]
+
+
+def _object_signature(cells, color):
+    """Rotation-canonical identity of an object.
+
+    Hashes the shape in all four 90-degree rotations (extend the transform list
+    with reflections for full D4 canonicalization later) and takes the lowest
+    hash as the canonical id. Returns (canonical_hash, rotation, symmetry,
+    pose_hash) where:
+      - canonical_hash: identical for all rotated copies of the same shape+color.
+      - rotation: degrees CLOCKWISE to rotate the canonical form to obtain the
+        observed object. None for 4-fold symmetric shapes (all rotations equal);
+        reduced mod 180 (i.e. 0 or 90) for 2-fold symmetric shapes.
+      - symmetry: rotational symmetry order (1, 2, or 4).
+      - pose_hash: the classic rotation-SENSITIVE hash of the observed pose.
+    """
+    norm = _normalize_cells(cells)
+    variants = [norm]
+    for _ in range(3):
+        variants.append(_rotate_cells_90(variants[-1]))
+    hashes = [_cells_hash(v, color) for v in variants]
+    # The reference orientation is picked from the COLOUR-FREE hash. Choosing it
+    # from the colour-bearing one made the argmin depend on the colour, so the
+    # same shape in the same orientation reported a different rotation for a red
+    # object than for a blue one - and a model comparing rotations across
+    # objects was reading noise.
+    shape_hashes = [_cells_hash(v, "__shape__") for v in variants]
+    k = shape_hashes.index(min(shape_hashes))
+    canonical = hashes[k]
+    distinct = len(set(shape_hashes))
+    symmetry = {1: 4, 2: 2, 4: 1}.get(distinct, 1)
+    rotation = ((4 - k) % 4) * 90  # so observed = canonical rotated this much CW
+    if symmetry == 4:
+        rotation = None
+    elif symmetry == 2:
+        rotation = rotation % 180
+    shape_hash = _cells_hash(norm, "__shape__")
+    return canonical, rotation, symmetry, hashes[0], shape_hash
 
 
 def segment_layer(layer, color_chars):
@@ -189,11 +233,16 @@ def segment_layer(layer, color_chars):
         comp = components[cid]
         color = color_chars[max(0, min(15, comp["value"]))]
         boundary = _corner_points(_trace_outer_contour(comp["cells"], comp["start"]))
+        signature = _object_signature(comp["cells"], color)
         nodes.append(
             {
                 "id": cid,
                 "color": color,
-                "hash": _object_hash(comp["cells"], color),
+                "hash": signature[0],
+                "rotation": signature[1],
+                "rotational_symmetry": signature[2],
+                "pose_hash": signature[3],
+                "shape_hash": signature[4],
                 "pixels": len(comp["cells"]),
                 "boundary": [[r, c] for r, c in boundary],
                 "children": children[cid],

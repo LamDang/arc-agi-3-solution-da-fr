@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,7 @@ class Frame:
 class HistoryEntry:
     action: str
     frame: Frame
+    result: dict[str, Any] = field(default_factory=dict)
 
 
 def normalize_grid(raw: Any) -> tuple[tuple[int, ...], ...]:
@@ -95,13 +96,17 @@ def history_entry_from_payload(payload: Any) -> HistoryEntry | None:
     frame = frame_from_payload(payload.get("frame"))
     if frame is None:
         return None
-    return HistoryEntry(action=str(payload.get("action", "")).strip(), frame=frame)
+    return HistoryEntry(
+        action=str(payload.get("action", "")).strip(), frame=frame,
+        result=dict(payload["result"]) if isinstance(payload.get("result"), dict) else {},
+    )
 
 
 def history_entry_to_payload(entry: HistoryEntry) -> dict[str, Any]:
     return {
         "action": entry.action,
         "frame": frame_to_payload(entry.frame),
+        "result": dict(getattr(entry, "result", {}) or {}),
     }
 
 
