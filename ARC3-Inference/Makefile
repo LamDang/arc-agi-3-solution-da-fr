@@ -40,36 +40,85 @@ TORCHINDUCTOR_FX_GRAPH_CACHE_DIR ?= $(SERVER_CACHE_ROOT)/torchinductor_fx_graph
 TRITON_CACHE_DIR ?= $(SERVER_CACHE_ROOT)/triton
 XDG_CACHE_HOME ?= $(SERVER_CACHE_ROOT)/xdg
 
-GAME ?= $(shell $(CONFIG_VALUE) environment.games ls20-cb3b57cc)
-DATASET ?= $(shell $(CONFIG_VALUE) environment.dataset)
-GAME_TAGS ?= $(shell $(CONFIG_VALUE) environment.include_tags)
-EXCLUDE_GAME_TAGS ?= $(shell $(CONFIG_VALUE) environment.exclude_tags)
-ENVIRONMENTS_DIR ?= $(shell $(CONFIG_VALUE) environment.environments_dir)
-MAX_ACTIONS ?= $(shell $(CONFIG_VALUE) environment.max_steps)
-MAX_RUNTIME_MINUTES ?= $(shell $(CONFIG_VALUE) environment.max_runtime_minutes)
-MAX_EXPERIMENT_RUNTIME_HOURS ?= $(shell $(CONFIG_VALUE) environment.max_experiment_runtime_hours)
-MAX_EXPERIMENT_RUNTIME_MINUTES ?= $(shell $(CONFIG_VALUE) environment.max_experiment_runtime_minutes)
+ifeq ($(origin GAME),undefined)
+GAME := $(shell $(CONFIG_VALUE) environment.games ls20-cb3b57cc)
+endif
+ifeq ($(origin DATASET),undefined)
+DATASET := $(shell $(CONFIG_VALUE) environment.dataset)
+endif
+ifeq ($(origin GAME_TAGS),undefined)
+GAME_TAGS := $(shell $(CONFIG_VALUE) environment.include_tags)
+endif
+ifeq ($(origin EXCLUDE_GAME_TAGS),undefined)
+EXCLUDE_GAME_TAGS := $(shell $(CONFIG_VALUE) environment.exclude_tags)
+endif
+ifeq ($(origin ENVIRONMENTS_DIR),undefined)
+ENVIRONMENTS_DIR := $(shell $(CONFIG_VALUE) environment.environments_dir)
+endif
+ifeq ($(origin MAX_ACTIONS),undefined)
+MAX_ACTIONS := $(shell $(CONFIG_VALUE) environment.max_steps)
+endif
+ifeq ($(origin MAX_RUNTIME_MINUTES),undefined)
+MAX_RUNTIME_MINUTES := $(shell $(CONFIG_VALUE) environment.max_runtime_minutes)
+endif
+ifeq ($(origin MAX_GENERATED_TOKENS_PER_GAME),undefined)
+MAX_GENERATED_TOKENS_PER_GAME := $(shell $(CONFIG_VALUE) environment.max_generated_tokens_per_game)
+endif
+ifeq ($(origin MAX_EXPERIMENT_RUNTIME_HOURS),undefined)
+MAX_EXPERIMENT_RUNTIME_HOURS := $(shell $(CONFIG_VALUE) environment.max_experiment_runtime_hours)
+endif
+ifeq ($(origin MAX_EXPERIMENT_RUNTIME_MINUTES),undefined)
+MAX_EXPERIMENT_RUNTIME_MINUTES := $(shell $(CONFIG_VALUE) environment.max_experiment_runtime_minutes)
+endif
 MAX_EXPERIMENT_RUNTIME_ARGS = $(if $(strip $(MAX_EXPERIMENT_RUNTIME_MINUTES)),--max-experiment-runtime-minutes $(MAX_EXPERIMENT_RUNTIME_MINUTES),$(if $(strip $(MAX_EXPERIMENT_RUNTIME_HOURS)),--max-experiment-runtime-hours $(MAX_EXPERIMENT_RUNTIME_HOURS),))
-EXPERIMENTS_DIR ?= $(shell $(CONFIG_VALUE) experiments.root_dir)
+ifeq ($(origin EXPERIMENTS_DIR),undefined)
+EXPERIMENTS_DIR := $(shell $(CONFIG_VALUE) experiments.root_dir)
+endif
 EXPERIMENT_DIR ?=
-N_PASSES ?= $(shell $(CONFIG_VALUE) environment.n_passes 1)
-CONCURRENT_JOBS ?= $(shell $(CONFIG_VALUE) environment.concurrent_jobs 1)
+ifeq ($(origin N_PASSES),undefined)
+N_PASSES := $(shell $(CONFIG_VALUE) environment.n_passes 1)
+endif
+ifeq ($(origin CONCURRENT_JOBS),undefined)
+CONCURRENT_JOBS := $(shell $(CONFIG_VALUE) environment.concurrent_jobs 1)
+endif
 SIMULATE_COMPETITION_ARCADE ?= false
 COMPETITION_CLONE_RUNS ?=
-MODEL ?= $(shell $(CONFIG_VALUE) analyzer.model_id $(SHARED_MODEL_NAME))
+ifeq ($(origin MODEL),undefined)
+MODEL := $(shell $(CONFIG_VALUE) analyzer.model_id $(shell $(CONFIG_VALUE) shared.model_name))
+endif
 AGENT ?= inference
 RUN_NAME ?=
 
-DEPLOYMENT_TARGET ?= $(shell $(CONFIG_VALUE) deployment.target inline)
-DEPLOYMENT_WAIT ?= $(shell $(CONFIG_VALUE) deployment.wait false)
-DEPLOYMENT_SOURCE_REPOS ?= $(shell $(CONFIG_VALUE) deployment.source_repos [])
-DEPLOYMENT_SLURM_GPU ?= $(shell $(CONFIG_VALUE) deployment.slurm.gpu B200)
-DEPLOYMENT_SLURM_GPU_COUNT ?= $(shell $(CONFIG_VALUE) deployment.slurm.gpu_count 1)
-DEPLOYMENT_SLURM_TIME ?= $(shell $(CONFIG_VALUE) deployment.slurm.time 06:00:00)
-DEPLOYMENT_SLURM_IMAGE ?= $(shell $(CONFIG_VALUE) deployment.slurm.image)
-DEPLOYMENT_SLURM_PARTITION ?= $(shell $(CONFIG_VALUE) deployment.slurm.partition)
-DEPLOYMENT_SLURM_NODELIST ?= $(shell $(CONFIG_VALUE) deployment.slurm.nodelist)
-DEPLOYMENT_SLURM_EXTRA_SBATCH_FLAGS ?= $(shell $(CONFIG_VALUE) deployment.slurm.extra_sbatch_flags [])
+ifeq ($(origin DEPLOYMENT_TARGET),undefined)
+DEPLOYMENT_TARGET := $(shell $(CONFIG_VALUE) deployment.target inline)
+endif
+ifeq ($(origin DEPLOYMENT_WAIT),undefined)
+DEPLOYMENT_WAIT := $(shell $(CONFIG_VALUE) deployment.wait false)
+endif
+ifeq ($(origin DEPLOYMENT_SOURCE_REPOS),undefined)
+DEPLOYMENT_SOURCE_REPOS := $(shell $(CONFIG_VALUE) deployment.source_repos [])
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_GPU),undefined)
+DEPLOYMENT_SLURM_GPU := $(shell $(CONFIG_VALUE) deployment.slurm.gpu B200)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_GPU_COUNT),undefined)
+DEPLOYMENT_SLURM_GPU_COUNT := $(shell $(CONFIG_VALUE) deployment.slurm.gpu_count 1)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_TIME),undefined)
+DEPLOYMENT_SLURM_TIME := $(shell $(CONFIG_VALUE) deployment.slurm.time 06:00:00)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_IMAGE),undefined)
+DEPLOYMENT_SLURM_IMAGE := $(shell $(CONFIG_VALUE) deployment.slurm.image)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_PARTITION),undefined)
+DEPLOYMENT_SLURM_PARTITION := $(shell $(CONFIG_VALUE) deployment.slurm.partition)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_NODELIST),undefined)
+DEPLOYMENT_SLURM_NODELIST := $(shell $(CONFIG_VALUE) deployment.slurm.nodelist)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_EXTRA_SBATCH_FLAGS),undefined)
+DEPLOYMENT_SLURM_EXTRA_SBATCH_FLAGS := $(shell $(CONFIG_VALUE) deployment.slurm.extra_sbatch_flags [])
+endif
 KAGGLE_DUCK_PUBLIC_HARNESS ?= false
 KAGGLE_MAKE_SHARE_VERSION ?= false
 KAGGLE_USERNAME ?=
@@ -85,10 +134,16 @@ KAGGLE_RUN_AS_SUBMISSION ?= false
 KAGGLE_DRY_RUN ?= false
 KAGGLE_DATASET_VERSION_MESSAGE ?=
 
-SERVER_BACKEND ?= $(shell $(CONFIG_VALUE) server.backend vllm)
-SERVER_HOST ?= $(shell $(CONFIG_VALUE) server.host 127.0.0.1)
+ifeq ($(origin SERVER_BACKEND),undefined)
+SERVER_BACKEND := $(shell $(CONFIG_VALUE) server.backend vllm)
+endif
+ifeq ($(origin SERVER_HOST),undefined)
+SERVER_HOST := $(shell $(CONFIG_VALUE) server.host 127.0.0.1)
+endif
 SERVER_PORT_ORIGIN := $(origin SERVER_PORT)
-SERVER_PORT ?= $(shell $(CONFIG_VALUE) server.port 1234)
+ifeq ($(origin SERVER_PORT),undefined)
+SERVER_PORT := $(shell $(CONFIG_VALUE) server.port 1234)
+endif
 ARC3_SERVER_PORT_EXPLICIT ?= $(if $(filter environment command line file override,$(SERVER_PORT_ORIGIN)),true,false)
 SERVER_START_TIMEOUT ?= 900
 SERVER_STATUS_EVERY ?= 10
@@ -96,26 +151,64 @@ SERVER_LOG_TAIL_LINES ?= 80
 SERVER_TAIL_ON_WAIT ?= false
 SERVER_HEALTH_URL ?= http://127.0.0.1:$(SERVER_PORT)/v1/models
 
-SHARED_MODEL_NAME ?= $(shell $(CONFIG_VALUE) shared.model_name)
-SHARED_BASE_URL ?= $(shell $(CONFIG_VALUE) shared.base_url http://127.0.0.1:$(SERVER_PORT)/v1)
-SHARED_PROVIDER ?= $(shell $(CONFIG_VALUE) shared.provider vllm)
-SHARED_CONTEXT_WINDOW ?= $(shell $(CONFIG_VALUE) shared.context_window 65536)
+ifeq ($(origin SHARED_MODEL_NAME),undefined)
+SHARED_MODEL_NAME := $(shell $(CONFIG_VALUE) shared.model_name)
+endif
+ifeq ($(origin SHARED_BASE_URL),undefined)
+SHARED_BASE_URL := $(shell $(CONFIG_VALUE) shared.base_url http://127.0.0.1:$(SERVER_PORT)/v1)
+endif
+ifeq ($(origin SHARED_PROVIDER),undefined)
+SHARED_PROVIDER := $(shell $(CONFIG_VALUE) shared.provider vllm)
+endif
+ifeq ($(origin SHARED_CONTEXT_WINDOW),undefined)
+SHARED_CONTEXT_WINDOW := $(shell $(CONFIG_VALUE) shared.context_window 65536)
+endif
 
-SERVER_SHARED_MODEL_NAME ?= $(shell $(CONFIG_VALUE) shared.model_name)
-SERVER_SHARED_CONTEXT_WINDOW ?= $(shell $(CONFIG_VALUE) shared.context_window 65536)
-SERVER_MODEL ?= $(shell $(CONFIG_VALUE) server.model $(SERVER_SHARED_MODEL_NAME))
-SERVER_SERVED_MODEL_NAME ?= $(shell $(CONFIG_VALUE) server.served_model_name $(SERVER_SHARED_MODEL_NAME))
-SERVER_TENSOR_PARALLEL_SIZE ?= $(shell $(CONFIG_VALUE) server.tensor_parallel_size 1)
-SERVER_MAX_MODEL_LEN ?= $(shell $(CONFIG_VALUE) server.max_model_len $(SERVER_SHARED_CONTEXT_WINDOW))
-SERVER_DTYPE ?= $(shell $(CONFIG_VALUE) server.dtype)
-SERVER_GPU_MEMORY_UTILIZATION ?= $(shell $(CONFIG_VALUE) server.gpu_memory_utilization)
-SERVER_TRUST_REMOTE_CODE ?= $(shell $(CONFIG_VALUE) server.trust_remote_code false)
-SERVER_GENERATION_CONFIG ?= $(shell $(CONFIG_VALUE) server.generation_config vllm)
-SERVER_LANGUAGE_MODEL_ONLY ?= $(shell $(CONFIG_VALUE) server.language_model_only false)
-SERVER_ENABLE_PREFIX_CACHING ?= $(shell $(CONFIG_VALUE) server.enable_prefix_caching true)
-SERVER_DEFAULT_CHAT_TEMPLATE_KWARGS ?= $(shell $(CONFIG_VALUE) server.default_chat_template_kwargs)
-SERVER_TOOL_CALL_PARSER ?= $(shell $(CONFIG_VALUE) server.tool_call_parser qwen3_coder)
-SERVER_REASONING_PARSER ?= $(shell $(CONFIG_VALUE) server.reasoning_parser)
+ifeq ($(origin SERVER_SHARED_MODEL_NAME),undefined)
+SERVER_SHARED_MODEL_NAME := $(shell $(CONFIG_VALUE) shared.model_name)
+endif
+ifeq ($(origin SERVER_SHARED_CONTEXT_WINDOW),undefined)
+SERVER_SHARED_CONTEXT_WINDOW := $(shell $(CONFIG_VALUE) shared.context_window 65536)
+endif
+ifeq ($(origin SERVER_MODEL),undefined)
+SERVER_MODEL := $(shell $(CONFIG_VALUE) server.model $(SERVER_SHARED_MODEL_NAME))
+endif
+ifeq ($(origin SERVER_SERVED_MODEL_NAME),undefined)
+SERVER_SERVED_MODEL_NAME := $(shell $(CONFIG_VALUE) server.served_model_name $(SERVER_SHARED_MODEL_NAME))
+endif
+ifeq ($(origin SERVER_TENSOR_PARALLEL_SIZE),undefined)
+SERVER_TENSOR_PARALLEL_SIZE := $(shell $(CONFIG_VALUE) server.tensor_parallel_size 1)
+endif
+ifeq ($(origin SERVER_MAX_MODEL_LEN),undefined)
+SERVER_MAX_MODEL_LEN := $(shell $(CONFIG_VALUE) server.max_model_len $(SERVER_SHARED_CONTEXT_WINDOW))
+endif
+ifeq ($(origin SERVER_DTYPE),undefined)
+SERVER_DTYPE := $(shell $(CONFIG_VALUE) server.dtype)
+endif
+ifeq ($(origin SERVER_GPU_MEMORY_UTILIZATION),undefined)
+SERVER_GPU_MEMORY_UTILIZATION := $(shell $(CONFIG_VALUE) server.gpu_memory_utilization)
+endif
+ifeq ($(origin SERVER_TRUST_REMOTE_CODE),undefined)
+SERVER_TRUST_REMOTE_CODE := $(shell $(CONFIG_VALUE) server.trust_remote_code false)
+endif
+ifeq ($(origin SERVER_GENERATION_CONFIG),undefined)
+SERVER_GENERATION_CONFIG := $(shell $(CONFIG_VALUE) server.generation_config vllm)
+endif
+ifeq ($(origin SERVER_LANGUAGE_MODEL_ONLY),undefined)
+SERVER_LANGUAGE_MODEL_ONLY := $(shell $(CONFIG_VALUE) server.language_model_only false)
+endif
+ifeq ($(origin SERVER_ENABLE_PREFIX_CACHING),undefined)
+SERVER_ENABLE_PREFIX_CACHING := $(shell $(CONFIG_VALUE) server.enable_prefix_caching true)
+endif
+ifeq ($(origin SERVER_DEFAULT_CHAT_TEMPLATE_KWARGS),undefined)
+SERVER_DEFAULT_CHAT_TEMPLATE_KWARGS := $(shell $(CONFIG_VALUE) server.default_chat_template_kwargs)
+endif
+ifeq ($(origin SERVER_TOOL_CALL_PARSER),undefined)
+SERVER_TOOL_CALL_PARSER := $(shell $(CONFIG_VALUE) server.tool_call_parser qwen3_coder)
+endif
+ifeq ($(origin SERVER_REASONING_PARSER),undefined)
+SERVER_REASONING_PARSER := $(shell $(CONFIG_VALUE) server.reasoning_parser)
+endif
 SERVER_ENABLE_LORA ?= false
 SERVER_MAX_LORAS ?= 1
 SERVER_MAX_LORA_RANK ?= 16
@@ -133,38 +226,94 @@ SERVER_VENV_VLLM ?= $(dir $(SERVER_VENV_PYTHON))vllm
 SERVER_VENV_BIN ?= $(patsubst %/,%,$(dir $(SERVER_VENV_PYTHON)))
 SERVER_LOAD_LORA_URL ?= http://127.0.0.1:$(SERVER_PORT)/v1/load_lora_adapter
 
-LOCAL_ANALYZER_BASE_URL ?= $(shell $(CONFIG_VALUE) analyzer.base_url $(SHARED_BASE_URL))
-LOCAL_ANALYZER_PROVIDER ?= $(shell $(CONFIG_VALUE) analyzer.provider $(SHARED_PROVIDER))
-LOCAL_ANALYZER_MODEL_ID ?= $(shell $(CONFIG_VALUE) analyzer.model_id $(SERVER_SERVED_MODEL_NAME))
-LOCAL_ANALYZER_CONTEXT_WINDOW ?= $(shell $(CONFIG_VALUE) analyzer.context_window $(SHARED_CONTEXT_WINDOW))
-LOCAL_ANALYZER_MAX_OUTPUT ?= $(shell $(CONFIG_VALUE) analyzer.max_output 0)
-LOCAL_ANALYZER_TIMEOUT ?= $(shell $(CONFIG_VALUE) analyzer.timeout 120)
-LOCAL_ANALYZER_TEMPERATURE ?= $(shell $(CONFIG_VALUE) analyzer.temperature 0.6)
-LOCAL_ANALYZER_TOP_P ?= $(shell $(CONFIG_VALUE) analyzer.top_p 0.95)
-LOCAL_ANALYZER_TOP_K ?= $(shell $(CONFIG_VALUE) analyzer.top_k 20)
-LOCAL_ANALYZER_TOOL_STEPS ?= $(shell $(CONFIG_VALUE) analyzer.tool_steps 0)
-LOCAL_ANALYZER_TOOL_TIMEOUT ?= $(shell $(CONFIG_VALUE) analyzer.tool_timeout 30)
-LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS ?= $(shell $(CONFIG_VALUE) analyzer.tool_output_tokens 1024)
-LOCAL_ANALYZER_YIELD_SECONDS ?= $(shell $(CONFIG_VALUE) analyzer.yield_seconds 60)
-LOCAL_ANALYZER_ENABLE_THINKING ?= $(shell $(CONFIG_VALUE) analyzer.thinking true)
-LOCAL_ANALYZER_SITE_URL ?= $(shell $(CONFIG_VALUE) analyzer.site_url)
-LOCAL_ANALYZER_APP_NAME ?= $(shell $(CONFIG_VALUE) analyzer.app_name ARC3 Agent Harness)
-ANALYZER_TIMEOUT ?= $(shell $(CONFIG_VALUE) analyzer.timeout 120)
-ANALYZER_SAVE_REQUEST_LOGS ?= $(shell $(CONFIG_VALUE) analyzer.save_request_logs false)
-DEPLOYMENT_SLURM_START_LOCAL_SERVER ?= $(shell $(CONFIG_VALUE) deployment.slurm.start_local_server $(if $(filter vllm,$(LOCAL_ANALYZER_PROVIDER)),true,false))
+ifeq ($(origin LOCAL_ANALYZER_BASE_URL),undefined)
+LOCAL_ANALYZER_BASE_URL := $(shell $(CONFIG_VALUE) analyzer.base_url $(SHARED_BASE_URL))
+endif
+ifeq ($(origin LOCAL_ANALYZER_PROVIDER),undefined)
+LOCAL_ANALYZER_PROVIDER := $(shell $(CONFIG_VALUE) analyzer.provider $(SHARED_PROVIDER))
+endif
+ifeq ($(origin LOCAL_ANALYZER_MODEL_ID),undefined)
+LOCAL_ANALYZER_MODEL_ID := $(shell $(CONFIG_VALUE) analyzer.model_id $(SERVER_SERVED_MODEL_NAME))
+endif
+ifeq ($(origin LOCAL_ANALYZER_CONTEXT_WINDOW),undefined)
+LOCAL_ANALYZER_CONTEXT_WINDOW := $(shell $(CONFIG_VALUE) analyzer.context_window $(SHARED_CONTEXT_WINDOW))
+endif
+ifeq ($(origin LOCAL_ANALYZER_MAX_OUTPUT),undefined)
+LOCAL_ANALYZER_MAX_OUTPUT := $(shell $(CONFIG_VALUE) analyzer.max_output 0)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TIMEOUT),undefined)
+LOCAL_ANALYZER_TIMEOUT := $(shell $(CONFIG_VALUE) analyzer.timeout 120)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TEMPERATURE),undefined)
+LOCAL_ANALYZER_TEMPERATURE := $(shell $(CONFIG_VALUE) analyzer.temperature 0.6)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TOP_P),undefined)
+LOCAL_ANALYZER_TOP_P := $(shell $(CONFIG_VALUE) analyzer.top_p 0.95)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TOP_K),undefined)
+LOCAL_ANALYZER_TOP_K := $(shell $(CONFIG_VALUE) analyzer.top_k 20)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TOOL_STEPS),undefined)
+LOCAL_ANALYZER_TOOL_STEPS := $(shell $(CONFIG_VALUE) analyzer.tool_steps 0)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TOOL_TIMEOUT),undefined)
+LOCAL_ANALYZER_TOOL_TIMEOUT := $(shell $(CONFIG_VALUE) analyzer.tool_timeout 30)
+endif
+ifeq ($(origin LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS),undefined)
+LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS := $(shell $(CONFIG_VALUE) analyzer.tool_output_tokens 1024)
+endif
+ifeq ($(origin LOCAL_ANALYZER_YIELD_SECONDS),undefined)
+LOCAL_ANALYZER_YIELD_SECONDS := $(shell $(CONFIG_VALUE) analyzer.yield_seconds 60)
+endif
+ifeq ($(origin LOCAL_ANALYZER_ENABLE_THINKING),undefined)
+LOCAL_ANALYZER_ENABLE_THINKING := $(shell $(CONFIG_VALUE) analyzer.thinking true)
+endif
+ifeq ($(origin LOCAL_ANALYZER_SITE_URL),undefined)
+LOCAL_ANALYZER_SITE_URL := $(shell $(CONFIG_VALUE) analyzer.site_url)
+endif
+ifeq ($(origin LOCAL_ANALYZER_APP_NAME),undefined)
+LOCAL_ANALYZER_APP_NAME := $(shell $(CONFIG_VALUE) analyzer.app_name ARC3 Agent Harness)
+endif
+ifeq ($(origin ANALYZER_TIMEOUT),undefined)
+ANALYZER_TIMEOUT := $(shell $(CONFIG_VALUE) analyzer.timeout 120)
+endif
+ifeq ($(origin ANALYZER_SAVE_REQUEST_LOGS),undefined)
+ANALYZER_SAVE_REQUEST_LOGS := $(shell $(CONFIG_VALUE) analyzer.save_request_logs false)
+endif
+ifeq ($(origin DEPLOYMENT_SLURM_START_LOCAL_SERVER),undefined)
+DEPLOYMENT_SLURM_START_LOCAL_SERVER := $(shell $(CONFIG_VALUE) deployment.slurm.start_local_server $(if $(filter vllm,$(LOCAL_ANALYZER_PROVIDER)),true,false))
+endif
 DEPLOYMENT_SLURM_LOCAL_SERVER_CONFIG ?= $(CONFIG_PATH)
 
-MULTIMODAL_CONTEXT ?= $(shell $(CONFIG_VALUE) multimodal.context)
-MULTIMODAL_UPSCALE ?= $(shell $(CONFIG_VALUE) multimodal.upscale 16)
+ifeq ($(origin MULTIMODAL_CONTEXT),undefined)
+MULTIMODAL_CONTEXT := $(shell $(CONFIG_VALUE) multimodal.context)
+endif
+ifeq ($(origin MULTIMODAL_UPSCALE),undefined)
+MULTIMODAL_UPSCALE := $(shell $(CONFIG_VALUE) multimodal.upscale 16)
+endif
 
-CHAT_BASE_URL ?= $(shell $(CONFIG_VALUE) chat.base_url $(LOCAL_ANALYZER_BASE_URL))
-CHAT_PROVIDER ?= $(shell $(CONFIG_VALUE) chat.provider $(LOCAL_ANALYZER_PROVIDER))
+ifeq ($(origin CHAT_BASE_URL),undefined)
+CHAT_BASE_URL := $(shell $(CONFIG_VALUE) chat.base_url $(LOCAL_ANALYZER_BASE_URL))
+endif
+ifeq ($(origin CHAT_PROVIDER),undefined)
+CHAT_PROVIDER := $(shell $(CONFIG_VALUE) chat.provider $(LOCAL_ANALYZER_PROVIDER))
+endif
 CHAT_MODEL ?= auto
-CHAT_MAX_TOKENS ?= $(shell $(CONFIG_VALUE) chat.max_tokens 2048)
-CHAT_TEMPERATURE ?= $(shell $(CONFIG_VALUE) chat.temperature 0.7)
-CHAT_TOP_P ?= $(shell $(CONFIG_VALUE) chat.top_p 0.8)
-CHAT_TOP_K ?= $(shell $(CONFIG_VALUE) chat.top_k 20)
-CHAT_THINKING ?= $(shell $(CONFIG_VALUE) chat.thinking true)
+ifeq ($(origin CHAT_MAX_TOKENS),undefined)
+CHAT_MAX_TOKENS := $(shell $(CONFIG_VALUE) chat.max_tokens 2048)
+endif
+ifeq ($(origin CHAT_TEMPERATURE),undefined)
+CHAT_TEMPERATURE := $(shell $(CONFIG_VALUE) chat.temperature 0.7)
+endif
+ifeq ($(origin CHAT_TOP_P),undefined)
+CHAT_TOP_P := $(shell $(CONFIG_VALUE) chat.top_p 0.8)
+endif
+ifeq ($(origin CHAT_TOP_K),undefined)
+CHAT_TOP_K := $(shell $(CONFIG_VALUE) chat.top_k 20)
+endif
+ifeq ($(origin CHAT_THINKING),undefined)
+CHAT_THINKING := $(shell $(CONFIG_VALUE) chat.thinking true)
+endif
 CHAT_TIMEOUT ?= 600
 CHAT_SYSTEM ?=
 PROMPT ?=
@@ -181,7 +330,9 @@ BOOTSTRAP_SAMPLES ?=
 BOOTSTRAP_SEED ?=
 
 VIEW_HOST ?= 127.0.0.1
-VIEW_PORT ?= $(shell $(CONFIG_VALUE) viewer.port 8011)
+ifeq ($(origin VIEW_PORT),undefined)
+VIEW_PORT := $(shell $(CONFIG_VALUE) viewer.port 8011)
+endif
 VIEW_RUNS_DIR ?= $(RUNS_DIR)
 # Default to the bundled example-run at the repo root (this exposition ships one),
 # so a bare `make view` opens it. Falls back to VIEW_RUNS_DIR when absent.
@@ -435,6 +586,7 @@ _taaf-run:
 		$(if $(strip $(EXPERIMENT_DIR)),--experiment-dir '$(EXPERIMENT_DIR)',) \
 		$(if $(strip $(MAX_ACTIONS)),--max-actions $(MAX_ACTIONS),) \
 		$(if $(strip $(MAX_RUNTIME_MINUTES)),--max-runtime-minutes $(MAX_RUNTIME_MINUTES),) \
+		$(if $(strip $(MAX_GENERATED_TOKENS_PER_GAME)),--max-generated-tokens-per-game $(MAX_GENERATED_TOKENS_PER_GAME),) \
 		$(MAX_EXPERIMENT_RUNTIME_ARGS) \
 		--n-passes $(N_PASSES) \
 		--concurrent-jobs $(CONCURRENT_JOBS) \
