@@ -2,16 +2,11 @@
 
 ARC-AGI3 orchestration framework — Tufa Labs.
 
-The driver document for this repository is [`docs/requirements.md`](docs/requirements.md).
-
 ## Quick start
 
 ```bash
 make install-dev      # set up .venv + dev deps
-make prepare          # ruff format + lint + pyright + pytest
 ```
-
-See [`notebooks/demo_workflow.ipynb`](notebooks/demo_workflow.ipynb) for a happy-path tour of `Game`, `Solver`, and `Benchmark`.
 
 ## Kaggle Random Smoke
 
