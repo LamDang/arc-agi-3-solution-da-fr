@@ -73,7 +73,7 @@ _RUNTIME_VALUE_SYMBOLS = {
     "history.frame.shape",
     "history.frame.segmentation",
     "valid_actions",
-    "last_action_result",
+    "last_action_call_result",
 }
 _RUNTIME_CALL_SYMBOLS = {
     "action",
@@ -531,7 +531,16 @@ def _load_game_shell(run_dir: Path, path: Path) -> dict[str, Any]:
         compact_payload = _summary_payload_from_raw_events(payload)
 
     raw_events = _raw_event_dicts(payload, viewer_data_path=path)
-    step_summaries = _build_lightweight_viewer_steps(raw_events)
+    request_snapshots = _load_request_snapshots(
+        _resolve_request_log_path(
+            run_dir=_artifact_run_dir(path),
+            viewer_data_path=path,
+            game_id=str(payload.get("game_id") or "").strip(),
+        )
+    )
+    step_summaries = _build_lightweight_viewer_steps(
+        raw_events, request_snapshots=request_snapshots
+    )
     if not step_summaries and _is_compact_saved_game_payload(payload):
         step_summaries = [
             _lazy_step_summary_from_compact_step(step, index)
@@ -549,7 +558,16 @@ def _load_game_shell(run_dir: Path, path: Path) -> dict[str, Any]:
 def _load_game_step(run_dir: Path, path: Path, step_index: int) -> dict[str, Any]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     raw_events = _raw_event_dicts(payload, viewer_data_path=path)
-    step_summaries = _build_lightweight_viewer_steps(raw_events)
+    step_summaries = _build_lightweight_viewer_steps(
+        raw_events,
+        request_snapshots=_load_request_snapshots(
+            _resolve_request_log_path(
+                run_dir=_artifact_run_dir(path),
+                viewer_data_path=path,
+                game_id=str(payload.get("game_id") or "").strip(),
+            )
+        ),
+    )
     if not step_summaries and _is_compact_saved_game_payload(payload):
         steps = [step for step in payload.get("viewer_steps") or [] if isinstance(step, dict)]
         if step_index >= len(steps):
@@ -919,10 +937,17 @@ def _compact_context(context: dict[str, Any] | None) -> dict[str, Any] | None:
         }
         if raw_section.get("inContext") is False:
             section["inContext"] = False
+        turn_role = raw_section.get("turnRole")
+        if turn_role in ("current", "history"):
+            section["turnRole"] = turn_role
         sections.append(section)
     if not sections:
         return None
-    return {"sections": sections}
+    compact: dict[str, Any] = {"sections": sections}
+    usage = context.get("usage")
+    if isinstance(usage, dict) and usage:
+        compact["usage"] = usage
+    return compact
 
 
 def _compact_step_event(event: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -966,6 +991,14 @@ def _compact_viewer_step(step: dict[str, Any]) -> dict[str, Any]:
     for key in ("reward", "score", "state", "level"):
         if step.get(key) is not None:
             compact[key] = step.get(key)
+    if isinstance(step.get("usage"), dict):
+        # summary-level token badges: the frontend falls back to this when a
+        # step has not been expanded, so it must survive compaction
+        compact["usage"] = dict(step["usage"])
+    if step.get("worldModelUpdates"):
+        compact["worldModelUpdates"] = list(step["worldModelUpdates"])
+    if step.get("analysisStep") is not None:
+        compact["analysisStep"] = step.get("analysisStep")
     context = _compact_context(step.get("context"))
     if context is not None:
         compact["context"] = context
@@ -1027,6 +1060,8 @@ def _load_request_snapshots(path: Path | None) -> list[dict[str, Any]]:
                 "analysis_step": _normalize_positive_int(payload.get("analysis_step")),
                 "action": _normalize_positive_int(payload.get("action")),
                 "request_index_within_turn": _normalize_positive_int(payload.get("request_index_within_turn")),
+                "event": str(payload.get("event") or "").strip() or None,
+                "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else None,
             }
         )
     return snapshots
@@ -1081,6 +1116,42 @@ def _normalized_number(value: Any) -> int | float:
     except (TypeError, ValueError):
         return 0
     return int(parsed) if parsed.is_integer() else parsed
+
+
+_WORLD_MODEL_PREFIXES = (
+    "World model:",
+    "Goal model:",
+    "Action model:",
+    "Recent findings:",
+    "Open questions:",
+    "Plan:",
+    "Cross-level notes:",
+)
+
+
+def _world_model_updates_in_transcript(transcript: Any) -> list[str]:
+    """Names of memory sections the assistant updated in this transcript.
+
+    Scans ASSISTANT sections only: the USER PROMPT re-renders the carried
+    world model every turn and must not count as an update."""
+    text = str(transcript or "")
+    if not text:
+        return []
+    matches = list(_SECTION_RE.finditer(text))
+    updated: list[str] = []
+    for index, match in enumerate(matches):
+        if match.group(1).strip() != "ASSISTANT":
+            continue
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        for line in text[start:end].splitlines():
+            stripped = line.strip()
+            for prefix in _WORLD_MODEL_PREFIXES:
+                if stripped.startswith(prefix):
+                    name = prefix[:-1]
+                    if name not in updated:
+                        updated.append(name)
+    return updated
 
 
 def _normalize_analysis_step(value: Any) -> int | None:
@@ -1282,6 +1353,51 @@ def _transcript_sections_from_events(
     return sections
 
 
+def _analysis_step_usage(
+    request_snapshots: list[dict[str, Any]] | None,
+    analysis_step: int | None,
+) -> dict[str, Any] | None:
+    """Sum prompt/completion tokens over all response snapshots of one
+    analysis step. Prompt sums count each exchange's full prefill (real
+    compute, though shared prefixes may be cached server-side)."""
+    if not request_snapshots or analysis_step is None:
+        return None
+    prompt_total = completion_total = requests = 0
+    last_prompt = None
+    for snapshot in request_snapshots:
+        if snapshot.get("analysis_step") != analysis_step:
+            continue
+        raw = snapshot.get("usage")
+        if not isinstance(raw, dict):
+            continue
+
+        def _pick(*keys: str) -> int | None:
+            for key in keys:
+                value = raw.get(key)
+                if isinstance(value, (int, float)):
+                    return int(value)
+            return None
+
+        prompt = _pick("prompt_tokens", "input_tokens")
+        completion = _pick("completion_tokens", "output_tokens", "generated_tokens")
+        if prompt is None and completion is None:
+            continue
+        requests += 1
+        if prompt is not None:
+            prompt_total += prompt
+            last_prompt = prompt
+        if completion is not None:
+            completion_total += completion
+    if requests == 0:
+        return None
+    return {
+        "promptTokens": prompt_total,
+        "completionTokens": completion_total,
+        "requests": requests,
+        "lastPromptTokens": last_prompt,
+    }
+
+
 def _latest_request_snapshot(
     request_snapshots: list[dict[str, Any]],
     *,
@@ -1321,8 +1437,48 @@ def _section_signature(section: dict[str, Any]) -> tuple[str, str]:
     )
 
 
+def _signatures_match(a: tuple[str, str], b: tuple[str, str]) -> bool:
+    """Exact match, or prefix-equal USER PROMPT contents. Multimodal message
+    builders append image/frame headers to the prompt text inside content
+    parts (e.g. 'Current grid image:', 'Grid frames: ...'), so the request
+    snapshot's rendering of a user prompt is the transcript's rendering plus
+    a suffix; treat those as the same message so the dedup merge does not
+    show the current prompt twice. The length floor guards against
+    collapsing genuinely different short prompts."""
+    if a == b:
+        return True
+    label_a, content_a = a
+    label_b, content_b = b
+    if label_a != label_b or label_a != "USER PROMPT":
+        return False
+    if not content_a or not content_b:
+        return False
+    shorter, longer = sorted((content_a, content_b), key=len)
+    return len(shorter) >= 48 and longer.startswith(shorter)
+
+
 def _default_in_context_for_transcript_section(section: dict[str, Any]) -> bool:
     return str(section.get("label", "")).strip() != "THINKING"
+
+
+def _pending_transcript_context() -> dict[str, Any]:
+    """Context shown for a step whose analysis transcript has not been written
+    yet (the step is still in progress). Prevents the confusing fallback of
+    displaying the previous step's transcript on the current card."""
+    return {
+        "sections": [
+            {
+                "label": "TRANSCRIPT PENDING",
+                "content": (
+                    "This analysis step is still in progress - its transcript is "
+                    "written when the step finishes. Reload once the step "
+                    "completes to see the prompt, reasoning, and tool calls."
+                ),
+                "kind": "status",
+                "inContext": False,
+            }
+        ]
+    }
 
 
 def _extract_context(
@@ -1330,6 +1486,7 @@ def _extract_context(
     *,
     include_system_prompt: bool,
     request_snapshot: dict[str, Any] | None = None,
+    request_snapshots: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     if not analysis_events:
         return None
@@ -1349,7 +1506,7 @@ def _extract_context(
             signature = _section_signature(section)
             found_index = None
             for index in range(search_start, len(request_signatures)):
-                if request_signatures[index] == signature:
+                if _signatures_match(request_signatures[index], signature):
                     found_index = index
                     break
             if found_index is None:
@@ -1386,11 +1543,23 @@ def _extract_context(
 
     if not sections:
         return None
+    user_prompt_indices = [
+        index for index, section in enumerate(sections)
+        if section.get("label") == "USER PROMPT"
+    ]
+    if user_prompt_indices:
+        for index in user_prompt_indices[:-1]:
+            sections[index]["turnRole"] = "history"
+        sections[user_prompt_indices[-1]]["turnRole"] = "current"
     return {
         "sections": sections,
         "hasExactModelContext": bool(request_sections),
         "requestIndexWithinTurn": request_snapshot.get("request_index_within_turn") if request_snapshot else None,
         "messageCount": len(request_snapshot.get("messages", [])) if request_snapshot else 0,
+        "usage": _analysis_step_usage(
+            request_snapshots,
+            request_snapshot.get("analysis_step") if request_snapshot else None,
+        ),
     }
 
 
@@ -1475,7 +1644,12 @@ def _build_analysis_frame_step(
         request_snapshots,
         analysis_step=_normalize_analysis_step(group.get("analysis_step")),
     )
-    context_events = [analysis_event] if (request_snapshot is not None and analysis_event is not None) else prior_analysis_events
+    if analysis_event is None:
+        context_events: list[dict[str, Any]] = []
+    elif request_snapshot is not None:
+        context_events = [analysis_event]
+    else:
+        context_events = prior_analysis_events
 
     return _apply_action_summary(
         {
@@ -1483,19 +1657,31 @@ def _build_analysis_frame_step(
             "sourceEventIndex": group.get("source_event_index", 0),
             "event": summary_event,
             "boardEvent": board_event,
-            "context": _extract_context(
-                context_events,
-                include_system_prompt=include_system_prompt,
-                request_snapshot=request_snapshot,
+            "context": (
+                _extract_context(
+                    context_events,
+                    include_system_prompt=include_system_prompt,
+                    request_snapshot=request_snapshot,
+        request_snapshots=request_snapshots,
+                )
+                if analysis_event is not None
+                else _pending_transcript_context()
             ),
-            "localContext": _extract_context(
-                [analysis_event] if analysis_event is not None else [],
-                include_system_prompt=include_system_prompt,
+            "localContext": (
+                _extract_context(
+                    [analysis_event],
+                    include_system_prompt=include_system_prompt,
+                )
+                if analysis_event is not None
+                else _pending_transcript_context()
             ),
             "score": board_event.get("score") if board_event else None,
             "state": board_event.get("state") if board_event else None,
             "level": board_event.get("level") if board_event else None,
             "stepKind": "turn",
+            "worldModelUpdates": _world_model_updates_in_transcript(
+                (analysis_event or {}).get("transcript")
+            ),
         },
         action_summary,
     )
@@ -1568,6 +1754,9 @@ def _lightweight_analysis_step(
             "level": board_event.get("level") if board_event else None,
             "stepKind": "turn",
             "analysisStep": group.get("analysis_step"),
+            "worldModelUpdates": _world_model_updates_in_transcript(
+                (group.get("analysis_event") or {}).get("transcript")
+            ),
             "lazy": True,
             "detailLoaded": False,
         },
@@ -1633,7 +1822,17 @@ def _lightweight_standalone_action_step(
     }
 
 
-def _build_lightweight_viewer_steps(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_lightweight_viewer_steps(
+    events: list[dict[str, Any]],
+    *,
+    request_snapshots: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Step summaries for the initial (unexpanded) render.
+
+    Token usage is attached here rather than only on hydration: it comes from
+    the request log keyed by analysis step, needs none of the expensive
+    transcript work, and the badges are most useful when scanning a whole game
+    - which is exactly when no step has been clicked yet."""
     if not events:
         return []
 
@@ -1736,6 +1935,18 @@ def _build_lightweight_viewer_steps(events: list[dict[str, Any]]) -> list[dict[s
     )
     for index, step in enumerate(steps):
         step["stepIndex"] = index
+        if step.get("stepKind") in ("result", "action"):
+            # A "Latest State" or action step is a board display, not an
+            # analyzer exchange. It inherits analysisStep from the group it
+            # belongs to, so looking usage up by that key returned the numbers
+            # of the analysis step beside it - which read as the previous
+            # step's statistics copied onto the latest one.
+            continue
+        usage = _analysis_step_usage(
+            request_snapshots, _normalize_analysis_step(step.get("analysisStep"))
+        )
+        if usage:
+            step["usage"] = usage
 
     if steps:
         return steps
@@ -1773,20 +1984,56 @@ def _hydrate_lightweight_step(
 ) -> dict[str, Any]:
     step = dict(summary)
     step["detailLoaded"] = True
+    if summary.get("stepKind") == "result":
+        # "Latest State" card: shows the board after the last executed action.
+        # Its transcript belongs to the previous card; do not duplicate it here
+        # (matches the non-lazy builder, which sets context to None).
+        note = {
+            "sections": [
+                {
+                    "label": "LATEST BOARD STATE",
+                    "content": (
+                        "This card shows the board after the most recent executed "
+                        "action. The transcript for that step is on the previous card."
+                    ),
+                    "kind": "status",
+                    "inContext": False,
+                }
+            ]
+        }
+        step["context"] = note
+        step["localContext"] = note
+        return step
     analysis_step = _normalize_analysis_step(summary.get("analysisStep"))
     if analysis_step is None:
         return step
 
-    analysis_event = next(
-        (
-            event
-            for event in events
-            if event.get("type") == "analysis" and _normalize_analysis_step(event.get("analysis_step")) == analysis_step
-        ),
-        None,
-    )
-    if analysis_event is None:
+    analysis_events = [
+        event
+        for event in events
+        if event.get("type") == "analysis"
+        and _normalize_analysis_step(event.get("analysis_step")) == analysis_step
+    ]
+    if not analysis_events:
+        pending = _pending_transcript_context()
+        step["context"] = pending
+        step["localContext"] = pending
         return step
+    if len(analysis_events) == 1:
+        analysis_event = analysis_events[0]
+    else:
+        # The step was retried (e.g. after a request failure): every attempt
+        # wrote its own analysis event. Merge them so no attempt's transcript
+        # (and in particular no executed tool call) is hidden.
+        analysis_event = dict(analysis_events[-1])
+        merged_parts = []
+        for attempt_number, attempt_event in enumerate(analysis_events, 1):
+            merged_parts.append(
+                f"===== ATTEMPT {attempt_number} of {len(analysis_events)} "
+                "(this analysis step was retried) =====\n"
+                + str(attempt_event.get("transcript") or "")
+            )
+        analysis_event["transcript"] = "\n\n".join(merged_parts)
 
     normalized_event = _normalize_event(analysis_event)
     request_snapshot = _latest_request_snapshot(request_snapshots, analysis_step=analysis_step)
@@ -1794,10 +2041,23 @@ def _hydrate_lightweight_step(
         [normalized_event],
         include_system_prompt=step_index == 0,
         request_snapshot=request_snapshot,
+        request_snapshots=request_snapshots,
+    )
+    # Mirror the eager builder: `context` is the exact model window (full
+    # history as the request saw it, plus usage); `localContext` is this
+    # turn's own transcript only - the view the step card renders by
+    # default. Assigning the window to both (the old behavior) made every
+    # hydrated card open with the full conversation history on top.
+    local_context = _extract_context(
+        [normalized_event],  # normalize PARSES transcript into sections
+        include_system_prompt=step_index == 0,
     )
     if context is not None:
-        step["localContext"] = context
         step["context"] = context
+    if local_context is not None:
+        step["localContext"] = local_context
+    elif context is not None:
+        step["localContext"] = context
     return step
 
 

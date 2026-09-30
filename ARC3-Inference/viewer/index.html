@@ -1113,6 +1113,18 @@
       if (step.actionDisplay) {
         metaBits.push(step.actionDisplay);
       }
+      if (Array.isArray(step.worldModelUpdates) && step.worldModelUpdates.length) {
+        metaBits.push(`WM updated: ${step.worldModelUpdates.join(", ")}`);
+      }
+      const stepUsage = step.context?.usage || step.usage;
+      if (stepUsage && (stepUsage.promptTokens != null || stepUsage.completionTokens != null)) {
+        const fmtTok = (n) => (n == null ? "?" : n.toLocaleString());
+        let usageBit = `tokens: prefill ${fmtTok(stepUsage.promptTokens)} · gen ${fmtTok(stepUsage.completionTokens)}`;
+        if (stepUsage.requests > 1) {
+          usageBit += ` (${stepUsage.requests} reqs, last prefill ${fmtTok(stepUsage.lastPromptTokens)})`;
+        }
+        metaBits.push(usageBit);
+      }
       const meta = metaBits.length
         ? `<div class="event-meta">${escapeHtml(metaBits.join(" · "))}</div>`
         : "";
@@ -1169,7 +1181,7 @@
         return `
           <details class="section-card ${escapeHtml(section.kind)} ${inContext ? "" : "not-in-context"}">
             <summary class="section-label section-summary">
-              <span>${escapeHtml(section.label)}</span>
+              <span>${escapeHtml(section.label)}${renderTurnBadge(section)}</span>
               ${stateLabel}
             </summary>
             ${changeNote}
@@ -1181,7 +1193,7 @@
       return `
         <div class="section-card ${escapeHtml(section.kind)} ${inContext ? "" : "not-in-context"}">
           <div class="section-label">
-            <span>${escapeHtml(section.label)}</span>
+            <span>${escapeHtml(section.label)}${renderTurnBadge(section)}</span>
             ${stateLabel}
           </div>
           ${changeNote}
@@ -1743,6 +1755,15 @@
       return num.toFixed(2);
     }
 
+    function renderTurnBadge(section) {
+      if (section?.turnRole === "current") {
+        return ' <span style="font-weight:600;opacity:0.95"> — CURRENT TURN</span>';
+      }
+      if (section?.turnRole === "history") {
+        return ' <span style="font-weight:400;opacity:0.55"> — earlier turn</span>';
+      }
+      return "";
+    }
     function escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
