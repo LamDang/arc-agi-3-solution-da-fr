@@ -6,8 +6,10 @@
 Reads each game run's request log (needs ANALYZER_SAVE_REQUEST_LOGS=true). For
 every model response it takes the provider's usage (prompt, cached, completion
 and reasoning tokens, cost) and the response itself: the reasoning text and the
-tool calls, which the next request carries as an assistant message. Thinking
-tokens are `reasoning_tokens`; tool-call tokens are the rest of the completion.
+tool calls, which the next request carries as an assistant message. The few
+responses no later request carries take their reasoning from the transcript.
+Thinking tokens are `reasoning_tokens`; tool-call tokens are the rest of the
+completion.
 
 A tool call "reads code" when its code uses game_code_files, game_code() or
 read_game_code(), the ARC3_GAME_CODE_DIR functions.
@@ -20,8 +22,12 @@ labels what is new. An excerpt's tokens are its response's reasoning tokens,
 shared by characters.
 
 Writes to --out: responses.csv (one row per response), games.csv (per run and
-game), levels.csv (per run, game and level), topics.csv, summary.json, and
-tokens.png.
+game), levels.csv (per run, game and level, with actions and level scores),
+summary.json, tokens.png (output tokens by part) and tokens_by_game.png.
+--names sets the runs' names in the charts.
+
+Input tokens spent on code text are estimated per request as its prompt tokens
+times the share of its text characters that are code-reading tool results.
 """
 from __future__ import annotations
 
@@ -82,8 +88,11 @@ class Response:
     completion_tokens: int
     reasoning_tokens: int
     cost: float
+    cost_input: float = 0.0
+    cost_output: float = 0.0
     reasoning: str = ""
     matched: bool = False
+    reasoning_from_transcript: bool = False
     call_ids: list[str] = field(default_factory=list)
     call_chars: int = 0
     code_read_calls: int = 0
@@ -200,6 +209,12 @@ def load_responses(logs: list[Path], game: str) -> list[Response]:
                 (usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0
             ),
             cost=float(usage.get("cost") or 0.0),
+            cost_input=float(
+                (usage.get("cost_details") or {}).get("upstream_inference_prompt_cost") or 0.0
+            ),
+            cost_output=float(
+                (usage.get("cost_details") or {}).get("upstream_inference_completions_cost") or 0.0
+            ),
             context_code_chars=context_code,
             context_text_chars=context_text,
         )
@@ -274,6 +289,44 @@ def _level_at(run: dict[str, Any], action: int) -> int:
     return level
 
 
+TRANSCRIPT_SECTION = re.compile(
+    r"^\[(TOOL CALL|TOOL RESULT|ASSISTANT|ANALYZER STATUS|MODEL RESPONSE META|SYSTEM PROMPT|USER PROMPT)"
+)
+
+
+def _transcript_thinking(transcript: Path) -> list[str]:
+    """The [THINKING] blocks of a transcript, one per model response."""
+    blocks: list[list[str]] = []
+    current: list[str] | None = None
+    for line in transcript.read_text(encoding="utf-8").split("\n"):
+        if line == "[THINKING]":
+            current = []
+            blocks.append(current)
+        elif current is not None and (
+            TRANSCRIPT_SECTION.match(line) or line.startswith("--- analysis_step")
+        ):
+            current = None
+        elif current is not None:
+            current.append(line)
+    return ["\n".join(block).strip() for block in blocks]
+
+
+def _fill_from_transcript(responses: list[Response], transcript: Path) -> None:
+    # A response whose message no later request carries (the game's last, or
+    # one the harness dropped at a turn change) still has its thinking in the
+    # transcript, which holds one block per response.
+    if not transcript.exists():
+        return
+    blocks = _transcript_thinking(transcript)
+    if len(blocks) != len(responses):
+        print(f"{transcript}: {len(blocks)} thinking blocks for {len(responses)} responses; not used")
+        return
+    for response, block in zip(responses, blocks):
+        if not response.matched and block:
+            response.reasoning = block
+            response.reasoning_from_transcript = True
+
+
 def load_run(run_dir: Path) -> list[Response]:
     logs = {
         log.name.split("-", 1)[0]: [log] for log in sorted(run_dir.glob("*_requests.jsonl"))
@@ -284,7 +337,10 @@ def load_run(run_dir: Path) -> list[Response]:
     benchmark = _benchmark(run_dir)
     responses: list[Response] = []
     for game, paths in logs.items():
-        for response in load_responses(paths, game):
+        game_responses = load_responses(paths, game)
+        stem = paths[0].name.removesuffix("_requests.jsonl")
+        _fill_from_transcript(game_responses, run_dir / "transcripts" / f"{stem}.txt")
+        for response in game_responses:
             # benchmark.json places level changes exactly; the turn opener
             # only reports them at the next turn, but is current when
             # benchmark.json (saved every 10 minutes) is not
@@ -400,7 +456,7 @@ def label(run: str, responses: list[Response], cache: Path, workers: int = 8) ->
 def topic_tokens(response: Response, labels: dict[str, dict]) -> dict[str, float]:
     """The response's reasoning tokens by topic, plus `source_code` and `unlabelled`."""
     out: dict[str, float] = defaultdict(float)
-    if not response.matched or not response.reasoning:
+    if not response.reasoning:
         out["unlabelled"] += response.reasoning_tokens
         return out
     chunks = excerpts(response)
@@ -427,6 +483,8 @@ def _sum(rows: list[Response], labels: dict[str, dict] | None) -> dict[str, floa
         total["thinking_tokens"] += response.reasoning_tokens
         total["tool_call_tokens"] += response.tool_call_tokens
         total["cost_usd"] += response.cost
+        total["cost_input_usd"] += response.cost_input
+        total["cost_output_usd"] += response.cost_output
         total["code_read_calls"] += response.code_read_calls
         total["code_output_chars"] += response.code_output_chars
         if response.call_chars:
@@ -495,33 +553,93 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow({k: round(v, 4) if isinstance(v, float) else v for k, v in row.items()})
 
 
-def _chart(path: Path, summary: dict[str, dict[str, Any]]) -> None:
+SURFACE = "#fcfcfb"
+TEXT_PRIMARY = "#0b0b0b"
+TEXT_SECONDARY = "#52514e"
+GRID = "#e4e3df"
+# validated categorical slots 1-4 (light mode); baseline vs candidate uses a
+# neutral reference gray and slot 7 so neither collides with the parts chart
+PARTS = [
+    ("Thinking: mechanics", ("thinking_mechanics",), "#2a78d6"),
+    ("Thinking: planning", ("thinking_planning",), "#eb6834"),
+    (
+        "Thinking: tooling and other",
+        ("thinking_tooling", "thinking_other", "thinking_unlabelled"),
+        "#1baf7a",
+    ),
+    ("Tool calls (code written)", ("tool_call_tokens",), "#eda100"),
+]
+RUN_COLORS = ("#a3a29c", "#4a3aa7")
+
+
+def _axis_style(axis: Any) -> None:
+    axis.set_facecolor(SURFACE)
+    axis.grid(axis="x", color=GRID, linewidth=0.8)
+    axis.set_axisbelow(True)
+    axis.spines[["top", "right", "left"]].set_visible(False)
+    axis.spines["bottom"].set_color(GRID)
+    axis.tick_params(colors=TEXT_SECONDARY, length=0, labelsize=9)
+    axis.xaxis.set_major_formatter(lambda value, _: f"{value:,.0f}K" if value else "0")
+
+
+def _charts(out: Path, summary: dict[str, dict[str, Any]], names: dict[str, str]) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    plt.rcParams.update({"font.size": 9, "text.color": TEXT_PRIMARY})
     runs = list(summary)
-    parts = [
-        ("thinking_mechanics", "Thinking: mechanics", "#2a6f97"),
-        ("thinking_planning", "Thinking: planning", "#61a5c2"),
-        ("thinking_tooling", "Thinking: tooling", "#a9d6e5"),
-        ("thinking_other", "Thinking: other", "#c9d6df"),
-        ("thinking_unlabelled", "Thinking: unlabelled", "#e5e5e5"),
-        ("tool_call_tokens", "Tool calls", "#e07a5f"),
-    ]
-    figure, axis = plt.subplots(figsize=(8, 1.2 + 0.7 * len(runs)))
+
+    # output tokens of each run, by part
+    figure, axis = plt.subplots(figsize=(8, 1.4 + 0.55 * len(runs)), facecolor=SURFACE)
+    _axis_style(axis)
     left = [0.0] * len(runs)
-    for key, name, color in parts:
-        values = [summary[run]["total"].get(key, 0.0) / 1e6 for run in runs]
-        axis.barh(runs, values, left=left, color=color, label=name)
+    for name, keys, color in PARTS:
+        values = [sum(summary[r]["total"].get(k, 0.0) for k in keys) / 1e3 for r in runs]
+        axis.barh(
+            [names[r] for r in runs], values, left=left, height=0.5, color=color,
+            edgecolor=SURFACE, linewidth=1.2, label=name,
+        )
         left = [a + b for a, b in zip(left, values)]
-    axis.set_xlabel("Output tokens (millions)")
+    for row, total in enumerate(left):
+        axis.text(total, row, f"  {total:,.0f}K", va="center", color=TEXT_PRIMARY, fontsize=9)
+    axis.set_xlim(0, max(left) * 1.12)
     axis.invert_yaxis()
-    axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.35), ncol=3, frameon=False, fontsize=8)
-    axis.spines[["top", "right"]].set_visible(False)
+    axis.tick_params(axis="y", colors=TEXT_PRIMARY)
+    axis.set_title("Output tokens by part", loc="left", fontsize=10, color=TEXT_PRIMARY)
+    axis.legend(
+        loc="upper center", bbox_to_anchor=(0.45, -0.18), ncol=2, frameon=False,
+        fontsize=8, labelcolor=TEXT_SECONDARY,
+    )
     figure.tight_layout()
-    figure.savefig(path, dpi=150)
+    figure.savefig(out / "tokens.png", dpi=150, facecolor=SURFACE)
+    plt.close(figure)
+
+    # output tokens per game, one bar per run
+    games = sorted({game for r in runs for game in summary[r]["by_game"]})
+    figure, axis = plt.subplots(figsize=(8, 1.2 + 0.3 * len(games) * len(runs)), facecolor=SURFACE)
+    _axis_style(axis)
+    height = 0.8 / len(runs)
+    largest = 0.0
+    for index, (run, color) in enumerate(zip(runs, RUN_COLORS)):
+        positions = [g + (index - (len(runs) - 1) / 2) * height for g in range(len(games))]
+        values = [summary[run]["by_game"].get(game, {}).get("completion_tokens", 0) / 1e3 for game in games]
+        largest = max(largest, *values)
+        axis.barh(positions, values, height=height * 0.7, color=color, label=names[run])
+        for position, value, game in zip(positions, values, games):
+            score = summary[run]["games"].get(game, {}).get("score")
+            note = f"  {value:,.0f}K" + (f"  (score {score:.0f})" if score is not None else "")
+            axis.text(value, position, note, va="center", color=TEXT_SECONDARY, fontsize=8)
+    axis.set_xlim(0, largest * 1.3)
+    axis.set_yticks(range(len(games)), games)
+    axis.tick_params(axis="y", colors=TEXT_PRIMARY)
+    axis.invert_yaxis()
+    axis.set_title("Output tokens per game", loc="left", fontsize=10, color=TEXT_PRIMARY)
+    axis.legend(loc="lower right", frameon=False, fontsize=8, labelcolor=TEXT_SECONDARY)
+    figure.tight_layout()
+    figure.savefig(out / "tokens_by_game.png", dpi=150, facecolor=SURFACE)
+    plt.close(figure)
 
 
 def main() -> int:
@@ -529,6 +647,9 @@ def main() -> int:
     parser.add_argument("runs", nargs="+", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--label", action="store_true", help="Label thinking topics.")
+    parser.add_argument(
+        "--names", help="Comma-separated display names for the runs in the charts."
+    )
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -564,9 +685,10 @@ def main() -> int:
                 "run": run, "game": game, "level": level,
                 **level_results.get((game, level), {}), **_sum(rows, labels),
             })
-        matched = sum(r.matched for r in responses)
+        matched = sum(r.matched or r.reasoning_from_transcript for r in responses)
         summary[run] = {
             "games": {game: results.get(game, {}) for game in sorted(by_game)},
+            "by_game": {game: _sum(rows, labels) for game, rows in sorted(by_game.items())},
             "total": _sum(responses, labels),
             "responses_with_text": matched,
             "responses": len(responses),
@@ -576,7 +698,8 @@ def main() -> int:
     _write_csv(args.out / "games.csv", game_rows)
     _write_csv(args.out / "levels.csv", level_rows)
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    _chart(args.out / "tokens.png", summary)
+    names = dict(zip(summary, (args.names or "").split(","))) if args.names else {}
+    _charts(args.out, summary, {run: names.get(run) or run for run in summary})
     for run, data in summary.items():
         total = data["total"]
         print(

@@ -289,5 +289,8 @@ are cached in the output directory.
 
 ```bash
 uv run --no-sync python scripts/token_breakdown.py runs/<run> [runs/<run> ...] \
-  --out <dir> --label
+  --out <dir> --label [--names "<name>,<name>"]
 ```
+
+`experiments/engine-code-access/` is an example: the run with game-code
+access compared with `runs/20261004_135539`.
