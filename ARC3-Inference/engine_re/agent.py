@@ -75,8 +75,12 @@ class ModelConfig:
     max_tokens: int = 32768
     reasoning: bool = True
     # Above this prompt size, old tool outputs are elided from the history.
-    compact_prompt_tokens: int = 110_000
+    compact_prompt_tokens: int = 140_000
     keep_recent_tool_outputs: int = 8
+    # The model's reasoning is sent back with its turns (as the main harness
+    # does on OpenRouter); compaction trims all but the most recent ones.
+    keep_recent_reasoning: int = 10
+    old_reasoning_chars: int = 1200
 
 
 @dataclass
@@ -348,12 +352,17 @@ class EngineAgent:
         return self.result.turns > 0
 
     def _compact(self) -> None:
-        """Elide old tool outputs and large tool-call arguments to bound the prompt."""
+        """Elide old tool outputs, old reasoning and large tool-call arguments to bound the prompt."""
         tool_indices = [i for i, m in enumerate(self.messages) if m["role"] == "tool"]
         for i in tool_indices[: -self.model.keep_recent_tool_outputs]:
             content = self.messages[i]["content"]
             if len(content) > 400:
                 self.messages[i]["content"] = content[:200] + f"\n[... older output elided to save context ({len(content)} chars)]"
+        assistant_indices = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
+        for i in assistant_indices[: -self.model.keep_recent_reasoning]:
+            reasoning = self.messages[i].get("reasoning") or ""
+            if len(reasoning) > self.model.old_reasoning_chars + 100:
+                self.messages[i]["reasoning"] = "[earlier reasoning trimmed] ..." + reasoning[-self.model.old_reasoning_chars :]
         recent_cut = tool_indices[-self.model.keep_recent_tool_outputs] if len(tool_indices) >= self.model.keep_recent_tool_outputs else 0
         for i, m in enumerate(self.messages[:recent_cut]):
             for call in m.get("tool_calls") or []:
@@ -408,6 +417,8 @@ class EngineAgent:
                 message = choice["message"]
                 tool_calls = message.get("tool_calls") or []
                 assistant: dict[str, Any] = {"role": "assistant", "content": message.get("content") or ""}
+                if message.get("reasoning"):
+                    assistant["reasoning"] = message["reasoning"]
                 if tool_calls:
                     assistant["tool_calls"] = [
                         {"id": c["id"], "type": "function", "function": {"name": c["function"]["name"], "arguments": c["function"].get("arguments") or "{}"}}
