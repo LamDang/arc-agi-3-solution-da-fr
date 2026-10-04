@@ -236,7 +236,8 @@ Common overrides:
 - `EXCLUDE_GAME_TAGS`: exclude tags.
 - `N_PASSES`: TAAF passes per selected game.
 - `CONCURRENT_JOBS`: TAAF concurrency. With Slurm local servers this is per
-  GPU/server.
+  GPU/server. `0` plays every game run at once (inline only); the OpenRouter
+  config defaults to it.
 - `MAX_ACTIONS`: optional per-game action cap.
 - `MAX_RUNTIME_MINUTES`: per-game wall-clock cap.
 - `MAX_EXPERIMENT_RUNTIME_MINUTES` or `MAX_EXPERIMENT_RUNTIME_HOURS`: whole-run

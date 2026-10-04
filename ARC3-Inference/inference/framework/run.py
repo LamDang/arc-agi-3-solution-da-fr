@@ -553,6 +553,16 @@ def _effective_concurrent_jobs(args: argparse.Namespace) -> int:
     return int(args.concurrent_jobs) * _concurrency_multiplier(args)
 
 
+def _resolve_unlimited_concurrency(args: argparse.Namespace, *, game_count: int) -> None:
+    """--concurrent-jobs 0 starts every game run at once. Inline only: Slurm
+    concurrency is per local server, and Kaggle runs on one fixed GPU."""
+    if int(args.concurrent_jobs) != 0:
+        return
+    if str(args.deployment_target).strip().lower() != "inline":
+        raise ValueError("--concurrent-jobs 0 (no limit) requires --deployment-target inline.")
+    args.concurrent_jobs = _game_run_count(game_count=game_count, n_passes=int(args.n_passes))
+
+
 def _max_runtime_minutes_per_game(
     args: argparse.Namespace,
     *,
@@ -1088,6 +1098,7 @@ def _run(args: argparse.Namespace) -> None:
                 print(game_id)
             return
 
+        _resolve_unlimited_concurrency(args, game_count=len(game_ids))
         max_experiment_runtime_minutes = _max_experiment_runtime_minutes(args)
         run_dir = _experiment_dir(args)
         solver_args = _solver_args_for_local_server_pool(args, run_dir=run_dir)
@@ -1235,7 +1246,12 @@ def main() -> None:
     parser.add_argument("--max-experiment-runtime-minutes", type=float, default=None)
     parser.add_argument("--max-experiment-runtime-hours", type=float, default=None)
     parser.add_argument("--n-passes", dest="n_passes", type=int, default=1)
-    parser.add_argument("--concurrent-jobs", type=int, default=16)
+    parser.add_argument(
+        "--concurrent-jobs",
+        type=int,
+        default=16,
+        help="Game runs played at once. 0 plays every game run at once (inline only).",
+    )
     parser.add_argument(
         "--simulate-competition-arcade",
         action=argparse.BooleanOptionalAction,
@@ -1360,8 +1376,8 @@ def main() -> None:
     if args.n_passes <= 0:
         log.error("--n-passes must be positive.")
         sys.exit(1)
-    if args.concurrent_jobs <= 0:
-        log.error("--concurrent-jobs must be positive.")
+    if args.concurrent_jobs < 0:
+        log.error("--concurrent-jobs must be positive, or 0 for no limit.")
         sys.exit(1)
     if args.competition_clone_runs < 0:
         log.error("--competition-clone-runs must be non-negative.")

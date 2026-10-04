@@ -37,8 +37,7 @@ uv run --no-sync python scripts/fetch_games.py
 ```bash
 make interactive CONFIG_PATH=configs/inference.openrouter.json \
   MODEL=qwen/qwen3.6-27b GAME=ls20,ft09,vc33,sp80,lp85 GAME_TAGS=[] \
-  N_PASSES=1 CONCURRENT_JOBS=5 \
-  ENVIRONMENTS_DIR=environment_files EXPERIMENTS_DIR=runs \
+  N_PASSES=1 ENVIRONMENTS_DIR=environment_files EXPERIMENTS_DIR=runs \
   MAX_GENERATED_TOKENS_PER_GAME=200000 MAX_RUNTIME_MINUTES=30 \
   ANALYZER_SAVE_REQUEST_LOGS=true
 ```
@@ -49,9 +48,16 @@ make interactive CONFIG_PATH=configs/inference.openrouter.json \
   otherwise adds all 25 official games to the ones in `GAME`.
 - `EXPERIMENTS_DIR=runs` writes to `runs/<timestamp>/` instead of the config
   default `/shared/arc_3_results/<user>`. `make eval` reads `runs/` by default.
-- The OpenRouter config defaults to 5 passes per game, 32 concurrent games and
-  90 minutes per game. The command above sets 1 pass, 5 concurrent games and
-  30 minutes.
+- All game runs play at once: the OpenRouter config sets `concurrent_jobs` to
+  `0`, meaning no limit. Set `CONCURRENT_JOBS=<n>` to cap it.
+- A request that OpenRouter rate-limits (HTTP 429) is retried 3 times with
+  backoff. After that, the turn is aborted and rolled back, losing its partial
+  tool work. If that happens often, prefix the command with
+  `ARC3_HTTP_RETRIES=-1` to retry without limit, or cap `CONCURRENT_JOBS`.
+- Game engines and Python tool calls run on local CPUs, so many parallel games
+  can slow tool calls on a small machine.
+- The OpenRouter config defaults to 5 passes per game and 90 minutes per game.
+  The command above sets 1 pass and 30 minutes.
 - `MODEL` is the OpenRouter model id, as listed at
   `https://openrouter.ai/api/v1/models`. Without it, the run uses the config's
   `shared.model_name` (`Qwen/Qwen3.6-27B`), which differs in case from the
@@ -106,10 +112,13 @@ Other tools:
 | --- | --- |
 | `run_config.json` | Resolved games, passes, concurrency, limits, model, hardware. |
 | `git_info.txt` | Commit and uncommitted diff of the code that ran. |
+| `src/` | Copy of the harness and TAAF source that ran. |
+| `summary.txt` | Quick summary: mean and median score, total actions, total output tokens, duration, and per-game score, levels, actions and output tokens. |
+| `stdout.log` | Run log. |
 | `benchmark.json` | Per game: end state (`won`, `gave_up`, `cancelled`, `crashed`), levels completed, score, every action with the output tokens spent on it, and `solver_note` (`tokens=<n>` or the error). |
 | `diagnostics.html` | TAAF diagnostics page. |
 | `artifacts/*_viewer_data.json`, `artifacts/*_events.jsonl` | Viewer data: boards, actions, rewards, level changes, tokens per step. |
-| `transcripts/*.txt`, `solver_analysis/*.html` | Model reasoning and tool calls for each game. |
+| `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
 | `*requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 
