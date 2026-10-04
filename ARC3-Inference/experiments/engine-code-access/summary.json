@@ -68,5 +68,75 @@
     },
     "responses_with_text": 724,
     "responses": 729
+  },
+  "engine-code": {
+    "games": {
+      "ft09": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 6,
+        "total_levels": 6,
+        "actions": 75,
+        "benchmark_output_tokens": 0,
+        "minutes": 11.4
+      },
+      "lp85": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 8,
+        "total_levels": 8,
+        "actions": 96,
+        "benchmark_output_tokens": 0,
+        "minutes": 19.8
+      },
+      "ls20": {
+        "score": null,
+        "state": "playing",
+        "levels_completed": 5,
+        "total_levels": 7,
+        "actions": 269,
+        "benchmark_output_tokens": 0,
+        "minutes": 0.0
+      },
+      "sp80": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 6,
+        "total_levels": 6,
+        "actions": 143,
+        "benchmark_output_tokens": 0,
+        "minutes": 34.1
+      },
+      "vc33": {
+        "score": null,
+        "state": "playing",
+        "levels_completed": 6,
+        "total_levels": 7,
+        "actions": 134,
+        "benchmark_output_tokens": 0,
+        "minutes": 0.0
+      }
+    },
+    "total": {
+      "responses": 478.0,
+      "prompt_tokens": 33670857.0,
+      "cached_tokens": 31758336.0,
+      "completion_tokens": 670552.0,
+      "thinking_tokens": 531637.0,
+      "tool_call_tokens": 138915.0,
+      "cost_usd": 1.0919682460000006,
+      "code_read_calls": 244.0,
+      "code_output_chars": 507690.0,
+      "code_read_call_tokens": 53763.64228219889,
+      "context_code_tokens_est": 10832377.543586362,
+      "thinking_mechanics": 347742.87961600075,
+      "thinking_source_code": 206880.27131257058,
+      "thinking_tooling": 30228.002493217424,
+      "thinking_unlabelled": 7807.0,
+      "thinking_planning": 145773.77805607574,
+      "thinking_other": 85.33983470595521
+    },
+    "responses_with_text": 473,
+    "responses": 478
   }
 }
