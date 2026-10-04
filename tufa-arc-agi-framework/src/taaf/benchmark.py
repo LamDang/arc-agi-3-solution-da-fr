@@ -47,6 +47,11 @@ class Benchmark:
       the most recent ``run()``. Round-trip through JSON as ISO-8601.
     - ``periodic_save_interval_s``: how often the periodic save loop
       fires. Default 600 s per R2.13; tunable for tests.
+    - ``resumed_game_runs``: optional, for resuming an earlier run. Same
+      passes-major layout and length as ``game_runs``. A non-``None``
+      entry is a finished run carried over as is: ``run()`` puts it in
+      ``game_runs`` without playing that pass of that game again. The
+      caller decides which runs count as finished.
     """
 
     label: str = ""
@@ -55,6 +60,7 @@ class Benchmark:
     n_passes: int = 1
     job_dir: Path | None = None
     game_weights: list[float] | None = None
+    resumed_game_runs: list[taaf.game.GameRun | None] | None = field(default=None, repr=False)
 
     game_runs: list[taaf.game.GameRun] = field(default_factory=lambda: list[taaf.game.GameRun](), init=False)
     solver_label: str = field(default="", init=False)
@@ -76,7 +82,8 @@ class Benchmark:
         runtime_environment: taaf.deploy.DeploymentTarget | None = None,
         minimal_diagnostics: bool = False,
     ) -> None:
-        """Run the solver on ``n_passes`` deepcopies of each game.
+        """Run the solver on ``n_passes`` deepcopies of each game, except
+        the (pass, game) pairs carried over in ``resumed_game_runs``.
 
         ``soft_end_time`` (R2.12): when given, the solver task is
         cancelled at that moment; solvers respond by calling
@@ -105,6 +112,11 @@ class Benchmark:
             for i, w in enumerate(self.game_weights):
                 if w < 0:
                     raise ValueError(f"game_weights[{i}] = {w} must be >= 0")
+        if self.resumed_game_runs is not None and len(self.resumed_game_runs) != self.n_passes * len(self.games):
+            raise ValueError(
+                f"resumed_game_runs length {len(self.resumed_game_runs)} must equal "
+                f"n_passes * len(games) = {self.n_passes * len(self.games)}"
+            )
 
         self.start_time = datetime.now()
         self.end_time = None
@@ -147,8 +159,14 @@ class Benchmark:
         # validation (or an interrupt) fires mid-setup, before the solver runs.
         try:
             for pass_idx in range(self.n_passes):
-                for game in self.games:
+                for game_idx, game in enumerate(self.games):
+                    if self.resumed_game_runs is not None:
+                        resumed = self.resumed_game_runs[pass_idx * len(self.games) + game_idx]
+                        if resumed is not None:
+                            self.game_runs.append(resumed)
+                            continue
                     game_copy = copy.deepcopy(game)
+                    game_copy.pass_index = pass_idx
                     game_copy.start_game(session)
                     assert game_copy.game_run is not None
                     self.game_runs.append(game_copy.game_run)

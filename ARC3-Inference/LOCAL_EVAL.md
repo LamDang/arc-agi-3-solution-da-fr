@@ -65,6 +65,30 @@ make interactive CONFIG_PATH=configs/inference.openrouter.json \
 - `ANALYZER_SAVE_REQUEST_LOGS=true` is the only way to record input tokens; see
   [Token spend](#token-spend).
 
+## Resume a run
+
+To replay only the game runs that failed in an earlier run, rerun the same
+command with `RESUME_FROM` set to that run's directory:
+
+```bash
+make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
+```
+
+- The resumed run gets a new directory. The earlier one is not changed.
+- Kept: game runs that won, or that stopped at their own token, time or action
+  limit (`gave_up` with the note `tokens=<n>`). Their `benchmark.json` entries
+  and artifacts are copied into the new run.
+- Replayed from the start: runs that crashed, were cancelled, gave up on
+  analyzer errors, or were still `playing` because the process was killed.
+  A replayed game starts again at level 1.
+- `GAME` and `N_PASSES` must match the earlier run; the run stops with an
+  error otherwise. Keep the other settings the same so the results stay
+  comparable.
+- `resume.json` in the new run lists what was kept and what was replayed.
+- `benchmark.json` is saved every 10 minutes, so after a kill a run can be up
+  to 10 minutes behind and is replayed even if it had just finished.
+- If every run in the earlier directory finished, nothing runs.
+
 ## Limits
 
 | Override | Applies to | Notes |
@@ -121,6 +145,7 @@ Other tools:
 | `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
 | `*requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
+| `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
 
 ## Token spend
 
