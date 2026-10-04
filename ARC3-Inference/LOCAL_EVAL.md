@@ -143,7 +143,7 @@ Other tools:
 | `diagnostics.html` | TAAF diagnostics page. |
 | `artifacts/*_viewer_data.json`, `artifacts/*_events.jsonl` | Viewer data: boards, actions, rewards, level changes, tokens per step. |
 | `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
-| `*requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. |
+| `<game>_p<pass>_requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
 
