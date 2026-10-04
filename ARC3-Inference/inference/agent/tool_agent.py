@@ -3235,14 +3235,13 @@ def _resolve_run_artifact_location(state_path: Path) -> tuple[Path, str | None]:
     parent = state_path.parent
     if parent.name == "artifacts" and parent.parent != parent:
         run_root = parent.parent
-        runtime_state_files = list(parent.glob(f"*_{RUNTIME_STATE_FILENAME}"))
-        if len(runtime_state_files) <= 1:
-            return run_root, None
-        runtime_state_stem = Path(RUNTIME_STATE_FILENAME).stem
-        suffix = f"_{runtime_state_stem}"
-        state_stem = state_path.stem
-        game_stem = state_stem[:-len(suffix)] if state_stem.endswith(suffix) else state_stem
-        return run_root, game_stem
+        # Decided by the state file's name, not by how many other games' state
+        # files exist: that count changes as games start and finish, and a
+        # game run's logs must keep one name for its whole life.
+        suffix = f"_{RUNTIME_STATE_FILENAME}"
+        name = state_path.name
+        game_stem = name[:-len(suffix)] if name.endswith(suffix) else ""
+        return run_root, game_stem or None
     return parent, None
 
 
