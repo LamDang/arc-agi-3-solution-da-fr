@@ -1542,6 +1542,10 @@ class HarnessSolver(Solver):
             game_id = game.game_run.game_id if game.game_run is not None else str(index)
             pass_index = pass_indices_by_game_id.get(game_id, 0)
             pass_indices_by_game_id[game_id] = pass_index + 1
+            # a resumed benchmark plays only some passes of a game, so the
+            # count above would rename them; Benchmark.run stamps the real one
+            if getattr(game, "pass_index", None) is not None:
+                pass_index = int(game.pass_index)
             tasks.append(asyncio.create_task(run_one(index, pass_index, game)))
         try:
             await asyncio.gather(

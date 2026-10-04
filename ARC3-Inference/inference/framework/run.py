@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import shutil
 import sys
 import tomllib
 from datetime import datetime, timezone
@@ -29,11 +30,12 @@ import taaf.game
 import taaf.game_api
 
 from inference.framework.kaggle import DUCK_HARNESS_PUBLIC_GAME_IDS
-from inference.framework.solver import HarnessSolver
+from inference.framework.solver import HarnessSolver, artifact_stem
 from inference.utils.run_artifacts import save_git_info, setup_experiment_directory
 
 log = logging.getLogger(__name__)
 RUN_CONFIG_FILENAME = "run_config.json"
+RESUME_FILENAME = "resume.json"
 _DEPLOYMENT_MAX_RUNTIME_UNSET = object()
 
 _project_root = Path(__file__).resolve().parents[2]
@@ -494,6 +496,94 @@ def _experiment_dir(args: argparse.Namespace) -> Path:
         run_name=args.run_name or None,
     )
     return path
+
+
+def _resume_keeps(run: taaf.game.GameRun) -> bool:
+    """Whether a resumed run carries this game run over instead of replaying it.
+
+    Kept: won, or stopped by its own token/time/action budget, which the
+    solver records as ``gave_up`` with the note ``tokens=<n>``. Replayed:
+    crashed, cancelled, still ``playing`` (the process died between saves),
+    and ``gave_up`` on analyzer errors, whose note names the failure.
+    """
+    if run.state == "won":
+        return True
+    return run.state == "gave_up" and str(run.solver_note or "").startswith("tokens=")
+
+
+def _load_resumed_runs(
+    resume_dir: Path, *, game_ids: list[str], n_passes: int
+) -> list[taaf.game.GameRun | None]:
+    """Prior game runs in passes-major order, ``None`` where a run is replayed."""
+    json_path = resume_dir / "benchmark.json"
+    if not json_path.is_file():
+        raise FileNotFoundError(f"--resume-from: no benchmark.json in {resume_dir}")
+    try:
+        prior = taaf.benchmark.Benchmark.from_json(json_path)
+    except ValueError:
+        # a frames sidecar that does not match the JSON only costs the kept
+        # runs their per-step frames in diagnostics; it must not block a resume
+        prior = taaf.benchmark.Benchmark.from_json(json_path, with_intermediate_states=False)
+    expected = [game_id for _ in range(n_passes) for game_id in game_ids]
+    played = [run.game_id for run in prior.game_runs]
+    if played != expected:
+        raise ValueError(
+            f"--resume-from: {resume_dir} has {prior.n_passes} pass(es) of "
+            f"{', '.join(dict.fromkeys(played))}; resume with the same games, "
+            f"in the same order, and the same --n-passes."
+        )
+    return [run if _resume_keeps(run) else None for run in prior.game_runs]
+
+
+def _run_stem(game_id: str, pass_index: int) -> str:
+    # matches HarnessSolver._run_stem, which names every per-run artifact
+    return f"{artifact_stem(game_id)}_p{pass_index}"
+
+
+def _prepare_resume(
+    resume_dir: Path,
+    *,
+    run_dir: Path,
+    prior_runs: list[taaf.game.GameRun | None],
+    game_ids: list[str],
+) -> None:
+    """Copy the kept runs' artifacts into ``run_dir`` and record the resume."""
+    kept_stems = {
+        _run_stem(run.game_id, position // len(game_ids))
+        for position, run in enumerate(prior_runs)
+        if run is not None
+    }
+    for path in resume_dir.rglob("*"):
+        relative = path.relative_to(resume_dir)
+        if not path.is_file() or relative.parts[0] == "src":
+            continue
+        # "_p1" must not also match "_p10": the stem ends at "_" or "."
+        if any(
+            path.name.startswith(stem) and path.name[len(stem) : len(stem) + 1] in ("_", ".")
+            for stem in kept_stems
+        ):
+            destination = run_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, destination)
+
+    prior_json = json.loads((resume_dir / "benchmark.json").read_text(encoding="utf-8"))
+    record: dict[str, Any] = {"resumed_from": str(resume_dir.resolve()), "kept": [], "replayed": []}
+    for position, prior in enumerate(prior_json["game_runs"]):
+        entry = {
+            "game_id": prior["game_id"],
+            "pass": position // len(game_ids),
+            "state": prior.get("state"),
+            "levels_completed": prior.get("levels_completed"),
+            "solver_note": prior.get("solver_note"),
+        }
+        record["kept" if prior_runs[position] is not None else "replayed"].append(entry)
+    (run_dir / RESUME_FILENAME).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    for key in ("kept", "replayed"):
+        described = [
+            f"{entry['game_id']} p{entry['pass']} ({entry['state']}, {entry['solver_note']})"
+            for entry in record[key]
+        ]
+        print(f"Resume {key}: {', '.join(described) or 'none'}")
 
 
 def _optional_positive_float(raw_value: Any, *, option_name: str) -> float | None:
@@ -1100,6 +1190,19 @@ def _run(args: argparse.Namespace) -> None:
 
         _resolve_unlimited_concurrency(args, game_count=len(game_ids))
         max_experiment_runtime_minutes = _max_experiment_runtime_minutes(args)
+        resume_dir = Path(args.resume_from) if str(args.resume_from or "").strip() else None
+        prior_runs: list[taaf.game.GameRun | None] | None = None
+        if resume_dir is not None:
+            if str(args.experiment_dir or "").strip() and (
+                Path(args.experiment_dir).resolve() == resume_dir.resolve()
+            ):
+                raise ValueError("--resume-from writes a new run; --experiment-dir must differ from it.")
+            prior_runs = _load_resumed_runs(
+                resume_dir, game_ids=game_ids, n_passes=int(args.n_passes)
+            )
+            if all(run is not None for run in prior_runs):
+                print(f"Nothing to resume: every game run in {resume_dir} finished.")
+                return
         run_dir = _experiment_dir(args)
         solver_args = _solver_args_for_local_server_pool(args, run_dir=run_dir)
         max_runtime_minutes_per_game, max_runtime_minutes_source, wave_count = (
@@ -1140,9 +1243,12 @@ def _run(args: argparse.Namespace) -> None:
             solver=solver,
             n_passes=int(args.n_passes),
             job_dir=run_dir,
+            resumed_game_runs=prior_runs,
         )
         print(f"Run directory: {run_dir.absolute()}")
         print(f"Games: {', '.join(game_ids)}")
+        if resume_dir is not None and prior_runs is not None:
+            _prepare_resume(resume_dir, run_dir=run_dir, prior_runs=prior_runs, game_ids=game_ids)
         if solver.concurrency != int(solver_args.concurrent_jobs):
             concurrency_text = (
                 f"{int(solver_args.concurrent_jobs)} per GPU/server "
@@ -1232,6 +1338,16 @@ def main() -> None:
     parser.add_argument("--run-name", dest="run_name", default="")
     parser.add_argument("--experiments-dir", dest="experiments_dir", default="")
     parser.add_argument("--experiment-dir", dest="experiment_dir", default="")
+    parser.add_argument(
+        "--resume-from",
+        dest="resume_from",
+        default="",
+        help=(
+            "Earlier run directory to resume. Game runs that finished there (won, or "
+            "out of budget) are copied into the new run; the rest are played again. "
+            "Pass the same games and --n-passes as that run."
+        ),
+    )
     parser.add_argument("--max-actions", type=int, default=None)
     parser.add_argument("--max-runtime-minutes", type=float, default=None)
     parser.add_argument(

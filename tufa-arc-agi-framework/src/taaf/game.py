@@ -440,6 +440,10 @@ class Game:
       when the engine hides baselines (submission mode).
     - ``game_run``: the live ``GameRun``, or ``None`` before
       ``start_game``.
+    - ``pass_index``: which pass of ``Benchmark.n_passes`` this copy
+      plays, stamped by ``Benchmark.run``. ``None`` outside a benchmark.
+      Lets a solver name per-pass artifacts correctly when a resumed
+      benchmark plays only some passes of a game.
     """
 
     allow_deepcopy: bool = field(default=False, kw_only=True)
@@ -449,6 +453,7 @@ class Game:
     hint: str | None = field(default=None, init=False)
     grid_size: tuple[int, int] = field(default=(64, 64), init=False)
     game_run: GameRun | None = field(default=None, init=False, repr=False)
+    pass_index: int | None = field(default=None, init=False)
     _current_state: GameState | None = field(default=None, init=False, repr=False)
 
     @property

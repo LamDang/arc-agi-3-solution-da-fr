@@ -75,6 +75,7 @@ ifeq ($(origin EXPERIMENTS_DIR),undefined)
 EXPERIMENTS_DIR := $(shell $(CONFIG_VALUE) experiments.root_dir)
 endif
 EXPERIMENT_DIR ?=
+RESUME_FROM ?=
 ifeq ($(origin N_PASSES),undefined)
 N_PASSES := $(shell $(CONFIG_VALUE) environment.n_passes 1)
 endif
@@ -584,6 +585,7 @@ _taaf-run:
 		$(if $(RUN_NAME),--run-name '$(RUN_NAME)',) \
 		$(if $(strip $(EXPERIMENTS_DIR)),--experiments-dir '$(EXPERIMENTS_DIR)',) \
 		$(if $(strip $(EXPERIMENT_DIR)),--experiment-dir '$(EXPERIMENT_DIR)',) \
+		$(if $(strip $(RESUME_FROM)),--resume-from '$(RESUME_FROM)',) \
 		$(if $(strip $(MAX_ACTIONS)),--max-actions $(MAX_ACTIONS),) \
 		$(if $(strip $(MAX_RUNTIME_MINUTES)),--max-runtime-minutes $(MAX_RUNTIME_MINUTES),) \
 		$(if $(strip $(MAX_GENERATED_TOKENS_PER_GAME)),--max-generated-tokens-per-game $(MAX_GENERATED_TOKENS_PER_GAME),) \
