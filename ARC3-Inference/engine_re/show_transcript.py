@@ -30,6 +30,12 @@ def main() -> int:
         if "tool" in record:
             print(f"    <- {record['tool']} ({record['seconds']}s): {_one_line(record['output'], args.chars)}")
             continue
+        if "nudge" in record:
+            print(f"    [harness nudge after {record['nudge']} turns without a test]")
+            continue
+        if "auto_test" in record:
+            print(f"    [harness auto-test] {_one_line(record['auto_test'], args.chars)}")
+            continue
         usage = record.get("usage") or {}
         print(
             f"[turn {record['turn']}] prompt={usage.get('prompt_tokens')} out={usage.get('completion_tokens')} "

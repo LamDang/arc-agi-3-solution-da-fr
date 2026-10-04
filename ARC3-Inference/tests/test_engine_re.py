@@ -114,3 +114,49 @@ def test_kernel_persists_state_and_is_sandboxed(tmp_path: Path, tiny_trace: Trac
         assert kernel.execute("open('notes.txt', 'w').write('ok')").strip() == "2"
     finally:
         kernel.stop()
+
+
+class _ScriptedModel:
+    """Stands in for OpenRouter: returns the given tool calls, one turn each."""
+
+    def __init__(self, turns: list[list[tuple[str, dict]]]):
+        self.turns = turns
+
+    def chat(self, messages, tools):  # noqa: ARG002
+        import json
+
+        calls = self.turns.pop(0)
+        return {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "content": "",
+                        "tool_calls": [
+                            {"id": f"c{i}", "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+                            for i, (name, args) in enumerate(calls)
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+
+
+def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    exact = TINY_GAME.replace("DOWN", "1")
+    model = _ScriptedModel(
+        [
+            [("python", {"code": "x = 1"})],
+            [("python", {"code": f"open('engine.py', 'w').write({exact!r})"})],
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model)
+    result = agent.run()
+    # The second turn rewrote engine.py without calling run_tests: the harness tested it, and it passes.
+    assert result.auto_tests == 1
+    assert result.status == "passed"
+    assert any("[harness] engine.py changed" in m.get("content", "") for m in agent.messages if m["role"] == "tool")

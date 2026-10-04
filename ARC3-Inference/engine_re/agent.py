@@ -12,6 +12,11 @@ One `EngineAgent` works on one game in its own directory:
 The session stops when a full replay matches every step, when the model calls
 finish twice, or when a budget (turns, output tokens, cost, wall time) runs out.
 
+Feedback the harness adds on its own: when engine.py changed during a turn and
+was not tested since, a full replay runs automatically and its summary is
+appended to the turn's last tool output; after every TEST_NUDGE_TURNS turns
+without any test, a reminder to write and test is appended instead.
+
 Sessions survive interruptions: result.json is rewritten every turn with status
 "running", and running a game again whose session did not end continues from
 its engine.py with a fresh conversation, carrying over the turns, tokens, cost,
@@ -20,6 +25,7 @@ time and test history recorded so far.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
@@ -46,6 +52,10 @@ NUDGE = (
     "\n\n[harness] {n} turns since your last run_tests (or none yet). Put what you have established into engine.py now, "
     "even if partial, and run run_tests: its report shows exactly which step and pixels to fix next."
 )
+# When engine.py changed during a turn and the model did not test it, the
+# harness runs a full replay and appends this summary to the turn's last output.
+AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (full replay):\n{report}"
+AUTO_TEST_CHARS = 2500
 MAX_ENGINE_BYTES = 3_000_000
 
 
@@ -163,6 +173,7 @@ class AgentResult:
     trace_steps: int = 0
     resumes: int = 0
     nudges: int = 0
+    auto_tests: int = 0
 
 
 class EngineAgent:
@@ -186,6 +197,7 @@ class EngineAgent:
         self.prior_notes = ""
         self.started = time.time()
         self.turns_since_test = 0
+        self.tested_hash: str | None = None
 
     # --- tools -----------------------------------------------------------------
 
@@ -228,15 +240,21 @@ class EngineAgent:
             return f"WARNING: engine.py has a syntax error: line {exc.lineno}: {exc.msg}"
         return "Syntax OK."
 
-    def _tool_run_tests(self, from_level: int | None = None, details: int | None = None) -> str:
+    def _engine_hash(self) -> str:
+        return hashlib.sha256(self.engine_path.read_bytes()).hexdigest()
+
+    def _tool_run_tests(self, from_level: int | None = None, details: int | None = None, auto: bool = False) -> str:
         details = max(1, min(6, int(details or 2)))
         self.turns_since_test = 0
+        tested_hash = self._engine_hash()
         try:
             report = replay_test(self.engine_path, self.trace, from_level=from_level, details=details, scratch_root=self.dir)
         except ValueError as exc:
             return f"Error: {exc}"
+        if from_level in (None, 0):
+            self.tested_hash = tested_hash
         self.result.tests_run += 1
-        entry = {"turn": self.result.turns, "time": time.time(), "from_level": from_level, **report.summary()}
+        entry = {"turn": self.result.turns, "time": time.time(), "from_level": from_level, "auto": auto, **report.summary()}
         with (self.dir / "tests.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         if from_level in (None, 0):
@@ -372,6 +390,8 @@ class EngineAgent:
         else:
             opening = first_user_message(self.game, self.trace, engine)
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": opening}]
+        # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.
+        self.tested_hash = self._engine_hash()
         idle_turns = 0
         try:
             while True:
@@ -426,7 +446,12 @@ class EngineAgent:
                     self._log({"turn": self.result.turns, "tool": name, "seconds": round(time.time() - t0, 2), "output": output})
                     if name == "finish" and output == "Session finished.":
                         finished = True
-                if self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:
+                if self.tested_hash is not None and self._engine_hash() != self.tested_hash:
+                    report = self._tool_run_tests(details=1, auto=True)
+                    self.messages[-1]["content"] += AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS))
+                    self.result.auto_tests += 1
+                    self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})
+                elif self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:
                     self.messages[-1]["content"] += NUDGE.format(n=self.turns_since_test)
                     self.result.nudges += 1
                     self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
