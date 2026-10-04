@@ -39,6 +39,13 @@ from engine_re.trace import Trace
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 TOOL_OUTPUT_CHARS = 8000
+# Turns without a run_tests call after which the harness reminds the model to
+# write what it knows into engine.py and test it (and again every as many turns).
+TEST_NUDGE_TURNS = 30
+NUDGE = (
+    "\n\n[harness] {n} turns since your last run_tests (or none yet). Put what you have established into engine.py now, "
+    "even if partial, and run run_tests: its report shows exactly which step and pixels to fix next."
+)
 MAX_ENGINE_BYTES = 3_000_000
 
 
@@ -155,6 +162,7 @@ class AgentResult:
     error: str | None = None
     trace_steps: int = 0
     resumes: int = 0
+    nudges: int = 0
 
 
 class EngineAgent:
@@ -177,6 +185,7 @@ class EngineAgent:
         self.prior_minutes = 0.0
         self.prior_notes = ""
         self.started = time.time()
+        self.turns_since_test = 0
 
     # --- tools -----------------------------------------------------------------
 
@@ -221,6 +230,7 @@ class EngineAgent:
 
     def _tool_run_tests(self, from_level: int | None = None, details: int | None = None) -> str:
         details = max(1, min(6, int(details or 2)))
+        self.turns_since_test = 0
         try:
             report = replay_test(self.engine_path, self.trace, from_level=from_level, details=details, scratch_root=self.dir)
         except ValueError as exc:
@@ -307,8 +317,13 @@ class EngineAgent:
                         self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
                     if entry.get("passed") and self.result.first_pass_turn is None:
                         self.result.first_pass_turn = entry["turn"]
-        # The interrupted session's last thoughts, so the analysis is not all lost.
-        self.prior_notes = "\n\n".join(f"[turn {turn}] ...{text[-1500:]}" for turn, text in thoughts[-5:])
+        # The interrupted session's notes file and last thoughts, so the analysis is not all lost.
+        notes_file = self.workspace / "notes.md"
+        parts = []
+        if notes_file.exists():
+            parts.append("Your notes.md:\n" + _truncate(notes_file.read_text(encoding="utf-8", errors="replace"), 6000))
+        parts.append("\n\n".join(f"[turn {turn}] ...{text[-1500:]}" for turn, text in thoughts[-5:]))
+        self.prior_notes = "\n\n".join(p for p in parts if p)
         previous = self.dir / "result.json"
         if previous.exists():
             self.result.resumes = int(json.loads(previous.read_text(encoding="utf-8")).get("resumes", 0)) + 1
@@ -401,6 +416,7 @@ class EngineAgent:
                     continue
                 idle_turns = 0
                 finished = False
+                self.turns_since_test += 1
                 for call in assistant["tool_calls"]:
                     name = call["function"]["name"]
                     self.result.tool_calls[name] = self.result.tool_calls.get(name, 0) + 1
@@ -410,6 +426,10 @@ class EngineAgent:
                     self._log({"turn": self.result.turns, "tool": name, "seconds": round(time.time() - t0, 2), "output": output})
                     if name == "finish" and output == "Session finished.":
                         finished = True
+                if self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:
+                    self.messages[-1]["content"] += NUDGE.format(n=self.turns_since_test)
+                    self.result.nudges += 1
+                    self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
                 if self.passed:
                     self.result.status = "passed"
                     break

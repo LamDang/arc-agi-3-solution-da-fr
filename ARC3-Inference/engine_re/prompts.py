@@ -47,7 +47,10 @@ available_actions. The goal is "ALL STEPS MATCH". The session ends as soon as th
 3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Count frames:
    every call to step() before complete_action() renders one frame, and entering a new level adds one more.
 4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
-5. Test often. Every change should move the first mismatch later or fix more steps.
+5. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
+   more analysis. Every change should move the first mismatch later or fix more steps.
+6. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
+   questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
 
 """ + API_NOTES
 
@@ -83,7 +86,7 @@ Start by exploring the recording with the python tool."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_lines: int, notes: str = "") -> str:
-    notes_part = f"\nThe end of your reasoning in the last turns of that session:\n\n{notes}\n" if notes else ""
+    notes_part = f"\nWhat that session left behind:\n\n{notes}\n" if notes else ""
     return f"""Game: {game}. Reproduce its engine in engine.py.
 
 The recording:
