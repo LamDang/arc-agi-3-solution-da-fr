@@ -18,7 +18,7 @@
     "max_experiment_runtime_minutes": null,
     "max_experiment_runtime_hours": null,
     "n_passes": 5,
-    "concurrent_jobs": 32
+    "concurrent_jobs": 0
   },
   "deployment": {
     "target": "inline",

@@ -1,0 +1,1 @@
+- Running, scoring, or inspecting a local eval through OpenRouter (setup, game files, limits, concurrency, run artifacts, token spend): see `ARC3-Inference/LOCAL_EVAL.md`.
