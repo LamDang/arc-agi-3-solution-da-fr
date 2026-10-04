@@ -51,11 +51,21 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     mismatch with side-by-side pixel crops, frame counts, state fields,
     tracebacks, and the list of all mismatching steps.
   - `finish(summary)`.
+- **Feedback the harness adds** (`agent.py`). The model's reasoning is sent
+  back with its turns, as the main harness does on OpenRouter; compaction
+  trims old tool outputs and all but the last 10 turns' reasoning once the
+  prompt passes 140K tokens. When a turn changes `engine.py` (by any tool,
+  including Python) without testing it, a full replay runs automatically and
+  its summary is appended to the turn's output. After every 30 turns without a
+  test, a reminder to write and test is appended instead. The prompt asks for a
+  `notes.md` of established facts, which outlives compaction and interruptions.
+  These came from pilot sessions; see [RESULTS.md](RESULTS.md).
 - **Passing.** A step matches when the number of frames, every pixel of every
   frame, the state, levels completed, win levels and available actions all
   match. The session stops when a full replay matches every step, when the
   model calls `finish` twice, or when a budget (turns, output tokens, cost,
-  wall time) runs out.
+  wall time) runs out. An interrupted session resumes from its `engine.py`
+  with a fresh conversation that carries its notes and last reasoning.
 - **Sandbox** (`guard.py`). The kernel and the candidate run in subprocesses
   with an audit hook: reads only under the Python installation, system
   directories, the workspace and (kernel only) the trace; writes only to the
@@ -77,7 +87,10 @@ From `ARC3-Inference/`, with `OPENROUTER_API_KEY` set and the game files in
 `environment_files/` (see `LOCAL_EVAL.md`):
 
 ```bash
-# 1. A harness run to learn from (or use an existing one under runs/)
+# 1. A harness run to learn from, e.g. the archived one (the bucket allows anonymous reads):
+dvc remote modify --local storage allow_anonymous_login true
+env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY dvc pull runs/20261004_135539.dvc
+# or a new one:
 make interactive CONFIG_PATH=configs/inference.openrouter.json MODEL=qwen/qwen3.8-flash \
   GAME=ls20,ft09,vc33,sp80,lp85 GAME_TAGS=[] N_PASSES=1 ENVIRONMENTS_DIR=environment_files \
   EXPERIMENTS_DIR=runs MAX_GENERATED_TOKENS_PER_GAME=150000 MAX_RUNTIME_MINUTES=60
