@@ -157,6 +157,11 @@ credentials from the usual places, such as `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY`, or `~/.aws/credentials`. Run the commands below from
 `ARC3-Inference/`.
 
+Without credentials, DVC can use a bucket that allows anonymous access when
+`dvc remote modify --local storage allow_anonymous_login true` is set. S3
+refuses anonymous multipart uploads, so `dvc push` then fails on large files,
+such as request logs over about 100 MB.
+
 ### Run an eval through DVC
 
 `params.yaml` holds the run settings: `eval.make` is passed to
