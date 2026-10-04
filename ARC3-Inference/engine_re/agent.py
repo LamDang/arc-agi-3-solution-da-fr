@@ -56,6 +56,11 @@ NUDGE = (
 # harness runs a full replay and appends this summary to the turn's last output.
 AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (full replay):\n{report}"
 AUTO_TEST_CHARS = 2500
+PYTHON_PAUSED = (
+    "[harness] Python is paused: {n} python calls since engine.py last changed. Write what you have established "
+    "into engine.py now with write_engine or edit_engine (even partially); python resumes as soon as engine.py "
+    "changes. run_tests then shows exactly which step and pixels to fix next."
+)
 MAX_ENGINE_BYTES = 3_000_000
 
 
@@ -65,6 +70,9 @@ class Budget:
     max_output_tokens: int = 1_000_000
     max_cost_usd: float = 5.0
     max_minutes: float = 150.0
+    # If set: after this many python calls without any change to engine.py,
+    # the python tool pauses until engine.py changes (an analysis quota).
+    python_quota: int | None = None
 
 
 @dataclass
@@ -178,6 +186,7 @@ class AgentResult:
     resumes: int = 0
     nudges: int = 0
     auto_tests: int = 0
+    python_paused: int = 0
 
 
 class EngineAgent:
@@ -202,10 +211,21 @@ class EngineAgent:
         self.started = time.time()
         self.turns_since_test = 0
         self.tested_hash: str | None = None
+        self.python_since_change = 0
+        self.engine_hash_seen: str | None = None
 
     # --- tools -----------------------------------------------------------------
 
     def _tool_python(self, code: str) -> str:
+        current = self._engine_hash()
+        if current != self.engine_hash_seen:
+            self.engine_hash_seen = current
+            self.python_since_change = 0
+        quota = self.budget.python_quota
+        if quota is not None and self.python_since_change >= quota:
+            self.result.python_paused += 1
+            return PYTHON_PAUSED.format(n=self.python_since_change)
+        self.python_since_change += 1
         return _truncate(self.kernel.execute(code))
 
     def _tool_view_engine(self, start_line: int | None = None, end_line: int | None = None) -> str:
@@ -398,9 +418,16 @@ class EngineAgent:
             )
         else:
             opening = first_user_message(self.game, self.trace, engine)
-        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": opening}]
+        system = SYSTEM_PROMPT
+        if self.budget.python_quota is not None:
+            system += (
+                f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
+                "engine.py, and resumes as soon as engine.py changes. Write what you learn into engine.py as you go."
+            )
+        self.messages = [{"role": "system", "content": system}, {"role": "user", "content": opening}]
         # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.
         self.tested_hash = self._engine_hash()
+        self.engine_hash_seen = self.tested_hash
         idle_turns = 0
         try:
             while True:

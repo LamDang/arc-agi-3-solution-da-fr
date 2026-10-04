@@ -160,3 +160,25 @@ def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: 
     assert result.auto_tests == 1
     assert result.status == "passed"
     assert any("[harness] engine.py changed" in m.get("content", "") for m in agent.messages if m["role"] == "tool")
+
+
+def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    model = _ScriptedModel(
+        [
+            [("python", {"code": "1"})],
+            [("python", {"code": "2"})],
+            [("python", {"code": "3"})],  # over the quota: paused
+            [("edit_engine", {"old_str": "pass", "new_str": "pass  # changed", "replace_all": True})],
+            [("python", {"code": "4"})],  # engine changed: runs again
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5, python_quota=2), client=model)
+    agent.run()
+    outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert outputs[0].strip() == "1" and outputs[1].strip() == "2"
+    assert outputs[2].startswith("[harness] Python is paused")
+    assert outputs[4].strip() == "4"
+    assert agent.result.python_paused == 1

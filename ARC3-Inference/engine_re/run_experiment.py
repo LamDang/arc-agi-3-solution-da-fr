@@ -74,6 +74,9 @@ def main() -> int:
     parser.add_argument("--max-output-tokens", type=int, default=Budget.max_output_tokens)
     parser.add_argument("--max-cost", type=float, default=Budget.max_cost_usd)
     parser.add_argument("--max-minutes", type=float, default=Budget.max_minutes)
+    parser.add_argument(
+        "--python-quota", type=int, default=None, help="Pause the python tool after this many calls without an engine.py change."
+    )
     parser.add_argument("--max-steps", type=int, default=None, help="Use only the first N steps of each trace.")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
@@ -88,7 +91,7 @@ def main() -> int:
         return 0
 
     model = ModelConfig(model=args.model)
-    budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
+    budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes, args.python_quota)
 
     def work(game: str) -> None:
         previous = game_dirs[game] / "result.json"
