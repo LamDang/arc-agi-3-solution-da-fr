@@ -1,0 +1,72 @@
+{
+  "20261004_135539": {
+    "games": {
+      "ft09": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 6,
+        "total_levels": 6,
+        "actions": 100,
+        "benchmark_output_tokens": 0,
+        "minutes": 30.5
+      },
+      "lp85": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 8,
+        "total_levels": 8,
+        "actions": 119,
+        "benchmark_output_tokens": 0,
+        "minutes": 44.6
+      },
+      "ls20": {
+        "score": 30.97248943389036,
+        "state": "gave_up",
+        "levels_completed": 5,
+        "total_levels": 7,
+        "actions": 866,
+        "benchmark_output_tokens": 0,
+        "minutes": 170.1
+      },
+      "sp80": {
+        "score": 3.741145218417946,
+        "state": "gave_up",
+        "levels_completed": 1,
+        "total_levels": 6,
+        "actions": 111,
+        "benchmark_output_tokens": 0,
+        "minutes": 117.0
+      },
+      "vc33": {
+        "score": 100.0,
+        "state": "won",
+        "levels_completed": 7,
+        "total_levels": 7,
+        "actions": 331,
+        "benchmark_output_tokens": 0,
+        "minutes": 67.2
+      }
+    },
+    "total": {
+      "responses": 729.0,
+      "prompt_tokens": 55482316.0,
+      "cached_tokens": 51319808.0,
+      "completion_tokens": 1517451.0,
+      "thinking_tokens": 1347127.0,
+      "tool_call_tokens": 170324.0,
+      "cost_usd": 2.100991338000001,
+      "code_read_calls": 0.0,
+      "code_output_chars": 0.0,
+      "code_read_call_tokens": 0.0,
+      "context_code_tokens_est": 0.0,
+      "thinking_mechanics": 782252.5359764099,
+      "thinking_source_code": 26631.871588216858,
+      "thinking_planning": 516841.23555320356,
+      "thinking_tooling": 36857.96264505542,
+      "thinking_unlabelled": 10378.0,
+      "thinking_other": 797.2658253312293
+    },
+    "responses_with_text": 724,
+    "responses": 729
+  }
+}

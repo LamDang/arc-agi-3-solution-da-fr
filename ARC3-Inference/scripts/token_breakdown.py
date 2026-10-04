@@ -32,7 +32,6 @@ import hashlib
 import json
 import os
 import re
-import threading
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -371,24 +370,30 @@ def label(run: str, responses: list[Response], cache: Path, workers: int = 8) ->
         return labels
     api_key = os.environ["OPENROUTER_API_KEY"]
     batches = [todo[start : start + LABEL_BATCH] for start in range(0, len(todo), LABEL_BATCH)]
-    print(f"{run}: labelling {len(todo)} excerpts in {len(batches)} requests")
+    # about $0.33 per 1,000 excerpts with Haiku 4.5 at $1/$5 per M tokens
+    print(
+        f"{run}: labelling {len(todo)} excerpts in {len(batches)} requests, "
+        f"about ${len(todo) * 0.00033:.2f}"
+    )
     cache.parent.mkdir(parents=True, exist_ok=True)
-    lock = threading.Lock()
     spent = 0.0
-    with cache.open("a", encoding="utf-8") as sink, concurrent.futures.ThreadPoolExecutor(
-        workers
-    ) as pool:
-        for done, (result, cost) in enumerate(
-            pool.map(lambda batch: _label_batch(batch, api_key), batches), start=1
-        ):
-            with lock:
+    pool = concurrent.futures.ThreadPoolExecutor(workers)
+    try:
+        with cache.open("a", encoding="utf-8") as sink:
+            for done, (result, cost) in enumerate(
+                pool.map(lambda batch: _label_batch(batch, api_key), batches), start=1
+            ):
                 spent += cost
                 for excerpt_id, item in result.items():
                     labels[excerpt_id] = {"id": excerpt_id, **item}
                     sink.write(json.dumps(labels[excerpt_id]) + "\n")
                 sink.flush()
-            if done % 25 == 0 or done == len(batches):
-                print(f"{run}: {done}/{len(batches)} requests, ${spent:.2f}")
+                if done % 25 == 0 or done == len(batches):
+                    print(f"{run}: {done}/{len(batches)} requests, ${spent:.2f}", flush=True)
+    finally:
+        # pool.map queues every batch up front; on an interrupt, drop the
+        # ones not yet sent instead of paying for them
+        pool.shutdown(wait=True, cancel_futures=True)
     return labels
 
 
