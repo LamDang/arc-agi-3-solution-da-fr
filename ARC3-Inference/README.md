@@ -73,6 +73,9 @@ export OPENROUTER_API_KEY=your-key
 CONFIG_PATH=configs/inference.openrouter.json make interactive
 ```
 
+For a scored subsample run through OpenRouter, including setup, game files,
+limits, and token accounting, see [LOCAL_EVAL.md](LOCAL_EVAL.md).
+
 ## Agent interface
 
 For each game, `HarnessSolver` provides the latest board, valid actions,

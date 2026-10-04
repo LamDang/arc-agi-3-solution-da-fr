@@ -9,6 +9,10 @@ __pycache__/
 # Runtime caches (created by `make`/`make view`)
 .cache/
 
+# Local eval: downloaded game files and run outputs
+environment_files/
+runs/
+
 # Node (figure tooling, if reintroduced)
 node_modules/
 
