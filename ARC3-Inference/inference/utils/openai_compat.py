@@ -80,6 +80,18 @@ def build_chat_payload(
         if payload["stream"]:
             payload["stream_options"] = {"include_usage": True}
         payload["reasoning"] = {"enabled": bool(thinking)}
+        # A reply cut off at max_tokens while still reasoning is kept in history
+        # as an assistant message with content=None and no tool calls. Some
+        # upstreams (Alibaba) reject null content with HTTP 400 on every later
+        # request, which ends the game; "" is accepted and renders the same.
+        payload["messages"] = [
+            {**message, "content": ""}
+            if message.get("role") == "assistant"
+            and message.get("content") is None
+            and not message.get("tool_calls")
+            else message
+            for message in messages
+        ]
         _order = os.environ.get("OPENROUTER_PROVIDER_ORDER", "").strip()
         if _order:
             payload["provider"] = {
