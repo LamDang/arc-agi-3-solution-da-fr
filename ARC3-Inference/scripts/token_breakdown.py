@@ -75,6 +75,7 @@ class Response:
     game: str
     index: int
     analysis_step: int
+    action: int
     level: int
     finish_reason: str
     prompt_tokens: int
@@ -120,14 +121,15 @@ def _message_key(message: dict[str, Any]) -> str:
     return "sha:" + hashlib.sha1(body.encode("utf-8")).hexdigest()
 
 
-def _records(path: Path) -> Iterator[dict[str, Any]]:
-    with path.open(encoding="utf-8") as lines:
-        for line in lines:
-            yield json.loads(line)
+def _records(paths: list[Path]) -> Iterator[dict[str, Any]]:
+    for path in paths:
+        with path.open(encoding="utf-8") as lines:
+            for line in lines:
+                yield json.loads(line)
 
 
-def load_responses(log: Path, game: str) -> list[Response]:
-    """The log's responses, each with the assistant message it produced.
+def load_responses(logs: list[Path], game: str) -> list[Response]:
+    """The responses in a game run's logs, each with the assistant message it produced.
 
     A response's message first appears in a later request. New messages there
     go to the most recent responses still waiting for one, so a message the
@@ -141,7 +143,7 @@ def load_responses(log: Path, game: str) -> list[Response]:
     code_call_ids: set[str] = set()
     level = 1
     request: dict[str, Any] = {}
-    for record in _records(log):
+    for record in _records(logs):
         if record.get("event") == "request":
             request = record
             messages = record.get("messages") or []
@@ -189,6 +191,7 @@ def load_responses(log: Path, game: str) -> list[Response]:
             game=game,
             index=len(responses),
             analysis_step=int(record.get("analysis_step") or 0),
+            action=int(record.get("action") or 0),
             level=level,
             finish_reason=str(record.get("finish_reason") or ""),
             prompt_tokens=int(usage.get("prompt_tokens") or 0),
@@ -230,11 +233,65 @@ def _attach(
             response.code_read_call_chars += len(arguments)
 
 
+def _continued_game(generic: Path, logs: dict[str, list[Path]]) -> str:
+    """The game whose log the run-level requests.jsonl continues.
+
+    Runs made before the log-naming fix moved a game's log there once it was
+    the only game playing. Its first request repeats tool calls from that
+    game's own log.
+    """
+    first = next(r for r in _records([generic]) if r.get("event") == "request")
+    ids = [
+        str(call.get("id"))
+        for message in first.get("messages") or []
+        if message.get("role") == "assistant"
+        for call in message.get("tool_calls") or []
+    ]
+    owners = [
+        game
+        for game, paths in logs.items()
+        if any(call_id in paths[0].read_text(encoding="utf-8") for call_id in ids[:5])
+    ]
+    if len(owners) != 1:
+        raise SystemExit(f"Cannot tell which game {generic} continues: {owners}")
+    return owners[0]
+
+
+def _benchmark(run_dir: Path) -> dict[str, dict[str, Any]]:
+    path = run_dir / "benchmark.json"
+    if not path.exists():
+        return {}
+    runs = json.loads(path.read_text(encoding="utf-8"))["game_runs"]
+    return {run["game_id"].split("-", 1)[0]: run for run in runs}
+
+
+def _level_at(run: dict[str, Any], action: int) -> int:
+    """The level being played when `action` is the number of the next action."""
+    done, level = 0, 1
+    for count in (run.get("actions_per_level") or [])[: int(run.get("levels_completed") or 0)]:
+        done += count
+        if done <= action - 1:
+            level += 1
+    return level
+
+
 def load_run(run_dir: Path) -> list[Response]:
+    logs = {
+        log.name.split("-", 1)[0]: [log] for log in sorted(run_dir.glob("*_requests.jsonl"))
+    }
+    generic = run_dir / "requests.jsonl"
+    if generic.exists():
+        logs[_continued_game(generic, logs)].append(generic)
+    benchmark = _benchmark(run_dir)
     responses: list[Response] = []
-    for log in sorted(run_dir.glob("*_requests.jsonl")):
-        game = log.name.split("-", 1)[0]
-        responses.extend(load_responses(log, game))
+    for game, paths in logs.items():
+        for response in load_responses(paths, game):
+            # benchmark.json places level changes exactly; the turn opener
+            # only reports them at the next turn, but is current when
+            # benchmark.json (saved every 10 minutes) is not
+            if game in benchmark:
+                response.level = max(response.level, _level_at(benchmark[game], response.action))
+            responses.append(response)
     return responses
 
 
@@ -382,24 +439,43 @@ def _sum(rows: list[Response], labels: dict[str, dict] | None) -> dict[str, floa
 
 
 def _game_results(run_dir: Path) -> dict[str, dict[str, Any]]:
-    results: dict[str, dict[str, Any]] = {}
+    scores: dict[str, float] = {}
     evaluation = run_dir / "evaluation.json"
     if evaluation.exists():
         for game in json.loads(evaluation.read_text(encoding="utf-8"))["games"]:
-            results[game["game_id"].split("-", 1)[0]] = {
-                "score": game["score"],
-                "levels_completed": game["levels_completed"],
-                "total_levels": game["total_levels"],
+            scores[game["game_id"].split("-", 1)[0]] = game["score"]
+    results: dict[str, dict[str, Any]] = {}
+    for game, run in _benchmark(run_dir).items():
+        results[game] = {
+            "score": scores.get(game, run.get("final_score")),
+            "state": run.get("state"),
+            "levels_completed": int(run.get("levels_completed") or 0),
+            "total_levels": run.get("number_of_levels"),
+            "actions": sum(run.get("actions_per_level") or []),
+            "benchmark_output_tokens": run.get("final_generated_tokens"),
+            "minutes": round(float(run.get("final_wallclock_seconds") or 0) / 60, 1),
+        }
+    return results
+
+
+def _level_results(run_dir: Path) -> dict[tuple[str, int], dict[str, Any]]:
+    """Actions per level and the official level score: min(115, (baseline / actions)^2 x 100)."""
+    results: dict[tuple[str, int], dict[str, Any]] = {}
+    for game, run in _benchmark(run_dir).items():
+        completed = int(run.get("levels_completed") or 0)
+        base = run.get("base_actions_per_level") or []
+        for number, actions in enumerate(run.get("actions_per_level") or [], start=1):
+            solved = number <= completed
+            results[(game, number)] = {
+                "solved": solved,
+                "actions": actions,
+                "baseline_actions": base[number - 1] if number <= len(base) else None,
+                "level_score": (
+                    min(115.0, (base[number - 1] / actions) ** 2 * 100)
+                    if solved and actions and number <= len(base)
+                    else 0.0
+                ),
             }
-    benchmark = run_dir / "benchmark.json"
-    if benchmark.exists():
-        for run in json.loads(benchmark.read_text(encoding="utf-8"))["game_runs"]:
-            entry = results.setdefault(run["game_id"].split("-", 1)[0], {})
-            entry["state"] = run.get("state")
-            entry["actions"] = len(run.get("actions") or [])
-            entry["benchmark_output_tokens"] = sum(
-                int(action.get("output_tokens") or 0) for action in run.get("actions") or []
-            )
     return results
 
 
@@ -477,8 +553,12 @@ def main() -> int:
             response_rows.append(row)
         for game, rows in sorted(by_game.items()):
             game_rows.append({"run": run, "game": game, **results.get(game, {}), **_sum(rows, labels)})
+        level_results = _level_results(run_dir)
         for (game, level), rows in sorted(by_level.items()):
-            level_rows.append({"run": run, "game": game, "level": level, **_sum(rows, labels)})
+            level_rows.append({
+                "run": run, "game": game, "level": level,
+                **level_results.get((game, level), {}), **_sum(rows, labels),
+            })
         matched = sum(r.matched for r in responses)
         summary[run] = {
             "games": {game: results.get(game, {}) for game in sorted(by_game)},
