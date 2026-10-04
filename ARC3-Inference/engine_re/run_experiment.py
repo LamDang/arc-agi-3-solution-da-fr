@@ -7,6 +7,9 @@ For each game: rebuild the trace from the run's event log by replaying the
 logged actions through the real engine (checking every final frame against the
 logged board), then let one agent per game work in parallel. Writes
 ``<out>/summary.json`` and ``<out>/summary.md``.
+
+Running the same command again skips finished games and continues interrupted
+ones (see engine_re.agent).
 """
 
 from __future__ import annotations
@@ -16,7 +19,6 @@ import json
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
 from pathlib import Path
 
 from engine_re.agent import Budget, EngineAgent, ModelConfig
@@ -89,6 +91,10 @@ def main() -> int:
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
 
     def work(game: str) -> None:
+        previous = game_dirs[game] / "result.json"
+        if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") != "running":
+            print(f"[{game}] already finished; skipping", flush=True)
+            return
         agent = EngineAgent(game, game_dirs[game], model, budget)
         result = agent.run()
         final = result.final or {}
@@ -97,7 +103,6 @@ def main() -> int:
             f"output tokens {result.usage.completion_tokens:,}, cost ${result.usage.cost_usd:.3f}",
             flush=True,
         )
-        (game_dirs[game] / "result.json").write_text(json.dumps(asdict(result), indent=2) + "\n", encoding="utf-8")
 
     with ThreadPoolExecutor(max_workers=len(games)) as pool:
         for future in [pool.submit(work, g) for g in games]:

@@ -11,6 +11,11 @@ One `EngineAgent` works on one game in its own directory:
 
 The session stops when a full replay matches every step, when the model calls
 finish twice, or when a budget (turns, output tokens, cost, wall time) runs out.
+
+Sessions survive interruptions: result.json is rewritten every turn with status
+"running", and running a game again whose session did not end continues from
+its engine.py with a fresh conversation, carrying over the turns, tokens, cost,
+time and test history recorded so far.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from typing import Any
 import requests
 
 from engine_re.kernel import KernelClient
-from engine_re.prompts import SYSTEM_PROMPT, TOOLS, first_user_message
+from engine_re.prompts import SYSTEM_PROMPT, TOOLS, first_user_message, resume_user_message
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import replay_test
 from engine_re.trace import Trace
@@ -50,7 +55,7 @@ class ModelConfig:
     model: str = "qwen/qwen3.8-flash"
     temperature: float = 0.7
     top_p: float = 0.95
-    max_tokens: int = 16384
+    max_tokens: int = 32768
     reasoning: bool = True
     # Above this prompt size, old tool outputs are elided from the history.
     compact_prompt_tokens: int = 110_000
@@ -149,6 +154,7 @@ class AgentResult:
     finish_summary: str | None = None
     error: str | None = None
     trace_steps: int = 0
+    resumes: int = 0
 
 
 class EngineAgent:
@@ -168,6 +174,8 @@ class EngineAgent:
         self.finish_requests = 0
         self.best_exact = -1
         self.passed = False
+        self.prior_minutes = 0.0
+        self.started = time.time()
 
     # --- tools -----------------------------------------------------------------
 
@@ -258,9 +266,46 @@ class EngineAgent:
 
     # --- loop --------------------------------------------------------------------
 
+    def _elapsed_minutes(self) -> float:
+        return self.prior_minutes + (time.time() - self.started) / 60
+
     def _log(self, record: dict[str, Any]) -> None:
+        record["elapsed_min"] = round(self._elapsed_minutes(), 3)
         with (self.dir / "transcript.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
+
+    def _save_result(self) -> None:
+        self.result.minutes = round(self._elapsed_minutes(), 2)
+        (self.dir / "result.json").write_text(json.dumps(asdict(self.result), indent=2) + "\n", encoding="utf-8")
+
+    def _restore(self) -> bool:
+        """Load the turns, tokens, time and tests of an interrupted session."""
+        transcript = self.dir / "transcript.jsonl"
+        if not transcript.exists():
+            return False
+        for line in transcript.read_text(encoding="utf-8").splitlines():
+            record = json.loads(line)
+            if "finish_reason" in record:
+                self.result.turns = max(self.result.turns, record["turn"])
+                self.result.usage.add(record.get("usage") or {})
+            elif "tool" in record:
+                self.result.tool_calls[record["tool"]] = self.result.tool_calls.get(record["tool"], 0) + 1
+            self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
+        tests = self.dir / "tests.jsonl"
+        if tests.exists():
+            for line in tests.read_text(encoding="utf-8").splitlines():
+                entry = json.loads(line)
+                self.result.tests_run += 1
+                if entry.get("from_level") in (None, 0):
+                    if entry["exact"] > self.best_exact:
+                        self.best_exact = entry["exact"]
+                        self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
+                    if entry.get("passed") and self.result.first_pass_turn is None:
+                        self.result.first_pass_turn = entry["turn"]
+        previous = self.dir / "result.json"
+        if previous.exists():
+            self.result.resumes = int(json.loads(previous.read_text(encoding="utf-8")).get("resumes", 0)) + 1
+        return self.result.turns > 0
 
     def _compact(self) -> None:
         """Elide old tool outputs and large tool-call arguments to bound the prompt."""
@@ -276,7 +321,7 @@ class EngineAgent:
                 if len(args) > 1500:
                     call["function"]["arguments"] = json.dumps({"elided": f"{len(args)} characters of arguments elided to save context"})
 
-    def _over_budget(self, started: float) -> str | None:
+    def _over_budget(self) -> str | None:
         u = self.result.usage
         if self.result.turns >= self.budget.max_turns:
             return "budget_turns"
@@ -284,7 +329,7 @@ class EngineAgent:
             return "budget_tokens"
         if u.cost_usd >= self.budget.max_cost_usd:
             return "budget_cost"
-        if (time.time() - started) / 60 >= self.budget.max_minutes:
+        if self._elapsed_minutes() >= self.budget.max_minutes:
             return "budget_time"
         return None
 
@@ -295,16 +340,19 @@ class EngineAgent:
 
     def run(self) -> AgentResult:
         self.setup()
-        started = time.time()
-        skeleton = self.engine_path.read_text(encoding="utf-8")
-        self.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": first_user_message(self.game, self.trace, skeleton)},
-        ]
+        self.started = time.time()
+        engine = self.engine_path.read_text(encoding="utf-8")
+        if self._restore():
+            report = replay_test(self.engine_path, self.trace, details=2, scratch_root=self.dir)
+            opening = resume_user_message(self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()))
+        else:
+            opening = first_user_message(self.game, self.trace, engine)
+        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": opening}]
         idle_turns = 0
         try:
             while True:
-                reason = self._over_budget(started)
+                self._save_result()
+                reason = self._over_budget()
                 if reason:
                     self.result.status = reason
                     break
@@ -366,9 +414,8 @@ class EngineAgent:
             self.result.error = f"{type(exc).__name__}: {exc}"
         finally:
             self.kernel.stop()
-            self.result.minutes = round((time.time() - started) / 60, 2)
             self._final_test()
-            (self.dir / "result.json").write_text(json.dumps(asdict(self.result), indent=2) + "\n", encoding="utf-8")
+            self._save_result()
         return self.result
 
     def _final_test(self) -> None:

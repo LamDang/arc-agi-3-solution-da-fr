@@ -82,6 +82,21 @@ engine.py currently holds this skeleton (the structure every real game follows; 
 Start by exploring the recording with the python tool."""
 
 
+def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_lines: int) -> str:
+    return f"""Game: {game}. Reproduce its engine in engine.py.
+
+The recording:
+{describe_trace(trace)}
+
+This continues an earlier session on this game ({turns} turns) that was interrupted. Its conversation is gone and the
+python kernel was restarted (its variables are gone), but engine.py ({engine_lines} lines) holds the work so far.
+Its current test result:
+
+{test_report}
+
+Read engine.py with view_engine, then continue."""
+
+
 TOOLS = [
     {
         "type": "function",
