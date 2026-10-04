@@ -9,9 +9,11 @@ __pycache__/
 # Runtime caches (created by `make`/`make view`)
 .cache/
 
-# Local eval: downloaded game files and run outputs
+# Local eval: downloaded game files and run outputs. Runs archived with
+# `dvc add` keep their .dvc pointer files in git; the data lives in DVC.
 environment_files/
-runs/
+**/runs/*
+!**/runs/*.dvc
 
 # Node (figure tooling, if reintroduced)
 node_modules/

@@ -1,0 +1,9 @@
+# Add patterns of files dvc should ignore, which could improve
+# the performance. Learn more at
+# https://dvc.org/doc/user-guide/dvcignore
+
+# Python caches change on every run; keep them out of stage dependencies
+# and cached outputs.
+__pycache__/
+*.pyc
+*.egg-info/

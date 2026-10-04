@@ -1,0 +1,75 @@
+# Settings for the DVC eval stage in dvc.yaml. `dvc exp run` re-runs the eval
+# when these, the harness code, the config files or the game files change.
+#
+# The values below are those of runs/20261004_135539: qwen/qwen3.8-flash on
+# OpenRouter with the Kaggle submission config (128K context, 10x image
+# upscale), 5 public games, 1 pass, 500K output tokens per game.
+eval:
+  # Passed to `make interactive` as KEY=value. The stage always sets
+  # ENVIRONMENTS_DIR=environment_files and EXPERIMENT_DIR=runs/dvc-eval.
+  make:
+    CONFIG_PATH: configs/inference.openrouter.json
+    MODEL: qwen/qwen3.8-flash
+    GAME: ls20,ft09,vc33,sp80,lp85
+    GAME_TAGS: "[]"
+    N_PASSES: 1
+    MAX_GENERATED_TOKENS_PER_GAME: 500000
+    MAX_RUNTIME_MINUTES: 240
+    ANALYZER_TIMEOUT: 900
+    ANALYZER_SAVE_REQUEST_LOGS: true
+  # Exported for the run. Variables with the prefixes ARC3_, LOCAL_ANALYZER_
+  # or MULTIMODAL_ that are not listed here are removed from the run's
+  # environment, so settings in the shell cannot change the result unseen.
+  # API keys (*_API_KEY) are always passed through.
+  #
+  # Kaggle submission notebook (dfranzen/arc-agi-3-milestone-2-solution v3,
+  # cell 4), minus Kaggle/SGLang-only items: server URLs, warmup reset and
+  # the reasoning_content key.
+  env:
+    LOCAL_ANALYZER_ENABLE_THINKING: true
+    LOCAL_ANALYZER_TOOL_STEPS: 0
+    LOCAL_ANALYZER_TOOL_TIMEOUT: 30
+    LOCAL_ANALYZER_YIELD_SECONDS: 0
+    LOCAL_ANALYZER_YIELD_TOKENS: 2048
+    LOCAL_ANALYZER_TEMPERATURE: 0.7
+    LOCAL_ANALYZER_TOP_P: 0.95
+    LOCAL_ANALYZER_TOP_K: 20
+    LOCAL_ANALYZER_CONTEXT_WINDOW: 131072
+    LOCAL_ANALYZER_MAX_OUTPUT: 12288
+    LOCAL_ANALYZER_TIMEOUT: 900
+    ARC3_CONTEXT_DRAIN_TOKENS: 59392
+    ARC3_HISTORY_ASSISTANT_TURNS: 150
+    ARC3_HISTORY_TURN_DRAIN: 30
+    ARC3_HISTORY_DRAIN_COALESCE: 1
+    LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS: 3072
+    ARC3_MIDDLE_TRUNCATION: 1
+    ARC3_ACTION_ECHO: 1
+    ARC3_EXPLAIN_GAMEPLAY_CHANGED: 1
+    ARC3_NEW_CHANGED_PROMPTS: 1
+    ARC3_LEVEL_TRANSFER_GUIDANCE: 1
+    ARC3_ACTION_INFO: 1
+    ARC3_DEDUPE_MULTICALL_LINE: 1
+    ARC3_FRAME_DIFF_HINT: 1
+    MULTIMODAL_CONTEXT: current_grid
+    MULTIMODAL_UPSCALE: 10
+    ARC3_DIFF_IMAGE: 1
+    ARC3_GAMEOVER_DIFF_IMAGE: 1
+    ARC3_ANIMATION: 1
+    ARC3_GUARDS_FROM_LEVEL: 2
+    ARC3_BATCH_NOOP_BLOCK: 1
+    ARC3_STALE_STATE_BLOCK: 1
+    ARC3_MEMORY_SECTIONS: "off"
+    ARC3_PERSISTENT_FUNCTIONS: 1
+    ARC3_PERSISTENT_FUNCTIONS_SCOPE: game
+    ARC3_PERSISTENT_FUNCTIONS_IMPORTS: 1
+    EXPOSE_UNDO: "on"
+    ARC3_MAX_ACTIVE_STREAMS: 10
+    ARC3_PRIORITY_REFRESH_QUEUE: 1
+    ARC3_PRIORITY_PACE: 0
+    ARC3_PRIORITY_TAIL_FADE: 1
+    ARC3_PRIORITY_TAIL_FADE_FRACTION: 0.2
+    ARC3_PRIORITY_TAIL_LOOKUP: remaining
+    ARC3_PRIORITY_SCORE_NORMALIZATION: 1
+    ONLY_RESET_LEVELS: true
+    # Infrastructure only: retry OpenRouter 429s instead of aborting the turn.
+    ARC3_HTTP_RETRIES: -1
