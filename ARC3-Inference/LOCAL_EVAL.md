@@ -89,6 +89,29 @@ make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
   to 10 minutes behind and is replayed even if it had just finished.
 - If every run in the earlier directory finished, nothing runs.
 
+## Let the agent read the game code
+
+For experiments, the agent can be given read access to its game's source code:
+the game's module and the `arcengine` package it is built on.
+
+```bash
+uv run --no-sync python scripts/extract_game_code.py ls20 ft09 vc33 sp80 lp85
+ARC3_GAME_CODE_DIR=game_code make interactive <settings>
+```
+
+- `scripts/extract_game_code.py` copies each game's module byte for byte from
+  `environment_files/`, the file the game loader runs, and the installed
+  `arcengine` package, into `game_code/`. `game_code/manifest.json` records
+  each file's source and sha256. `game_code/` in git holds the 5 games above.
+- With `ARC3_GAME_CODE_DIR` set, the python tool has `game_code_files`,
+  `game_code(file=None)` (a file's full text) and
+  `read_game_code(start=1, end=None, file=None)` (numbered lines), and the
+  system prompt describes them. The agent can read the code but not run it.
+- A game whose code is missing from the directory fails instead of playing
+  without it. `artifacts/<game>_p<pass>_game_code.json` lists the files the
+  agent could read, with their hashes.
+- Unset or empty, the default, the agent is unchanged.
+
 ## Limits
 
 | Override | Applies to | Notes |
@@ -146,6 +169,8 @@ Other tools:
 | `<game>_p<pass>_requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
+| `artifacts/*_game_code.json` | Only with `ARC3_GAME_CODE_DIR`: the source files the agent could read, with sha256 and line counts. |
+| `eval_settings.json` | Only in runs made by `scripts/dvc_eval.py`: the make variables and harness environment of the run. |
 
 ## Save and reproduce runs with DVC
 
@@ -195,6 +220,20 @@ dvc exp push origin qwen38-500k                # git ref to GitHub, data to S3
   including code, and overwrites uncommitted changes. Commit them first.
 - A failed run leaves `runs/dvc-eval/` for inspection and caches nothing.
 
+To run the same settings outside DVC, for example two arms of an experiment
+at once, call the stage's script with a run directory and overrides:
+
+```bash
+uv run --no-sync python scripts/dvc_eval.py --run-dir runs/control \
+  --metrics runs/control.metrics.json
+uv run --no-sync python scripts/dvc_eval.py --run-dir runs/engine-code \
+  --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
+```
+
+`--make KEY=VALUE` and `--env KEY=VALUE` add to or override `eval.make` and
+`eval.env`, and can be repeated. The run directory gets `eval_settings.json`
+with the settings used.
+
 ### Archive a run made with `make interactive`
 
 ```bash
@@ -239,3 +278,16 @@ EOF
 The keys are whatever OpenRouter returns in `usage`, such as `prompt_tokens`,
 `completion_tokens` and `cost`. Rolling-summary requests are not written to the
 request logs, so this total leaves them out when summaries are enabled.
+
+`scripts/token_breakdown.py` breaks the same totals down per game and level,
+and output tokens into thinking (`reasoning_tokens`) and tool calls. It also
+counts the tool calls that read game code. With `--label`, it labels what the
+thinking is about, using Claude Haiku 4.5 through OpenRouter: game mechanics,
+planning, tooling or other, and whether it discusses the game's source code.
+Labelling costs about $0.30 per 1,000 excerpts of 600 characters, and labels
+are cached in the output directory.
+
+```bash
+uv run --no-sync python scripts/token_breakdown.py runs/<run> [runs/<run> ...] \
+  --out <dir> --label
+```
