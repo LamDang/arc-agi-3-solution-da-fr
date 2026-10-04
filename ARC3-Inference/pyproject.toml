@@ -51,6 +51,8 @@ exclude = ["examples*", "rllm*", "Agent_Context*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# engine_re/ is run from this directory and is not an installed package.
+pythonpath = ["."]
 
 # TEMP: use the local editable tufa-arc-agi-framework checkout (branch submission-share-mode /
 # PR #29, for make_share_version) instead of git@main. Revert this table + the dependency line
