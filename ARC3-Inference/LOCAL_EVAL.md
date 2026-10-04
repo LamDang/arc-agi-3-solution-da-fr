@@ -147,6 +147,72 @@ Other tools:
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
 
+## Save and reproduce runs with DVC
+
+DVC keeps the game files and run directories in the S3 bucket
+`kaggle-arc-agi-3-dvc` (region `eu-west-3`, set in `.dvc/config`), and small
+pointer files in git. Install DVC with `uv tool install 'dvc[s3]==3.67.1'`.
+In Claude Code cloud sessions, the session-start hook does this. DVC reads AWS
+credentials from the usual places, such as `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`, or `~/.aws/credentials`. Run the commands below from
+`ARC3-Inference/`.
+
+Without credentials, DVC can use a bucket that allows anonymous access when
+`dvc remote modify --local storage allow_anonymous_login true` is set. S3
+refuses anonymous multipart uploads, so `dvc push` then fails on large files,
+such as request logs over about 100 MB.
+
+### Run an eval through DVC
+
+`params.yaml` holds the run settings: `eval.make` is passed to
+`make interactive`, and `eval.env` sets the harness environment. Its values
+are those of `runs/20261004_135539`. `dvc.yaml` has two stages:
+
+- `games` downloads the game files into `environment_files/`.
+- `eval` runs the games into `runs/dvc-eval/`, scores them, and writes
+  `metrics.json`: the score and levels per game, and the API tokens and cost
+  from the request logs.
+
+```bash
+dvc exp run -n qwen38-500k                     # settings from params.yaml
+dvc exp run -n qwen38-200k -S eval.make.MAX_GENERATED_TOKENS_PER_GAME=200000
+dvc exp show --only-changed                    # compare experiments
+dvc exp push origin qwen38-500k                # git ref to GitHub, data to S3
+```
+
+- The `eval` stage runs again only when `params.yaml`, the harness code, the
+  configs or the game files changed. When nothing changed, DVC restores the
+  earlier outputs from its cache instead of calling the model. Add `--force`
+  to draw a new sample with the same settings.
+- A rerun reproduces the setup, not the scores: the model samples at
+  temperature 0.7.
+- Shell variables starting with `ARC3_`, `LOCAL_ANALYZER_` or `MULTIMODAL_`
+  that `eval.env` does not list are not passed to the run, so the shell cannot
+  change a run without `params.yaml` showing it. API keys are passed.
+- `runs/dvc-eval/` is replaced by each run. To keep one in the branch history,
+  `dvc exp apply <name>`, commit, then `dvc push`.
+- `dvc exp apply` replaces the workspace files with the experiment's,
+  including code, and overwrites uncommitted changes. Commit them first.
+- A failed run leaves `runs/dvc-eval/` for inspection and caches nothing.
+
+### Archive a run made with `make interactive`
+
+```bash
+dvc add runs/<run>        # writes runs/<run>.dvc and stages it in git
+git commit -m "Archive run <run>"
+dvc push runs/<run>.dvc
+```
+
+The run's `git_info.txt` and `src/` record the code it ran.
+
+### Get a saved run
+
+```bash
+dvc pull runs/<run>.dvc                        # an archived run
+dvc pull                                       # everything the branch tracks
+dvc exp pull origin <name> && dvc exp apply <name>                   # an experiment
+```
+
 ## Token spend
 
 `benchmark.json` records output tokens per action. Its input-token field

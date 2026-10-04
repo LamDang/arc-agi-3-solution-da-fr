@@ -1,0 +1,19 @@
+schema: '2.0'
+stages:
+  games:
+    cmd: uv run --no-sync python scripts/fetch_games.py
+    deps:
+    - path: inference/framework/kaggle.py
+      hash: md5
+      md5: abbc5459fd8b7f9e5818a995b9d125a8
+      size: 17688
+    - path: scripts/fetch_games.py
+      hash: md5
+      md5: ce610637514bfe1c6dea5261dba05e27
+      size: 3039
+    outs:
+    - path: environment_files
+      hash: md5
+      md5: bbb295385f2af454e28e336f71ecdfa1.dir
+      size: 3978590
+      nfiles: 50

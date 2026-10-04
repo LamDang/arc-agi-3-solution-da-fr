@@ -1,0 +1,28 @@
+# Local eval pipeline. See LOCAL_EVAL.md, "Save and reproduce runs with DVC".
+stages:
+  games:
+    cmd: uv run --no-sync python scripts/fetch_games.py
+    deps:
+      - scripts/fetch_games.py
+      - inference/framework/kaggle.py
+    outs:
+      - environment_files
+  eval:
+    cmd: uv run --no-sync python scripts/dvc_eval.py
+    params:
+      - eval
+    deps:
+      - scripts/dvc_eval.py
+      - environment_files
+      - inference
+      - configs
+      - Makefile
+      - pyproject.toml
+      - uv.lock
+      - ../tufa-arc-agi-framework/src
+      - ../tufa-arc-agi-framework/pyproject.toml
+    outs:
+      - runs/dvc-eval
+    metrics:
+      - metrics.json:
+          cache: false

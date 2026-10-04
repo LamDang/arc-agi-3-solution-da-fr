@@ -1,0 +1,6 @@
+[core]
+    remote = storage
+    autostage = true
+['remote "storage"']
+    url = s3://kaggle-arc-agi-3-dvc
+    region = eu-west-3
