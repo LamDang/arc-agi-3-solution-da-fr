@@ -24,13 +24,14 @@ CONTROLLED_ENV_PREFIXES = ("ARC3_", "LOCAL_ANALYZER_", "MULTIMODAL_")
 USAGE_KEYS = ("prompt_tokens", "completion_tokens", "cost")
 
 
-def _text(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
+def _load_params() -> dict[str, Any]:
+    # BaseLoader reads every value as its literal text. A typed load would
+    # turn on/off/yes/no into booleans (YAML 1.1), and `dvc exp run -S`
+    # rewrites params.yaml without the quotes that prevent it.
+    return yaml.load(PARAMS_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["eval"]
 
 
-def _run_env(settings: dict[str, Any]) -> dict[str, str]:
+def _run_env(settings: dict[str, str]) -> dict[str, str]:
     env = {
         key: value
         for key, value in os.environ.items()
@@ -39,7 +40,7 @@ def _run_env(settings: dict[str, Any]) -> dict[str, str]:
     dropped = sorted(set(os.environ) - set(env) - set(settings))
     if dropped:
         print(f"dvc_eval: not passing shell settings absent from params.yaml: {', '.join(dropped)}")
-    env.update({key: _text(value) for key, value in settings.items()})
+    env.update(settings)
     return env
 
 
@@ -86,8 +87,8 @@ def _write_metrics(run_dir: Path) -> None:
 
 
 def main() -> int:
-    params = yaml.safe_load(PARAMS_PATH.read_text(encoding="utf-8"))["eval"]
-    make_vars = {key: _text(value) for key, value in (params.get("make") or {}).items()}
+    params = _load_params()
+    make_vars = dict(params.get("make") or {})
     make_vars.update(ENVIRONMENTS_DIR="environment_files", EXPERIMENT_DIR=str(RUN_DIR))
     env = _run_env(params.get("env") or {})
 

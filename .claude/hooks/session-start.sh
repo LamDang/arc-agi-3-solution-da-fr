@@ -26,6 +26,12 @@ if [[ -n "${CLAUDE_ENV_FILE:-}" ]]; then
   echo 'export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${OR_API_KEY:-}}"' >> "${CLAUDE_ENV_FILE}"
 fi
 
+# DVC saves game files and runs to the S3 remote; see LOCAL_EVAL.md. Kept out
+# of the project venv so its dependencies cannot move the harness's pins.
+if ! uv tool install --quiet 'dvc[s3]==3.67.1' >&2; then
+  echo "session-start: dvc not installed; see ARC3-Inference/LOCAL_EVAL.md" >&2
+fi
+
 # Best effort: a blocked three.arcprize.org must not fail session startup.
 if ! timeout 300 uv run --no-sync python scripts/fetch_games.py >&2; then
   echo "session-start: game files not downloaded; see ARC3-Inference/LOCAL_EVAL.md" >&2
