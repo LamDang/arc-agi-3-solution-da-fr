@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import copy
 import functools
+import hashlib
 import html
 import logging
 import json
@@ -29,6 +30,7 @@ from inference.utils.animation import (
     normalize_frames,
     summarize_animation,
 )
+from inference.agent.game_code import game_code_dir, load_game_code
 from inference.agent.action_names import (
     reset_exposed,
     to_engine_action,
@@ -1832,6 +1834,7 @@ class HarnessSolver(Solver):
         game: taaf.game.Game,
         index: int,
         local_server: _LocalServerRuntime | None = None,
+        game_code: dict[str, str] | None = None,
     ) -> Any:
         if self.analyzer_factory is not None:
             return self.analyzer_factory(game, index)
@@ -1855,7 +1858,32 @@ class HarnessSolver(Solver):
             )
             or None,
             provider="vllm" if local_server is not None else None,
+            game_code=game_code,
         )
+
+    def _game_code(self, game_id: str, run_stem: str) -> dict[str, str] | None:
+        """The source files the agent may read, or None when ARC3_GAME_CODE_DIR is unset.
+
+        Records the names and hashes of what was exposed in the run's artifacts.
+        """
+        root = game_code_dir()
+        if root is None:
+            return None
+        files = load_game_code(root, game_id)
+        record = {
+            "game_code_dir": str(root),
+            "files": {
+                name: {
+                    "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "lines": len(text.splitlines()),
+                }
+                for name, text in files.items()
+            },
+        }
+        (self._artifacts_dir() / f"{run_stem}_game_code.json").write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"
+        )
+        return files
 
     def _play_one(
         self,
@@ -1872,7 +1900,9 @@ class HarnessSolver(Solver):
             viewer_data_path = self._artifacts_dir() / f"{run_stem}_viewer_data.json"
             transcript_path = self._transcripts_dir() / f"{run_stem}.txt"
             analysis_relpath = f"solver_analysis/{run_stem}.html"
-            analyzer = self._make_analyzer(game, index, local_server)
+            analyzer = self._make_analyzer(
+                game, index, local_server, game_code=self._game_code(run.game_id, run_stem)
+            )
             session = _HarnessGameSession(
                 solver=self,
                 game=game,

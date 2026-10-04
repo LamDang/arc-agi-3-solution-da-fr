@@ -639,6 +639,45 @@ _SANDBOX_BOOTSTRAP = textwrap.dedent(
             _animation_views.extend((runtime_globals["last_animation_frames"],
                                      runtime_globals["last_animation_timeline"]))
 
+        _game_code_files = [str(name) for name in initial.get("game_code_files") or []]
+        if _game_code_files:
+            # Read-only source of the running game (ARC3_GAME_CODE_DIR). Fetched
+            # from the host on first use rather than sent with every snippet:
+            # one game module alone is 450 KB.
+            _game_code_texts = {}
+
+            class _CodeText(str):
+                # A snippet's last expression is shown as repr(), which would
+                # print the code as one escaped line.
+                def __repr__(self):
+                    return str(self)
+
+            def game_code(file=None):
+                name = _game_code_files[0] if file is None else str(file)
+                if name not in _game_code_files:
+                    raise ValueError(f"Unknown file {name!r}; see game_code_files.")
+                if name not in _game_code_texts:
+                    _send({"type": "game_code", "file": name})
+                    reply = _recv()
+                    if reply.get("type") != "game_code_result":
+                        raise RuntimeError(str(reply.get("error", "game code unavailable")))
+                    _game_code_texts[name] = str(reply.get("text", ""))
+                return _game_code_texts[name]
+
+            def read_game_code(start=1, end=None, file=None):
+                lines = game_code(file).splitlines()
+                first = max(1, int(start))
+                last = len(lines) if end is None else min(len(lines), int(end))
+                width = len(str(last))
+                return _CodeText("\n".join(
+                    f"{number:>{width}}| {lines[number - 1]}"
+                    for number in range(first, last + 1)
+                ))
+
+            runtime_globals["game_code_files"] = list(_game_code_files)
+            runtime_globals["game_code"] = game_code
+            runtime_globals["read_game_code"] = read_game_code
+
         _refresh_state(initial.get("state") or {})
 
         _persistence_enabled = bool(initial.get("persistence_enabled"))
@@ -813,6 +852,7 @@ def run_sandboxed_python(
     kept_functions: list[str] | None = None,
     retain_imports: bool = False,
     repair_hints: bool = False,
+    game_code: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="rgb_python_tool_") as sandbox_dir:
         host_action_results: list[dict[str, Any]] = []
@@ -856,6 +896,7 @@ def run_sandboxed_python(
                 "retain_imports": retain_imports,
                 "repair_hints": repair_hints,
                 "animation_enabled": animation_handler is not None,
+                "game_code_files": list(game_code or {}),
                 "timeout_seconds": timeout_seconds,
                 "sandbox_cwd": sandbox_dir,
                 "state": initial_state,
@@ -922,6 +963,14 @@ def run_sandboxed_python(
                     process.stdin,
                     {"type": "animation_result", "animation": animation_payload},
                 )
+                continue
+            if msg_type == "game_code":
+                name = str(message.get("file", ""))
+                if game_code and name in game_code:
+                    reply = {"type": "game_code_result", "text": game_code[name]}
+                else:
+                    reply = {"type": "game_code_error", "error": f"Unknown file {name!r}."}
+                _send_json_line(process.stdin, reply)
                 continue
             if msg_type == "action":
                 try:

@@ -71,5 +71,8 @@ eval:
     ARC3_PRIORITY_TAIL_LOOKUP: remaining
     ARC3_PRIORITY_SCORE_NORMALIZATION: 1
     ONLY_RESET_LEVELS: true
+    # Engine-code experiment: a directory from scripts/extract_game_code.py
+    # lets the agent read its game's source. Empty: no access.
+    ARC3_GAME_CODE_DIR: ""
     # Infrastructure only: retry OpenRouter 429s instead of aborting the turn.
     ARC3_HTTP_RETRIES: -1

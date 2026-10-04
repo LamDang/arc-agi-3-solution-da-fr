@@ -66,6 +66,7 @@ from inference.agent.vision_context import (
     current_grid_image_part,
 )
 
+from inference.agent.game_code import game_code_addendum
 from inference.agent.python_tool_sandbox import run_sandboxed_python
 from inference.agent.runtime_state import Frame, HistoryEntry, RUNTIME_STATE_FILENAME, load_runtime_state
 from inference.utils.openai_compat import (
@@ -2650,7 +2651,9 @@ def _render_auto_frame_diff(
     ]
 
 
-def _build_system_prompt(*, tool_output_tokens: int) -> str:
+def _build_system_prompt(
+    *, tool_output_tokens: int, game_code: dict[str, str] | None = None
+) -> str:
     prompt = "You are a coding agent solving a grid-based puzzle game."
     # ARC3_SYSTEM_PROMPT_PREFIX (read at call time): prepended verbatim as the
     # first line(s) of the system prompt. Intended for model-specific control
@@ -2717,6 +2720,8 @@ def _build_system_prompt(*, tool_output_tokens: int) -> str:
     if _get_env_bool("ARC3_STEP_VERIFICATION_HINT", False):
         # General checks during action sequences and targeted probes when search fails.
         prompt += STEP_VERIFICATION_ADDENDUM
+    if game_code:
+        prompt += game_code_addendum(game_code, tool_output_tokens=tool_output_tokens)
     # only describe the guards that are actually armed: prompt weight spent on a
     # mechanism that cannot fire is weight the model reads and cannot use, and an
     # exception it is told about but never sees is worse than silence
@@ -3469,6 +3474,7 @@ class ToolAgent:
         api_key: str | None = None,
         base_url: str | None = None,
         provider: str | None = None,
+        game_code: dict[str, str] | None = None,
     ) -> None:
         resolved_model = _resolve_analyzer_model(model)
         if base_url is not None or provider is not None:
@@ -3498,8 +3504,11 @@ class ToolAgent:
         self._tool_output_tokens = max(64, _LOCAL_ANALYZER_TOOL_OUTPUT_TOKENS)
         self._tool_output_chars = max(256, self._tool_output_tokens * 4)
         self._save_request_logs = bool(save_request_logs)
+        # file name -> source the python tool may read; None leaves it out
+        self._game_code = dict(game_code) if game_code else None
         self._system_prompt = _build_system_prompt(
             tool_output_tokens=self._tool_output_tokens,
+            game_code=self._game_code,
         )
         self._request_safety_margin_tokens = _REQUEST_SAFETY_MARGIN_TOKENS
         self._context_budget_tokens = max(
@@ -5901,6 +5910,7 @@ class ToolAgent:
             kept_functions=self._retained_sources(),
             retain_imports=_get_env_bool("ARC3_PERSISTENT_FUNCTIONS_IMPORTS", False),
             repair_hints=_get_env_bool("ARC3_PERSISTENT_FUNCTIONS_REPAIR_HINTS", False),
+            game_code=self._game_code,
         )
 
         action_results = [
