@@ -175,6 +175,7 @@ class EngineAgent:
         self.best_exact = -1
         self.passed = False
         self.prior_minutes = 0.0
+        self.prior_notes = ""
         self.started = time.time()
 
     # --- tools -----------------------------------------------------------------
@@ -283,11 +284,15 @@ class EngineAgent:
         transcript = self.dir / "transcript.jsonl"
         if not transcript.exists():
             return False
+        thoughts = []
         for line in transcript.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
             if "finish_reason" in record:
                 self.result.turns = max(self.result.turns, record["turn"])
                 self.result.usage.add(record.get("usage") or {})
+                text = "\n".join(t for t in (record.get("reasoning"), record.get("content")) if t)
+                if text.strip():
+                    thoughts.append((record["turn"], text.strip()))
             elif "tool" in record:
                 self.result.tool_calls[record["tool"]] = self.result.tool_calls.get(record["tool"], 0) + 1
             self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
@@ -302,6 +307,8 @@ class EngineAgent:
                         self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
                     if entry.get("passed") and self.result.first_pass_turn is None:
                         self.result.first_pass_turn = entry["turn"]
+        # The interrupted session's last thoughts, so the analysis is not all lost.
+        self.prior_notes = "\n\n".join(f"[turn {turn}] ...{text[-1500:]}" for turn, text in thoughts[-5:])
         previous = self.dir / "result.json"
         if previous.exists():
             self.result.resumes = int(json.loads(previous.read_text(encoding="utf-8")).get("resumes", 0)) + 1
@@ -344,7 +351,9 @@ class EngineAgent:
         engine = self.engine_path.read_text(encoding="utf-8")
         if self._restore():
             report = replay_test(self.engine_path, self.trace, details=2, scratch_root=self.dir)
-            opening = resume_user_message(self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()))
+            opening = resume_user_message(
+                self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()), self.prior_notes
+            )
         else:
             opening = first_user_message(self.game, self.trace, engine)
         self.messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": opening}]

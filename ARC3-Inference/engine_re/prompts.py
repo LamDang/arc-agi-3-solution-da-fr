@@ -82,7 +82,8 @@ engine.py currently holds this skeleton (the structure every real game follows; 
 Start by exploring the recording with the python tool."""
 
 
-def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_lines: int) -> str:
+def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_lines: int, notes: str = "") -> str:
+    notes_part = f"\nThe end of your reasoning in the last turns of that session:\n\n{notes}\n" if notes else ""
     return f"""Game: {game}. Reproduce its engine in engine.py.
 
 The recording:
@@ -90,7 +91,8 @@ The recording:
 
 This continues an earlier session on this game ({turns} turns) that was interrupted. Its conversation is gone and the
 python kernel was restarted (its variables are gone), but engine.py ({engine_lines} lines) holds the work so far.
-Its current test result:
+{notes_part}
+The current test result of engine.py:
 
 {test_report}
 
