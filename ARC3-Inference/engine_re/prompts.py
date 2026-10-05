@@ -98,36 +98,40 @@ Never hard-code recorded frames or anything keyed to the step number. Print what
 inside step(); the test report and try_step show it.
 
 # Example: how a session goes
-A made-up game where a blue piece moves on a grid; your game will differ. One tool call per turn; the
-reports are shortened. The harness also tests automatically after every change to engine.py.
+A made-up game where a blue piece moves on a grid; your game will differ. Every round is the same four
+moves: read the code, run the tests, edit the code, run the tests again. The reports are shortened.
 
-Turn 1, run_tests()
+Turn 1, python:
+    read()                          # engine.py with its LINE#HASH anchors
+  -> 247#KW:def make_level(n: int) -> State:  ...  251#PR:    return State(  ...  261#KB:    )
+Turn 2, run_tests()
   -> step 0 is the first failure; no step passes before it. No sprite of yours draws here.
-Turn 2, python:
-    code = auto_sprites(0)          # sprite code for level 0's first frame
-    read(offset=245, limit=20)      # the anchors of make_level
-  -> Grid: assumed 16x16 at scale 4 ... Renders the frame exactly: yes.
-     247#KW:def make_level(n: int) -> State:  ...  251#PR:    return State(  ...  261#KB:    )
-Turn 3, python:
+Turn 3, python (the first edit uses auto_sprites):
+    code = auto_sprites(0)          # sprite code that draws level 0's first frame exactly
     edit(edits=[{"op": "prepend", "pos": "247#KW", "lines": code},
                 {"op": "replace", "pos": "251#PR", "end": "261#KB",
-                 "lines": "    return State(grid=(16, 16), sprites=level_0_sprites())"}])
+                 "lines": f"    return State(grid={code.grid}, sprites=level_0_sprites())"}])
   -> engine.py: inserted 37 lines; replaced lines 251-261 with 1 line. Syntax OK.
-     Tested automatically: step 1 (ACTION4) is the first failure; 1 step passes before it.
+Turn 4, run_tests()
+  -> step 1 (ACTION4) is the first failure; 1 step passes before it.
      [1] your #3 "shape_9_2x2_a1b2" at x=4; the recording shows it one cell to the right.
-Turn 4, python:
+Turn 5, python:
+    read(offset=290, limit=15)      # the lines of step()
     before, after = try_step(1)     # what your step() did at step 1
   -> no sprite changed: step() is still empty.
-Turn 5, python: read() the lines of step(), then edit() it so that ACTION4 moves the blue piece one cell
-  right with state.try_move(piece, 1, 0).
-  -> Tested automatically: steps 0-6 pass; step 7 (ACTION4) is the first failure: the piece should not
-     have moved. [1] your #3 at x=9; in the recording it stays at x=8, next to a grey block.
-Turn 6, python: the grey blocks are walls: make that kind collidable in make_level (one edit).
-  -> Tested automatically: steps 0-15 pass; step 16 is the first failure. ...
-And so on: run the tests, take the first failing step, find the simplest rule that explains it and every
-step before it, change the code, test again. When the tests reach level 1, call auto_sprites(1) and add
-level 1 to make_level, reusing level 0's sprite kinds. Do not study later levels before the steps in front
-of you pass: the recording will still be there when you get to them.
+Turn 6, run_tests()                 # where you stand before changing anything
+  -> step 1 (ACTION4) is still the first failure.
+Turn 7, python: edit() step() so that ACTION4 moves the blue piece one cell right with
+  state.try_move(piece, 1, 0).
+Turn 8, run_tests()
+  -> steps 0-6 pass; step 7 (ACTION4) is the first failure: the piece should not have moved.
+     [1] your #3 at x=9; in the recording it stays at x=8, next to a grey block.
+Turn 9, python: read() make_level's sprite list. Turn 10, python: edit() the grey blocks' kind to be
+  collidable (they are walls). Turn 11, run_tests() -> steps 0-15 pass; step 16 is the first failure ...
+And so on, always read, run the tests, edit, run the tests: take the first failing step, find the simplest
+rule that explains it and every step before it, change the code, test again. When the tests reach level 1,
+call auto_sprites(1) and add level 1 to make_level, reusing level 0's sprite kinds. Do not study later
+levels before the steps in front of you pass: the recording will still be there when you get to them.
 """
 
 # The show() line of the built-in functions section.
@@ -329,8 +333,8 @@ engine.py now, as read() shows it (LINE#HASH anchors for edit()):
 
 {engine_read}
 
-Start as in the example of the system prompt: run_tests, then auto_sprites(0) and edit() to put that code
-into make_level, then test again."""
+Start as in the example of the system prompt: read(), run_tests, then edit() with auto_sprites(0) to put
+level 0 into make_level, then run_tests again."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:
