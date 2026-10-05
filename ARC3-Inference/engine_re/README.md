@@ -253,10 +253,14 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   (`engine_files.best_key`), since the agent works through the recording in
   order. The authoritative final test is a full replay with the full report
   (every failing step listed, `final_test.txt`). An interrupted stepwise
-  run continues its own conversation: `conversation.json` is saved after every
-  turn (or, for runs from before it, the conversation is rebuilt from
-  `transcript.jsonl`), and a note says the run resumed and the python kernel
-  restarted, so its variables are gone. A single-mode session resumes from its
+  run continues its own conversation, rebuilt from `transcript.jsonl`, which
+  logs everything the model is sent: system and user messages as sent (images
+  by their saved PNG), assistant turns, tool outputs, the text the harness
+  adds to an output (`append`) and the points where old images are hidden
+  (`hide_images`) and old turns shortened (`compact`). A note says the run
+  resumed and the python kernel restarted, so its variables are gone. A
+  transcript from before these records is rebuilt from what it has and
+  written back in full, so it is exact from then on. A single-mode session resumes from its
   `engine.py` (shown with anchors, the FIXED block folded) with a fresh
   conversation that carries its last test report and reasoning.
 - **Sandbox** (`guard.py`). The kernel and the candidate run in subprocesses

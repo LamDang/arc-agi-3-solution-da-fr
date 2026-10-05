@@ -24,10 +24,9 @@ Files, besides the usual ones (agent.py): visible_trace/ (the recording up to th
 result.json has "mode": "stepwise", "step" (the step being fixed), "passing_prefix" (of the last
 replay of the recording) and "advances" (one per accepted commit: the turn, the step fixed, the next
 failing step or null, the commit message, the engine's sha256 and version). The transcript has a
-"commit" record for each, and its records carry "step". conversation.json is the conversation, saved after
-every turn: running the same command again continues an interrupted run in that same conversation, with a
-note that it resumed and that the python kernel restarted (its variables are gone). A run from before
-conversation.json gets its conversation rebuilt from transcript.jsonl.
+"commit" record for each, and its records carry "step". transcript.jsonl holds everything the model is
+sent, so running the same command again continues an interrupted run in that same conversation, rebuilt
+from it, with a note that the run resumed and the python kernel restarted (its variables are gone).
 """
 
 from __future__ import annotations
