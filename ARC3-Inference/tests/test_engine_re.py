@@ -971,7 +971,7 @@ def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
     text = "".join(f"line {k}\n" for k in range(1, 21))
     lines, _ = hashline.split_lines(text)
     shown = hashline.render_read(text)
-    assert shown.splitlines()[0] == f"{hashline.anchor(lines, 1)}:line 1".rjust(len(shown.splitlines()[0]))
+    assert shown.splitlines()[0].strip() == f"{hashline.anchor(lines, 1)}:line 1"
     assert all(len(a.split("#")[1].split(":")[0]) == 2 for a in shown.splitlines())
     assert all(c in hashline.NIBBLES for line in shown.splitlines() for c in line.split("#")[1][:2])
     before = {n: hashline.anchor(lines, n) for n in range(1, 21)}
@@ -979,8 +979,9 @@ def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
     after_lines, _ = hashline.split_lines(edited)
     after = {n: hashline.anchor(after_lines, n) for n in range(1, 21)}
     # Only the edited line and its neighbours get new hashes; distant anchors stay valid.
-    assert [n for n in before if before[n] != after[n]] == [9, 10, 11] or {9, 10, 11} >= {n for n in before if before[n] != after[n]}
-    assert all(before[n] == after[n] for n in (1, 5, 8, 12, 20))
+    changed = {n for n in before if before[n] != after[n]}
+    assert 10 in changed and changed <= {9, 10, 11}
+    assert hashline.split_lines(text)[0] == lines and hashline.anchor(lines, 5) == before[5]  # same input, same anchor
     with pytest.raises(hashline.EditError, match=r"\[E_STALE_ANCHOR\] 1 stale anchor: " + before[10]):
         hashline.apply_edits(edited, [{"op": "replace", "pos": before[10], "lines": ["x"]}])
     # A ":content" suffix is cross-checked: the right hash with the wrong content is stale too.
@@ -1089,7 +1090,6 @@ def test_python_cannot_write_engine_py(tmp_path: Path, tiny_trace: Trace) -> Non
 def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     import json
 
-    from engine_re import hashline
     from engine_re.engine_files import EngineEditor, sha256
 
     engine = tmp_path / "workspace" / "engine.py"
@@ -1120,7 +1120,6 @@ def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     assert [r["engine_change"]["op"] for r in log] == ["edit", "edit", "undo", "undo", "undo", "undo", "undo"]
     assert log[0]["engine_change"]["diff"].splitlines()[-2:] == ["-A = 1", "+A = 2"]
     assert not editor.handle({"op": "undo", "n": 99})["ok"]
-    assert hashline  # (anchors change with every version: undo says to read again)
 
 
 def test_finish_runs_the_tests_and_ends_only_when_they_pass(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -1187,3 +1186,24 @@ def test_first_message_shows_engine_py_with_anchors(tmp_path: Path, tiny_trace: 
     assert "class Sprite:" in opening  # the FIXED block is shown in full here
     assert opening.rstrip().endswith("Run run_tests to see where to start.")
     assert agent.messages[0]["content"].startswith("# Goal")
+
+
+def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re import hashline
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=_ScriptedModel([[("python", {"code": wrong})]])).run()
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=_ScriptedModel([[("python", {"code": "undo()"})]]))
+    agent.run()
+    opening = agent.messages[1]["content"]
+    assert "This continues an earlier session on this game (1 turns)" in opening and "--- Step " in opening
+    shown = opening.split("engine.py now, as read() shows it:")[1]
+    assert "the FIXED block, folded; it cannot be edited" in shown and "class Sprite:" not in shown
+    out = next(m["content"] for m in agent.messages if m["role"] == "tool")
+    assert out.startswith("Restored version 1, as engine.py was 1 change ago, saved as version 3.")
+    assert agent.result.resumes == 1 and agent.result.engine_changes == 2
+    # The resume showed the engine as the first session left it (version 2), with valid anchors.
+    lines, _ = hashline.split_lines((tmp_path / "engine_versions" / "v0002.py").read_text())
+    assert f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in shown
