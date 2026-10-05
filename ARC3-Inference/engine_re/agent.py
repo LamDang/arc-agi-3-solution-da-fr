@@ -107,8 +107,8 @@ REPORT_CHARS = 9000  # a test report in a tool output
 AUTO_TEST_CHARS = 3500
 # Stepwise: appended to a test (run_tests or the automatic one) that shows steps 0..k pass.
 COMMIT_HINT = (
-    "\n\nSteps 0-{k} pass. You can now call commit_engine(message) to submit the fix, or keep refining first (e.g. "
-    "make a rule more general); the next steps are shown only after a commit."
+    "\n\nSteps 0-{k} pass. You can now call commit_engine(message) to submit the fix, or keep refining first; the next "
+    "steps are shown only after a commit."
 )
 COMMIT_DROPPED = (
     "\n\n[harness] engine.py changed after commit_engine in this turn, so the commit was not kept: call commit_engine "

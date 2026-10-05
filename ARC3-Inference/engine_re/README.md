@@ -203,6 +203,19 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     While the analysis quota pauses python, calls that use `edit_file(` or
     `undo_edit(` still run.
 
+    The system prompt asks for parsimony, not generality: make the tests pass
+    with the most parsimonious model (Occam's razor), the fewest rules and
+    assumptions that account for every step observed so far; per-level
+    constants in the level data are fine when the steps give no evidence of a
+    formula; when a step contradicts a rule, replace it with the simplest rule
+    that explains all the steps so far; do not model what has not been
+    observed (a new level: only draw its first frame, model its mechanics when
+    one of its steps fails); never hard-code recorded frames or anything keyed
+    to the step number. It no longer says the engine is later played on
+    unrecorded action sequences (`evaluate.py` still does that, as a check
+    outside the prompt). A short `# Sandbox` section says what `guard.py`
+    enforces.
+
     The system prompt of every mode has an `# Objects` section
     (`prompts.objects_reference`), a typed reference written once and shared
     by the modes: the recorded steps python holds in that mode and `StepView`
@@ -263,8 +276,8 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   levels reached; with `--only-step`, python shows only `step_to_fix`. Its tests
   replay steps 0..k. Only `commit_engine(message)` moves on: when `run_tests`
   or the automatic test after an edit shows steps 0..k pass, the report only
-  adds that a commit is now possible, so the model can keep refining (e.g. make
-  a rule more general). A commit whose tests fail returns the report and
+  adds that a commit is now possible, so the model can keep refining. A
+  commit whose tests fail returns the report and
   nothing moves on. A commit whose tests pass is recorded (a `commit` record in
   the transcript, an entry in `advances`), and the harness replays on and adds
   a user message to the same conversation: the commit was accepted, how many

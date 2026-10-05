@@ -29,9 +29,8 @@ from engine_re.trace import Trace
 _SYSTEM = """# Goal
 You are given a recording of someone playing a game: every action they took and every frame the game
 returned. Write engine.py, a Python model of that game, so that replaying the recorded actions through it
-gives the same result after every action. Use the simplest general rules that explain what you see: the
-engine is later also played on action sequences nobody recorded, where general rules hold up and special
-cases do not.
+gives the same result after every action. Make the tests pass with the most parsimonious model (Occam's
+razor): the fewest rules and assumptions that account for every step observed so far.
 
 # Setup
 - The game shows a 64x64 screen of colours 0-15 and is played in levels, in order. Actions: 0 RESET,
@@ -64,6 +63,11 @@ cases do not.
 Clicks: action.x, action.y is the clicked screen pixel; action.cell is the grid cell (gx, gy) under it
 once step 3 is undone, or None outside the grid. Coordinates: x is the column, y the row, (0, 0) top-left.
 
+# Sandbox
+Your python code runs sandboxed: it can read the workspace, the recording and the Python installation,
+and write only inside the workspace (/tmp is refused); no network, no subprocesses. engine.py changes
+only through edit_file() and undo_edit().
+
 # Tests (run_tests; commit_engine runs them too)
 - Contract: the fixed block is unchanged; make_level(n) returns a valid State for every recorded level;
   step() accepts every advertised action; the same actions always give the same result.
@@ -76,17 +80,18 @@ once step 3 is undone, or None outside the grid. Coordinates: x is the column, y
 
 __OBJECTS__
 # How to work
-The recording shows only part of what the game can do, so its real rules cannot always be known from
-it. Your job is to reproduce what was observed, with the simplest general mechanism that explains it:
-one rule that covers many steps rather than special cases, and nothing the recording gives no evidence for.
-Work through the recording in order, one step at a time:
+Reproduce what was observed with the fewest rules and assumptions that account for every step so far,
+and nothing the recording gives no evidence for. Per-level constants in the level data (a rate, a budget,
+a size) are fine when the steps give no evidence of a formula: do not hunt for one. Do not think about,
+model or write code for what has not been observed: for a new level, only draw its first frame, and model
+its mechanics when one of its steps fails. Work through the recording in order, one step at a time:
 1. Before your first turn the harness puts recording[0].pieces_after.code() into make_level, so that level 0's
    first frame is drawn, and runs the tests; the first message shows what they report. Start with the first
    step that fails there: usually step 1, the first action of level 0.
-2. Make that step pass with the simplest, most logical mechanism, while every earlier step still passes;
-   then take the next failing step. Work on the step in front of you, not on later steps or levels.
-3. When a step contradicts a rule you wrote, replace the rule with the simplest one that explains all
-   the steps so far, instead of adding a special case.
+2. Make that step pass with the simplest mechanism, while every earlier step still passes; then take the
+   next failing step. Work on the step in front of you, not on later steps or levels.
+3. When a step contradicts a rule you wrote, replace it with the simplest rule that explains all the steps
+   so far, instead of adding a special case.
 4. All levels are the same game. Keep one set of sprite kinds for the whole game (pixels, tags,
    collision) and describe each level by where those kinds go and how they are shown there: moved,
    turned, mirrored, scaled or recoloured, and the level's grid and view. A new level reuses the kinds
@@ -419,10 +424,9 @@ engine.py step by step. When a step does not give the recorded result, it stops 
 fix that step. Once the steps up to it pass and you submit engine.py with commit_engine, it replays
 on and tells you, in this conversation, how many more steps passed and which step breaks next; you see
 the recording only up to that step. Passing tests alone do not move on: until you commit you can keep
-refining, e.g. make a rule more general. This goes on until the whole recording passes.
-Fix each step with the simplest general rule that explains it and keeps the earlier steps passing:
-the engine is later also played on action sequences nobody recorded, where general rules hold up and
-special cases keyed to step numbers do not.
+refining. This goes on until the whole recording passes.
+Make the tests pass with the most parsimonious model (Occam's razor): the fewest rules and assumptions
+that account for every step observed so far.
 
 """ + _SYSTEM[_SYSTEM.index("# Setup") : _SYSTEM.index("# Tests")] + """# Tests (run_tests; commit_engine runs them too)
 - Contract: the fixed block is unchanged; make_level(n) returns a valid State for every level reached so
@@ -441,17 +445,21 @@ __OBJECTS__
 1. Look at what the step did: compare step_to_fix.before with step_to_fix.after, and read the report's
    regions and what the click hit.
 2. Find the simplest rule that explains this step and agrees with what engine.py already does for the
-   earlier steps. The recording shows only part of what the game can do: reproduce what you see, with
-   no rule the steps give no evidence for.
+   earlier steps: the fewest rules and assumptions that account for every step so far, and no rule the
+   steps give no evidence for. Per-level constants in the level data (a rate, a budget, a size) are fine
+   when the steps give no evidence of a formula: do not hunt for one. When a step contradicts a rule you
+   wrote, replace it with the simplest rule that explains all the steps so far.
 3. Change engine.py with edit_file(), run the tests and fix what they report (an earlier step that now
-   breaks counts too). When they pass, make sure each rule is as simple and general as the steps allow,
-   then call commit_engine(message): what you changed and why. The next step is shown only after a
-   commit.
+   breaks counts too). When they pass, call commit_engine(message): what you changed and why. The next
+   step is shown only after a commit.
 4. When the step starts a new level (the frame after it shows the next level), make_level must draw
    that level: step_to_fix.pieces_after.code() gives code for its first frame. Reuse the sprite kinds
-   engine.py already has where they fit.
-5. Keep engine.py's comments up to date with the rules you found: older parts of this conversation are
-   shortened as it grows, and engine.py is what stays.
+   engine.py already has where they fit. Only draw the new level's first frame; model its mechanics
+   when one of its steps fails.
+5. Do not think about, model or write code for what has not been observed.
+6. Keep engine.py's comments up to date with the rules you found: older parts of this conversation are
+   shortened as it grows, and engine.py is what stays. Define helpers and data once in python: the
+   kernel keeps them for the whole run.
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
 inside step(); the test report and replay_step show it.
 """

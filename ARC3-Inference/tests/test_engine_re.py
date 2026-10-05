@@ -1003,6 +1003,27 @@ def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
         assert term not in system_prompt() and term not in python
 
 
+def test_the_prompts_ask_for_parsimony_not_generality() -> None:
+    from engine_re.agent import COMMIT_HINT
+    from engine_re.prompts import system_prompt, tools
+
+    for mode, history in (("single", True), ("step", True), ("step", False)):
+        prompt = " ".join(system_prompt(mode=mode, history=history).split())  # line wraps differ between the modes
+        texts = [prompt, COMMIT_HINT] + [t["function"]["description"] for t in tools(True, mode, history)]
+        for gone in ("nobody recorded", "general rules hold up", "more general", "unrecorded", "unseen", "special cases do not",
+                     "as simple and general"):
+            assert not any(gone in text for text in texts), (mode, gone)
+        for kept in ("most parsimonious model (Occam's razor): the fewest rules and assumptions", "every step observed so far",
+                     "Per-level constants in the level data (a rate, a budget, a size) are fine", "do not hunt for one",
+                     "replace it with the simplest rule that explains all the steps so far",
+                     "Do not think about, model or write code for what has not been observed",
+                     "only draw its first frame" if mode == "single" else "Only draw the new level's first frame",
+                     "Never hard-code recorded frames or anything keyed to the step number.",
+                     "# Sandbox Your python code runs sandboxed: it can read the workspace, the recording and the Python installation",
+                     "write only inside the workspace (/tmp is refused); no network, no subprocesses", "only through edit_file() and undo_edit()"):
+            assert kept in prompt, (mode, kept)
+
+
 def test_the_fixed_block_comment_matches_the_prompt() -> None:
     from engine_re.game_api import FIXED_INTERFACE, same_interface
     from engine_re.prompts import system_prompt
