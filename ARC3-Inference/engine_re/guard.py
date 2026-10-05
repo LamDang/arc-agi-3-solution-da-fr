@@ -6,7 +6,8 @@ Once installed it cannot be removed. It:
 - allows reads only under the Python installation, the system directories and
   the roots the caller passes (the workspace, the trace), so the real game
   sources, the repo and the credentials stay unreadable;
-- allows writes only under the given write roots;
+- allows writes only under the given write roots, and none to the protected
+  files (engine.py in the kernel, which changes it only through the harness);
 - blocks starting processes and opening network connections, so the model
   cannot shell out or download the game files.
 
@@ -65,13 +66,21 @@ def _under(path: str, roots: tuple[str, ...]) -> bool:
     return any(path == root or path.startswith(root.rstrip(os.sep) + os.sep) for root in roots)
 
 
-def install(read_roots: list[str], write_roots: list[str]) -> None:
-    """Install the guard. ``write_roots`` are readable too."""
+def install(read_roots: list[str], write_roots: list[str], protected: list[str] | None = None) -> None:
+    """Install the guard. ``write_roots`` are readable too. ``protected`` files (engine.py in the
+    kernel) stay readable but cannot be opened for writing, removed, renamed, replaced, linked or
+    have a parent directory renamed, by any code in the process: the kernel changes engine.py only
+    through the harness (see engine_re.kernel)."""
     writes = tuple(os.path.realpath(p) for p in write_roots)
     reads = tuple(os.path.realpath(p) for p in [*python_roots(), *SYSTEM_READ_ROOTS, *read_roots]) + writes
+    guarded = tuple(os.path.realpath(p) for p in protected or [])
 
     def deny(what: str) -> None:
         raise PermissionError(f"sandbox: {what} is not allowed")
+
+    def is_protected(path: str) -> bool:
+        # The file itself, or a directory containing it (renaming that would move it).
+        return any(path == p or p.startswith(path.rstrip(os.sep) + os.sep) for p in guarded)
 
     def hook(event: str, args: tuple) -> None:
         if event == "open":
@@ -82,6 +91,8 @@ def install(read_roots: list[str], write_roots: list[str]) -> None:
             writing = (isinstance(mode, str) and any(c in mode for c in "wax+")) or bool((flags or 0) & _WRITE_FLAGS)
             if writing and not _under(path, writes):
                 deny(f"writing {path}")
+            if writing and guarded and path in guarded:
+                deny(f"writing {path} (change it with edit() or undo())")
             if not _under(path, reads):
                 deny(f"reading {path}")
         elif event in _READ_PATH_EVENTS:
@@ -89,10 +100,13 @@ def install(read_roots: list[str], write_roots: list[str]) -> None:
             if path is not None and not _under(path, reads):
                 deny(f"listing {path}")
         elif event in _WRITE_PATH_EVENTS:
-            for arg in args[:2]:
+            for k, arg in enumerate(args[:2]):
                 path = _norm(arg) if isinstance(arg, (str, bytes, os.PathLike)) else None
                 if path is not None and not _under(path, writes):
                     deny(f"{event} on {path}")
+                copying_from = k == 0 and event in ("shutil.copyfile", "shutil.copytree")
+                if path is not None and guarded and not copying_from and is_protected(path):
+                    deny(f"{event} on {path} (change engine.py with edit() or undo())")
         elif event.startswith(_BLOCKED_EVENTS):
             deny(event)
 

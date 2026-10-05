@@ -47,33 +47,32 @@ END_MARKER = "# ==== END OF FIXED INTERFACE ===="
 
 FIXED_INTERFACE = BEGIN_MARKER + '''
 #
-# Sprite and State follow the sprite model of the library the real games are written with: the
-# same drawing order, transforms, visibility, collisions and lookups. The harness does the rest:
+# The harness runs this module:
 #   - Levels and RESET: make_level(n) runs once per level. Whenever level n starts (on entering it
-#     and on every RESET) the harness hands step() a fresh deep copy of that first state, so nothing
-#     a step changes survives a RESET, and make_level may reuse module-level data.
-#   - Outcomes: step() sets state.status = "level_solved" (the next level starts, or the game is won
-#     after the last one) or "game_over". The harness counts levels and handles WIN and GAME_OVER.
-#   - Clicks: action.x, action.y is the screen pixel clicked; action.cell is the grid cell under it,
-#     found through the inverse of the view transform (step 3 below), or None outside the grid.
-#   - Drawing, of the final state of each action only:
+#     and after every RESET) the harness hands step() a fresh copy of that first state, so nothing a
+#     step changes survives a RESET, and make_level may reuse module-level data. RESET never
+#     reaches step().
+#   - Outcomes: step() sets state.status = "level_solved" (the next level starts, or WIN after the
+#     last one) or "game_over" (the game ends; then only RESET is accepted).
+#   - Drawing, of the state after each action:
 #     1. Start from a 64x64 screen filled with colour 5.
-#     2. Draw each visible sprite as sprite.render(), lowest layer first; sprites on the same layer
-#        are drawn in list order, so later ones end up on top.
-#        - A grid sprite (screen=False) is placed on the logical grid. The grid (w, h) = state.grid
-#          is scaled up by s = state.view.scale, or by default min(64 // w, 64 // h), and centred:
-#          grid cell (gx, gy) fills the s x s screen block whose top-left pixel is
-#          (ox + gx * s, oy + gy * s), with ox = (64 - w * s) // 2 and oy = (64 - h * s) // 2.
-#          Parts outside the grid are not drawn.
-#        - A screen sprite (screen=True) is placed in screen pixels, unscaled: use it for things
-#          drawn at screen resolution, such as a budget bar in the border.
-#        - Pixels -1 (transparent) and -2 (invisible but solid) are not drawn.
-#     3. Turn the whole frame, screen sprites included, by state.view.rotation (clockwise), then
-#        flip it if state.view.mirror_ud (top-bottom) and state.view.mirror_lr (left-right).
-#     So the border colour is a 64x64 screen sprite on the lowest layer and the background is a
-#     grid-sized sprite on the layer above; make both collidable=False so nothing bumps into them.
+#     2. Draw every visible sprite: lowest layer first, sprites on the same layer in list order
+#        (later on top). Pixels -1 (transparent) and -2 (invisible but solid) are not drawn. Each
+#        sprite is drawn as sprite.render(): its pixels rotated clockwise by .rotation, then flipped
+#        (.mirror_ud, .mirror_lr), then scaled by .scale.
+#        - Grid sprites (screen=False) sit on the logical grid (w, h) = state.grid. The grid is
+#          scaled by s = state.view.scale, or min(64 // w, 64 // h) when that is None, and centred:
+#          grid cell (gx, gy) covers screen pixels x in [ox + gx*s, ox + gx*s + s),
+#          y in [oy + gy*s, oy + gy*s + s), with ox = (64 - w*s) // 2 and oy = (64 - h*s) // 2.
+#          Anything outside the grid is cut off.
+#        - Screen sprites (screen=True) sit directly on screen pixels, unscaled (for displays in
+#          the border).
+#     3. Turn the finished frame clockwise by state.view.rotation, then flip it if
+#        state.view.mirror_ud (top-bottom) and state.view.mirror_lr (left-right).
+#   - Clicks: action.x, action.y is the clicked screen pixel; action.cell is the grid cell (gx, gy)
+#     under it once step 3 is undone, or None outside the grid.
 #
-# Coordinates: x is the column, y is the row, (0, 0) is the top-left corner.
+# Coordinates: x is the column, y the row, (0, 0) top-left.
 
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -295,6 +294,38 @@ def extract_interface(source: str) -> str | None:
 
 def _normalise(text: str) -> str:
     return "\n".join(line.rstrip() for line in text.strip().splitlines())
+
+
+def _code_tokens(text: str) -> list[tuple[int, str]] | None:
+    """The tokens of a block without its comments and blank lines (None if it does not tokenize)."""
+    import tokenize
+
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        return [(t.type, t.string) for t in tokens if t.type not in (tokenize.COMMENT, tokenize.NL)]
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+
+
+def same_interface(block: str) -> bool:
+    """Whether an engine's fixed block is FIXED_INTERFACE. Comments are ignored, so engines of
+    earlier runs, whose block had other comments, still count as unchanged."""
+    if _normalise(block) == _normalise(FIXED_INTERFACE):
+        return True
+    ours = _code_tokens(block)
+    return ours is not None and ours == _code_tokens(FIXED_INTERFACE)
+
+
+def fixed_block_lines(source: str) -> tuple[int, int] | None:
+    """1-based line numbers of the FIXED block's first and last lines in a source, if it has both markers."""
+    first = last = None
+    for n, line in enumerate(source.splitlines(), 1):
+        if first is None and line.strip() == BEGIN_MARKER:
+            first = n
+        elif first is not None and line.strip() == END_MARKER:
+            last = n
+            break
+    return (first, last) if first and last else None
 
 
 # --- Rendering ------------------------------------------------------------------
@@ -756,7 +787,7 @@ def contract_checks(
         block = extract_interface(source)
         if block is None:
             return "the FIXED INTERFACE markers are missing; restore the block from the starting engine.py"
-        if _normalise(block) != _normalise(FIXED_INTERFACE):
+        if not same_interface(block):
             return "the FIXED INTERFACE block was edited; restore it exactly (the harness depends on it)"
         return ""
 
