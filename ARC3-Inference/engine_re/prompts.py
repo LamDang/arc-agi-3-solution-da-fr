@@ -636,6 +636,32 @@ def step_objects(trace: Trace, k: int) -> str:
         return f"What the recorded step changed (objects): not available ({type(exc).__name__}: {exc})."
 
 
+# The engine.py listing in a stepwise message (the first one and every next-step one): this header, a blank
+# line, the listing (read_file() with anchors, the FIXED block folded), a blank line, the closing line.
+# Compaction replaces every listing but the latest by ENGINE_ELIDED (elide_engine_listing).
+ENGINE_HEADER = "engine.py now (as read_file shows it):"
+ENGINE_ELIDED = "[engine.py as it was then: elided; read_file() shows the current file]"
+
+
+def engine_block(engine_read: str) -> str:
+    return f"{ENGINE_HEADER}\n\n{engine_read}"
+
+
+ENGINE_CLOSING = "\n\nFix step "  # the paragraph after the listing in both messages
+
+
+def elide_engine_listing(text: str) -> str:
+    """`text` with its engine.py listing (ENGINE_HEADER up to the closing "Fix step ..." paragraph, or to the
+    end) replaced by ENGINE_ELIDED; unchanged when it has none."""
+    start = text.find(ENGINE_HEADER)
+    if start < 0:
+        return text
+    end = text.rfind(ENGINE_CLOSING)
+    if end <= start:
+        return text[:start] + ENGINE_ELIDED
+    return text[:start] + ENGINE_ELIDED + text[end:]
+
+
 def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: str, history: bool = True) -> str:
     """The first message of a stepwise conversation: fix the breaking step k (steps 0..k-1 pass).
     `trace` holds at least steps 0..k; `report` is the test report of the replay up to step k. It shows
@@ -674,18 +700,17 @@ The test report:
 
 {report.strip()}
 
-engine.py now, as read_file() shows it (the FIXED block folded):
-
-{engine_read}
+{engine_block(engine_read)}
 
 Fix step {k}: find the simplest rule that explains it and keeps the earlier steps passing, change engine.py with
 edit_file(), and run the tests. When they pass, call commit_engine(message) to submit the fix (you may refine it first);
 the next steps are shown only after a commit."""
 
 
-def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True) -> str:
+def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True, engine_read: str = "") -> str:
     """The user message when a commit of steps 0..fixed was accepted and the harness replayed on to step k, the next that
-    fails (`trace` is the whole recording; the model now sees it up to k, and so does step_objects)."""
+    fails (`trace` is the whole recording; the model now sees it up to k, and so does step_objects). `engine_read` is
+    engine.py as read_file() shows it, listed under ENGINE_HEADER as the first message lists it."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     if k == fixed + 1:
@@ -716,7 +741,7 @@ Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(
 The test report:
 
 {report.strip()}
-
+{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
 Fix step {k}, keeping steps 0-{k - 1} passing; commit_engine(message) when the tests pass."""
 
 

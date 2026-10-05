@@ -508,6 +508,16 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
     assert agent.result.python_paused == 1
 
 
+def test_an_engine_listing_is_elided_up_to_its_closing_line() -> None:
+    from engine_re.prompts import ENGINE_ELIDED, elide_engine_listing, engine_block
+
+    listing = "1#ABC:x = 1\n2#DEF:\n\n[Showing lines 1-2 of 9. Use offset=3 to continue.]"
+    text = f"The report.\n\nFix step 2 was done.\n\n{engine_block(listing)}\n\nFix step 3; commit when the tests pass."
+    assert elide_engine_listing(text) == f"The report.\n\nFix step 2 was done.\n\n{ENGINE_ELIDED}\n\nFix step 3; commit when the tests pass."
+    assert elide_engine_listing(f"Head.\n\n{engine_block(listing)}") == f"Head.\n\n{ENGINE_ELIDED}"
+    assert elide_engine_listing("nothing listed\n\nhere") == "nothing listed\n\nhere"
+
+
 def test_compaction_keeps_tool_argument_keys() -> None:
     import json
 
@@ -1982,6 +1992,12 @@ def test_stepwise_moves_on_only_after_a_commit(tmp_path: Path, tiny_trace: Trace
     assert advance.startswith("Commit accepted: steps 0-0 pass. The harness replayed on: steps 1-3 (3 more steps) passed without "
                               "error. Step 4 is the next that fails.")
     assert "Step 4: ACTION1 (up), played in level 0" in advance and "`recording` now holds the recording up to step 4" in advance
+    # Every next-step message lists engine.py as the first one does, under one fixed header, before its closing line.
+    from engine_re.prompts import ENGINE_HEADER
+
+    listing = advance[advance.index(ENGINE_HEADER) :]
+    assert ENGINE_HEADER in model.openings[0] and "the FIXED block, folded" in listing and "def make_level(" in listing
+    assert listing.splitlines()[-1] == "Fix step 4, keeping steps 0-3 passing; commit_engine(message) when the tests pass."
     outputs = [m["content"] for m in model.last_messages if m["role"] == "tool"]
     hint = "Steps {} pass. You can now call commit_engine(message) to submit the fix, or keep refining first"
     assert "[harness] engine.py changed, so it was tested automatically" in outputs[0] and hint.format("0-0") in outputs[0]
@@ -2025,6 +2041,12 @@ def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, 
     log = tmp_path / "transcript.jsonl"
     records = [json.loads(line) for line in log.read_text().splitlines()]
     assert any("compact" in r for r in records) and any("hide_images" in r for r in records) and any("append" in r for r in records)
+    # Compaction keeps only the latest engine.py listing: the first message's is elided, the next-step message's stays.
+    from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER
+
+    users = [_message_text(m) for m in sent if m["role"] == "user"]
+    assert f"{ENGINE_ELIDED}\n\nFix step 0:" in users[0] and ENGINE_HEADER not in users[0]
+    assert ENGINE_HEADER in users[-1] and ENGINE_ELIDED not in users[-1] and sum(ENGINE_HEADER in u for u in users) == 1
 
     # transcript.jsonl alone gives that conversation back, exactly (images included).
     rebuilt = EngineAgent("tiny", tmp_path, ModelConfig(compact_prompt_tokens=0), Budget(), client=_ScriptedModel([]), stepwise=True)

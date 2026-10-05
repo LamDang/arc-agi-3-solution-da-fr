@@ -75,7 +75,10 @@ from engine_re.engine_files import best_key
 from engine_re.game_api import fixed_block_lines
 from engine_re.helpers import FUNCTIONS as BUILTIN_FUNCTIONS
 from engine_re.kernel import KernelClient
-from engine_re.prompts import advance_message, episode_message, first_user_message, resume_user_message, system_prompt, tools
+from engine_re.prompts import (
+    ENGINE_HEADER, advance_message, elide_engine_listing, episode_message, first_user_message, resume_user_message,
+    system_prompt, tools,
+)
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import MAX_FAILURES, replay_test
 from engine_re.trace import Trace
@@ -822,6 +825,11 @@ class EngineAgent:
         last_tool = None
         calls: Any = iter(())
 
+        def engine_listing() -> str:  # engine.py as it was at this point of the transcript
+            file = self.dir / "engine_versions" / f"v{version or 1:04d}.py"
+            text = (file if file.exists() else self.engine_path).read_text(encoding="utf-8")
+            return hashline.render_read(text, max_chars=READ_CHARS_IN_MESSAGES, fold=fixed_block_lines(text))
+
         def pictures(r: dict[str, Any], note: str | None, tests_note: bool) -> list[dict[str, Any]]:
             parts: list[dict[str, Any]] = [{"type": "text", "text": note}] if note else []
             for path, caption in zip(r["images"], r.get("captions") or [""] * len(r["images"])):
@@ -864,18 +872,37 @@ class EngineAgent:
                 else:
                     self._hide_images(messages)
                     messages.append({"role": "user", "content": pictures(r, IMAGE_NOTE, True)})
+            elif isinstance(r.get("engine_change"), dict) and r["engine_change"].get("version"):
+                version = r["engine_change"]["version"]
             elif "advance" in r:
                 a = r["advance"]
                 focus = a["next"]
-                messages.append({"role": "user", "content": advance_message(self.full_trace, a["fixed"], a["next"], a["report"], self.history)})
+                messages.append({"role": "user", "content": advance_message(
+                    self.full_trace, a["fixed"], a["next"], a["report"], self.history, engine_listing())})
         self._drop_unanswered(messages)
         self.messages = messages
         if prompt_tokens > self.model.compact_prompt_tokens:
             self._compact()
         return {"messages": self.messages, "focus": focus, "legacy": True}
 
+    @staticmethod
+    def _has_engine_listing(message: dict[str, Any]) -> bool:
+        content = message.get("content")
+        parts = [content] if isinstance(content, str) else [p.get("text", "") for p in content or [] if p.get("type") == "text"]
+        return message["role"] == "user" and any(ENGINE_HEADER in part for part in parts)
+
     def _compact(self) -> None:
-        """Elide old tool outputs, old reasoning and large tool-call arguments to bound the prompt."""
+        """Elide old tool outputs, old reasoning, large tool-call arguments and the engine.py listings of all
+        but the latest step message to bound the prompt."""
+        listed = [i for i, m in enumerate(self.messages) if self._has_engine_listing(m)]
+        for i in listed[:-1]:
+            content = self.messages[i]["content"]
+            if isinstance(content, str):
+                self.messages[i]["content"] = elide_engine_listing(content)
+            else:
+                self.messages[i]["content"] = [
+                    {**p, "text": elide_engine_listing(p["text"])} if p.get("type") == "text" else p for p in content
+                ]
         tool_indices = [i for i, m in enumerate(self.messages) if m["role"] == "tool"]
         for i in tool_indices[: -self.model.keep_recent_tool_outputs]:
             content = self.messages[i]["content"]
@@ -1032,7 +1059,8 @@ class EngineAgent:
         text = self._step_report("advance")
         self.tested_hash = self._engine_hash()
         self._log({"turn": self.result.turns, "advance": {"fixed": fixed, "next": k, "report": text}})
-        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history)))
+        engine_read = self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES)
+        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history, engine_read)))
         return True
 
     def setup(self) -> None:

@@ -225,8 +225,12 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   level, what the recorded step changed piece by piece, summarised in at most
   about 15 lines, or, for a step that enters a level, that
   `step_to_fix.pieces_after.code()` draws its first frame; the test report with
-  its picture, engine.py with the FIXED block folded). The message for each
-  next step has the same block. The model sees the recording only up to step k: `recording` holds
+  its picture, engine.py with the FIXED block folded under one fixed header).
+  The message for each next step has the same block, engine.py listing
+  included, and the line "Your python kernel keeps: ...". Compaction (and the
+  rebuild of a resumed conversation) replaces every engine.py listing but the
+  latest by a note that `read_file()` shows the current file. The model sees
+  the recording only up to step k: `recording` holds
   steps 0..k (so does `visible_trace/` on disk), `step_to_fix` is step k
   (`recording[-1]`, the same `StepView`) and `summarize_levels()` lists the
   levels reached; with `--only-step`, python shows only `step_to_fix`. Its tests
