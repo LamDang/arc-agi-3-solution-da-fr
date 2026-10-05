@@ -252,9 +252,13 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   failure, ties broken by the most steps passing in all
   (`engine_files.best_key`), since the agent works through the recording in
   order. The authoritative final test is a full replay with the full report
-  (every failing step listed, `final_test.txt`). An interrupted session
-  resumes from its `engine.py` (shown with anchors, the FIXED block folded)
-  with a fresh conversation that carries its last test report and reasoning.
+  (every failing step listed, `final_test.txt`). An interrupted stepwise
+  run continues its own conversation: `conversation.json` is saved after every
+  turn (or, for runs from before it, the conversation is rebuilt from
+  `transcript.jsonl`), and a note says the run resumed and the python kernel
+  restarted, so its variables are gone. A single-mode session resumes from its
+  `engine.py` (shown with anchors, the FIXED block folded) with a fresh
+  conversation that carries its last test report and reasoning.
 - **Sandbox** (`guard.py`). The kernel and the candidate run in subprocesses
   with an audit hook: reads only under the Python installation, system
   directories, the workspace and (kernel only) the trace; writes only to the

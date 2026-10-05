@@ -120,6 +120,14 @@ PYTHON_PAUSED = (
     "calls that change it with edit_file() or undo_edit() run; then python resumes. run_tests shows which step and pixels "
     "to fix next."
 )
+# A resumed run continues its conversation: it is saved after every turn (conversation.json).
+CONVERSATION_FILE = "conversation.json"
+RESUME_NOTE = (
+    "[harness] The run was interrupted here and has now resumed, in this same conversation. The python kernel restarted, "
+    "so its variables and the functions you defined in it are gone: define again what you need. engine.py, its versions "
+    "(undo_edit) and everything above are kept.{extra}"
+)
+CONTINUE = "Continue by calling a tool (python, run_tests or commit_engine)."
 READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in the first message (FIXED block folded)
 # The opening, run in the kernel: auto_sprites(0) (its summary printed, not its code), then one edit_file() that
 # puts the code above make_level and makes make_level return level_0_sprites(). Filled in by
@@ -639,6 +647,144 @@ class EngineAgent:
             self.result.resumes = int(json.loads(previous.read_text(encoding="utf-8")).get("resumes", 0)) + 1
         return self.result.turns > 0
 
+    def _checkpoint(self) -> None:
+        """Save the conversation and the loop's state, so an interrupted run continues it (between turns, when the
+        messages are complete)."""
+        state = {
+            "turn": self.result.turns, "focus": self.focus, "passed": self.passed, "tested_hash": self.tested_hash,
+            "turns_since_test": self.turns_since_test, "engine_sha": self._engine_hash(), "messages": self.messages,
+        }
+        path = self.dir / CONVERSATION_FILE
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(state), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _resume_conversation(self) -> bool:
+        """Continue an interrupted stepwise run in its own conversation: the saved one (conversation.json), or one
+        rebuilt from transcript.jsonl for runs from before it was saved. False when there is none."""
+        path = self.dir / CONVERSATION_FILE
+        if path.exists():
+            state = json.loads(path.read_text(encoding="utf-8"))
+            source = "conversation.json"
+        else:
+            state = self._rebuild_conversation()
+            if state is None:
+                return False
+            source = "transcript.jsonl"
+        self.messages = state["messages"]
+        self._focus_on(int(state["focus"]))
+        self.passed = bool(state.get("passed"))
+        self.turns_since_test = int(state.get("turns_since_test") or 0)
+        sha = self._engine_hash()
+        self.tested_hash = state.get("tested_hash") or sha
+        self.engine_hash_seen = sha
+        extra = ""
+        if state.get("engine_sha") and state["engine_sha"] != sha:
+            extra = (" engine.py changed after the last turn above (in the turn that was cut off); its current version is "
+                     f"{self._version_of(sha)}: read_file() before editing it.")
+        self.messages.append({"role": "user", "content": RESUME_NOTE.format(extra=extra)})
+        self._log({"turn": self.result.turns, "resumed": {"from": source, "step": self.focus, "messages": len(self.messages)}})
+        return True
+
+    def _rebuild_conversation(self) -> dict[str, Any] | None:
+        """The conversation of the last stepwise segment of transcript.jsonl (from its last step_start), as the model
+        saw it, for runs from before conversation.json. Approximate only where the transcript does not keep the text:
+        an automatic test's report is its logged (shortened) copy."""
+        transcript = self.dir / "transcript.jsonl"
+        if not self.stepwise or not transcript.exists():
+            return None
+        records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+        starts = [i for i, r in enumerate(records) if "step_start" in r]
+        if not starts:
+            return None
+        begin = starts[-1]
+        version = None
+        for r in records[:begin]:
+            if isinstance(r.get("engine_change"), dict) and r["engine_change"].get("version"):
+                version = r["engine_change"]["version"]
+        engine_file = self.dir / "engine_versions" / f"v{version or 1:04d}.py"  # no change logged before: the first version
+        if not engine_file.exists():
+            engine_file = self.engine_path
+        engine = engine_file.read_text(encoding="utf-8")
+        k = int(records[begin]["step_start"]["step"])
+        visible = Trace(self.full_trace.game_id, self.full_trace.steps[: k + 1], {**self.full_trace.meta, "focus": k})
+        read = hashline.render_read(engine, max_chars=READ_CHARS_IN_MESSAGES, fold=fixed_block_lines(engine))
+        first = episode_message(self.game, visible, k, records[begin]["step_start"]["report"], read, self.history)
+        system = system_prompt(self.match, self.interface, self.images, self.mode, self.history)
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system}, {"role": "user", "content": first}]
+        auto_passed = {}
+        tests = self.dir / "tests.jsonl"
+        if tests.exists():
+            for line in tests.read_text(encoding="utf-8").splitlines():
+                entry = json.loads(line)
+                if entry.get("auto") is True:
+                    auto_passed[entry.get("turn")] = bool(entry.get("passed")) and entry.get("level") is None
+        focus, prompt_tokens = k, 0
+        last_tool = None
+        calls: Any = iter(())
+
+        def pictures(r: dict[str, Any], note: str | None, tests_note: bool) -> list[dict[str, Any]]:
+            parts: list[dict[str, Any]] = [{"type": "text", "text": note}] if note else []
+            for path, caption in zip(r["images"], r.get("captions") or [""] * len(r["images"])):
+                png = (self.dir / path).read_bytes()
+                text = (TEST_IMAGE_NOTE + " " + caption) if tests_note and "_show" not in path else caption
+                parts.append({"type": "text", "text": text})
+                parts.append({"type": "image_url", "image_url": {"url": diff_report.data_url(png)}})
+            return parts
+
+        def with_text(message: dict[str, Any]) -> list[dict[str, Any]]:
+            content = message["content"]
+            return content if isinstance(content, list) else [{"type": "text", "text": content}]
+
+        for r in records[begin + 1 :]:
+            if "finish_reason" in r:
+                prompt_tokens = (r.get("usage") or {}).get("prompt_tokens") or prompt_tokens
+                assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
+                if r.get("reasoning"):
+                    assistant["reasoning"] = r["reasoning"]
+                if r.get("tool_calls"):
+                    assistant["tool_calls"] = r["tool_calls"]
+                    calls = iter(r["tool_calls"])
+                messages.append(assistant)
+                if not r.get("tool_calls"):
+                    messages.append({"role": "user", "content": CONTINUE})
+            elif "tool" in r:
+                call = next(calls, None)
+                last_tool = {"role": "tool", "tool_call_id": call["id"] if call else "", "content": r["output"]}
+                messages.append(last_tool)
+            elif "auto_test" in r and last_tool is not None:
+                hint = COMMIT_HINT.format(k=focus) if auto_passed.get(r["turn"]) else ""
+                last_tool["content"] += AUTO_TEST.format(report=_truncate(r["auto_test"], AUTO_TEST_CHARS)) + hint
+            elif "nudge" in r and last_tool is not None:
+                last_tool["content"] += NUDGE.format(n=r["nudge"])
+            elif "images" in r:
+                if any("_episode" in path for path in r["images"]):
+                    messages[1]["content"] = with_text(messages[1]) + pictures(r, None, True)
+                elif any("_advance" in path for path in r["images"]) and messages[-1]["role"] == "user":
+                    messages[-1]["content"] = with_text(messages[-1]) + pictures(r, None, True)
+                else:
+                    for message in messages:
+                        if isinstance(message.get("content"), list):
+                            message["content"] = [
+                                {"type": "text", "text": IMAGE_PLACEHOLDER} if part.get("type") == "image_url" else part
+                                for part in message["content"]
+                            ]
+                    messages.append({"role": "user", "content": pictures(r, IMAGE_NOTE, True)})
+            elif "advance" in r:
+                a = r["advance"]
+                focus = a["next"]
+                messages.append({"role": "user", "content": advance_message(self.full_trace, a["fixed"], a["next"], a["report"], self.history)})
+        assistants = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
+        if assistants:
+            last = assistants[-1]
+            answered = sum(m["role"] == "tool" for m in messages[last + 1 :])
+            if answered < len(messages[last].get("tool_calls") or []):
+                del messages[last:]  # cut off before all its tools ran: the turn is dropped (calls need answers)
+        self.messages = messages
+        if prompt_tokens > self.model.compact_prompt_tokens:
+            self._compact()
+        return {"messages": self.messages, "focus": focus, "passed": False}
+
     def _compact(self) -> None:
         """Elide old tool outputs, old reasoning and large tool-call arguments to bound the prompt."""
         tool_indices = [i for i, m in enumerate(self.messages) if m["role"] == "tool"]
@@ -810,8 +956,14 @@ class EngineAgent:
     def run(self) -> AgentResult:
         self.setup()
         self.started = time.time()
+        resumed = False
         if self.stepwise:
-            self._restore()  # the totals of an interrupted run; its conversation starts afresh
+            if self._restore():  # the totals of an interrupted run; then its conversation, when it can be continued
+                self._replay_all()
+                resumed = self._resume_conversation()
+        if resumed:
+            pass
+        elif self.stepwise:
             first = self._replay_all()
             if first is None:
                 self.result.status = "passed"
@@ -837,14 +989,17 @@ class EngineAgent:
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
                 "engine.py (only calls that change it with edit_file() or undo_edit() run), and resumes as soon as engine.py changes."
             )
-        self.messages = [{"role": "system", "content": system}, {"role": "user", "content": opening}]
+        if not resumed:
+            self.messages = [{"role": "system", "content": system}, {"role": "user", "content": opening}]
         # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.
-        self.tested_hash = self._engine_hash()
-        self.engine_hash_seen = self.tested_hash
+        if not resumed:
+            self.tested_hash = self._engine_hash()
+            self.engine_hash_seen = self.tested_hash
         idle_turns = 0
         try:
             while True:
                 self._save_result()
+                self._checkpoint()
                 reason = self._over_budget()
                 if reason:
                     self.result.status = reason
@@ -882,7 +1037,7 @@ class EngineAgent:
                     if idle_turns >= 4:
                         self.result.status = "stalled"
                         break
-                    self.messages.append({"role": "user", "content": "Continue by calling a tool (python, run_tests or commit_engine)."})
+                    self.messages.append({"role": "user", "content": CONTINUE})
                     continue
                 idle_turns = 0
                 self.turns_since_test += 1

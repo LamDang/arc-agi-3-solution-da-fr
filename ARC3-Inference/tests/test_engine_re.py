@@ -1580,6 +1580,66 @@ def test_stepwise_moves_on_only_after_a_commit(tmp_path: Path, tiny_trace: Trace
     assert again.result.advances == result.advances and again.result.commit_calls == 3 and again.result.commit_message == last
 
 
+def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import CONVERSATION_FILE, RESUME_NOTE, Budget, EngineAgent, ModelConfig
+    from engine_re.stepwise import StepwiseRun
+
+    tiny_trace.save(tmp_path / "trace")
+    no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
+    first = _RecordingModel(
+        [
+            [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],
+            [("python", {"code": "print('looked')"})],
+            [("commit_engine", {"message": "moves"})],  # on to step 4; then the run stops (3 turns)
+        ]
+    )
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), client=first, opening=False).run()
+    assert result.status == "budget_turns" and result.step == 4
+    saved = json.loads((tmp_path / CONVERSATION_FILE).read_text())
+    assert saved["focus"] == 4 and saved["turn"] == 3
+
+    def texts(messages):
+        return [(m["role"], m["content"] if isinstance(m["content"], str) else [p.get("text") for p in m["content"]])
+                for m in messages]
+
+    # A run from before conversation.json: the same conversation, rebuilt from transcript.jsonl.
+    rebuilt = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(), client=_ScriptedModel([]), stepwise=True)
+    state = rebuilt._rebuild_conversation()
+    assert state["focus"] == 4 and texts(state["messages"]) == texts(saved["messages"])
+    assert [m.get("tool_calls") for m in state["messages"]] == [m.get("tool_calls") for m in saved["messages"]]
+    # A turn cut off before its tools answered is left out.
+    log = tmp_path / "transcript.jsonl"
+    kept_log = log.read_text()
+    cut = {"turn": 4, "finish_reason": "tool_calls", "content": "", "usage": {},
+           "tool_calls": [{"id": "x", "type": "function", "function": {"name": "python", "arguments": "{}"}}]}
+    log.write_text(kept_log + json.dumps(cut) + "\n")
+    assert texts(rebuilt._rebuild_conversation()["messages"]) == texts(saved["messages"])
+    log.write_text(kept_log)
+
+    # Running again continues that conversation: no new first message, a note, and the kernel restarted.
+    second = _RecordingModel(
+        [
+            [("python", {"code": "print(kept)"})],
+            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],
+            [("commit_engine", {"message": "up moves too"})],
+        ]
+    )
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=second, opening=False).run()
+    assert result.status == "passed" and result.turns == 6 and result.resumes == 1
+    assert second.openings == []  # never a fresh two-message conversation
+    sent = second.last_messages
+    assert texts(sent[: len(saved["messages"])]) == texts(saved["messages"])
+    note = sent[len(saved["messages"])]
+    assert note == {"role": "user", "content": RESUME_NOTE.format(extra="")}
+    outputs = [m["content"] for m in sent[len(saved["messages"]):] if m["role"] == "tool"]
+    assert "NameError" in outputs[0]  # the kernel's variables are gone
+    assert [(a["fixed"], a["next"], a["message"]) for a in result.advances] == [(0, 4, "moves"), (4, None, "up moves too")]
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert [r["resumed"]["from"] for r in records if "resumed" in r] == ["conversation.json"]
+    assert sum("step_start" in r for r in records) == 1
+
 def test_a_commit_dropped_when_engine_changes_after_it(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.agent import Budget, ModelConfig
     from engine_re.stepwise import StepwiseRun
