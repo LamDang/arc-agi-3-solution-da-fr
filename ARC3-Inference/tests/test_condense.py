@@ -203,6 +203,27 @@ def test_condense_on_a_scripted_run(tmp_path: Path, tiny_trace: Trace) -> None:
     assert all("reasoning" in m for m in whole if m["role"] == "assistant") and sum(m["role"] == "tool" for m in whole) == 9
 
 
+def test_a_legacy_transcript_condenses_the_same(tmp_path: Path, tiny_trace: Trace) -> None:
+    """The report's loader rebuilds the older transcript format into the same full conversation."""
+    from engine_re.condense_report import current_scheme, load_run, new_scheme
+
+    live, full, records = _run(tmp_path, tiny_trace)
+    log = tmp_path / "transcript.jsonl"
+    new_kinds = ("message", "append", "hide_images", "compact")
+    log.write_text("".join(json.dumps(r) + "\n" for r in records if not any(k in r for k in new_kinds)))
+    run = load_run("tiny", tmp_path)
+    assert run.turns == 19 and len(run.messages) == len(full)
+    assert [(m["role"], _texts(m), _images(m)) for m in run.messages] == [(m["role"], _texts(m), _images(m)) for m in full]
+    condensed = new_scheme(run)
+    assert [(m["role"], _texts(m)) for m in condensed[19].messages] == [
+        (m["role"], _texts(m)) for m in condense(run.before(19), run.records, run.versions_dir).messages
+    ]
+    # (a) replays the live scheme: the prompt of the last turn is what the model was sent (images hidden the same way).
+    prompts = current_scheme(run, ModelConfig())
+    sent = [(m["role"], _texts(m), _images(m)) for m in live[: len(prompts[19])]]
+    assert [(m["role"], _texts(m), _images(m)) for m in prompts[19]] == sent
+
+
 def test_failed_commands() -> None:
     report = "TEST RESULT (full replay)\n  Acceptance test: step 3 is the first failure; 3 steps pass before it."
     assert not failed_command(report) and not failed_command("Committed: steps 0-3 pass.") and not failed_command("42\n")
