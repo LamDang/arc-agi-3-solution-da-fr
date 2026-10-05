@@ -318,8 +318,9 @@ Important files include:
 - `artifacts/*_events.jsonl`: append-only full viewer event sidecars.
 - duck transcript HTML/text files linked from the viewer.
 - `stdout.log` and `stderr.log` for Slurm jobs.
-- `<game>_p<pass>_requests.jsonl`, one per game run, when
-  `analyzer.save_request_logs` is true.
+- `<game>_p<pass>_requests.jsonl.xz`, one per game run, when
+  `analyzer.save_request_logs` is true. It is compressed when the game run
+  ends; see `LOCAL_EVAL.md`, "Request log size".
 
 ## Viewer
 

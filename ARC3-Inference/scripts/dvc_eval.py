@@ -4,9 +4,20 @@ dvc.yaml runs this from ARC3-Inference/ (`dvc exp run` or `dvc repro`). It
 calls `make interactive` with the `eval.make` settings and the `eval.env`
 environment, writing the run to runs/dvc-eval, then `make score_run` on it,
 then writes the scores and the API token spend to metrics.json.
+
+The options run the same settings outside DVC, for example two arms of an
+experiment side by side:
+
+    uv run --no-sync python scripts/dvc_eval.py --run-dir runs/engine-code \
+        --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
+
+Each run directory gets eval_settings.json: the make variables and the
+harness environment it ran with. The run is then packed for archiving
+(scripts/pack_run.py); the viewer unpacks it when opened.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -14,6 +25,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from inference.utils.run_artifacts import open_log
+from inference.utils.run_pack import pack_run
 
 PARAMS_PATH = Path("params.yaml")
 RUN_DIR = Path("runs/dvc-eval")
@@ -49,8 +63,9 @@ def _usage_totals(run_dir: Path) -> dict[str, float]:
     # summary requests are not logged, so these totals leave them out.
     totals = {key: 0.0 for key in USAGE_KEYS}
     found = False
-    for path in sorted(run_dir.glob("*requests.jsonl")):
-        with path.open(encoding="utf-8") as lines:
+    logs = [*run_dir.glob("*requests.jsonl"), *run_dir.glob("*requests.jsonl.xz")]
+    for path in sorted(logs):
+        with open_log(path) as lines:
             for line in lines:
                 # Request lines carry the full conversation; skip parsing them.
                 if '"event": "response"' not in line:
@@ -63,7 +78,7 @@ def _usage_totals(run_dir: Path) -> dict[str, float]:
     return totals if found else {}
 
 
-def _write_metrics(run_dir: Path) -> None:
+def _write_metrics(run_dir: Path, metrics_path: Path) -> None:
     evaluation = json.loads((run_dir / "evaluation.json").read_text(encoding="utf-8"))
     metrics: dict[str, Any] = {
         "score": evaluation["score"],
@@ -83,23 +98,57 @@ def _write_metrics(run_dir: Path) -> None:
             "completion_tokens": int(usage["completion_tokens"]),
             "cost_usd": round(usage["cost"], 4),
         }
-    METRICS_PATH.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
+    metrics_path.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--run-dir", type=Path, default=RUN_DIR)
+    parser.add_argument("--metrics", type=Path, default=METRICS_PATH)
+    for option, section in (("--make", "eval.make"), ("--env", "eval.env")):
+        parser.add_argument(
+            option,
+            action="append",
+            default=[],
+            metavar="KEY=VALUE",
+            help=f"Setting to add to or override {section}. Repeatable.",
+        )
+    return parser.parse_args()
+
+
+def _with_overrides(settings: dict[str, str], overrides: list[str]) -> dict[str, str]:
+    settings = dict(settings)
+    for item in overrides:
+        key, separator, value = item.partition("=")
+        if not separator:
+            raise SystemExit(f"Expected KEY=VALUE, got {item!r}")
+        settings[key] = value
+    return settings
 
 
 def main() -> int:
+    args = _parse_args()
+    run_dir: Path = args.run_dir
     params = _load_params()
-    make_vars = dict(params.get("make") or {})
-    make_vars.update(ENVIRONMENTS_DIR="environment_files", EXPERIMENT_DIR=str(RUN_DIR))
-    env = _run_env(params.get("env") or {})
+    make_vars = _with_overrides(params.get("make") or {}, args.make)
+    make_vars.update(ENVIRONMENTS_DIR="environment_files", EXPERIMENT_DIR=str(run_dir))
+    settings = _with_overrides(params.get("env") or {}, args.env)
+    env = _run_env(settings)
 
     subprocess.run(
         ["make", "interactive", *(f"{key}={value}" for key, value in make_vars.items())],
         env=env,
         check=True,
     )
-    subprocess.run(["make", "score_run", f"SCORE_RUN_DIR={RUN_DIR}"], env=env, check=True)
-    _write_metrics(RUN_DIR)
-    print(f"dvc_eval: wrote {METRICS_PATH}")
+    (run_dir / "eval_settings.json").write_text(
+        json.dumps({"make": make_vars, "env": settings}, indent=2) + "\n", encoding="utf-8"
+    )
+    subprocess.run(["make", "score_run", f"SCORE_RUN_DIR={run_dir}"], env=env, check=True)
+    _write_metrics(run_dir, args.metrics)
+    print(f"dvc_eval: wrote {args.metrics}")
+    # Lossless: the viewer unpacks it again (scripts/pack_run.py).
+    report = pack_run(run_dir, environments_dir=make_vars["ENVIRONMENTS_DIR"])
+    print(f"dvc_eval: packed {run_dir}: {report.bytes_before / 1e6:.1f} MB -> {report.bytes_after / 1e6:.1f} MB")
     return 0
 
 

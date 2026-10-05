@@ -31,6 +31,7 @@ import taaf.game_api
 
 from inference.framework.kaggle import DUCK_HARNESS_PUBLIC_GAME_IDS
 from inference.framework.solver import HarnessSolver, artifact_stem
+from inference.utils.run_pack import packed_sources, unpack_run
 from inference.utils.run_artifacts import save_git_info, setup_experiment_directory
 
 log = logging.getLogger(__name__)
@@ -548,6 +549,10 @@ def _prepare_resume(
     game_ids: list[str],
 ) -> None:
     """Copy the kept runs' artifacts into ``run_dir`` and record the resume."""
+    # A packed run (scripts/pack_run.py) first rebuilds the files it left
+    # out; its packed copies are not carried into the new run.
+    unpack_run(resume_dir)
+    packed = packed_sources(resume_dir)
     kept_stems = {
         _run_stem(run.game_id, position // len(game_ids))
         for position, run in enumerate(prior_runs)
@@ -555,7 +560,7 @@ def _prepare_resume(
     }
     for path in resume_dir.rglob("*"):
         relative = path.relative_to(resume_dir)
-        if not path.is_file() or relative.parts[0] == "src":
+        if not path.is_file() or relative.parts[0] == "src" or path in packed:
             continue
         # "_p1" must not also match "_p10": the stem ends at "_" or "."
         if any(

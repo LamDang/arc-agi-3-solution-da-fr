@@ -6,11 +6,10 @@ import asyncio
 import contextlib
 import copy
 import functools
-import html
+import hashlib
 import logging
 import json
 import os
-import re
 import subprocess
 import threading
 import time
@@ -29,6 +28,7 @@ from inference.utils.animation import (
     normalize_frames,
     summarize_animation,
 )
+from inference.agent.game_code import game_code_dir, load_game_code
 from inference.agent.action_names import (
     reset_exposed,
     to_engine_action,
@@ -45,6 +45,7 @@ from inference.agent.tool_agent import (
     _PRIORITY_UNTRIMMED_BASE,
     ToolAgent,
     _priority_gate,
+    _resolve_request_log_path,
 )
 from inference.framework.kaggle import (
     DEFAULT_QWEN_MODEL_DATASET_SOURCE,
@@ -58,6 +59,11 @@ from inference.framework.kaggle import (
     duck_kaggle_dataset_sources,
     duck_kaggle_setup_command,
     duck_kaggle_teardown_command,
+)
+from inference.utils.run_artifacts import (  # noqa: F401  (artifact_stem: run.py imports it from here)
+    artifact_stem,
+    compress_log,
+    render_transcript_html,
 )
 from inference.utils.viewer_artifacts import (
     append_raw_events_sidecar,
@@ -329,10 +335,6 @@ def _analyzer_reported_tokens(analyzer: Any) -> int:
     return max(0, int(value or 0))
 
 
-def artifact_stem(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
-
-
 def _animation_chain(
     previous_grid: tuple[tuple[int, ...], ...],
     state: taaf.game.GameState | None,
@@ -450,19 +452,7 @@ def _write_transcript_html(transcript_path: Path, html_path: Path, title: str) -
         return
     html_path.parent.mkdir(parents=True, exist_ok=True)
     text = transcript_path.read_text(encoding="utf-8")
-    body = (
-        '<!doctype html>\n<html><head><meta charset="utf-8">'
-        f"<title>{html.escape(title)}</title>"
-        "<style>"
-        "body{background:#1e1e1e;color:#e0e0e0;font-family:-apple-system,system-ui,sans-serif;"
-        "padding:20px;max-width:1100px;margin:0 auto;line-height:1.4;}"
-        "h1{color:#fff;}pre{white-space:pre-wrap;background:#111;padding:16px;border-radius:6px;"
-        "border:1px solid #333;overflow:auto;}"
-        "</style></head><body>"
-        f"<h1>{html.escape(title)}</h1><pre>{html.escape(text)}</pre>"
-        "</body></html>\n"
-    )
-    html_path.write_text(body, encoding="utf-8")
+    html_path.write_text(render_transcript_html(text, title), encoding="utf-8")
 
 
 @dataclass
@@ -1832,6 +1822,7 @@ class HarnessSolver(Solver):
         game: taaf.game.Game,
         index: int,
         local_server: _LocalServerRuntime | None = None,
+        game_code: dict[str, str] | None = None,
     ) -> Any:
         if self.analyzer_factory is not None:
             return self.analyzer_factory(game, index)
@@ -1855,7 +1846,32 @@ class HarnessSolver(Solver):
             )
             or None,
             provider="vllm" if local_server is not None else None,
+            game_code=game_code,
         )
+
+    def _game_code(self, game_id: str, run_stem: str) -> dict[str, str] | None:
+        """The source files the agent may read, or None when ARC3_GAME_CODE_DIR is unset.
+
+        Records the names and hashes of what was exposed in the run's artifacts.
+        """
+        root = game_code_dir()
+        if root is None:
+            return None
+        files = load_game_code(root, game_id)
+        record = {
+            "game_code_dir": str(root),
+            "files": {
+                name: {
+                    "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "lines": len(text.splitlines()),
+                }
+                for name, text in files.items()
+            },
+        }
+        (self._artifacts_dir() / f"{run_stem}_game_code.json").write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"
+        )
+        return files
 
     def _play_one(
         self,
@@ -1864,6 +1880,7 @@ class HarnessSolver(Solver):
         pass_index: int,
         local_server: _LocalServerRuntime | None = None,
     ) -> None:
+        state_path: Path | None = None
         try:
             assert game.game_run is not None
             run = game.game_run
@@ -1872,7 +1889,9 @@ class HarnessSolver(Solver):
             viewer_data_path = self._artifacts_dir() / f"{run_stem}_viewer_data.json"
             transcript_path = self._transcripts_dir() / f"{run_stem}.txt"
             analysis_relpath = f"solver_analysis/{run_stem}.html"
-            analyzer = self._make_analyzer(game, index, local_server)
+            analyzer = self._make_analyzer(
+                game, index, local_server, game_code=self._game_code(run.game_id, run_stem)
+            )
             session = _HarnessGameSession(
                 solver=self,
                 game=game,
@@ -1888,6 +1907,21 @@ class HarnessSolver(Solver):
             session.play()
         except Exception as exc:
             self._finish_after_error(game, exc)
+        finally:
+            if state_path is not None:
+                self._compress_request_log(state_path)
+
+    def _compress_request_log(self, state_path: Path) -> None:
+        """Replace the game run's finished request log with an xz copy."""
+        path = _resolve_request_log_path(state_path)
+        # Only a game run's own log: the run-level requests.jsonl, used when the
+        # state file is outside artifacts/, may still be written by another game.
+        if path.name == "requests.jsonl":
+            return
+        try:
+            compress_log(path)
+        except OSError:
+            log.warning("could not compress %s; left uncompressed", path, exc_info=True)
 
     def _artifacts_dir(self) -> Path:
         root = self.job_dir or Path.cwd() / "taaf_harness_artifacts"

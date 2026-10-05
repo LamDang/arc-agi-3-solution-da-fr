@@ -89,6 +89,30 @@ make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
   to 10 minutes behind and is replayed even if it had just finished.
 - If every run in the earlier directory finished, nothing runs.
 
+## Let the agent read the game code
+
+For experiments, the agent can be given read access to its game's source code:
+the game's module and the `arcengine` package it is built on.
+
+```bash
+dvc pull game_code             # or rebuild it: dvc repro game_code
+ARC3_GAME_CODE_DIR=game_code make interactive <settings>
+```
+
+- `game_code/` is the DVC stage `game_code`: `scripts/extract_game_code.py`
+  copies each game's module byte for byte from `environment_files/`, the file
+  the game loader runs, and the installed `arcengine` package. It covers every
+  game in `environment_files/`; pass ids or prefixes to the script to extract
+  fewer. `game_code/manifest.json` records each file's source and sha256.
+- With `ARC3_GAME_CODE_DIR` set, the python tool has `game_code_files`,
+  `game_code(file=None)` (a file's full text) and
+  `read_game_code(start=1, end=None, file=None)` (numbered lines), and the
+  system prompt describes them. The agent can read the code but not run it.
+- A game whose code is missing from the directory fails instead of playing
+  without it. `artifacts/<game>_p<pass>_game_code.json` lists the files the
+  agent could read, with their hashes.
+- Unset or empty, the default, the agent is unchanged.
+
 ## Limits
 
 | Override | Applies to | Notes |
@@ -143,9 +167,12 @@ Other tools:
 | `diagnostics.html` | TAAF diagnostics page. |
 | `artifacts/*_viewer_data.json`, `artifacts/*_events.jsonl` | Viewer data: boards, actions, rewards, level changes, tokens per step. |
 | `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
-| `<game>_p<pass>_requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
+| `<game>_p<pass>_requests.jsonl.xz` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run, compressed with xz when the game run ends (still `.jsonl` while it plays, or if the run was killed). Two lines per model request: `request` (full messages and tools) and `response` (the model's `reply`, finish reason, provider, `usage`). See [Request log size](#request-log-size). In older runs the `response` lines repeat the request instead of the reply, and the logs are uncompressed unless compressed later (as the two runs archived in DVC were). Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
+| `artifacts/*_game_code.json` | Only with `ARC3_GAME_CODE_DIR`: the source files the agent could read, with sha256 and line counts. |
+| `eval_settings.json` | Only in runs made by `scripts/dvc_eval.py`: the make variables and harness environment of the run. |
+| `pack.json`, `*.xz`, `*_events.jsonl.pack.xz`, `src.tar.xz` | Only in a packed run: what was replaced and the packed data. See [Pack a run](#pack-a-run). |
 
 ## Save and reproduce runs with DVC
 
@@ -194,16 +221,34 @@ dvc exp push origin qwen38-500k                # git ref to GitHub, data to S3
 - `dvc exp apply` replaces the workspace files with the experiment's,
   including code, and overwrites uncommitted changes. Commit them first.
 - A failed run leaves `runs/dvc-eval/` for inspection and caches nothing.
+- The stage packs `runs/dvc-eval/` after scoring it (see
+  [Pack a run](#pack-a-run)). The viewer unpacks it when opened.
+
+To run the same settings outside DVC, for example two arms of an experiment
+at once, call the stage's script with a run directory and overrides:
+
+```bash
+uv run --no-sync python scripts/dvc_eval.py --run-dir runs/control \
+  --metrics runs/control.metrics.json
+uv run --no-sync python scripts/dvc_eval.py --run-dir runs/engine-code \
+  --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
+```
+
+`--make KEY=VALUE` and `--env KEY=VALUE` add to or override `eval.make` and
+`eval.env`, and can be repeated. The run directory gets `eval_settings.json`
+with the settings used.
 
 ### Archive a run made with `make interactive`
 
 ```bash
+uv run --no-sync python scripts/pack_run.py pack runs/<run>   # see "Pack a run"
 dvc add runs/<run>        # writes runs/<run>.dvc and stages it in git
 git commit -m "Archive run <run>"
 dvc push runs/<run>.dvc
 ```
 
-The run's `git_info.txt` and `src/` record the code it ran.
+The run's `git_info.txt` and `src/` (in `src.tar.xz` once packed) record the
+code it ran.
 
 ### Get a saved run
 
@@ -212,6 +257,66 @@ dvc pull runs/<run>.dvc                        # an archived run
 dvc pull                                       # everything the branch tracks
 dvc exp pull origin <name> && dvc exp apply <name>                   # an experiment
 ```
+
+Archived runs are packed. The viewer, `make traces` and `RESUME_FROM` unpack a
+packed run when they open it; `scripts/token_breakdown.py`, `make score_run`
+and the metrics read it packed. Anything else that reads the transcripts,
+event logs or pickles directly needs `scripts/pack_run.py unpack runs/<run>`
+first. Pack the run again before another `dvc add`.
+
+## Request log size
+
+Each request line holds the whole conversation sent to the model, including
+the grid images, so a game run's log repeats itself and grows fast: 115 MB for
+one game in `runs/engine-code`. Only about 3% of it is new from one request to
+the next. Two things keep the logs small:
+
+- `response` lines hold the model's reply and usage, not a second copy of the
+  request. Older logs repeat the request there, which doubles their size.
+- When a game run ends, the solver replaces its log with an xz copy. xz's 8 MB
+  window sees each request as a near-copy of the one before: that 115 MB log
+  becomes 0.5 MB, and a whole run directory about 70 times smaller. gzip and
+  zip, with a 32 KB window, only reach about 5 times.
+
+To read a log, use `inference.utils.run_artifacts.open_log`, which opens both
+`.jsonl` and `.jsonl.xz`, or `xzcat`. `scripts/dvc_eval.py`,
+`scripts/token_breakdown.py` and the viewer read both. Packing a run (below)
+compresses an older run's logs too.
+
+## Pack a run
+
+DVC stores files as they are, and most of a run directory can be rebuilt from
+the rest. `scripts/pack_run.py pack` keeps what cannot be rebuilt and replaces
+the rest, losslessly:
+
+| Replaced | Rebuilt from |
+| --- | --- |
+| The boards in `artifacts/*_events.jsonl`, as numbers and as ASCII | `benchmark.json`'s action history, replayed through the game engine. The games are deterministic. |
+| The transcript text in the event logs, and `solver_analysis/*.html` | `transcripts/*.txt` |
+| Every other file of 64 KB or more (transcripts, pickles, `diagnostics.html`, prompt logs), and `src/` as one `src.tar.xz` | xz |
+
+`benchmark.json` and `analyses/` stay as they are. `pack.json` records the
+sha256 of every replaced file. Pack removes a file only after rebuilding it
+from the packed form and comparing the bytes; a file that does not rebuild
+exactly stays, and pack names it. `runs/engine-code` packs from 60 MB to
+4.1 MB, and `runs/20261004_135539` from 101 MB to 7.3 MB. What remains is
+mostly the request logs and transcripts, the record of the agent itself.
+
+```bash
+uv run --no-sync python scripts/pack_run.py pack runs/<run>     # 10-20 s
+uv run --no-sync python scripts/pack_run.py unpack runs/<run>   # a few seconds
+uv run --no-sync python scripts/pack_run.py status runs/<run>
+```
+
+- Unpack rebuilds every file and checks its hash against `pack.json`, so an
+  unpacked run is byte-identical to the original. It keeps the packed files,
+  and packing again just removes the rebuilt ones.
+- Unpacking replays the games, so it needs their files in `environment_files/`
+  (or `--environments-dir`; `ENVIRONMENTS_DIR` also works). `pack.json`
+  records each game file's hash, and unpack stops if the version differs.
+- Pack refuses a run that is still playing. Request logs are compressed for
+  good: every reader opens `.jsonl.xz`.
+- The DVC `eval` stage packs `runs/dvc-eval/` after scoring it.
 
 ## Token spend
 
@@ -223,9 +328,10 @@ the request logs:
 ```bash
 uv run --no-sync python - runs/<run> <<'EOF'
 import json, pathlib, sys
+from inference.utils.run_artifacts import open_log
 totals = {}
-for path in pathlib.Path(sys.argv[1]).glob("*requests.jsonl"):
-    for line in path.open(encoding="utf-8"):
+for path in pathlib.Path(sys.argv[1]).glob("*requests.jsonl*"):
+    for line in open_log(path):
         record = json.loads(line)
         if record.get("event") != "response":
             continue
@@ -239,3 +345,20 @@ EOF
 The keys are whatever OpenRouter returns in `usage`, such as `prompt_tokens`,
 `completion_tokens` and `cost`. Rolling-summary requests are not written to the
 request logs, so this total leaves them out when summaries are enabled.
+
+`scripts/token_breakdown.py` breaks the same totals down per game and level,
+and output tokens into thinking (`reasoning_tokens`) and tool calls. It also
+counts the tool calls that read game code. With `--label`, it labels what the
+thinking is about, using Claude Haiku 4.5 through OpenRouter: game mechanics,
+planning, tooling or other, and whether it discusses the game's source code.
+Labelling costs about $0.30 per 1,000 excerpts of 600 characters, and labels
+are cached in the output directory.
+
+```bash
+uv run --no-sync python scripts/token_breakdown.py runs/<run> [runs/<run> ...] \
+  --out <dir> --label [--names "<name>,<name>"]
+```
+
+`experiments/engine-code-access/` is an example: the run with game-code
+access compared with `runs/20261004_135539`. Its tables and labels are in DVC
+(`data.dvc`); `--charts` writes the charts next to its README in git.

@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from inference.utils.run_pack import ensure_unpacked
+
 
 _VIEWER_DATA_SUFFIX = "_viewer_data.json"
 _RAW_EVENTS_SUFFIX = "_events.json.gz"
@@ -92,6 +94,9 @@ def load_raw_events(
     if viewer_data_path is None:
         return []
 
+    if not raw_events_jsonl_sidecar_path(viewer_data_path).exists():
+        # a packed run (inference/utils/run_pack.py) rebuilds its event logs
+        ensure_unpacked(viewer_data_path.parent)
     jsonl_events = _load_jsonl_events(raw_events_jsonl_sidecar_path(viewer_data_path))
     if jsonl_events is not None:
         return jsonl_events

@@ -7,6 +7,16 @@ stages:
       - inference/framework/kaggle.py
     outs:
       - environment_files
+  game_code:
+    # the games' source, for ARC3_GAME_CODE_DIR (LOCAL_EVAL.md)
+    cmd: uv run --no-sync python scripts/extract_game_code.py
+    deps:
+      - scripts/extract_game_code.py
+      - inference/agent/game_code.py
+      - environment_files
+      - uv.lock
+    outs:
+      - game_code
   eval:
     cmd: uv run --no-sync python scripts/dvc_eval.py
     params:
@@ -14,6 +24,7 @@ stages:
     deps:
       - scripts/dvc_eval.py
       - environment_files
+      - game_code
       - inference
       - configs
       - Makefile
