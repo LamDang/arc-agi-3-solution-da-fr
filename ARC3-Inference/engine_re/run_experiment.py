@@ -88,7 +88,7 @@ def main() -> int:
     parser.add_argument(
         "--no-images",
         action="store_true",
-        help="Text-only feedback: test reports and show() print hex digits instead of sending pictures.",
+        help="Text-only feedback: test reports and show_frames() print hex digits instead of sending pictures.",
     )
     parser.add_argument(
         "--no-opening",
@@ -103,7 +103,7 @@ def main() -> int:
     parser.add_argument("--mode", choices=("stepwise", "single"), default="stepwise",
                         help="stepwise (v6): fix one breaking step after another; single (v5): the whole recording at once.")
     parser.add_argument("--only-step", action="store_true",
-                        help="Stepwise: python shows only the step to fix, not the recording so far (S, steps 0..k).")
+                        help="Stepwise: python shows only the step to fix (step_to_fix), not the recording so far (recording, steps 0..k).")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 

@@ -1,13 +1,13 @@
-"""The harness side of edit() and undo(): the only code that writes engine.py.
+"""The harness side of edit_file() and undo_edit(): the only code that writes engine.py.
 
-The analysis kernel cannot open engine.py for writing (engine_re.guard); its edit() and undo()
-send their arguments to the harness process, which runs ``EngineEditor.handle``: it applies
+The analysis kernel cannot open engine.py for writing (engine_re.guard); its edit_file() and
+undo_edit() send their arguments to the harness process, which runs ``EngineEditor.handle``: it applies
 anchored edits (engine_re.hashline, rejecting any change to the FIXED block) or restores an
 earlier version, writes engine.py, and answers with the text the kernel prints.
 
 Every change is kept as a numbered version in ``versions_dir`` (``<game_dir>/engine_versions/``,
 outside the kernel's reach): ``v0001.py``, ... and ``versions.jsonl`` with what each change was.
-undo(n) restores the version n changes back, undo(to="best") the best engine tested
+undo_edit(n) restores the version n changes back, undo_edit(to="best") the best engine tested
 (``<game_dir>/engine_best.py``: the most steps passing before the first failure in a full replay,
 ties broken by the most steps passing in all, see ``best_key``); a restore is itself a new version,
 so nothing is lost.
@@ -45,7 +45,7 @@ def passing_prefix(entry: dict[str, Any]) -> int:
 
 
 def best_key(entry: dict[str, Any]) -> tuple[int, int]:
-    """How full-replay results rank for engine_best.py and undo(to="best") (BEST_RULE)."""
+    """How full-replay results rank for engine_best.py and undo_edit(to="best") (BEST_RULE)."""
     return passing_prefix(entry), int(entry.get("exact") or 0)
 
 
@@ -89,7 +89,7 @@ class EngineEditor:
         return number
 
     def sync(self) -> None:
-        """Make the latest version the current engine.py (the first one, or a change made outside edit())."""
+        """Make the latest version the current engine.py (the first one, or a change made outside edit_file())."""
         if not self.engine_path.exists():
             return
         text = self.engine_path.read_text(encoding="utf-8")
@@ -97,7 +97,7 @@ class EngineEditor:
         if not versions:
             self._record(text, "start", "engine.py at the start")
         elif versions[-1]["sha"] != sha256(text):
-            self._record(text, "outside", "engine.py changed outside edit()")
+            self._record(text, "outside", "engine.py changed outside edit_file()")
 
     def _tests_by_sha(self) -> dict[str, dict[str, Any]]:
         """The latest full-replay test result of each engine content."""
@@ -168,7 +168,7 @@ class EngineEditor:
         where = ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in result.regions if b >= a) or "deletions only"
         summary = "; ".join(result.summary)
         version = self._write(old, result.text, "edit", summary, where)
-        out = [f"engine.py: {summary}. {syntax_check(result.text)}. (version {version}; undo() reverts it)"] + notes
+        out = [f"engine.py: {summary}. {syntax_check(result.text)}. (version {version}; undo_edit() reverts it)"] + notes
         anchors = hashline.fresh_anchors(result.text, result.regions)
         if anchors:
             out += ["Fresh anchors around the change:"] + anchors
@@ -208,5 +208,5 @@ class EngineEditor:
             restored = f"Restored {source}, saved as version {version}. {syntax_check(target_text)}."
         return "\n".join(
             [restored, "Recent versions (oldest first):"] + self.history()
-            + ["read() again before the next edit(): the line anchors changed."]
+            + ["read_file() again before the next edit_file(): the line anchors changed."]
         )

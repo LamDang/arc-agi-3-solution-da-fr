@@ -76,6 +76,12 @@ class Step:
     available_actions: list[int]
 
     @property
+    def outcome(self) -> str:
+        """The game's status after the action, the same as ``state``: the name the agent's kernel uses
+        (``state`` and ``status`` would read as the engine's State and State.status)."""
+        return self.state
+
+    @property
     def last(self) -> np.ndarray | None:
         """The final frame: the state the action left the game in."""
         return self.frames[-1] if len(self.frames) else None

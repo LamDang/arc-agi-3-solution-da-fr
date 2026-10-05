@@ -348,7 +348,7 @@ def test_kernel_persists_state_and_is_sandboxed(tmp_path: Path, tiny_trace: Trac
     outside.write_text("no", encoding="utf-8")
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=30)
     try:
-        assert kernel.execute("x = len(S); x").strip() == str(len(ACTIONS))
+        assert kernel.execute("x = len(recording); x").strip() == str(len(ACTIONS))
         assert kernel.execute("x + 1").strip() == str(len(ACTIONS) + 1)
         assert "sandbox: reading" in kernel.execute(f"open({str(outside)!r}).read()")
         assert "subprocess.Popen is not allowed" in kernel.execute("import subprocess; subprocess.run(['true'])")
@@ -393,12 +393,12 @@ def _tail(source: str) -> str:
 
 def _rewrite_call(game_code: str, actions: tuple[int, ...] = (1, 2, 3, 4), game: str = "tiny") -> str:
     """Kernel code that turns the starting engine.py into one with `game_code` below the FIXED block,
-    through edit(), as the model would (python cannot write engine.py)."""
+    through edit_file(), as the model would (python cannot write engine.py)."""
     from engine_re.skeleton import render_skeleton
 
     old = _tail(render_skeleton(game, list(actions)))
     new = _tail(_engine_source(game_code))
-    return f"edit(edits=[{{'op': 'replace_text', 'oldText': {old!r}, 'newText': {new!r}}}])"
+    return f"edit_file(edits=[{{'op': 'replace_text', 'oldText': {old!r}, 'newText': {new!r}}}])"
 
 
 def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -423,7 +423,7 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
-    change = "edit(edits=[{'op': 'replace_text', 'oldText': '# ==== YOUR GAME ====', 'newText': '# ==== YOUR GAME ==== (changed)'}])"
+    change = "edit_file(edits=[{'op': 'replace_text', 'oldText': '# ==== YOUR GAME ====', 'newText': '# ==== YOUR GAME ==== (changed)'}])"
     model = _ScriptedModel(
         [
             [("python", {"code": "1"})],
@@ -594,7 +594,7 @@ def test_level_start_failure_is_explained_first(tmp_path: Path, two_level_trace:
     assert "--- Level 1 start" in report.text and "--- Step" not in report.text
     assert "[1] rows 56-63, cols 0-63 (your grid cells x 0-7, y 7): 512 px differ, expected->got 8->11 x512" in report.text
     assert '#3 "wall" tags=(wall) layer=0 x=0 y=7 size=8x1 visible collidable (shows at 512 of these px)' in report.text
-    assert "before, after = try_step(3, level=1)" in report.text
+    assert "before, after = replay_step(3, level=1)" in report.text
     assert report.detail_steps == [3] and len(report.images) == 1 and report.images[0].png.startswith(b"\x89PNG")
 
 
@@ -714,27 +714,27 @@ def test_printed_command_reproduces_the_failure_in_the_kernel(tmp_path: Path, ti
     report = replay_test(engine, tiny_trace, failures=1, scratch_root=tmp_path)
     assert "your engine printed during this step:\n      action 2 player at 1 1" in report.text
     command = _repro_commands(report.text)
-    assert command.startswith("before, after = try_step(1)\n# replays steps 0-0")
+    assert command.startswith("before, after = replay_step(1)\n# replays steps 0-0")
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
         out = kernel.execute(command)  # exactly as printed
         assert "Traceback" not in out, out
-        assert out.startswith("try_step(1): ACTION2 on your engine after replaying step 0 (level 0)\n")
+        assert out.startswith("replay_step(1): ACTION2 on your engine after replaying step 0 (level 0)\n")
         assert "your engine printed during the step:\n  action 2 player at 1 1\n" in out
         assert 'what the step changed in your state:\n  #2 "": y 1->3\n  vars: unchanged\n' in out
         assert "compared with the recording after step 1 (expected = the original, got = yours):" in out
         assert "[1] rows 16-31, cols 8-15 (your grid cells x 1, y 2-3)" in out and '#2 "" tags=(player)' in out
         assert kernel.execute("print(type(before).__name__, after.sprites[2].y - before.sprites[2].y)").strip() == "State 2"
-        out = kernel.execute("b, a = try_step(1, action=4)")
+        out = kernel.execute("b, a = replay_step(1, action=4)")
         assert '#2 "": x 1->2' in out and "not compared with the recording: the action is not step 1's recorded one (ACTION2)" in out
-        out = kernel.execute("b, a = try_step(2, state=after); print(a.sprites[2].y)")
+        out = kernel.execute("b, a = replay_step(2, state=after); print(a.sprites[2].y)")
         assert "on your engine from the state you gave" in out and "(from the state you gave)" in out
         assert out.strip().endswith("5")  # y=3 after step 1, and this engine moves down by 2
     finally:
         kernel.stop()
 
 
-def test_try_step_compares_a_level_start(tmp_path: Path, two_level_trace: Trace) -> None:
+def test_replay_step_compares_a_level_start(tmp_path: Path, two_level_trace: Trace) -> None:
     two_level_trace.save(tmp_path / "trace")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -744,11 +744,11 @@ def test_try_step_compares_a_level_start(tmp_path: Path, two_level_trace: Trace)
     try:
         out = kernel.execute(_repro_commands(report.text) + "\nprint(before, after.level)")
         assert "Traceback" not in out, out
-        assert "try_step(3, level=1): your make_level(1) as the test starts it" in out
+        assert "replay_step(3, level=1): your make_level(1) as the test starts it" in out
         assert '#3 "wall"' in out and "expected->got 8->11 x512" in out and out.strip().endswith("None 1")
-        out = kernel.execute("b, a = try_step(5, level=1)")
+        out = kernel.execute("b, a = replay_step(5, level=1)")
         assert "on your engine started at level 1, after replaying step 4 (level 1)" in out and '#2 "player": x 1->2' in out
-        out = kernel.execute("b, a = try_step(3)")  # the full replay: step 3 completes level 0
+        out = kernel.execute("b, a = replay_step(3)")  # the full replay: step 3 completes level 0
         assert "the level changed from 0 to 1: your state is now a fresh copy of make_level(1)" in out
     finally:
         kernel.stop()
@@ -901,9 +901,12 @@ def test_the_tools_are_python_run_tests_and_finish() -> None:
     assert set(run_tests["parameters"]["properties"]) == {"level", "failures"}
     assert run_tests["description"].startswith("Run the contract tests, then replay the recording in order")
     python = TOOLS[0]["function"]["description"]
-    for name in ("read(", "edit(", "undo(", "render(", "show(", "try_step(", "auto_sprites(", "S[i].last"):
-        assert name in python
-    assert "as images" in python and "images are off" in tools(False)[0]["function"]["description"]
+    assert "# Objects" in python and "edit_file() and undo_edit()" in python
+    objects = system_prompt()[system_prompt().index("# Objects") : system_prompt().index("# How to work")]
+    for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(", "auto_sprites(",
+                 "summarize_levels(", "recording[i]", "recording[k].after"):
+        assert name in objects and name.split("(")[0].split("[")[0] in python, name
+    assert "as images" in objects and "as hex digits" in system_prompt(images=False)
     assert "image" not in system_prompt(images=False).lower() and "as images" in system_prompt(images=True)
     for term in ("camera", "letterbox", "letter_box", "ARCBaseGame", "arcengine", "library"):
         assert term not in system_prompt() and term not in python
@@ -1037,10 +1040,10 @@ def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) ->
         check = (
             "ns = {'Sprite': Sprite, 'State': State, 'View': View}; exec(code, ns)\n"
             "st = State(grid=(8, 8), sprites=ns['level_0_sprites']())\n"
-            "print(bool((render(st) == S[0].last).all()), code.exact, auto_sprites(frame=S[3].last).grid)"
+            "print(bool((render_state(st) == recording[0].after).all()), code.exact, auto_sprites(frame=recording[3].after).grid)"
         )
         assert kernel.execute(check).strip().endswith("True True (8, 8)")
-        out = kernel.execute("c = auto_sprites(frame=S[2].last, grid=(16, 16), region=(8, 8, 23, 31)); print(c.exact)")
+        out = kernel.execute("c = auto_sprites(frame=recording[2].after, grid=(16, 16), region=(8, 8, 23, 31)); print(c.exact)")
         assert "Renders the region exactly: yes" in out and "def frame_sprites_region()" in out and "border" not in out.split("def frame_sprites_region")[1]
         # A pixel constant in engine.py is reused, not written again.
         (workspace / "engine.py").write_text("WALL = [[5] * 8]\n", encoding="utf-8")
@@ -1053,7 +1056,7 @@ def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) ->
         kernel.stop()
 
 
-# --- read / edit / undo, the tools, finish and show ---------------------------------------------
+# --- read_file / edit_file / undo_edit, the tools, finish and show_frames ---------------------------------------------
 
 
 def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
@@ -1169,7 +1172,7 @@ def test_python_cannot_write_engine_py(tmp_path: Path, tiny_trace: Trace) -> Non
         assert engine.read_text() == "ORIGINAL = 1\n"
         assert kernel.execute("print(open('engine.py').read().strip())").strip() == "ORIGINAL = 1"  # reading is fine
         assert kernel.execute("import shutil; shutil.copyfile('engine.py', 'copy.py'); print('ok')").strip() == "ok"
-        out = kernel.execute("edit(edits=[{'op': 'replace_text', 'oldText': 'ORIGINAL = 1', 'newText': 'CHANGED = 2'}])")
+        out = kernel.execute("edit_file(edits=[{'op': 'replace_text', 'oldText': 'ORIGINAL = 1', 'newText': 'CHANGED = 2'}])")
         assert "engine.py: replaced line 1 with 1 line. Syntax OK. (version 2" in out
         assert engine.read_text() == "CHANGED = 2\n"
         assert "engine_versions" not in kernel.execute("import os; print(os.listdir('.'))")
@@ -1204,7 +1207,7 @@ def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     (tmp_path / "tests.jsonl").write_text(json.dumps(tested) + "\n")
     out = editor.undo()
     assert engine.read_text() == "A = 2\n" and "Restored version 2" in out and "saved as version 4" in out
-    assert "tested: 4 pass before the first failure (step 4), 7/9 in all" in out and "read() again" in out
+    assert "tested: 4 pass before the first failure (step 4), 7/9 in all" in out and "read_file() again" in out
     editor.undo()  # undo the undo: back to A = 3
     assert engine.read_text() == "A = 3\n" and [v["version"] for v in editor.versions()] == [1, 2, 3, 4, 5]
     out = editor.undo(3)  # the state 3 changes ago: version 2
@@ -1251,8 +1254,8 @@ def test_show_images_join_the_turns_image_message(tmp_path: Path, tiny_trace: Tr
     tiny_trace.save(tmp_path / "trace")
     model = _ScriptedModel(
         [
-            [("python", {"code": "show(S[0].last, S[1].last, titles=['a', 'b'], boxes=[(8, 8, 15, 15)])"}), ("run_tests", {})],
-            [("python", {"code": "show(S[2].last)"})],
+            [("python", {"code": "show_frames(recording[0].after, recording[1].after, titles=['a', 'b'], boxes=[(8, 8, 15, 15)])"}), ("run_tests", {})],
+            [("python", {"code": "show_frames(recording[2].after)"})],
         ]
     )
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), opening=False, client=model)
@@ -1261,7 +1264,7 @@ def test_show_images_join_the_turns_image_message(tmp_path: Path, tiny_trace: Tr
     assert len(images) == 2
     first, second = images[0][1]["content"], images[1][1]["content"]
     captions = [p["text"] for p in first if p["type"] == "text"]
-    assert captions[1] == "show(): a | b; boxes 1" and any("From the latest run_tests report" in c for c in captions)
+    assert captions[1] == "show_frames(): a | b; boxes 1" and any("From the latest run_tests report" in c for c in captions)
     assert captions.count(IMAGE_PLACEHOLDER) >= 2
     assert all(p["type"] == "text" for p in first)  # stripped once the next turn's images came
     assert sum(p["type"] == "image_url" for p in second) == 1
@@ -1324,7 +1327,7 @@ def test_first_message_without_the_opening(tmp_path: Path, tiny_trace: Trace) ->
     assert (tmp_path / "workspace" / "engine.py").read_text() == render_skeleton("tiny", [1, 2, 3, 4])
     assert "The actions this game accepts: 1 (up), 2 (down), 3 (left), 4 (right)." in opening
     assert "the FIXED block, folded" in opening and "class Sprite:" not in opening
-    assert "Your first task: put auto_sprites(0)'s code into make_level with edit()" in opening
+    assert "Your first task: put auto_sprites(0)'s code into make_level with edit_file()" in opening
     assert agent.messages[0]["content"].startswith("# Goal")
     assert not agent.result.opening
 
@@ -1346,8 +1349,8 @@ def test_summarize_levels_lists_each_level(two_level_trace: Trace) -> None:
 
     rows = helpers._levels_text(two_level_trace).splitlines()
     assert rows[0].startswith("The recording: 9 steps") and "2 of the game's 2 levels played" in rows[0]
-    assert rows[2].split() == ["0", "S[0].last", "1-3", "(3)", "right", "x3", "3", "-", "-", "solved", "at", "step", "3"]
-    assert rows[3].startswith("1      S[3].last    4-8 (5)") and rows[3].rstrip().endswith("not solved: the recording ends (NOT_FINISHED)")
+    assert rows[2].split() == ["0", "recording[0].after", "1-3", "(3)", "right", "x3", "3", "-", "-", "solved", "at", "step", "3"]
+    assert rows[3].startswith("1      recording[3].after  4-8 (5)") and rows[3].rstrip().endswith("not solved: the recording ends (NOT_FINISHED)")
     assert "RESET x1" in rows[3] and "summarize_levels" in PRELOADED
 
 
@@ -1358,11 +1361,11 @@ def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, 
     tiny_trace.save(tmp_path / "trace")
     wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
     EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), opening=False, client=_ScriptedModel([[("python", {"code": wrong})]])).run()
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), opening=False, client=_ScriptedModel([[("python", {"code": "undo()"})]]))
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), opening=False, client=_ScriptedModel([[("python", {"code": "undo_edit()"})]]))
     agent.run()
     opening = agent.messages[1]["content"]
     assert "This continues an earlier session on this game (1 turns)" in opening and "--- Step " in opening
-    shown = opening.split("engine.py now, as read() shows it:")[1]
+    shown = opening.split("engine.py now, as read_file() shows it:")[1]
     assert "the FIXED block, folded; it cannot be edited" in shown and "class Sprite:" not in shown
     out = next(m["content"] for m in agent.messages if m["role"] == "tool")
     assert out.startswith("Restored version 1, as engine.py was 1 change ago, saved as version 3.")
@@ -1375,21 +1378,23 @@ def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, 
 def test_kernel_rejects_code_that_rebinds_a_builtin():
     from engine_re import kernel
 
-    def show(*frames):
-        return "the harness show"
+    def show_frames(*frames):
+        return "the harness show_frames"
 
-    namespace = {"show": show, "print": print}
-    builtins = {"show": show}
-    out = kernel._run("def show(f):\n    pass\nprint('ran')", namespace, builtins)
-    assert "nothing was run" in out and "line 1: def show" in out and "ran" not in out
-    assert namespace["show"] is show
-    for code in ("show = 3", "for show in range(2): pass", "import os as show", "f = lambda show: show", "del show"):
+    namespace = {"show_frames": show_frames, "print": print}
+    builtins = {"show_frames": show_frames}
+    out = kernel._run("def show_frames(f):\n    pass\nprint('ran')", namespace, builtins)
+    assert "nothing was run" in out and "line 1: def show_frames" in out and "ran" not in out
+    assert namespace["show_frames"] is show_frames
+    for code in ("show_frames = 3", "for show_frames in range(2): pass", "import os as show_frames", "f = lambda show_frames: show_frames",
+                 "del show_frames"):
         assert "nothing was run" in kernel._run(code, namespace, builtins), code
     # Other names, calls and keyword arguments are fine.
-    assert kernel._run("x = show()\nprint(x)\ndef f(frames, show_all=True): return frames", namespace, builtins).strip() == "the harness show"
+    code = "x = show_frames()\nprint(x)\ndef f(frames, show_frames_all=True): return frames"
+    assert kernel._run(code, namespace, builtins).strip() == "the harness show_frames"
     # A rebinding the check cannot see is undone after the run, and reported.
-    out = kernel._run("globals()['show'] = 1", namespace, builtins)
-    assert namespace["show"] is show and "restored" in out
+    out = kernel._run("globals()['show_frames'] = 1", namespace, builtins)
+    assert namespace["show_frames"] is show_frames and "restored" in out
 
 
 def test_system_prompt_names_every_builtin_function():
@@ -1398,10 +1403,10 @@ def test_system_prompt_names_every_builtin_function():
 
     for images in (True, False):
         prompt = system_prompt(images=images)
-        section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
+        section = prompt[prompt.index("# Objects") : prompt.index("# How to work")]
         for name in RESERVED:
             assert name in section, name
-        assert "reserved" in section
+        assert "reserved" in section and "step_to_fix" not in prompt
 
 
 def test_openrouter_client_asks_again_after_a_provider_error(monkeypatch):
@@ -1455,7 +1460,7 @@ def test_openrouter_client_can_pin_providers(monkeypatch):
 
 
 def _rewrite_now(game_code: str) -> str:
-    """Kernel code that puts `game_code` below the FIXED block of engine.py as it is now, through edit()."""
+    """Kernel code that puts `game_code` below the FIXED block of engine.py as it is now, through edit_file()."""
     from engine_re.game_api import END_MARKER
 
     new = _tail(_engine_source(game_code))
@@ -1463,7 +1468,7 @@ def _rewrite_now(game_code: str) -> str:
         "from pathlib import Path as _P\n"
         "_t = _P('engine.py').read_text()\n"
         f"_m = {END_MARKER!r}\n"
-        f"edit(edits=[{{'op': 'replace_text', 'oldText': _t[_t.index(_m) + len(_m):], 'newText': {new!r}}}])"
+        f"edit_file(edits=[{{'op': 'replace_text', 'oldText': _t[_t.index(_m) + len(_m):], 'newText': {new!r}}}])"
     )
 
 
@@ -1494,7 +1499,7 @@ def test_stepwise_leads_one_conversation_from_step_to_step(tmp_path: Path, tiny_
     model = _RecordingModel(
         [
             [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],  # step 0: passes steps 0..0, the harness moves on
-            [("python", {"code": "print(kept + 1, step.index, step.level, len(S), S[-1].action == step.action)"})],
+            [("python", {"code": "print(kept + 1, step_to_fix.index, step_to_fix.level, len(recording), recording[-1] is step_to_fix)"})],
             [("finish", {"summary": "nothing yet"})],  # step 4 still fails
             [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # step 4 fixed: the recording passes
         ]
@@ -1509,10 +1514,10 @@ def test_stepwise_leads_one_conversation_from_step_to_step(tmp_path: Path, tiny_
     advance = advance if isinstance(advance, str) else advance[0]["text"]
     assert advance.startswith("Steps 0-0 pass. The harness replayed on: steps 1-3 (3 more steps) passed without error. "
                               "Step 4 is the next that fails.")
-    assert "Step 4: ACTION1 (up), played in level 0" in advance and "S now holds the recording up to step 4" in advance
+    assert "Step 4: ACTION1 (up), played in level 0" in advance and "`recording` now holds the recording up to step 4" in advance
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
     outputs = [r["output"] for r in records if r.get("tool") in ("python", "finish")]
-    assert outputs[1].split() == ["42", "4", "0", "5", "True"]  # the kernel kept its variables; S grew to step 4
+    assert outputs[1].split() == ["42", "4", "0", "5", "True"]  # the kernel kept its variables; recording grew to step 4
     assert outputs[2].startswith("Not finished")
     assert [r["advance"]["next"] for r in records if "advance" in r] == [4]
     tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
@@ -1527,7 +1532,7 @@ def test_stepwise_has_no_limit_per_step(tmp_path: Path, tiny_trace: Trace) -> No
     from engine_re.stepwise import StepwiseRun
 
     tiny_trace.save(tmp_path / "trace")
-    model = _ScriptedModel([[("python", {"code": "print('S' in globals(), step.index)"})]] + [[("python", {"code": "1"})]] * 4)
+    model = _ScriptedModel([[("python", {"code": "print('recording' in globals(), step_to_fix.index)"})]] + [[("python", {"code": "1"})]] * 4)
     result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model, opening=False, history=False).run()
     assert result.status == "budget_turns" and result.turns == 5 and result.step == 0 and result.final["first_fail"] == 0
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
@@ -1559,7 +1564,7 @@ def test_the_report_says_what_a_click_lands_on() -> None:
     before = {"grid": [8, 8], "view": {"scale": None, "rotation": 0, "mirror_ud": False, "mirror_lr": False},
               "sprites": [sprite("background", 0, 0, 8, 8, layer=-1, collidable=False), sprite("button", 2, 3, 2, 2)]}
     lines = diff_report.click_lines(SimpleNamespace(id=6, x=2 * 8 + 3, y=3 * 8 + 1), before)  # scale 8: cell (2, 3)
-    assert lines[0].startswith("    the click (19, 25) lands on your grid cell (2, 3) (action.cell)")
+    assert lines[0].startswith("    the click (19, 25) lands on your grid cell (2, 3): step() gets action.cell == (2, 3); ")
     assert '#1 "button"' in lines[1] and lines[1].endswith("<- state.sprite_at(*action.cell)")
     assert '#0 "background"' in lines[2] and "sprite_at" not in lines[2]
     assert diff_report.click_lines(SimpleNamespace(id=1, x=None, y=None), before) == []
@@ -1572,10 +1577,117 @@ def test_the_step_prompts_name_every_builtin():
     for images in (True, False):
         for history, reserved in ((True, RESERVED_HISTORY), (False, RESERVED_STEP)):
             prompt = system_prompt(images=images, mode="step", history=history)
-            section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
+            section = prompt[prompt.index("# Objects") : prompt.index("# How to work")]
             assert all(name in section for name in reserved), (history, [n for n in reserved if n not in section])
+            assert ("recording[" in prompt) == history and ("summarize_levels" in prompt) == history
+            assert "step_to_fix: StepView" in section and "step_to_fix.before" in prompt
             python = tools(images, "step", history)[0]["function"]["description"]
-            assert ("S[" in python) == history and ("summarize_levels" in python) == history and "step.after" in python
+            assert ("recording" in python) == history and "step_to_fix" in python
+
+
+def _objects_members(section: str) -> dict[str, set[str]]:
+    """The members the # Objects reference lists under each heading line ("Sprite(...)", "StepView: ...",
+    ...): every `.name` before the two spaces that start a member line's meaning."""
+    import re
+
+    members: dict[str, set[str]] = {}
+    current = None
+    for line in section.splitlines():
+        if line and not line.startswith(" "):
+            heading = re.match(r"(\w+(?: \w+)*)", line)
+            current = heading.group(1) if heading else None
+            if current is not None:
+                members[current] = set()
+        elif current is not None and line.startswith("  .") and not line.startswith("   "):
+            head = line[2:].split("  ")[0]
+            members[current] |= set(re.findall(r"(?:^|[\s,(=])\.([A-Za-z_]\w*)", head))
+    return members
+
+
+def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
+    """The # Objects reference names every field and method of the engine classes, the recorded step
+    and the recorded action, and nothing they do not have, in every mode."""
+    import dataclasses
+    import inspect
+    import re
+
+    from engine_re import game_api, helpers
+    from engine_re.prompts import objects_reference, system_prompt
+    from engine_re.trace import Action as RecordedAction
+
+    api = game_api.canonical()
+    text = objects_reference("single", True, True)
+    members = _objects_members(text)
+    for name in ("Sprite", "Action", "View", "State"):
+        cls = getattr(api, name)
+        fields = [f.name for f in dataclasses.fields(cls)]
+        public = set(fields) | {k for k in vars(cls) if not k.startswith("_") and k not in fields}
+        assert members[name] == public, (name, members[name] ^ public)
+        # The signature line lists the constructor's arguments in order, with their defaults.
+        signature = re.search(rf"^{name}\((.*?)\)  ", text, re.M | re.S).group(1)
+        assert [a.split("=")[0].strip() for a in signature.split(",")] == fields
+        for member in public:  # each method's arguments as the code has them
+            value = vars(cls).get(member)
+            if inspect.isfunction(value):
+                args = [p for p in inspect.signature(value).parameters if p != "self"]
+                documented = re.search(rf"^  \.{member}\((.*?)\) ->", text, re.M).group(1)
+                assert [a.split("=")[0].strip().lstrip("*") for a in documented.split(",") if a.strip()] == args, member
+    from engine_re.kernel import FUNCTIONS
+
+    for name in FUNCTIONS + ("summarize_levels",):  # the built-in functions' arguments, as helpers has them
+        documented = re.search(rf"^{name}\((.*?)\) ->", text, re.M).group(1)
+        args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
+        assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
+    view = helpers.StepView(tiny_trace, 1)
+    assert members["StepView"] == set(vars(view)), members["StepView"] ^ set(vars(view))
+    recorded = {f.name for f in dataclasses.fields(RecordedAction)} | {"name"}
+    assert members["The recorded action"] == recorded and not hasattr(view.action, "cell")
+    # Every mode shares these parts; the recorded steps python holds differ.
+    for mode, history in (("single", True), ("step", True), ("step", False)):
+        prompt = system_prompt(mode=mode, history=history)
+        for part in ("StepView: a recorded step", "A recorded step has no State, sprites, grid or vars: frames only",
+                     "State(grid, sprites=[]", "replay_step(i, state=None, action=None, *, level=None) -> tuple[State | None, State]"):
+            assert part in prompt, (mode, history, part)
+
+
+def test_recorded_steps_are_step_views_and_step_is_a_free_name(tmp_path: Path, tiny_trace: Trace) -> None:
+    import ast
+
+    from engine_re.kernel import RESERVED_HISTORY, RESERVED_STEP, reserved_bindings
+
+    # The engine's own step(state, action), and `step` as a loop variable, are the model's names to use.
+    free = "def step(state, action):\n    return action\nfor step in recording:\n    pass\nstep = 3\n"
+    for reserved in (RESERVED_HISTORY, RESERVED_STEP):
+        assert reserved_bindings(ast.parse(free), reserved) == []
+        assert [name for name, _, _ in reserved_bindings(ast.parse("step_to_fix = 1"), reserved)] == ["step_to_fix"]
+    assert tiny_trace.steps[3].outcome == tiny_trace.steps[3].state == "NOT_FINISHED"
+
+    # The stepwise harness's kernel with the recording so far: steps 0..3, then 0..5.
+    Trace(tiny_trace.game_id, tiny_trace.steps[:4]).save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60, focus=3, history=True)
+    try:
+        out = kernel.execute(
+            "print(len(recording), recording[0].before is None, recording[2].outcome, recording[2].level, "
+            "bool((recording[3].before == recording[2].after).all()), recording[3].after is recording[3].last, "
+            "recording[-1] is step_to_fix, step_to_fix.index, recording[1].frames.shape)"
+        )
+        assert out.strip().split(maxsplit=8) == ["4", "True", "NOT_FINISHED", "0", "True", "True", "True", "3", "(1, 64, 64)"], out
+        out = kernel.execute(
+            "n = 0\nfor step in recording:\n    n += 1\nlast = step.index\n"
+            "def step(state, action):\n    return action\nkept = recording\nprint(n, last)"
+        )
+        assert out.split() == ["4", "3"], out
+        out = kernel.execute("step_to_fix = 1")
+        assert "nothing was run" in out and "step_to_fix" in out
+        assert "nothing was run" in kernel.execute("recording = []")
+        Trace(tiny_trace.game_id, tiny_trace.steps[:6]).save(tmp_path / "trace")
+        kernel.refocus(5)
+        out = kernel.execute("print(len(recording), kept is recording, step_to_fix.index, recording[-1] is step_to_fix, step(0, 7))")
+        assert out.split() == ["6", "True", "5", "True", "7"], out
+    finally:
+        kernel.stop()
 
 
 def test_openrouter_client_waits_out_rate_limits(monkeypatch):

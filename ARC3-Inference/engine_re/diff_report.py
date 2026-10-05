@@ -2,7 +2,7 @@
 and a picture of both frames with the differing regions boxed and numbered.
 
 Used by the tester (with state summaries computed in the sandboxed candidate process) and by the
-kernel helper ``try_step`` (with summaries of states in the kernel), so both print the same thing.
+kernel helper ``replay_step`` (with summaries of states in the kernel), so both print the same thing.
 
 - ``find_regions``: differing pixels clustered into numbered regions (connected components with a
   small gap tolerance, then bounding boxes with a 1-pixel margin).
@@ -10,7 +10,7 @@ kernel helper ``try_step`` (with summaries of states in the kernel), so both pri
   and in the engine's grid cells, the colour changes, and the engine's sprites that draw there (by
   their index in ``state.sprites``), before and after the step.
 - ``state_changes``: what a step changed in the engine's own state (sprites matched by object
-  identity, so additions and removals do not shift them; vars; status), for ``try_step``.
+  identity, so additions and removals do not shift them; vars; status), for ``replay_step``.
 - ``comparison_image``: the engine's frame and the original's side by side, upscaled, with the
   same numbered boxes; ``png_bytes`` / ``data_url`` encode it for a chat message.
 """
@@ -221,7 +221,8 @@ def sprite_text(i: int, e: dict[str, Any]) -> str:
 
 def click_lines(action: Any, before: dict[str, Any] | None, limit: int = MAX_SPRITES) -> list[str]:
     """For a click, what it landed on in the engine's state before the step (a state_summary): the
-    grid cell (action.cell) and the sprites whose box holds that cell, topmost first (the first
+    grid cell (the action.cell that step() gets, computed from the engine's own grid and view; the
+    recorded action has no cell) and the sprites whose box holds that cell, topmost first (the first
     collidable one is what state.sprite_at(*action.cell) returns), or the screen sprites drawn at the
     pixel when the click is outside the grid."""
     if before is None or getattr(action, "id", None) != 6 or getattr(action, "x", None) is None:
@@ -236,7 +237,7 @@ def click_lines(action: Any, before: dict[str, Any] | None, limit: int = MAX_SPR
     if cell is None:
         here = [i for i, e in enumerate(sprites) if e.get("screen") is True
                 and (mask := game_api.unpack_footprint(e)) is not None and mask[y, x]]
-        head = f"    the click ({x}, {y}) is outside your grid (action.cell is None)"
+        head = f"    the click ({x}, {y}) is outside your grid: step() gets action.cell == None"
         where = "your screen sprites drawn at that pixel"
     else:
         gx, gy = cell
@@ -244,7 +245,7 @@ def click_lines(action: Any, before: dict[str, Any] | None, limit: int = MAX_SPR
                 and isinstance(e.get("x"), int) and isinstance(e.get("y"), int)
                 and e["x"] <= gx < e["x"] + int(e.get("w") or 0) and e["y"] <= gy < e["y"] + int(e.get("h") or 0)]
         here.sort(key=lambda i: -(sprites[i].get("layer") if isinstance(sprites[i].get("layer"), int) else 0))
-        head = f"    the click ({x}, {y}) lands on your grid cell {cell} (action.cell)"
+        head = f"    the click ({x}, {y}) lands on your grid cell {cell}: step() gets action.cell == {cell}"
         where = "your sprites whose box holds that cell, topmost first"
     if not here:
         return [head + f"; {where}: none"]

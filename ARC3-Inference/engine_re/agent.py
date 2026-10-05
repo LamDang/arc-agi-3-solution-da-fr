@@ -4,20 +4,20 @@ One `EngineAgent` works on one game in its own directory:
 
     <game_dir>/trace/            the recording (engine_re.trace)
     <game_dir>/workspace/        engine.py and anything the model writes
-    <game_dir>/engine_versions/  every version of engine.py (edit/undo), out of the model's reach
-    <game_dir>/images/           the pictures sent to the model (test reports, show())
+    <game_dir>/engine_versions/  every version of engine.py (edit_file/undo_edit), out of the model's reach
+    <game_dir>/images/           the pictures sent to the model (test reports, show_frames())
     <game_dir>/transcript.jsonl  every model turn, tool call, engine change and image
     <game_dir>/tests.jsonl       every run_tests result
     <game_dir>/engine_best.py    the best engine tested so far (engine_files.BEST_RULE)
     <game_dir>/result.json       outcome, tokens, cost, final test
 
-Tools: python (a kernel with the recording and read/edit/undo/render/show/try_step/auto_sprites;
-it cannot write engine.py except through edit() and undo(), which the harness applies), run_tests
-and finish. finish runs the tests: the session ends when every test passes (by finish, run_tests
+Tools: python (a kernel with the recording and read_file/edit_file/undo_edit/render_state/show_frames/
+replay_step/auto_sprites; it cannot write engine.py except through edit_file() and undo_edit(), which
+the harness applies), run_tests and finish. finish runs the tests: the session ends when every test passes (by finish, run_tests
 or the automatic test) or when a budget (turns, output tokens, cost, wall time) runs out.
 
 The opening: before the first turn of a new session the harness plays the first round itself. In the
-kernel, auto_sprites(0) makes sprite code for level 0's first frame and one edit() puts it above
+kernel, auto_sprites(0) makes sprite code for level 0's first frame and one edit_file() puts it above
 make_level, which then returns level_0_sprites(); then it runs the tests. The first message shows
 what auto_sprites printed, the test report (with its picture) and engine.py, and sets the first task:
 the first failing step, usually step 1. That edit and test are not counted as the model's
@@ -29,19 +29,19 @@ failure) and its report is appended to the turn's last tool output; after every 
 turns without any test, a reminder to write and test is appended instead.
 
 Images (``images=True``, the default): tool messages stay plain strings, so after the turn's tool
-messages one extra user message carries the turn's pictures: what show() made, then the latest
+messages one extra user message carries the turn's pictures: what show_frames() made, then the latest
 test report's picture (the engine's final frame next to the original's, the differing regions
 boxed). When a newer such message is added, the images of the older ones are replaced by a short
 placeholder. The PNGs are saved under ``<game_dir>/images/`` and the transcript logs their paths.
 
 Stepwise mode (v6, ``stepwise=True``, see engine_re.stepwise): one conversation that fixes the
 recording one breaking step at a time. The harness replays the whole recording; at the first step k
-that fails it shows the model the recording up to k (``visible_trace/``: S holds steps 0..k with
-``history``, else only ``step``), its tests replay steps 0..k, and its message asks to fix step k.
-When steps 0..k pass, the harness replays on and adds a user message to the same conversation: how
-many more steps passed and the next one that fails, with its report (the kernel keeps its variables;
-S grows to the new step). The conversation ends when the whole recording passes or a budget runs
-out; there is no per-step limit. and it ends with status "passed" as soon as they pass. Its
+that fails it shows the model the recording up to k (``visible_trace/``: ``recording`` holds steps
+0..k with ``history``, and ``step_to_fix`` is step k), its tests replay steps 0..k, and its message
+asks to fix step k. When steps 0..k pass, the harness replays on and adds a user message to the same
+conversation: how many more steps passed and the next one that fails, with its report (the kernel
+keeps its variables; ``recording`` grows to the new step). The conversation ends with status "passed"
+when the whole recording passes, or when a budget runs out; there is no per-step limit.
 
 Sessions survive interruptions: result.json is rewritten every turn with status "running", and
 running a game again whose session did not end continues from its engine.py (and its versions)
@@ -79,7 +79,7 @@ TOOL_OUTPUT_CHARS = 8000
 TEST_NUDGE_TURNS = 30
 NUDGE = (
     "\n\n[harness] {n} turns since your last run_tests (or none yet). Put what you have established into engine.py now "
-    "with edit(), even if partial, and run run_tests: its report shows which step and pixels to fix next."
+    "with edit_file(), even if partial, and run run_tests: its report shows which step and pixels to fix next."
 )
 # When engine.py changed during a turn and the model did not test it, the
 # harness runs run_tests() with its defaults (full replay, reported up to the
@@ -102,11 +102,11 @@ PROVIDER_ERROR_RETRIES = 20
 MAX_TEST_IMAGES = 3
 PYTHON_PAUSED = (
     "[harness] Python is paused: {n} python calls since engine.py last changed. Until engine.py changes, only python "
-    "calls that change it with edit() or undo() run; then python resumes. run_tests shows which step and pixels "
+    "calls that change it with edit_file() or undo_edit() run; then python resumes. run_tests shows which step and pixels "
     "to fix next."
 )
 READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in the first message (FIXED block folded)
-# The opening, run in the kernel: auto_sprites(0) (its summary printed, not its code), then one edit that
+# The opening, run in the kernel: auto_sprites(0) (its summary printed, not its code), then one edit_file() that
 # puts the code above make_level and makes make_level return level_0_sprites(). Filled in by
 # EngineAgent._opening_code with the anchors of the starting engine.py.
 OPENING_SPLIT = "----- harness: edit -----"
@@ -117,7 +117,7 @@ with _harness_contextlib.redirect_stdout(_harness_out):
     _harness_code = auto_sprites(0)
 print(_harness_out.getvalue().split("\\n\\n")[0])
 print({split!r})
-edit(edits=[
+edit_file(edits=[
     {{"op": "prepend", "pos": {head!r}, "lines": _harness_code.rstrip("\\n").splitlines() + ["", ""]}},
     {{"op": "replace", "pos": {start!r}, "end": {end!r}, "lines": [
         "    # For now every level starts as level 0: add level n (auto_sprites(n)) when the tests reach it.",
@@ -355,7 +355,7 @@ class EngineAgent:
             self.engine_hash_seen = current
             self.python_since_change = 0
         quota = self.budget.python_quota
-        if quota is not None and self.python_since_change >= quota and "edit(" not in code and "undo(" not in code:
+        if quota is not None and self.python_since_change >= quota and "edit_file(" not in code and "undo_edit(" not in code:
             self.result.python_paused += 1
             return PYTHON_PAUSED.format(n=self.python_since_change)
         self.python_since_change += 1
@@ -447,7 +447,7 @@ class EngineAgent:
         return path
 
     def _keep_shown(self, shown: list[tuple[bytes, str]]) -> None:
-        """Save what show() made in this python call and queue it for the turn's image message."""
+        """Save what show_frames() made in this python call and queue it for the turn's image message."""
         paths = []
         for png, caption in shown:
             path = self._save_png(png, f"turn{self.result.turns:03d}_show{len(self.pending_shown) + 1}")
@@ -497,7 +497,7 @@ class EngineAgent:
     # --- engine.py -------------------------------------------------------------
 
     def _log_engine_change(self, record: dict[str, Any]) -> None:
-        """Called by the harness side of edit()/undo() for every change to engine.py. The opening's
+        """Called by the harness side of edit_file()/undo_edit() for every change to engine.py. The opening's
         change is logged as the harness's and not counted."""
         if self._in_opening:
             record = {**record, "by": "harness"}
@@ -779,7 +779,7 @@ class EngineAgent:
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
-                "engine.py (only calls that change it with edit() or undo() run), and resumes as soon as engine.py changes."
+                "engine.py (only calls that change it with edit_file() or undo_edit() run), and resumes as soon as engine.py changes."
             )
         self.messages = [{"role": "system", "content": system}, {"role": "user", "content": opening}]
         # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.

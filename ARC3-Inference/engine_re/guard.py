@@ -92,7 +92,7 @@ def install(read_roots: list[str], write_roots: list[str], protected: list[str] 
             if writing and not _under(path, writes):
                 deny(f"writing {path}")
             if writing and guarded and path in guarded:
-                deny(f"writing {path} (change it with edit() or undo())")
+                deny(f"writing {path} (change it with edit_file() or undo_edit())")
             if not _under(path, reads):
                 deny(f"reading {path}")
         elif event in _READ_PATH_EVENTS:
@@ -106,7 +106,7 @@ def install(read_roots: list[str], write_roots: list[str], protected: list[str] 
                     deny(f"{event} on {path}")
                 copying_from = k == 0 and event in ("shutil.copyfile", "shutil.copytree")
                 if path is not None and guarded and not copying_from and is_protected(path):
-                    deny(f"{event} on {path} (change engine.py with edit() or undo())")
+                    deny(f"{event} on {path} (change engine.py with edit_file() or undo_edit())")
         elif event.startswith(_BLOCKED_EVENTS):
             deny(event)
 

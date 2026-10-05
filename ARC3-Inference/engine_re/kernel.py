@@ -4,14 +4,15 @@
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests (a {"focus": k} request, from the stepwise harness, reloads
-the trace, which now holds steps 0..k, and moves `step` and S to it, keeping everything else), and writes one JSON reply per line
+the trace, which now holds steps 0..k: `recording` grows to it and `step_to_fix` moves to step k,
+everything else is kept), and writes one JSON reply per line
 ({"output": ..., "images": [...]}). As in a notebook, the value of a final
-expression is printed. "images" holds the pictures show() made during the
+expression is printed. "images" holds the pictures show_frames() made during the
 request (base64 PNG and caption), for the harness to attach.
 
 The kernel runs sandboxed (engine_re.guard): it can read the workspace and the
 trace, write only the workspace, and cannot start processes or open
-connections. It cannot write engine.py at all: edit() and undo() send their
+connections. It cannot write engine.py at all: edit_file() and undo_edit() send their
 arguments to the harness as {"rpc": {...}} lines on the same channel and print
 the harness's reply, read from stdin ({"ok": ..., "text": ...}). The harness
 (``KernelClient`` with an ``engine_files.EngineEditor``) validates and applies
@@ -42,19 +43,21 @@ from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
 # What the namespace of the model's code starts with (besides np and the fixed-block classes).
-PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels")
+FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "auto_sprites")
+PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels",)
 # Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
-# The stepwise harness (--focus K): `step`, the step to fix, instead of the recording, and no summarize_levels;
-# with --history also S, the recording so far (steps 0..K, all the trace on disk holds), and summarize_levels.
-PRELOADED_STEP = ("step", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
+# The stepwise harness (--focus K): `step_to_fix`, the step to fix, instead of the recording, and no
+# summarize_levels; with --history also `recording`, the recording so far (steps 0..K, all the trace on disk
+# holds, recording[K] being step_to_fix), and summarize_levels.
+PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
-PRELOADED_HISTORY = PRELOADED + ("step",)
+PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
-    """Where the code binds a reserved name: (name, line, how), e.g. ("show", 4, "def show")."""
+    """Where the code binds a reserved name: (name, line, how), e.g. ("show_frames", 4, "def show_frames")."""
     found: list[tuple[str, int, str]] = []
 
     def hit(name: str | None, node: ast.AST, how: str) -> None:
@@ -138,22 +141,18 @@ def main() -> int:
     from engine_re.trace import Trace
 
     np.set_printoptions(linewidth=200, threshold=4096)
-    helpers.trace = Trace.load(trace_dir)
-    helpers.S = helpers.trace.steps
+    helpers.load_trace(Trace.load(trace_dir), focus)
     helpers.ENGINE_PATH = workspace / "engine.py"
     helpers.IMAGES = images
     api = game_api.canonical()
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
     namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
     if focus is None:
-        namespace.update({name: getattr(helpers, name) for name in PRELOADED})
-        reserved = RESERVED
+        names, reserved = PRELOADED, RESERVED
     else:
-        helpers.FOCUS = focus
-        names = PRELOADED_HISTORY if history else PRELOADED_STEP
-        namespace["step"] = helpers.StepView(helpers.trace, focus)
-        namespace.update({name: getattr(helpers, name) for name in names if name != "step"})
-        reserved = RESERVED_HISTORY if history else RESERVED_STEP
+        names, reserved = (PRELOADED_HISTORY, RESERVED_HISTORY) if history else (PRELOADED_STEP, RESERVED_STEP)
+        namespace["step_to_fix"] = helpers.recording[focus]
+    namespace.update({name: getattr(helpers, name) for name in names if name != "step_to_fix"})
     builtins = {name: namespace[name] for name in reserved}
     os.chdir(workspace)
     # Replies go on a private copy of stdout; fd 1 itself goes to /dev/null so
@@ -178,12 +177,10 @@ def main() -> int:
             continue
         request = json.loads(line)
         if "focus" in request:  # the stepwise harness moved on: the trace on disk now ends at the new step
-            helpers.trace = Trace.load(trace_dir)
-            helpers.S = helpers.trace.steps
-            helpers.FOCUS = int(request["focus"])
-            namespace["step"] = builtins["step"] = helpers.StepView(helpers.trace, helpers.FOCUS)
-            if "S" in builtins:
-                namespace["S"] = builtins["S"] = helpers.S
+            helpers.load_trace(Trace.load(trace_dir), int(request["focus"]))  # `recording` grows in place
+            namespace["step_to_fix"] = builtins["step_to_fix"] = helpers.recording[helpers.FOCUS]
+            if "recording" in builtins:
+                namespace["recording"] = builtins["recording"] = helpers.recording
             protocol.write(json.dumps({"output": "", "images": []}) + "\n")
             protocol.flush()
             continue
@@ -197,14 +194,15 @@ def main() -> int:
 
 
 class KernelClient:
-    """Parent side of the kernel: start, execute with a timeout, answer edit/undo, restart.
+    """Parent side of the kernel: start, execute with a timeout, answer edit/undo requests, restart.
 
-    focus: the step to fix in the stepwise harness (the kernel then shows `step` instead of S);
-    history: with focus, also S, the recording so far (steps 0..focus), and summarize_levels.
+    focus: the step to fix in the stepwise harness (the kernel then shows `step_to_fix` instead of
+    `recording`); history: with focus, also `recording`, the recording so far (steps 0..focus), and
+    summarize_levels.
 
-    editor: what applies edit()/undo() (an engine_files.EngineEditor; by default one with versions
-    in <workspace>/../engine_versions). After execute(), ``last_images`` holds what show() made:
-    a list of (PNG bytes, caption)."""
+    editor: what applies edit_file()/undo_edit() (an engine_files.EngineEditor; by default one with
+    versions in <workspace>/../engine_versions). After execute(), ``last_images`` holds what
+    show_frames() made: a list of (PNG bytes, caption)."""
 
     def __init__(
         self,
@@ -251,8 +249,9 @@ class KernelClient:
         return open(log_dir / "kernel_stderr.log", "a", encoding="utf-8")  # noqa: SIM115
 
     def refocus(self, focus: int) -> None:
-        """Stepwise harness: the trace on disk now ends at step `focus`; a running kernel reloads it and
-        moves `step` (and S) there, keeping its variables; a kernel started later starts there."""
+        """Stepwise harness: the trace on disk now ends at step `focus`; a running kernel reloads it,
+        moves `step_to_fix` there and grows `recording` to it, keeping its variables; a kernel started
+        later starts there."""
         self.focus = focus
         if self.proc is None or self.proc.poll() is not None or self.proc.stdin is None or self.proc.stdout is None:
             return

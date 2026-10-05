@@ -1,21 +1,23 @@
 """The functions preloaded in the agent's Python kernel.
 
-The kernel's namespace starts with np, the fixed-block classes (Sprite, Action, View, State), S
-(the recording's steps) and these functions; everything else here is private. In the stepwise
-harness (the kernel's --focus K) it holds `step` (a StepView of the step to fix) instead of S, and
-no summarize_levels; the recording on disk then holds only steps 0..K:
+The kernel's namespace starts with np, the fixed-block classes (Sprite, Action, View, State),
+`recording` (the recorded steps, one StepView each) and these functions; everything else here is
+private. In the stepwise harness (the kernel's --focus K) the recording on disk holds only steps
+0..K and the namespace also holds `step_to_fix` (the StepView of step K, recording[K]); with
+--history it keeps `recording` (steps 0..K) and summarize_levels, without it it has neither:
 
-    read(path="engine.py", offset=None, limit=None)        the file with LINE#HASH anchors
-    edit(path="engine.py", edits=[...])                    change it at those anchors
-    undo(n=1, to=None)                                     go back to an earlier version of engine.py
-    render(state)                                          draw a State as the tests do
-    show(*frames, titles=None, boxes=None)                 look at frames as images
-    try_step(i, state=None, action=None)                   run one step of engine.py and explain it
+    read_file(path="engine.py", offset=None, limit=None)   the file with LINE#HASH anchors
+    edit_file(path="engine.py", edits=[...])               change it at those anchors
+    undo_edit(n=1, to=None)                                go back to an earlier version of engine.py
+    render_state(state)                                    draw a State as the tests do
+    show_frames(*frames, titles=None, boxes=None)          look at frames as images
+    replay_step(i, state=None, action=None)                run one step of engine.py and explain it
     auto_sprites(level, grid=None, frame=None, region=None, merge=False)   sprite code from a frame
     summarize_levels()                                     each level's first frame, steps and end
 
-engine.py cannot be opened for writing from the kernel (engine_re.guard): edit() and undo() send
-their arguments to the harness (engine_re.kernel, engine_re.engine_files), which applies them.
+engine.py cannot be opened for writing from the kernel (engine_re.guard): edit_file() and
+undo_edit() send their arguments to the harness (engine_re.kernel, engine_re.engine_files), which
+applies them.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from typing import Any, Callable
 import numpy as np
 
 from engine_re import auto_sprites as _auto, diff_report, game_api, hashline, tester
-from engine_re.trace import Action as _TraceAction, Step, Trace
+from engine_re.trace import Action as _TraceAction, Trace
 
 HEX = "0123456789abcdef"
 COLOR_NAMES = {
@@ -40,16 +42,16 @@ COLOR_NAMES = {
     6: "magenta", 7: "pink", 8: "red", 9: "blue", 10: "light blue", 11: "yellow",
     12: "orange", 13: "maroon", 14: "green", 15: "purple",
 }
-MAX_SHOWN = 4  # frames per show() call
+MAX_SHOWN = 4  # frames per show_frames() call
 
-# Set by the kernel.
+# Set by the kernel (load_trace).
 trace: Trace = None  # type: ignore[assignment]
-S: list[Step] = []
+recording: list[StepView] = []  # the model's `recording`: one StepView per loaded step (kept as one list object)
 FOCUS: int | None = None  # the step to fix, in the stepwise harness: steps after it are not loaded
 ENGINE_PATH: Path = Path("engine.py")
-IMAGES = True  # False: show() prints hex views instead of making images
-_RPC: Callable[[dict], dict] | None = None  # sends edit/undo to the harness
-_SHOWN: list[dict[str, str]] = []  # images made by show() during the current request
+IMAGES = True  # False: show_frames() prints hex views instead of making images
+_RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the harness
+_SHOWN: list[dict[str, str]] = []  # images made by show_frames() during the current request
 
 _API = game_api.canonical()
 Sprite, Action, View, State = _API.Sprite, _API.Action, _API.View, _API.State
@@ -62,7 +64,7 @@ def _is_engine(path: str | Path) -> bool:
     return Path(path).resolve() == ENGINE_PATH.resolve()
 
 
-def read(path: str = "engine.py", offset: int | None = None, limit: int | None = None) -> None:
+def read_file(path: str = "engine.py", offset: int | None = None, limit: int | None = None) -> None:
     """Print a file with every line as LINE#HASH:content, from line `offset` for `limit` lines.
     In engine.py the FIXED block is folded unless offset asks for its lines."""
     try:
@@ -77,16 +79,16 @@ def read(path: str = "engine.py", offset: int | None = None, limit: int | None =
         print(exc)
 
 
-def edit(path: str = "engine.py", edits: Any = None) -> None:
+def edit_file(path: str = "engine.py", edits: Any = None) -> None:
     """Apply anchored edits to a file (engine.py through the harness); prints what changed, a
     syntax check and fresh anchors, or why nothing was applied."""
     if edits is None:
-        print('edit(): give edits=[{"op": ..., ...}, ...]; see read() for the anchors.')
+        print('edit_file(): give edits=[{"op": ..., ...}, ...]; see read_file() for the anchors.')
         return
     edits = _plain(edits)
     if _is_engine(path):
         if _RPC is None:
-            print("edit(): engine.py can only be changed through the harness, which is not connected.")
+            print("edit_file(): engine.py can only be changed through the harness, which is not connected.")
             return
         print(_RPC({"op": "edit", "edits": edits})["text"])
         return
@@ -118,11 +120,11 @@ def _plain(value: Any) -> Any:
     return value
 
 
-def undo(n: int = 1, to: Any = None) -> None:
+def undo_edit(n: int = 1, to: Any = None) -> None:
     """Put engine.py back as it was n changes ago, or to="best" (the version that matched the most
-    steps), or to=k (version k). The restore is a new version, so undo() again brings the change back."""
+    steps), or to=k (version k). The restore is a new version, so undo_edit() again brings the change back."""
     if _RPC is None:
-        print("undo(): engine.py can only be changed through the harness, which is not connected.")
+        print("undo_edit(): engine.py can only be changed through the harness, which is not connected.")
         return
     print(_RPC({"op": "undo", "n": _plain(n), "to": _plain(to)})["text"])
 
@@ -141,7 +143,7 @@ def _load_engine() -> types.ModuleType:
 # --- Drawing and looking ----------------------------------------------------------------------
 
 
-def render(state: Any) -> np.ndarray:
+def render_state(state: Any) -> np.ndarray:
     """Draw a State as a 64x64 frame: the same code the tests use."""
     return game_api.render(state)
 
@@ -150,23 +152,23 @@ def _hexrow(row: Any) -> str:
     return "".join(HEX[v] if 0 <= v < 16 else "." for v in row)
 
 
-def show(*frames: Any, titles: list[str] | None = None, boxes: list[tuple[int, int, int, int]] | None = None) -> None:
+def show_frames(*frames: Any, titles: list[str] | None = None, boxes: list[tuple[int, int, int, int]] | None = None) -> None:
     """Show 64x64 frames (or States, rendered first) side by side as one image, enlarged, titled,
     with the boxes (x0, y0, x1, y1, screen pixels, inclusive) outlined and numbered on each. The
     image comes in a message after this call's output. At most MAX_SHOWN frames per call. With
     images off, prints a hex view of the boxes (or of each frame at half resolution) instead."""
     items = list(frames[0]) if len(frames) == 1 and isinstance(frames[0], (list, tuple)) else list(frames)
     if not items:
-        print("show(): give one or more frames, e.g. show(S[3].last, render(state))")
+        print("show_frames(): give one or more frames, e.g. show_frames(recording[3].after, render_state(state))")
         return
     if len(items) > MAX_SHOWN:
-        print(f"show(): {len(items)} frames given; showing the first {MAX_SHOWN}.")
+        print(f"show_frames(): {len(items)} frames given; showing the first {MAX_SHOWN}.")
         items = items[:MAX_SHOWN]
     arrays = []
     for k, item in enumerate(items):
-        array = render(item) if hasattr(item, "sprites") else np.asarray(item)
+        array = render_state(item) if hasattr(item, "sprites") else np.asarray(item)
         if array.shape != (64, 64):
-            print(f"show(): item {k} has shape {array.shape}, not (64, 64)")
+            print(f"show_frames(): item {k} has shape {array.shape}, not (64, 64)")
             return
         arrays.append(array.astype(np.int16))
     titles = [str(t) for t in titles] if titles else [str(k + 1) for k in range(len(arrays))]
@@ -178,7 +180,7 @@ def show(*frames: Any, titles: list[str] | None = None, boxes: list[tuple[int, i
     if IMAGES:
         scale = diff_report.UPSCALE if len(arrays) <= 2 else 6
         png = diff_report.png_bytes(diff_report.panels_image(arrays, titles, drawn, scale))
-        caption = "show(): " + " | ".join(titles) + (f"; boxes {', '.join(str(b.n) for b in drawn)}" if drawn else "")
+        caption = "show_frames(): " + " | ".join(titles) + (f"; boxes {', '.join(str(b.n) for b in drawn)}" if drawn else "")
         _SHOWN.append({"png": base64.b64encode(png).decode("ascii"), "caption": caption})
         print(f"[image: {len(arrays)} frame(s), {', '.join(titles)}; it follows this output]")
         return
@@ -196,34 +198,36 @@ def show(*frames: Any, titles: list[str] | None = None, boxes: list[tuple[int, i
 
 
 def take_shown() -> list[dict[str, str]]:
-    """The images show() made since the last call (the kernel sends them to the harness)."""
+    """The images show_frames() made since the last call (the kernel sends them to the harness)."""
     out = list(_SHOWN)
     _SHOWN.clear()
     return out
 
 
-# --- The step to fix (stepwise harness) -------------------------------------------------------
+# --- The recorded steps: `recording` and `step_to_fix` ----------------------------------------------
 
 _ACTION_WORDS = {0: "RESET", 1: "up", 2: "down", 3: "left", 4: "right", 5: "interact", 6: "click", 7: "undo"}
 
 
 class StepView:
-    """The one recorded step shown in the stepwise harness: the step to fix.
+    """A recorded step as the model sees it: recording[i], and step_to_fix (in the stepwise harness)
+    is one of them. Data from the real game, frames only, never a State.
 
-    index: its number k (steps 0..k-1 already pass); action: the Action played; before: the frame
-    before it (64x64, frame[y, x]; None for step 0); after: the frame after it, the one the tests
-    compare (also .last); frames: every frame it returned, (n, 64, 64); level: the level it is played
-    in; state, levels_completed: the game's state after it; win_levels, available_actions."""
+    index: its number i; action: the Action played; before: the frame before it (64x64 int8,
+    frame[y, x]; None for step 0); after (also .last): the frame after it, the one the tests compare;
+    frames: every frame it returned, (n, 64, 64); level: the level it is played in; outcome
+    ("NOT_FINISHED", "WIN" or "GAME_OVER"; not the engine's State.status), levels_completed: after it;
+    win_levels, available_actions."""
 
-    def __init__(self, recording: Trace, k: int):
-        s = recording.steps[k]
+    def __init__(self, recorded: Trace, k: int):
+        s = recorded.steps[k]
         self.index = k
         self.action = s.action
         self.frames = s.frames
         self.after = self.last = s.last
-        self.before = recording.steps[k - 1].last if k > 0 else None
-        self.level = recording.steps[k - 1].levels_completed if k > 0 else 0
-        self.state = s.state
+        self.before = recorded.steps[k - 1].last if k > 0 else None
+        self.level = recorded.steps[k - 1].levels_completed if k > 0 else 0
+        self.outcome = s.state
         self.levels_completed = s.levels_completed
         self.win_levels = s.win_levels
         self.available_actions = s.available_actions
@@ -233,7 +237,16 @@ class StepView:
         if self.action.id == 6:
             what += f" at ({self.action.x}, {self.action.y})"
         return (f"<step {self.index}: {what} in level {self.level}; {len(self.frames)} frame(s); after it "
-                f"{self.state}, {self.levels_completed} level(s) completed>")
+                f"{self.outcome}, {self.levels_completed} level(s) completed>")
+
+
+def load_trace(loaded: Trace, focus: int | None = None) -> None:
+    """Make `loaded` the recording the helpers use (the kernel calls this at the start, and again when
+    the stepwise harness moves on to step `focus`). `recording` stays the same list object: its
+    entries are replaced, so it grows with the trace."""
+    global trace, FOCUS
+    trace, FOCUS = loaded, focus
+    recording[:] = [StepView(loaded, k) for k in range(len(loaded))]
 
 
 def _visible(i: int) -> None:
@@ -253,15 +266,15 @@ def _steps_list(steps: list[int], limit: int = 6) -> str:
     return shown + (f", ... ({len(steps)})" if len(steps) > limit else "")
 
 
-def _levels_text(recording: Trace) -> str:
+def _levels_text(recorded: Trace) -> str:
     """One row per level the recording plays: where its first frame is, the steps played in it, the
     actions, the animated steps, RESETs and game overs, and how it ended."""
-    steps = recording.steps
+    steps = recorded.steps
     win = steps[0].win_levels
     played: dict[int, list[int]] = {0: []}
     for i in range(1, len(steps)):
         played.setdefault(steps[i - 1].levels_completed, []).append(i)
-    starts = recording.level_starts()
+    starts = recorded.level_starts()
     rows = [("level", "first frame", "steps played", "actions", "animated", "RESET", "GAME_OVER", "how it ended")]
     for level in sorted(played):
         indices = played[level]
@@ -278,7 +291,7 @@ def _levels_text(recording: Trace) -> str:
             ended = f"not solved: the recording ends ({steps[-1].state})"
         rows.append((
             str(level),
-            f"S[{starts.get(level, 0)}].last",
+            f"recording[{starts.get(level, 0)}].after",
             f"{indices[0]}-{indices[-1]} ({len(indices)})" if indices else "none",
             ", ".join(f"{name} x{n}" for name, n in moves.items()) or "-",
             _steps_list([i for i in indices if steps[i].n_frames > 1]),
@@ -288,13 +301,13 @@ def _levels_text(recording: Trace) -> str:
         ))
     widths = [max(len(row[k]) for row in rows) for k in range(len(rows[0]))]
     table = ["  ".join(cell.ljust(w) for cell, w in zip(row, widths)).rstrip() for row in rows]
-    head = (f"The recording: {len(steps)} steps (S[0] is the RESET that starts the game), {len(played)} of the game's "
+    head = (f"The recording: {len(steps)} steps (recording[0] is the RESET that starts the game), {len(played)} of the game's "
             f"{win} levels played; after step {len(steps) - 1} it is {steps[-1].state} with "
             f"{steps[-1].levels_completed} level(s) completed.")
     if FOCUS is not None:
-        head = (f"The recording so far: steps 0-{len(steps) - 1} (S[0] is the RESET that starts the game; step "
+        head = (f"The recording so far: steps 0-{len(steps) - 1} (recording[0] is the RESET that starts the game; step "
                 f"{len(steps) - 1} is the one to fix), {len(played)} of the game's {win} levels reached.")
-    note = ("A level's first frame is the last frame of the step that solved the level before (S[0].last for level 0). "
+    note = ("A level's first frame is the last frame of the step that solved the level before (recording[0].after for level 0). "
             "\"animated\": steps that returned more than one frame; the tests compare only the last one.")
     return "\n".join([head] + table + [note])
 
@@ -313,7 +326,7 @@ _FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
 def _as_action(action: Any, i: int) -> _TraceAction:
     """The action to apply: step i's recorded one, or an id, (6, x, y), a dict or an Action."""
     if action is None:
-        return S[i].action
+        return trace.steps[i].action
     if isinstance(action, _TraceAction):
         return action
     if isinstance(action, (int, np.integer)):
@@ -351,7 +364,7 @@ def _print_output(capture: game_api.PrintCapture, what: str = "the step") -> Non
     print("\n".join("  " + line for line in kept.splitlines()))
 
 
-def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None = None) -> tuple[Any, Any]:
+def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | None = None) -> tuple[Any, Any]:
     """Run step i on engine.py and explain it; returns copies (before, after) of your State.
 
     Loads engine.py fresh. The State before step i comes from replaying the recorded steps 0..i-1
@@ -364,9 +377,10 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
       - with the recorded action, the comparison with the recording after step i, as run_tests
         explains a failing step: numbered regions that differ and your sprites in each.
     level=L starts at level L's start and replays only that level's steps before i, as
-    run_tests(level=L) does; try_step(e, level=L), e being the step that entered level L, compares
+    run_tests(level=L) does; replay_step(e, level=L), e being the step that entered level L, compares
     your make_level(L) with the level's recorded start."""
     _visible(i)
+    steps = trace.steps
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
@@ -376,12 +390,12 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
         raise
     if not game_api.is_simple_engine(module):
         raise TypeError("engine.py must define make_level(n) and step(state, action)")
-    game = game_api.GameRunner(module, S[0].win_levels, S[0].available_actions)
+    game = game_api.GameRunner(module, steps[0].win_levels, steps[0].available_actions)
     recorded = action is None
     if state is not None:
         game.state = copy.deepcopy(state)
         game.level = int(getattr(state, "level", 0) or 0)
-        game.score = S[i - 1].levels_completed if 0 < i < len(S) else game.level
+        game.score = steps[i - 1].levels_completed if 0 < i < len(steps) else game.level
         game.status = "NOT_FINISHED"
         start = "from the state you gave"
     elif level:
@@ -393,19 +407,19 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
             game.set_level(level)
         game.score = level
         if i == entry:
-            print(f"try_step({i}, level={level}): your make_level({level}) as the test starts it, against the level's recorded start")
+            print(f"replay_step({i}, level={level}): your make_level({level}) as the test starts it, against the level's recorded start")
             _print_output(capture, f"make_level({level})")
             after = game.state
-            lines, _ = diff_report.describe_frames(S[i].last, render(after), None, game_api.state_summary(after), crops=True, images=False)
+            lines, _ = diff_report.describe_frames(steps[i].last, render_state(after), None, game_api.state_summary(after), crops=True, images=False)
             print(f"compared with the recording (step {i}'s final frame; expected = the original, got = yours):")
             print("\n".join(lines))
             return None, copy.deepcopy(after)
         for k in range(entry + 1, i):
-            _quietly(lambda k=k: game.perform(S[k].action), f"while replaying step {k}")
+            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
         start = f"started at level {level}, after replaying {_steps_text(entry + 1, i - 1)}" if i > entry + 1 else f"at the start of level {level}"
     else:
         for k in range(i):
-            _quietly(lambda k=k: game.perform(S[k].action), f"while replaying step {k}")
+            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
         start = f"after replaying {_steps_text(0, i - 1)}" if i else "fresh"
     act = _as_action(action, i)
     live = game.state
@@ -413,7 +427,7 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
     before_summary = game_api.state_summary(live) if live is not None else None
     before = copy.deepcopy(live)
     level_before = game.level
-    print(f"try_step({i}): {act} on your engine {start} (level {level_before})")
+    print(f"replay_step({i}): {act} on your engine {start} (level {level_before})")
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
@@ -429,11 +443,11 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
     print("what the step changed in your state:")
     print("\n".join("  " + line for line in diff_report.state_changes(before_summary, after_summary)))
     if not recorded:
-        print(f"not compared with the recording: the action is not step {i}'s recorded one ({S[i].action})")
-    elif i < len(S):
+        print(f"not compared with the recording: the action is not step {i}'s recorded one ({steps[i].action})")
+    elif i < len(steps):
         fields = {k: obs[k] for k in _FIELDS}
         text, _ = tester.describe_step(
-            S[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
+            steps[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
             show_vars=False,
         )
         note = " (from the state you gave)" if state is not None else ""
@@ -446,7 +460,7 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
 
 
 class GeneratedCode(str):
-    """The code auto_sprites made (a str, usable as edit lines), with .exact, .grid, .scale and
+    """The code auto_sprites made (a str, usable as edit_file lines), with .exact, .grid, .scale and
     .info; its repr stays short."""
 
     exact: bool = False
@@ -455,12 +469,12 @@ class GeneratedCode(str):
     info: Any = None
 
     def __repr__(self) -> str:
-        return f"<generated code: {len(self.splitlines())} lines; use it as edit lines, or print() it>"
+        return f"<generated code: {len(self.splitlines())} lines; use it as edit_file lines, or print() it>"
 
 
 def _level_frames(level: int, limit: int = 60) -> list[np.ndarray]:
     """Final frames of the recorded steps that show level `level` (at most `limit`, evenly spaced)."""
-    frames = [s.last for s in S if s.levels_completed == level and s.last is not None and s.state != "WIN"]
+    frames = [s.last for s in trace.steps if s.levels_completed == level and s.last is not None and s.state != "WIN"]
     if len(frames) > limit:
         frames = [frames[round(k * (len(frames) - 1) / (limit - 1))] for k in range(limit)]
     return frames
@@ -494,7 +508,7 @@ def auto_sprites(
     region: tuple[int, int, int, int] | None = None,
     merge: bool = False,
 ) -> GeneratedCode:
-    """Python code (a str, usable directly as edit lines) for sprites that draw the first frame of
+    """Python code (a str, usable directly as edit_file lines) for sprites that draw the first frame of
     `level` exactly, or `frame`, or only the part of it inside `region` (x0, y0, x1, y1, screen
     pixels, inclusive). Prints what it assumed and found, whether the code renders the frame
     exactly, and the code. It guesses the grid (grid=(w, h) overrides it), splits the frame into
@@ -514,9 +528,9 @@ def auto_sprites(
             if FOCUS is not None:
                 raise ValueError(f"level {level} is not reached by step {FOCUS}; levels reached so far: {sorted(starts)}")
             raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
-        source_frame = S[starts[level]].last
+        source_frame = trace.steps[starts[level]].last
         evidence = [source_frame] + _level_frames(level)
-        where = f"S[{starts[level]}].last" if FOCUS is None else f"the frame after step {starts[level]}"
+        where = f"recording[{starts[level]}].after" if FOCUS is None else f"the frame after step {starts[level]}"
         what, function = f"the first frame of level {level} ({where})", f"level_{level}_sprites"
     if source_frame is None or np.asarray(source_frame).shape != (64, 64):
         raise ValueError("auto_sprites needs a 64x64 frame")
@@ -570,4 +584,7 @@ def auto_sprites(
     return code
 
 
-__all__ = ["Sprite", "Action", "View", "State", "S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels"]
+__all__ = [
+    "Sprite", "Action", "View", "State", "recording", "read_file", "edit_file", "undo_edit", "render_state", "show_frames",
+    "replay_step", "auto_sprites", "summarize_levels",
+]

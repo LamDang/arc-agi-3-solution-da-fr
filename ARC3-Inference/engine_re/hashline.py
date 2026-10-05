@@ -97,7 +97,7 @@ def render_read(
     fold: tuple[int, int] | None = None,
     name: str = "engine.py",
 ) -> str:
-    """What read() prints: the lines with anchors, from `offset` (1-based) for `limit` lines, cut to
+    """What read_file() prints: the lines with anchors, from `offset` (1-based) for `limit` lines, cut to
     about `max_chars` characters with the offset to continue from. With `fold` (first, last line of
     the FIXED block) and no offset, the block's inner lines are folded into one note."""
     lines, _ = split_lines(text)
@@ -119,7 +119,7 @@ def render_read(
     while n <= end:
         if folded and n == folded[0] + 1:
             note = (f"{'':>{width}}  [lines {folded[0] + 1}-{folded[1] - 1}: the FIXED block, folded; it cannot be edited. "
-                    f"read(offset={folded[0] + 1}, limit={folded[1] - folded[0] - 1}) shows it]")
+                    f"read_file(offset={folded[0] + 1}, limit={folded[1] - folded[0] - 1}) shows it]")
             out.append(note)
             size += len(note) + 1
             n = folded[1]
@@ -156,13 +156,13 @@ def parse_anchor(ref: object) -> Anchor:
     match = _ANCHOR_RE.match(core)
     if not match:
         if re.fullmatch(r"\d+", core):
-            raise EditError(f'[E_BAD_REF] "{ref}" has no hash: use "LINE#HASH" from read() or edit() output (e.g. "12#MQ").')
+            raise EditError(f'[E_BAD_REF] "{ref}" has no hash: use "LINE#HASH" from read_file() or edit_file() output (e.g. "12#MQ").')
         raise EditError(f'[E_BAD_REF] Invalid line reference "{ref}". Expected "LINE#HASH" (e.g. "12#MQ").')
     line, h = int(match.group(1)), match.group(2)
     if line < 1:
         raise EditError(f'[E_BAD_REF] Line numbers start at 1, got "{ref}".')
     if len(h) != 2 or any(c not in NIBBLES for c in h):
-        raise EditError(f'[E_BAD_REF] "{ref}": a hash is 2 characters from {NIBBLES}. Copy anchors from read() or edit() output.')
+        raise EditError(f'[E_BAD_REF] "{ref}": a hash is 2 characters from {NIBBLES}. Copy anchors from read_file() or edit_file() output.')
     return Anchor(line, h, match.group(3))
 
 
@@ -180,7 +180,7 @@ def _as_lines(value: object, index: int) -> list[str]:
     for line in out:
         if _DISPLAY_PREFIX_RE.match(line):
             raise EditError(
-                f'[E_INVALID_PATCH] Edit {index}: "lines" must be the literal new content, not read() output with '
+                f'[E_INVALID_PATCH] Edit {index}: "lines" must be the literal new content, not read_file() output with '
                 f'"LINE#HASH:" prefixes. Offending line: {line!r}'
             )
     return out
@@ -279,9 +279,9 @@ def apply_edits(text: str, edits: object, protected: tuple[int, int] | None = No
             body = join_lines(lines, newline_at_end)
             found = [m.start() for m in re.finditer(re.escape(old), body)]
             if not found:
-                raise EditError(f"[E_NO_MATCH] Edit {index}: replace_text found no exact match. read() and use anchors.")
+                raise EditError(f"[E_NO_MATCH] Edit {index}: replace_text found no exact match. read_file() and use anchors.")
             if len(found) > 1:
-                raise EditError(f"[E_MULTI_MATCH] Edit {index}: replace_text found {len(found)} matches. read() and use anchors.")
+                raise EditError(f"[E_MULTI_MATCH] Edit {index}: replace_text found {len(found)} matches. read_file() and use anchors.")
             first, last = _span_lines(body, found[0], found[0] + len(old))
             segment_start = sum(len(line) + 1 for line in lines[: first - 1])
             segment = "\n".join(lines[first - 1 : last])
@@ -346,7 +346,7 @@ def apply_edits(text: str, edits: object, protected: tuple[int, int] | None = No
     if stale:
         refs = ", ".join(str(a) for a in stale)
         message = [f"[E_STALE_ANCHOR] {len(stale)} stale anchor{'s' if len(stale) > 1 else ''}: {refs}. engine.py changed since "
-                   "you read those lines: read() again and use the new anchors (nothing was applied)."]
+                   "you read those lines: read_file() again and use the new anchors (nothing was applied)."]
         hinted = [a for a in stale if a.hint and re.split(r"\.{3}|…", _fuzzy(a.hint).strip())[0]]
         candidates = []
         for a in hinted:

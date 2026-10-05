@@ -41,7 +41,7 @@ def main() -> int:
             print(f"    [harness images sent] {', '.join(record['images'])}")
             continue
         if "show_images" in record:
-            print(f"    [show()] {', '.join(record['show_images'])}")
+            print(f"    [show_frames()] {', '.join(record['show_images'])}")
             continue
         if "engine_change" in record:
             change = record["engine_change"]

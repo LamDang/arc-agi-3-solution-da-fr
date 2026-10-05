@@ -39,7 +39,7 @@ A failing step is explained with the differing regions of its final frame,
 numbered, with the colours that differ and the engine's sprites that draw
 there before and after the step (``engine_re.diff_report``; a second, short
 candidate run collects them), the end of what the engine printed during the
-step (the runner captures prints per step), and the ``try_step`` command that
+step (the runner captures prints per step), and the ``replay_step`` command that
 reproduces it in the analysis kernel. With ``images=True`` the report also
 carries a picture of both final frames with the regions boxed
 (``TestReport.images``).
@@ -67,6 +67,8 @@ from engine_re.trace import Step, Trace
 HEX = "0123456789abcdef"
 MAX_FAILURES = 10  # failing steps a report can list (run_tests(failures=N))
 FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
+# How the reports name the fields: as the model's recorded steps (helpers.StepView) do.
+SHOWN_AS = {"state": "outcome"}
 MATCH_MODES = ("final", "all")
 
 
@@ -299,11 +301,11 @@ def describe_step(
         lines.append("    your engine raised an error on this step (traceback above)" if crashed_here else "    not run (your engine stopped earlier)")
         lines += printed_lines(printed)
         return "\n".join(lines), []
-    differ = [f"{name} expected {getattr(step, name)}, got {got.get(name)}" for name in FIELDS if getattr(step, name) != got.get(name)]
+    differ = [f"{SHOWN_AS.get(name, name)} expected {getattr(step, name)}, got {got.get(name)}" for name in FIELDS if getattr(step, name) != got.get(name)]
     if differ:
-        lines.append("    state fields differ: " + "; ".join(differ))
+        lines.append("    recorded fields differ: " + "; ".join(differ))
     else:
-        lines.append(f"    state fields match ({step.state}, levels_completed {step.levels_completed})")
+        lines.append(f"    recorded fields match (outcome {step.state}, levels_completed {step.levels_completed})")
     if match == "all":
         lines.append(f"    frames: expected {step.n_frames}, got {len(got_frames)}")
     elif step.n_frames > 1:
@@ -343,7 +345,7 @@ def compact_step(
     head = f"    step {step.index} {step.action} (level {before}): "
     if got is None or got_frames is None:
         return head + ("your engine raised an error here" if crashed_here else "not run (your engine stopped earlier)")
-    parts = [f"{name} expected {getattr(step, name)}, got {got.get(name)}" for name in FIELDS if getattr(step, name) != got.get(name)]
+    parts = [f"{SHOWN_AS.get(name, name)} expected {getattr(step, name)}, got {got.get(name)}" for name in FIELDS if getattr(step, name) != got.get(name)]
     if step.n_frames and len(got_frames):
         if not check.final_ok:
             parts.append(diff_report.compact_frame(step.frames[-1], got_frames[-1], (states or {}).get("after")))
@@ -418,7 +420,7 @@ def repro_lines(step: int, level: int | None, action: str, start: bool = False) 
         what = "loads engine.py fresh and applies step 0's RESET (before is None)"
     return [
         "  Reproduce in python:",
-        f"    before, after = try_step({step}{lv})",
+        f"    before, after = replay_step({step}{lv})",
         f"    # {what}; prints what your engine printed, what changed in your state and this comparison; "
         "returns copies of your State before and after",
     ]
@@ -687,7 +689,7 @@ def replay_test(
         lvl = level if level is not None else from_level
         first_index = steps[0].index if steps else 0
         lines.append(
-            f"  Reproduce in python: before, after = try_step({first_index}{f', level={lvl}' if lvl else ''})   # shows the error"
+            f"  Reproduce in python: before, after = replay_step({first_index}{f', level={lvl}' if lvl else ''})   # shows the error"
         )
     if limited and targets:
         if compact:

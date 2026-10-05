@@ -21,7 +21,7 @@ trace/  (every frame of every action, state, levels, available actions)
    │
    ▼
 agent.py ── python ──────────► kernel.py   persistent, sandboxed Python with the trace
-   │                             │ read / edit / undo ──► engine_files.py ──► workspace/engine.py
+   │                             │ read_file / edit_file / undo_edit ──► engine_files.py ──► workspace/engine.py
    │                             │                        (the only writer; versions in engine_versions/)
    │     ── run_tests ───────► tester.py ──► candidate_runner.py (sandboxed; gets only the actions)
    │     ── finish ──────────► tester.py (the session ends only when every test passes)
@@ -53,15 +53,26 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   score engines written as an `arcengine` game class (the earlier runs).
 - **Tools** (`agent.py`, `prompts.py`): exactly three.
   - `python(code)`: a persistent kernel. Its namespace holds `np`, the
-    fixed-block classes, `S` (the recording's steps) and eight functions
-    (`helpers.py`); nothing else is preloaded:
-    - `read(path="engine.py", offset=None, limit=None)` prints the file as
+    fixed-block classes, `recording` (the recorded steps) and eight functions
+    (`helpers.py`); nothing else is preloaded. These names are reserved: code
+    that binds one (`def`, assignment, parameter, loop variable, import as) is
+    refused before it runs (`kernel.reserved_bindings`). They are named so that
+    they do not collide with the engine's own names (`step`, `State`,
+    `State.status`) or the model's natural variable names:
+    - `recording`: a list with one `StepView` (`helpers.py`) per recorded step:
+      `.index`, `.action` (the recorded action: `.id`, `.x`, `.y`, `.name`; no
+      `.cell`), `.before` (the previous step's last frame; None for step 0),
+      `.after` (= `.last`, the frame the tests compare), `.frames`, `.level`
+      (the level it is played in), `.outcome` (`NOT_FINISHED`, `WIN` or
+      `GAME_OVER`; `trace.json` keeps it as `state`), `.levels_completed`,
+      `.win_levels`, `.available_actions`. Frames only: no State.
+    - `read_file(path="engine.py", offset=None, limit=None)` prints the file as
       `LINE#HASH:content` lines (`hashline.py`). The hash is 2 characters from
       `ZPMQVRWSNKTXJBYH` over the previous, current and next line (trailing
       whitespace and `\r` removed; xxh32 when installed, else crc32), so an
       anchor goes stale when its line or a neighbour changes. Without `offset`
       the FIXED block is folded; long output says where to continue.
-    - `edit(path="engine.py", edits=[...])` applies `replace` (`pos`, optional
+    - `edit_file(path="engine.py", edits=[...])` applies `replace` (`pos`, optional
       `end`), `append` / `prepend` (optional `pos`; none = end / start of the
       file) and `replace_text` (`oldText`, `newText`; one exact unique match).
       `lines` is a list or one string. All edits of a call are checked against
@@ -72,19 +83,19 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       any edit of the FIXED block (`[E_FIXED_BLOCK]`). The answer: what
       changed, a syntax check, and fresh anchors around each change (at most
       about 12 lines; the first and last lines of a long insert).
-    - `undo(n=1, to=None)` restores the engine.py of `n` changes ago (`to=k`:
+    - `undo_edit(n=1, to=None)` restores the engine.py of `n` changes ago (`to=k`:
       version k; `to="best"`: `engine_best.py`, and it says by which rule).
       Every change, a restore
       included, is a new numbered version in `<game_dir>/engine_versions/`
       (outside the workspace), so undo after undo brings a change back. It
       prints the last 8 versions with what changed and their test result
       (matched by the engine's hash in `tests.jsonl`) and reminds to read again.
-    - `render(state)`: the frame the tests draw (the same code).
-    - `show(*frames, titles=None, boxes=None)`: up to 4 frames or States side
+    - `render_state(state)`: the frame the tests draw (the same code).
+    - `show_frames(*frames, titles=None, boxes=None)`: up to 4 frames or States side
       by side, upscaled, titled, with numbered boxes `(x0, y0, x1, y1)`. The
       PNG goes to the harness with the call's output; with images off it
       prints a hex crop of the boxes, or the frame at half resolution.
-    - `before, after = try_step(i, state=None, action=None)` loads engine.py
+    - `before, after = replay_step(i, state=None, action=None)` loads engine.py
       fresh, replays steps 0..i-1 through the harness rules (or starts from
       `state`), applies step i's action (or `action`), and prints what engine.py
       printed during the step, what the step changed in its state (sprites by
@@ -92,7 +103,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       recorded action, the comparison with the recording as `run_tests`
       explains it. It returns copies of the State before and after.
     - `auto_sprites(level=0, grid=None, frame=None, region=None, merge=False)`
-      returns code (a str usable as `edit` lines) for a sprite list that redraws
+      returns code (a str usable as `edit_file` lines) for a sprite list that redraws
       a level's recorded start, a given frame, or a region of it exactly
       (`auto_sprites.py`): border and background sprites, one sprite per
       single-colour 4-connected region (`merge=True`: per group of touching
@@ -116,16 +127,26 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       and prints whether it renders the frame exactly. A starting point, not
       the real sprites.
     - `summarize_levels()` prints one row per level the recording plays: its
-      first frame (`S[k].last`), the steps played in it and their actions,
+      first frame (`recording[k].after`), the steps played in it and their actions,
       animated steps, RESETs and game overs, and the step that solved it.
 
     engine.py cannot be written from the kernel any other way: the sandbox
     denies opening it for writing and every operation that could replace it
     (rename, replace, remove, link, copy onto it, also on the directories
-    containing it). `edit` and `undo` send their arguments to the
+    containing it). `edit_file` and `undo_edit` send their arguments to the
     harness over the kernel's protocol, and `engine_files.py` applies them.
-    While the analysis quota pauses python, calls that use `edit(` or `undo(`
-    still run.
+    While the analysis quota pauses python, calls that use `edit_file(` or
+    `undo_edit(` still run.
+
+    The system prompt of every mode has an `# Objects` section
+    (`prompts.objects_reference`), a typed reference written once and shared
+    by the modes: the recorded steps python holds in that mode and `StepView`
+    with the recorded action; `make_level`, `step` and every field and method
+    of `Sprite`, `Action` (what `step()` receives, with `.cell`), `View` and
+    `State`, with how `State.status` maps to the recorded outcome; and every
+    built-in function's signature, return value and meaning. The python tool's
+    description only names the preloaded names and points there. A test
+    checks the reference against the classes and functions themselves.
   - `run_tests(level=None, failures=1)`: first the contract tests
     (interface unchanged, valid states, a fresh state on every `make_level`
     call, every advertised action accepted, determinism), then the acceptance
@@ -141,7 +162,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     changes, the engine's sprites drawn in each region before and after the
     step (a second, short sandboxed run collects them), state fields and vars,
     the end of what the engine printed during the step (prints are captured per
-    step and capped), and the `try_step` command that reproduces it. A failing
+    step and capped), and the `replay_step` command that reproduces it. A failing
     contract test does not hide the replay. The counts kept (`tests.jsonl`,
     best engine, pass) always come from the whole replay; the text is what
     stops. The automatic test uses `failures=1`.
@@ -154,32 +175,34 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   recording through engine.py and, at the first step k that fails, starts the
   conversation with "Fix the breaking test: step k" (the step's action and
   level, the test report with its picture, engine.py with the FIXED block
-  folded). The model sees the recording only up to step k: `S` holds steps
-  0..k (so does `visible_trace/` on disk), `step` is step k (`.before`,
-  `.action`, `.after`, `.frames`, `.level`) and `summarize_levels()` lists the
-  levels reached; with `--only-step`, python shows only `step`. Its tests
+  folded). The model sees the recording only up to step k: `recording` holds
+  steps 0..k (so does `visible_trace/` on disk), `step_to_fix` is step k
+  (`recording[-1]`, the same `StepView`) and `summarize_levels()` lists the
+  levels reached; with `--only-step`, python shows only `step_to_fix`. Its tests
   replay steps 0..k. As soon as they pass (by `finish`, `run_tests` or the
   automatic test after an edit), the harness replays on and adds a user message
   to the same conversation: steps 0..k pass, how many more steps passed without
   error, and the next step k' that fails, with its report. The kernel keeps its
-  variables and `S` grows to step k'. There is no limit per step: the run ends
+  variables and `recording` grows to step k' (the same list object). There is
+  no limit per step: the run ends
   when the recording passes, or when a budget runs out, the model stops calling
   tools, or a request fails for good. `result.json` adds `"mode":
   "stepwise"`, `step` (the step being fixed), `passing_prefix` (of the last
   replay) and `advances` (per step fixed: the turn, the step, the next failing
   step); transcript records carry `step`. Every step report also says, for a
-  click, which grid cell it lands on and which of the engine's sprites are
-  there (the one `state.sprite_at(*action.cell)` returns marked). `--mode
+  click, which grid cell it lands on (the `action.cell` that `step()` gets) and
+  which of the engine's sprites are there (the one
+  `state.sprite_at(*action.cell)` returns marked). `--mode
   single` runs v5.
 - **The opening** (`agent.py`). Before the first turn of a new session the
   harness plays the first round itself: in the kernel, `auto_sprites(0)` makes
-  sprite code for level 0's first frame and one `edit()` puts it above
+  sprite code for level 0's first frame and one `edit_file()` puts it above
   `make_level`, which then returns `level_0_sprites()` (for every level, until
   the model adds more); then it runs the tests. The first message gives the
   recording in one sentence (steps, levels, how it ends, the actions the game
   accepts; `summarize_levels()` has the per-level detail), what `auto_sprites`
   printed (not its code), the test report with its picture, engine.py as
-  `read()` shows it (FIXED block folded), and the first task: make the first
+  `read_file()` shows it (FIXED block folded), and the first task: make the first
   failing step pass (usually step 1, the first action of level 0), then the
   next one, in recorded order. The harness's edit and test are logged
   (`"by": "harness"` in the transcript, `"auto": "opening"` in `tests.jsonl`,
@@ -194,7 +217,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   defaults and its report is appended to the turn's output. Images (on by
   default, `--no-images` for text-only models): after the turn's tool messages
   (which stay strings) one user message carries the turn's pictures: what
-  `show()` made, then the latest test's picture (the engine's final frame and
+  `show_frames()` made, then the latest test's picture (the engine's final frame and
   the original's side by side, upscaled 8x, the differing regions boxed in cyan
   and numbered as in the text). When a newer such message is added, the older
   ones' images are replaced by a placeholder. The PNGs are saved in `images/`
@@ -213,7 +236,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   wall time) runs out. Only full replays count towards passing and
   `engine_best.py`, with their counts over the whole recording whatever the
   report shows; one-level tests do not. `engine_best.py` (and
-  `undo(to="best")`) is the engine with the most steps passing before the first
+  `undo_edit(to="best")`) is the engine with the most steps passing before the first
   failure, ties broken by the most steps passing in all
   (`engine_files.best_key`), since the agent works through the recording in
   order. The authoritative final test is a full replay with the full report
@@ -270,14 +293,14 @@ rate limits (HTTP 429), gateway errors and failed connections wait and retry wit
 `ARC3_HTTP_RETRY_MAX_SECONDS` set the waits). Answers the provider ends with `finish_reason: error`, and
 reads that stall, are asked again up to 20 times.
 
-`run_experiment --no-images` gives text-only feedback (test reports and `show()` print hex
+`run_experiment --no-images` gives text-only feedback (test reports and `show_frames()` print hex
 digits), for models without image input.
 
 Each game directory holds `trace/`, `workspace/engine.py` (final),
 `engine_best.py` (the best full replay, as above),
 `engine_versions/` (`vNNNN.py`, one per change of engine.py, and
 `versions.jsonl`), `transcript.jsonl` (turns, tool outputs, one record per
-edit or undo with its line range and diff, and one per `show()` with its image
+edit or undo with its line range and diff, and one per `show_frames()` with its image
 paths; `show_transcript --diffs` prints the diffs), `tests.jsonl`,
 `result.json` (status, turns, tokens, cost, best and final test, finish calls,
 engine changes), `images/` (the pictures sent to the model,
@@ -288,7 +311,7 @@ and `total` equal to the trace length; a one-level test has its `level`, and
 first failing step's index, `passing_prefix` the number of steps passing
 before it (the whole scope when none fails; for a full replay the two are
 equal while a step fails), `failures` what the report was asked to show, and
-`engine_sha` the hash of the engine tested, which `undo` uses to show each
+`engine_sha` the hash of the engine tested, which `undo_edit` uses to show each
 version's result. The experiment directory holds `summary.md` and
 `evaluation_<engine>.md`.
 
