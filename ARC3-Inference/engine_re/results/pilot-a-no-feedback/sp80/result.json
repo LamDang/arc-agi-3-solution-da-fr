@@ -1,0 +1,27 @@
+{
+  "game": "sp80",
+  "model": "qwen/qwen3.8-flash",
+  "status": "running",
+  "turns": 64,
+  "minutes": 47.02,
+  "usage": {
+    "requests": 64,
+    "prompt_tokens": 3087679,
+    "completion_tokens": 189812,
+    "reasoning_tokens": 183064,
+    "cached_tokens": 2976768,
+    "cost_usd": 0.153476578,
+    "max_prompt_tokens": 106333
+  },
+  "tool_calls": {
+    "python": 64
+  },
+  "tests_run": 0,
+  "first_pass_turn": null,
+  "best": null,
+  "final": null,
+  "finish_summary": null,
+  "error": null,
+  "trace_steps": 37,
+  "resumes": 0
+}

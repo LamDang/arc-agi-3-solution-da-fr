@@ -1,0 +1,315 @@
+{
+  "engine": "engine_best.py",
+  "replay": {
+    "mode": "full replay: a fresh engine plays steps 0-119",
+    "first_step": 0,
+    "total": 120,
+    "exact": 120,
+    "final_frame": 120,
+    "first_fail": null,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.08,
+    "passed": true
+  },
+  "levels": {
+    "0": {
+      "steps": 320,
+      "exact": 192,
+      "exact_rate": 0.6,
+      "mean_steps_before_first_mismatch": 20.1,
+      "changing_steps": 16,
+      "changing_exact": 7,
+      "rollouts": 8,
+      "rollouts_fully_matching": 3,
+      "first_mismatch_examples": [
+        {
+          "step": 16,
+          "action": "ACTION6(x=59, y=32)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 9,
+          "action": "ACTION6(x=6, y=32)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 14,
+          "action": "ACTION6(x=4, y=29)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "1": {
+      "steps": 320,
+      "exact": 177,
+      "exact_rate": 0.5531,
+      "mean_steps_before_first_mismatch": 12.4,
+      "changing_steps": 25,
+      "changing_exact": 8,
+      "rollouts": 8,
+      "rollouts_fully_matching": 1,
+      "first_mismatch_examples": [
+        {
+          "step": 14,
+          "action": "ACTION6(x=39, y=19)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 3,
+          "action": "ACTION6(x=48, y=37)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 6,
+          "action": "ACTION6(x=48, y=26)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "2": {
+      "steps": 320,
+      "exact": 282,
+      "exact_rate": 0.8812,
+      "mean_steps_before_first_mismatch": 33.5,
+      "changing_steps": 12,
+      "changing_exact": 8,
+      "rollouts": 8,
+      "rollouts_fully_matching": 4,
+      "first_mismatch_examples": [
+        {
+          "step": 29,
+          "action": "ACTION6(x=27, y=40)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 9,
+          "action": "ACTION6(x=39, y=40)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 34,
+          "action": "ACTION6(x=22, y=40)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "3": {
+      "steps": 320,
+      "exact": 46,
+      "exact_rate": 0.1437,
+      "mean_steps_before_first_mismatch": 5.4,
+      "changing_steps": 35,
+      "changing_exact": 2,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 11,
+          "action": "ACTION6(x=6, y=47)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 2,
+          "action": "ACTION6(x=14, y=6)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 5,
+          "action": "ACTION6(x=45, y=36)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "4": {
+      "steps": 320,
+      "exact": 114,
+      "exact_rate": 0.3563,
+      "mean_steps_before_first_mismatch": 6.8,
+      "changing_steps": 41,
+      "changing_exact": 6,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 1,
+          "action": "ACTION6(x=36, y=37)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 4,
+          "action": "ACTION6(x=10, y=37)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 3,
+          "action": "ACTION6(x=7, y=7)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "5": {
+      "steps": 320,
+      "exact": 190,
+      "exact_rate": 0.5938,
+      "mean_steps_before_first_mismatch": 13.9,
+      "changing_steps": 34,
+      "changing_exact": 9,
+      "rollouts": 8,
+      "rollouts_fully_matching": 1,
+      "first_mismatch_examples": [
+        {
+          "step": 28,
+          "action": "ACTION6(x=56, y=17)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 4,
+          "action": "ACTION6(x=56, y=16)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 2,
+          "action": "ACTION6(x=58, y=16)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "6": {
+      "steps": 320,
+      "exact": 255,
+      "exact_rate": 0.7969,
+      "mean_steps_before_first_mismatch": 31.4,
+      "changing_steps": 8,
+      "changing_exact": 4,
+      "rollouts": 8,
+      "rollouts_fully_matching": 5,
+      "first_mismatch_examples": [
+        {
+          "step": 15,
+          "action": "ACTION6(x=20, y=21)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 18,
+          "action": "ACTION6(x=32, y=43)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 18,
+          "action": "ACTION6(x=28, y=42)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "7": {
+      "steps": 320,
+      "exact": 126,
+      "exact_rate": 0.3937,
+      "mean_steps_before_first_mismatch": 12.5,
+      "changing_steps": 30,
+      "changing_exact": 5,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 30,
+          "action": "ACTION6(x=30, y=58)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 6,
+          "action": "ACTION6(x=53, y=23)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 18,
+          "action": "ACTION6(x=31, y=56)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    }
+  },
+  "heldout_steps": 2560,
+  "heldout_exact": 1382,
+  "heldout_exact_rate": 0.5398,
+  "heldout_changing_steps": 201,
+  "heldout_changing_exact": 49,
+  "heldout_changing_exact_rate": 0.2438,
+  "source_lines": 812,
+  "source_bytes": 54421,
+  "suspicious_patterns": {}
+}

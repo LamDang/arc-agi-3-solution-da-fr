@@ -1,0 +1,244 @@
+{
+  "engine": "engine_best.py",
+  "replay": {
+    "mode": "full replay: a fresh engine plays steps 0-331",
+    "first_step": 0,
+    "total": 332,
+    "exact": 43,
+    "final_frame": 43,
+    "first_fail": 43,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.02,
+    "passed": false
+  },
+  "levels": {
+    "0": {
+      "steps": 320,
+      "exact": 320,
+      "exact_rate": 1.0,
+      "mean_steps_before_first_mismatch": 40.0,
+      "changing_steps": 319,
+      "changing_exact": 319,
+      "rollouts": 8,
+      "rollouts_fully_matching": 8,
+      "first_mismatch_examples": []
+    },
+    "1": {
+      "steps": 320,
+      "exact": 320,
+      "exact_rate": 1.0,
+      "mean_steps_before_first_mismatch": 40.0,
+      "changing_steps": 319,
+      "changing_exact": 319,
+      "rollouts": 8,
+      "rollouts_fully_matching": 8,
+      "first_mismatch_examples": []
+    },
+    "2": {
+      "steps": 320,
+      "exact": 312,
+      "exact_rate": 0.975,
+      "mean_steps_before_first_mismatch": 39.0,
+      "changing_steps": 277,
+      "changing_exact": 270,
+      "rollouts": 8,
+      "rollouts_fully_matching": 7,
+      "first_mismatch_examples": [
+        {
+          "step": 32,
+          "action": "ACTION6(x=50, y=56)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "3": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=62, y=12)",
+          "problems": [
+            "frame count",
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=12, y=17)",
+          "problems": [
+            "frame count",
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=6, y=44)",
+          "problems": [
+            "frame count",
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "4": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 118,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=58, y=16)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "RESET",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=12, y=5)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "5": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=7, y=0)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=8, y=34)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=4, y=32)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "6": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 119,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=24, y=25)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=49, y=48)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=5, y=22)",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    }
+  },
+  "heldout_steps": 2240,
+  "heldout_exact": 952,
+  "heldout_exact_rate": 0.425,
+  "heldout_changing_steps": 1792,
+  "heldout_changing_exact": 908,
+  "heldout_changing_exact_rate": 0.5067,
+  "source_lines": 426,
+  "source_bytes": 15493,
+  "suspicious_patterns": {}
+}

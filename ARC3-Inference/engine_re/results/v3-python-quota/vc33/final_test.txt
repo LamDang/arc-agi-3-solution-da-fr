@@ -1,0 +1,18 @@
+TEST RESULT (full replay: a fresh engine plays steps 0-331)
+  0/332 steps match exactly; 0/332 final frames match.
+  First mismatch at step 0 (the 0 step(s) before it match).
+  Per level (by levels_completed before the step): level 0 (steps 0-7): 0/8; level 1 (steps 8-19): 0/12; level 2 (steps 20-43): 0/24; level 3 (steps 44-73): 0/30; level 4 (steps 74-208): 0/135; level 5 (steps 209-245): 0/37; level 6 (steps 246-331): 0/86
+
+  YOUR ENGINE RAISED AN ERROR at start-up:
+    Traceback (most recent call last):
+      File "/home/user/arc-agi-3-solution-da-fr/ARC3-Inference/engine_re/candidate_runner.py", line 94, in main
+      File "/home/user/arc-agi-3-solution-da-fr/ARC3-Inference/engine_re/candidate_runner.py", line 53, in load_candidate
+    TypeError: the engine module defines no subclass of arcengine.ARCBaseGame
+  Mismatch kinds over all steps: not run x332
+--- Step 0: RESET   (levels_completed before the step: 0)
+    not run (the engine stopped earlier)
+--- Step 1: ACTION6(x=50, y=47)   (levels_completed before the step: 0)
+    not run (the engine stopped earlier)
+--- Step 2: ACTION6(x=40, y=10)   (levels_completed before the step: 0)
+    not run (the engine stopped earlier)
+  All mismatching steps: 0-331

@@ -1,0 +1,28 @@
+{
+  "game": "vc33",
+  "model": "qwen/qwen3.8-flash",
+  "status": "running",
+  "turns": 64,
+  "minutes": 50.36,
+  "usage": {
+    "requests": 64,
+    "prompt_tokens": 3704330,
+    "completion_tokens": 192551,
+    "reasoning_tokens": 182516,
+    "cached_tokens": 3532288,
+    "cost_usd": 0.17282187799999998,
+    "max_prompt_tokens": 112047
+  },
+  "tool_calls": {
+    "python": 75,
+    "write_engine": 1
+  },
+  "tests_run": 0,
+  "first_pass_turn": null,
+  "best": null,
+  "final": null,
+  "finish_summary": null,
+  "error": null,
+  "trace_steps": 95,
+  "resumes": 0
+}

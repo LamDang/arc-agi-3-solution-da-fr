@@ -1,0 +1,4 @@
+TEST RESULT (full replay: a fresh engine plays steps 0-119)
+  120/120 steps match exactly; 120/120 final frames match.
+  ALL STEPS MATCH.
+  Per level (by levels_completed before the step): level 0 (steps 0-8): 9/9; level 1 (steps 9-17): 9/9; level 2 (steps 18-36): 19/19; level 3 (steps 37-53): 17/17; level 4 (steps 54-65): 12/12; level 5 (steps 66-96): 31/31; level 6 (steps 97-105): 9/9; level 7 (steps 106-119): 14/14

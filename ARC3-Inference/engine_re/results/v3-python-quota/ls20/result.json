@@ -1,0 +1,59 @@
+{
+  "game": "ls20",
+  "model": "qwen/qwen3.8-flash",
+  "status": "budget_time",
+  "turns": 270,
+  "minutes": 115.13,
+  "usage": {
+    "requests": 270,
+    "prompt_tokens": 32542521,
+    "completion_tokens": 410331,
+    "reasoning_tokens": 351375,
+    "cached_tokens": 30427648,
+    "cost_usd": 0.9969288879999993,
+    "max_prompt_tokens": 184442
+  },
+  "tool_calls": {
+    "python": 251,
+    "write_engine": 6,
+    "edit_engine": 11,
+    "run_tests": 1,
+    "view_engine": 1
+  },
+  "tests_run": 18,
+  "first_pass_turn": null,
+  "best": {
+    "turn": 131,
+    "mode": "full replay: a fresh engine plays steps 0-866",
+    "first_step": 0,
+    "total": 867,
+    "exact": 50,
+    "final_frame": 51,
+    "first_fail": 17,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.37,
+    "passed": false
+  },
+  "final": {
+    "mode": "full replay: a fresh engine plays steps 0-866",
+    "first_step": 0,
+    "total": 867,
+    "exact": 0,
+    "final_frame": 0,
+    "first_fail": 0,
+    "error": "Traceback (most recent call last):\n  File \"/home/user/arc-agi-3-solution-da-fr/ARC3-Inference/runs/engine-re/qwen38flash-v3quota-run20261004_135539/ls20/workspace/engine.py\", line 58, in __init__\n    super().__init__(game_id=\"ls20\", levels=make_levels(), camera=camera,\n                                            ^^^^^^^^^^^^^\n  File \"/home/user/arc-agi-3-solution-da-fr/ARC3-Inference/runs/engine-re/qwen38flash-v3quota-run20261004_135539/ls20/workspace/engine.py\", line 43, in make_levels\n    for i, d in enumerate(DATA[\"levels\"]):\n                          ~~~~^^^^^^^^^^\nKeyError: 'levels'",
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.0,
+    "passed": false
+  },
+  "finish_summary": null,
+  "error": null,
+  "trace_steps": 867,
+  "resumes": 0,
+  "nudges": 5,
+  "auto_tests": 17,
+  "python_paused": 16
+}

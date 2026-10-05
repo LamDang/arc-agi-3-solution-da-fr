@@ -1,0 +1,97 @@
+TEST RESULT (full replay: a fresh engine plays steps 0-331)
+  43/332 steps match exactly; 43/332 final frames match.
+  First mismatch at step 43 (the 43 step(s) before it match).
+  Per level (by levels_completed before the step): level 0 (steps 0-7): 8/8; level 1 (steps 8-19): 12/12; level 2 (steps 20-43): 23/24; level 3 (steps 44-73): 0/30; level 4 (steps 74-208): 0/135; level 5 (steps 209-245): 0/37; level 6 (steps 246-331): 0/86
+  Mismatch kinds over all steps: levels_completed x288, frame count x287, state x284, win_levels x284, final frame x5
+--- Step 43: ACTION6(x=46, y=56)   (levels_completed before the step: 2)
+    expected: 2 frame(s), state=NOT_FINISHED, levels_completed=3, win_levels=7, available_actions=[6]
+    got:      2 frame(s), state=NOT_FINISHED, levels_completed=3, win_levels=7, available_actions=[6]
+    final frame: 3582 pixels differ in rows 1-63, cols 0-63 (expected->got colour: 3->0 x3068, 5->0 x354, 1->0 x72, 9->0 x54, 11->0 x18, 4->0 x16)
+    rows 0-23, cols 0-23 (one hex digit per pixel = colour 0-15)
+    row  expected                  got                       diff (x = differs)      
+      0  777777777777777777777777  777777777777777777777777  ........................
+      1  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      2  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      3  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      4  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      5  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      6  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      7  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      8  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      9  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     10  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     11  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     12  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     13  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     14  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     15  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     16  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     17  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     18  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     19  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     20  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     21  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     22  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     23  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+    animation frames 0-0: match
+--- Step 44: ACTION6(x=10, y=61)   (levels_completed before the step: 3)
+    expected: 1 frame(s), state=NOT_FINISHED, levels_completed=3, win_levels=7, available_actions=[6]
+    got:      2 frame(s), state=NOT_FINISHED, levels_completed=4, win_levels=7, available_actions=[6]
+    final frame: 3574 pixels differ in rows 0-63, cols 0-63 (expected->got colour: 3->0 x3059, 5->0 x354, 1->0 x72, 9->0 x54, 11->0 x18, 4->0 x16)
+    rows 0-23, cols 0-23 (one hex digit per pixel = colour 0-15)
+    row  expected                  got                       diff (x = differs)      
+      0  777777777777777777777777  777777777777777777777777  ........................
+      1  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      2  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      3  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      4  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      5  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      6  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      7  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      8  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      9  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     10  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     11  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     12  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     13  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     14  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     15  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     16  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     17  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     18  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     19  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     20  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     21  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     22  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     23  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+--- Step 45: ACTION6(x=10, y=61)   (levels_completed before the step: 3)
+    expected: 1 frame(s), state=NOT_FINISHED, levels_completed=3, win_levels=7, available_actions=[6]
+    got:      2 frame(s), state=NOT_FINISHED, levels_completed=5, win_levels=7, available_actions=[6]
+    final frame: 3576 pixels differ in rows 0-63, cols 0-63 (expected->got colour: 3->0 x3059, 5->0 x354, 1->0 x72, 9->0 x54, 11->0 x18, 4->0 x16)
+    rows 0-23, cols 0-23 (one hex digit per pixel = colour 0-15)
+    row  expected                  got                       diff (x = differs)      
+      0  777777777777777777777777  777777777777777777777777  ........................
+      1  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      2  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      3  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      4  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      5  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      6  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      7  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      8  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+      9  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     10  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     11  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     12  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     13  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     14  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     15  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     16  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     17  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     18  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     19  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     20  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     21  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     22  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+     23  333333333333333333333333  000000000000000000000000  xxxxxxxxxxxxxxxxxxxxxxxx
+  All mismatching steps: 43-331

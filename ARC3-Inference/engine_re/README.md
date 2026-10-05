@@ -6,7 +6,9 @@ the agent edits a Python module until replaying the recorded actions through
 it returns exactly the recorded observations. The real game source is never
 visible to it.
 
-Results of the first experiment are in [RESULTS.md](RESULTS.md).
+Results on the 5 public games with qwen3.8-flash are in [RESULTS.md](RESULTS.md):
+3 of 5 engines reproduce their whole recording; one of those three is a
+correct re-implementation, the others partly fit the recording.
 
 ## How it works
 

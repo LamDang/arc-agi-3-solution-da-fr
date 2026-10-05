@@ -1,0 +1,288 @@
+{
+  "engine": "engine_best.py",
+  "replay": {
+    "mode": "full replay: a fresh engine plays steps 0-331",
+    "first_step": 0,
+    "total": 332,
+    "exact": 44,
+    "final_frame": 44,
+    "first_fail": 44,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.09,
+    "passed": false
+  },
+  "levels": {
+    "0": {
+      "steps": 320,
+      "exact": 115,
+      "exact_rate": 0.3594,
+      "mean_steps_before_first_mismatch": 5.1,
+      "changing_steps": 319,
+      "changing_exact": 114,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 3,
+          "action": "ACTION6(x=18, y=39)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 2,
+          "action": "ACTION6(x=39, y=45)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 4,
+          "action": "ACTION6(x=33, y=21)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "1": {
+      "steps": 320,
+      "exact": 108,
+      "exact_rate": 0.3375,
+      "mean_steps_before_first_mismatch": 1.8,
+      "changing_steps": 319,
+      "changing_exact": 107,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 1,
+          "action": "ACTION6(x=62, y=30)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=6, y=47)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=25, y=28)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "2": {
+      "steps": 320,
+      "exact": 137,
+      "exact_rate": 0.4281,
+      "mean_steps_before_first_mismatch": 10.1,
+      "changing_steps": 277,
+      "changing_exact": 120,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 12,
+          "action": "ACTION6(x=38, y=8)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 10,
+          "action": "ACTION6(x=42, y=17)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 17,
+          "action": "ACTION6(x=12, y=54)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "3": {
+      "steps": 320,
+      "exact": 183,
+      "exact_rate": 0.5719,
+      "mean_steps_before_first_mismatch": 19.9,
+      "changing_steps": 320,
+      "changing_exact": 183,
+      "rollouts": 8,
+      "rollouts_fully_matching": 1,
+      "first_mismatch_examples": [
+        {
+          "step": 22,
+          "action": "ACTION6(x=41, y=63)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 20,
+          "action": "ACTION6(x=47, y=63)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 30,
+          "action": "ACTION6(x=16, y=63)",
+          "problems": [
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "4": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 118,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=58, y=16)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "RESET",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=12, y=5)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "5": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=7, y=0)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=8, y=34)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=4, y=32)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "6": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 119,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION6(x=24, y=25)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=49, y=48)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION6(x=5, y=22)",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    }
+  },
+  "heldout_steps": 2240,
+  "heldout_exact": 543,
+  "heldout_exact_rate": 0.2424,
+  "heldout_changing_steps": 1792,
+  "heldout_changing_exact": 524,
+  "heldout_changing_exact_rate": 0.2924,
+  "source_lines": 834,
+  "source_bytes": 47576,
+  "suspicious_patterns": {}
+}

@@ -1,0 +1,281 @@
+{
+  "engine": "engine_best.py",
+  "replay": {
+    "mode": "full replay: a fresh engine plays steps 0-866",
+    "first_step": 0,
+    "total": 867,
+    "exact": 17,
+    "final_frame": 17,
+    "first_fail": 17,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.13,
+    "passed": false
+  },
+  "levels": {
+    "0": {
+      "steps": 320,
+      "exact": 50,
+      "exact_rate": 0.1562,
+      "mean_steps_before_first_mismatch": 3.6,
+      "changing_steps": 320,
+      "changing_exact": 50,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 4,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 1,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "final frame"
+          ],
+          "error": null
+        },
+        {
+          "step": 16,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "final frame"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "1": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION1",
+          "problems": [
+            "frame count",
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION4",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "2": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION4",
+          "problems": [
+            "final frame",
+            "levels_completed"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "3": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION4",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "4": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 319,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION4",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    },
+    "5": {
+      "steps": 320,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "mean_steps_before_first_mismatch": 0.0,
+      "changing_steps": 320,
+      "changing_exact": 0,
+      "rollouts": 8,
+      "rollouts_fully_matching": 0,
+      "first_mismatch_examples": [
+        {
+          "step": 0,
+          "action": "ACTION4",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION2",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        },
+        {
+          "step": 0,
+          "action": "ACTION3",
+          "problems": [
+            "frame count",
+            "state",
+            "levels_completed",
+            "win_levels"
+          ],
+          "error": null
+        }
+      ]
+    }
+  },
+  "heldout_steps": 1920,
+  "heldout_exact": 50,
+  "heldout_exact_rate": 0.026,
+  "heldout_changing_steps": 1919,
+  "heldout_changing_exact": 50,
+  "heldout_changing_exact_rate": 0.0261,
+  "source_lines": 750,
+  "source_bytes": 43864,
+  "suspicious_patterns": {}
+}

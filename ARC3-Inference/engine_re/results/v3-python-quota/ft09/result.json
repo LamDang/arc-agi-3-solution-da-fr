@@ -1,0 +1,59 @@
+{
+  "game": "ft09",
+  "model": "qwen/qwen3.8-flash",
+  "status": "passed",
+  "turns": 107,
+  "minutes": 50.85,
+  "usage": {
+    "requests": 107,
+    "prompt_tokens": 8895387,
+    "completion_tokens": 173001,
+    "reasoning_tokens": 145460,
+    "cached_tokens": 8502272,
+    "cost_usd": 0.2763140720000001,
+    "max_prompt_tokens": 153788
+  },
+  "tool_calls": {
+    "python": 97,
+    "write_engine": 1,
+    "run_tests": 1,
+    "view_engine": 2,
+    "edit_engine": 6
+  },
+  "tests_run": 13,
+  "first_pass_turn": 107,
+  "best": {
+    "turn": 107,
+    "mode": "full replay: a fresh engine plays steps 0-100",
+    "first_step": 0,
+    "total": 101,
+    "exact": 101,
+    "final_frame": 101,
+    "first_fail": null,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.05,
+    "passed": true
+  },
+  "final": {
+    "mode": "full replay: a fresh engine plays steps 0-100",
+    "first_step": 0,
+    "total": 101,
+    "exact": 101,
+    "final_frame": 101,
+    "first_fail": null,
+    "error": null,
+    "error_step": null,
+    "start_frame_diff": null,
+    "seconds": 0.05,
+    "passed": true
+  },
+  "finish_summary": null,
+  "error": null,
+  "trace_steps": 101,
+  "resumes": 0,
+  "nudges": 2,
+  "auto_tests": 12,
+  "python_paused": 5
+}
