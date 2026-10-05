@@ -10,6 +10,7 @@ from engine_re.agent import CONTINUE, IMAGE_PLACEHOLDER, Budget, EngineAgent, Mo
 from engine_re.condense import (
     FAILED_KEPT,
     NO_COMMIT_MESSAGE,
+    RESUME_HEAD,
     annotate,
     condense,
     failed_command,
@@ -46,7 +47,8 @@ class _ThinkingModel(_RecordingModel):
 
     def chat(self, messages, tools):
         response = super().chat(messages, tools)
-        response["choices"][0]["message"]["reasoning"] = f"thinking at turn {len(self.calls)}"
+        turn = sum(m["role"] == "assistant" for m in messages) + 1  # the same text whether the run was resumed or not
+        response["choices"][0]["message"]["reasoning"] = f"thinking at turn {turn}"
         return response
 
 
@@ -287,3 +289,68 @@ def test_an_iteration_whose_commit_changed_nothing(tmp_path: Path) -> None:
     it = Iteration(index=0, start=1, end=9, first_turn=1, last_turn=3, finished=True, step=2)
     assert iteration_diff(it, records, versions) == "Net change to engine.py: none (version 1 at the start and at the commit)."
     assert message_text({"role": "user", "content": [{"type": "text", "text": "hello"}]}) == "hello"
+
+
+def _is_resume_note(message: dict) -> bool:
+    return message["role"] == "user" and isinstance(message["content"], str) and message["content"].startswith(RESUME_HEAD)
+
+
+def test_the_agent_sends_the_condensed_conversation(tmp_path: Path, tiny_trace: Trace) -> None:
+    """context="condense": every request gets condense(...) of the full conversation, which is never shortened."""
+    tiny_trace.save(tmp_path / "trace")
+    model = _ThinkingModel(copy.deepcopy(SCRIPT))
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(context="condense"), Budget(max_turns=len(SCRIPT)), client=model, stepwise=True)
+    result = agent.run()
+    assert result.status == "budget_turns" and result.step == 7 and result.context == "condense"
+    assert json.loads((tmp_path / "result.json").read_text())["context"] == "condense"
+    full = agent.messages
+    assert all("reasoning" in m for m in full if m["role"] == "assistant") and sum(m["role"] == "assistant" for m in full) == 19
+    assert not any(IMAGE_PLACEHOLDER in _texts(m) for m in full) and sum(_images(m) for m in full) >= 5  # every image live
+    assert sum(ENGINE_HEADER in _texts(m) for m in full) == 5 and not any(ENGINE_ELIDED in _texts(m) for m in full)
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert not any("compact" in r or "hide_images" in r for r in records)
+    logged = [r["condense"] for r in records if "condense" in r]
+    assert len(logged) == 19 and all(set(c) == {"tokens", "chars", "images", "messages"} for c in logged)
+    assert logged[0]["messages"] == 2 and logged[-1]["tokens"] == logged[-1]["chars"] // 3 + logged[-1]["images"] * 1000
+    assert agent.records == records  # the condenser's records are the transcript's
+    # What the last request was sent is the condensed conversation of that moment, in the shape of the scheme.
+    sent = model.calls[-1]
+    before = full[: [i for i, m in enumerate(full) if m["role"] == "assistant"][18]]
+    expected = condense(before, agent.records, tmp_path / "engine_versions", chars_per_token=3).messages
+    assert sent == json.loads(json.dumps(expected))
+    assert [m["role"] for m in sent[:6]] == ["system", "user", "user", "user", "user", "user"]
+    assistants = [m for m in sent if m["role"] == "assistant"]
+    assert len(assistants) == 6 and "reasoning" not in assistants[0] and "reasoning" in assistants[-1]
+    assert isinstance(sent[1]["content"], str) and ENGINE_ELIDED in sent[1]["content"]
+    assert ENGINE_HEADER in _texts(sent[5]) and sum(_images(m) for m in sent) == 4
+    assert len(model.calls[0]) == 2  # the first request: the system prompt and the first message, as they are
+
+
+def test_a_resumed_run_condenses_as_an_uninterrupted_one(tmp_path: Path, tiny_trace: Trace) -> None:
+    whole, part = tmp_path / "whole", tmp_path / "part"
+    for folder in (whole, part):
+        folder.mkdir()
+        tiny_trace.save(folder / "trace")
+    config = ModelConfig(context="condense")
+    reference = _ThinkingModel(copy.deepcopy(SCRIPT))
+    uninterrupted = EngineAgent("tiny", whole, config, Budget(max_turns=19), client=reference, stepwise=True)
+    assert uninterrupted.run().status == "budget_turns"
+    # The same script in two sessions: interrupted after the fourth commit, resumed for the last seven turns.
+    first = _ThinkingModel(copy.deepcopy(SCRIPT[:12]))
+    result = EngineAgent("tiny", part, config, Budget(max_turns=12), client=first, stepwise=True).run()
+    assert result.status == "budget_turns" and result.step == 7
+    second = _ThinkingModel(copy.deepcopy(SCRIPT[12:]))
+    resumed = EngineAgent("tiny", part, config, Budget(max_turns=19), client=second, stepwise=True)
+    result = resumed.run()
+    assert result.status == "budget_turns" and result.turns == 19 and result.resumes == 1 and result.context == "condense"
+    records = [json.loads(line) for line in (part / "transcript.jsonl").read_text().splitlines()]
+    assert not any("compact" in r or "hide_images" in r for r in records) and sum("resumed" in r for r in records) == 1
+    # The full conversation is the uninterrupted one plus the resume note, and the transcript gives it back exactly.
+    notes = [m for m in resumed.messages if _is_resume_note(m)]
+    assert len(notes) == 1
+    assert [m for m in resumed.messages if not _is_resume_note(m)] == uninterrupted.messages
+    rebuilt = EngineAgent("tiny", part, config, Budget(), client=_ScriptedModel([]), stepwise=True)._rebuild_conversation()
+    assert rebuilt["messages"] == resumed.messages
+    # And the last request was sent the same condensed conversation, but for the note (kept in the current iteration).
+    assert [m for m in second.calls[-1] if not _is_resume_note(m)] == reference.calls[-1]
+    assert sum(_is_resume_note(m) for m in second.calls[-1]) == 1

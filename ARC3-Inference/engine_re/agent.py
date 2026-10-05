@@ -26,6 +26,11 @@ test report (with its picture) and engine.py, and sets the first task: the first
 usually step 1. That edit and test are not counted as the model's
 (engine_changes, tests_run); tests.jsonl marks the test "auto": "opening".
 
+Context (ModelConfig.context): "compact" shortens the conversation in place by age once a request went over
+compact_prompt_tokens (old tool outputs, old reasoning, long old arguments, older engine.py listings);
+"condense" keeps the full conversation and sends every request its condensed form, by iteration
+(engine_re.condense), logging a "condense" record per turn with the estimate.
+
 Feedback the harness adds on its own: when engine.py changed during a turn and was not tested
 since, run_tests runs automatically with its defaults (a full replay, reported up to the first
 failure) and its report is appended to the turn's last tool output; after every TEST_NUDGE_TURNS
@@ -220,6 +225,11 @@ class ModelConfig:
     # OpenRouter providers to use, in order, with no fallback to others (e.g. ["z-ai"]);
     # None lets OpenRouter route each request.
     providers: list[str] | None = None
+    # How the conversation is kept within bounds: "compact" (the settings above, applied in place once a request
+    # went over compact_prompt_tokens) or "condense" (engine_re.condense: the full conversation is kept and every
+    # request is sent its condensed form, by iteration; its cap estimates tokens with condense_chars_per_token).
+    context: str = "compact"
+    condense_chars_per_token: float = 3.0
 
 
 @dataclass
@@ -385,6 +395,7 @@ class AgentResult:
     provider_errors: int = 0  # answers that failed at the provider and were asked again
     opening: dict = field(default_factory=dict)  # the harness's first round: exact, first_fail, or error
     mode: str = "single"  # "stepwise": one conversation led from one breaking step to the next
+    context: str = "compact"  # "compact" | "condense": ModelConfig.context, how the conversation was bounded
     step: int | None = None  # stepwise: the step being fixed
     passing_prefix: int | None = None  # stepwise: steps passing in order in the last replay of the recording
     # stepwise: one per accepted commit: {"turn", "fixed", "next", "message", "engine_sha", "version"}
@@ -432,9 +443,15 @@ class EngineAgent:
         self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, history=history)
         self.result = AgentResult(
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images,
-            mode="stepwise" if stepwise else "single",
+            mode="stepwise" if stepwise else "single", context=model.context,
         )
+        if model.context not in ("compact", "condense"):
+            raise ValueError(f"ModelConfig.context must be 'compact' or 'condense', got {model.context!r}")
+        self.condense = model.context == "condense"
+        # Every message the model is sent, in full. With context "condense" nothing is ever shortened in place:
+        # each request gets condense(self.messages, self.records, ...) instead.
         self.messages: list[dict[str, Any]] = []
+        self.records: list[dict[str, Any]] = []  # every transcript record of this run, in order (the condenser's input)
         self.best_key: tuple[int, int] = (-1, -1)
         self.passed = False
         self.prior_minutes = 0.0
@@ -596,8 +613,9 @@ class EngineAgent:
         self.pending_shown, tests, self.pending_test = [], self.pending_test, []
         if not pictures:
             return
-        self._hide_images(self.messages)
-        self._log({"turn": self.result.turns, "hide_images": True})
+        if not self.condense:  # the condenser hides the older images itself, from the full conversation
+            self._hide_images(self.messages)
+            self._log({"turn": self.result.turns, "hide_images": True})
         content: list[dict[str, Any]] = [{"type": "text", "text": IMAGE_NOTE}]
         for caption, path, png in pictures:
             text = (TEST_IMAGE_NOTE + " " + caption) if any(path == t[1] for t in tests) else caption
@@ -655,8 +673,26 @@ class EngineAgent:
         if self.stepwise and self.focus is not None:
             record.setdefault("step", self.focus)
         record["elapsed_min"] = round(self._elapsed_minutes(), 3)
+        self.records.append(record)
         with (self.dir / "transcript.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
+
+    def _context(self) -> list[dict[str, Any]]:
+        """The messages of the next request: the conversation as it is, or, with context "condense", its condensed
+        form (engine_re.condense), logged as a "condense" record: its estimated tokens, characters, live images,
+        messages and, when the safety cap fired, what it cut."""
+        if not self.condense:
+            return self.messages
+        from engine_re.condense import condense, measure  # (condense imports this module's constants)
+
+        result = condense(self.messages, self.records, self.dir / "engine_versions",
+                          chars_per_token=self.model.condense_chars_per_token)
+        chars, images = measure(result.messages)
+        record = {"tokens": result.estimate, "chars": chars, "images": images, "messages": len(result.messages)}
+        if result.cap:
+            record["cap"] = result.cap
+        self._log({"turn": self.result.turns + 1, "condense": record})
+        return result.messages
 
     def _save_result(self) -> None:
         self.result.minutes = round(self._elapsed_minutes(), 2)
@@ -670,8 +706,10 @@ class EngineAgent:
         thoughts = []
         commits: list[dict[str, Any]] = []
         advances: list[dict[str, Any]] = []
+        self.records = []
         for line in transcript.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
+            self.records.append(record)
             if "finish_reason" in record:
                 self.result.turns = max(self.result.turns, record["turn"])
                 self.result.usage.add(record.get("usage") or {})
@@ -943,7 +981,7 @@ class EngineAgent:
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
         self.messages = messages
-        if prompt_tokens > self.model.compact_prompt_tokens:
+        if prompt_tokens > self.model.compact_prompt_tokens and not self.condense:
             self._compact()
         return {"messages": self.messages, "focus": focus, "legacy": True, "cells": cells}
 
@@ -1184,7 +1222,7 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self.messages, tools(self.images, self.mode, self.history))
+                response = self.client.chat(self._context(), tools(self.images, self.mode, self.history))
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
@@ -1260,7 +1298,7 @@ class EngineAgent:
                 elif self.passed and not self.stepwise:
                     self.result.status = "passed"
                     break
-                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens:
+                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens and not self.condense:
                     self._log({"turn": self.result.turns, "compact": True})
                     self._compact()
         except Exception as exc:  # noqa: BLE001  (record the failure in result.json)

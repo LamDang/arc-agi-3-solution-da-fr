@@ -313,6 +313,27 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   `result.json` `opening`) but not counted as the model's `engine_changes` or
   `tests_run`. `run_experiment --no-opening` leaves the template as it is and
   asks the model to do that round.
+- **Context: two schemes** (`agent.py`, `condense.py`). By default
+  (`ModelConfig.context = "compact"`) the conversation is shortened in place
+  by age once a request went over 140K prompt tokens: old tool outputs to 200
+  characters, all but the last 10 turns' reasoning to their last 1,200
+  characters, long old tool-call arguments, and every engine.py listing but
+  the latest (`compact` and `hide_images` records mark where). With
+  `run_experiment --condense` (`context = "condense"`; `config.json`
+  `condense`, `result.json` `context`) the agent keeps the full conversation
+  and sends each request its condensed form, by iteration
+  (`engine_re/condense.py`): finished iterations older than the last three
+  become their failing-step message, the net diff of engine.py and the commit;
+  the last three keep every successful tool call with its result; the current
+  iteration keeps its real messages, with the reasoning and the failed
+  commands stripped from the turns older than the last five and only its
+  latest images live; a safety cap (an estimate at `condense_chars_per_token`,
+  3 by default) cuts old results, then reduces blocks. One `condense` record
+  per turn logs the estimate (tokens, chars, images, messages, what the cap
+  cut). Nothing is shortened in place, so the transcript rebuilds the full
+  conversation and a resumed run condenses exactly as an uninterrupted one
+  would. `engine_re/condense_report.py` compares the two schemes on finished
+  runs, turn by turn.
 - **Feedback the harness adds** (`agent.py`).
   The model's reasoning is sent back with its turns, as the main harness does
   on OpenRouter; compaction trims old tool outputs and all but the last 10
