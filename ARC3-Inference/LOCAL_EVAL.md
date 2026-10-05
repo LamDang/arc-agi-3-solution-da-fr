@@ -95,14 +95,15 @@ For experiments, the agent can be given read access to its game's source code:
 the game's module and the `arcengine` package it is built on.
 
 ```bash
-uv run --no-sync python scripts/extract_game_code.py ls20 ft09 vc33 sp80 lp85
+dvc pull game_code             # or rebuild it: dvc repro game_code
 ARC3_GAME_CODE_DIR=game_code make interactive <settings>
 ```
 
-- `scripts/extract_game_code.py` copies each game's module byte for byte from
-  `environment_files/`, the file the game loader runs, and the installed
-  `arcengine` package, into `game_code/`. `game_code/manifest.json` records
-  each file's source and sha256. `game_code/` in git holds the 5 games above.
+- `game_code/` is the DVC stage `game_code`: `scripts/extract_game_code.py`
+  copies each game's module byte for byte from `environment_files/`, the file
+  the game loader runs, and the installed `arcengine` package. It covers every
+  game in `environment_files/`; pass ids or prefixes to the script to extract
+  fewer. `game_code/manifest.json` records each file's source and sha256.
 - With `ARC3_GAME_CODE_DIR` set, the python tool has `game_code_files`,
   `game_code(file=None)` (a file's full text) and
   `read_game_code(start=1, end=None, file=None)` (numbered lines), and the
@@ -359,4 +360,5 @@ uv run --no-sync python scripts/token_breakdown.py runs/<run> [runs/<run> ...] \
 ```
 
 `experiments/engine-code-access/` is an example: the run with game-code
-access compared with `runs/20261004_135539`.
+access compared with `runs/20261004_135539`. Its tables and labels are in DVC
+(`data.dvc`); `--charts` writes the charts next to its README in git.

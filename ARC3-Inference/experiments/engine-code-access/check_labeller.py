@@ -3,7 +3,7 @@
 Run 20261004_135539's analyses/ holds 54 thinking chunks labelled by hand and
 labels by Claude Haiku subagents for all 7,856 chunks. This labels the hand
 sample plus 346 random chunks with token_breakdown.py's labeller, saves the
-labels to labeller_check.json, and prints how often the labellers agree. Run
+labels to data/labeller_check.json, and prints how often the labellers agree. Run
 from ARC3-Inference/ after `dvc pull runs/20261004_135539.dvc`:
 
     uv run --no-sync python experiments/engine-code-access/check_labeller.py
@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 
 ANALYSES = Path("runs/20261004_135539/analyses")
-OUT = Path(__file__).resolve().parent / "labeller_check.json"
+OUT = Path(__file__).resolve().parent / "data" / "labeller_check.json"
 sys.path[:0] = [str(ANALYSES), "scripts"]
 
 import thinking_categories  # noqa: E402

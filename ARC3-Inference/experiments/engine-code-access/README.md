@@ -138,7 +138,7 @@ earlier analysis (65% / 29% / 6%), which another labeller made.
 | sp80 | 49% → 53% | 49% → 42% | 1% → 5% | 1% → 27% | 29 | 87,799 | 1.6M of 5.5M |
 | vc33 | 66% → 73% | 33% → 22% | 1% → 5% | 2% → 43% | 78 | 171,419 | 3.7M of 9.9M |
 
-Per-level figures are in `levels.csv`.
+Per-level figures are in `data/levels.csv` (in DVC).
 
 ## How far to trust it
 
@@ -165,19 +165,22 @@ Per-level figures are in `levels.csv`.
 
 ## Reproduce
 
-Both runs are in DVC. The bucket allows anonymous reads: without AWS
-credentials, set `dvc remote modify --local storage allow_anonymous_login true`
-first. From `ARC3-Inference/`:
+The runs, this experiment's data (`data/`) and the game code are in DVC. The
+bucket allows anonymous reads: without AWS credentials, set
+`dvc remote modify --local storage allow_anonymous_login true` first. From
+`ARC3-Inference/`:
 
 ```bash
-dvc pull runs/20261004_135539.dvc runs/engine-code.dvc
+dvc pull runs/20261004_135539.dvc runs/engine-code.dvc experiments/engine-code-access/data.dvc
 uv run --no-sync python scripts/token_breakdown.py runs/20261004_135539 runs/engine-code \
-  --out experiments/engine-code-access --names "baseline (no code),engine code"
+  --out experiments/engine-code-access/data --charts experiments/engine-code-access \
+  --names "baseline (no code),engine code"
 ```
 
 Both runs are archived packed (`LOCAL_EVAL.md`, "Pack a run"): 4.1 MB and
-7.3 MB instead of 340 MB and 535 MB. `token_breakdown.py` reads them packed;
-the viewer unpacks a run when it opens it, and `check_labeller.py` needs
+7.3 MB instead of 340 MB and 535 MB. `token_breakdown.py` reads them packed,
+and the viewer unpacks a run when it opens it. `check_labeller.py` reads the
+saved labels in `data/`; to label again it needs
 `scripts/pack_run.py unpack runs/20261004_135539` first. The engine-code
 run's request logs were compressed after the run; their `response` lines
 still repeat the request, as logs did before that change.
@@ -185,23 +188,33 @@ still repeat the request, as logs did before that change.
 To play the engine-code arm again, with `OPENROUTER_API_KEY` set:
 
 ```bash
-uv run --no-sync python scripts/extract_game_code.py ls20 ft09 vc33 sp80 lp85
+dvc pull game_code                 # or: dvc repro game_code
 uv run --no-sync python scripts/dvc_eval.py --run-dir runs/engine-code \
   --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
 uv run --no-sync python scripts/token_breakdown.py runs/20261004_135539 runs/engine-code \
-  --out experiments/engine-code-access --label --names "baseline (no code),engine code"
+  --out experiments/engine-code-access/data --charts experiments/engine-code-access \
+  --label --names "baseline (no code),engine code"
 ```
 
 The game run took 68 minutes and cost $1.26. Labelling cost $2.32 for the
-baseline and $1.04 for the engine-code run; with `labels/` present, the last
-command calls no model.
+baseline and $1.04 for the engine-code run; with `data/labels/` present, the
+last command calls no model.
 
 ## Files
+
+In git:
+
+| File | Contents |
+| --- | --- |
+| `README.md`, `tokens.png`, `tokens_by_game.png` | This report and its two charts |
+| `check_labeller.py` | The labeller check against the baseline's hand labels |
+| `data.dvc` | Pointer to `data/` in DVC |
+
+In DVC (`data/`, 0.9 MB):
 
 | File | Contents |
 | --- | --- |
 | `games.csv`, `levels.csv`, `responses.csv` | Tokens, cost, actions, scores and thinking topics per game, per level, per model response |
 | `summary.json` | Totals per run and per game |
-| `tokens.png`, `tokens_by_game.png` | The two charts above |
 | `labels/*.jsonl` | Topic label of every thinking excerpt (the labelling cache) |
-| `check_labeller.py`, `labeller_check.json` | The labeller check against the baseline's hand labels |
+| `labeller_check.json` | The labels of the labeller check |

@@ -17,3 +17,29 @@ stages:
       md5: bbb295385f2af454e28e336f71ecdfa1.dir
       size: 3978590
       nfiles: 50
+  game_code:
+    cmd: uv run --no-sync python scripts/extract_game_code.py
+    deps:
+    - path: environment_files
+      hash: md5
+      md5: bbb295385f2af454e28e336f71ecdfa1.dir
+      size: 3978590
+      nfiles: 50
+    - path: inference/agent/game_code.py
+      hash: md5
+      md5: 78f1628427e19e2f1884065028a5f341
+      size: 3330
+    - path: scripts/extract_game_code.py
+      hash: md5
+      md5: a7af67cb83a7ba56f19e5caec7f106dc
+      size: 4327
+    - path: uv.lock
+      hash: md5
+      md5: 87d46e6b66acc0a763f992a90863391e
+      size: 361719
+    outs:
+    - path: game_code
+      hash: md5
+      md5: 882c6a9109844590f358632a4410abdb.dir
+      size: 4059399
+      nfiles: 33

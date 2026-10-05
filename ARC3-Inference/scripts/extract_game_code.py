@@ -6,7 +6,11 @@ module is copied byte for byte from the file the arc_agi loader runs, found
 under ENVIRONMENTS_DIR. The arcengine package the games import is copied from
 the installed version. manifest.json records each file's source and sha256.
 
-    uv run --no-sync python scripts/extract_game_code.py ls20 ft09 vc33 sp80 lp85
+The DVC stage `game_code` (dvc.yaml) runs it for every game in
+environment_files/, and game_code/ lives in DVC: `dvc pull game_code`.
+
+    uv run --no-sync python scripts/extract_game_code.py              # every game
+    uv run --no-sync python scripts/extract_game_code.py ls20 ft09    # ids or prefixes
 """
 from __future__ import annotations
 
@@ -58,7 +62,7 @@ def _copy(source: Path, destination: Path, root: Path) -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("games", nargs="+", help="Game ids or prefixes.")
+    parser.add_argument("games", nargs="*", help="Game ids or prefixes. Default: every game.")
     parser.add_argument(
         "--environments-dir", type=Path, default=HARNESS_DIR / "environment_files"
     )
@@ -66,9 +70,14 @@ def main() -> int:
     args = parser.parse_args()
     out: Path = args.out.resolve()
 
+    environments_dir = args.environments_dir.resolve()
+    requested_games = args.games or [
+        json.loads(path.read_text(encoding="utf-8"))["game_id"]
+        for path in sorted(environments_dir.glob("*/*/metadata.json"))
+    ]
     games: dict[str, list[dict[str, object]]] = {}
-    for requested in args.games:
-        game_dir = _game_dirs(args.environments_dir.resolve(), requested)
+    for requested in requested_games:
+        game_dir = _game_dirs(environments_dir, requested)
         game_id = json.loads((game_dir / "metadata.json").read_text(encoding="utf-8"))["game_id"]
         # The loader runs {class_name.lower()}.py; every official game dir
         # holds exactly that one module, named after the game's base id.

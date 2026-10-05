@@ -24,7 +24,7 @@ shared by characters.
 Writes to --out: responses.csv (one row per response), games.csv (per run and
 game), levels.csv (per run, game and level, with actions and level scores),
 summary.json, tokens.png (output tokens by part) and tokens_by_game.png.
---names sets the runs' names in the charts.
+--charts writes the two charts elsewhere; --names sets the runs' names in them.
 
 Input tokens spent on code text are estimated per request as its prompt tokens
 times the share of its text characters that are code-reading tool results.
@@ -661,6 +661,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("runs", nargs="+", type=Path)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--charts", type=Path, help="Directory for the charts. Default: --out.")
     parser.add_argument("--label", action="store_true", help="Label thinking topics.")
     parser.add_argument(
         "--names", help="Comma-separated display names for the runs in the charts."
@@ -714,7 +715,9 @@ def main() -> int:
     _write_csv(args.out / "levels.csv", level_rows)
     (args.out / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     names = dict(zip(summary, (args.names or "").split(","))) if args.names else {}
-    _charts(args.out, summary, {run: names.get(run) or run for run in summary})
+    charts = args.charts or args.out
+    charts.mkdir(parents=True, exist_ok=True)
+    _charts(charts, summary, {run: names.get(run) or run for run in summary})
     for run, data in summary.items():
         total = data["total"]
         print(
