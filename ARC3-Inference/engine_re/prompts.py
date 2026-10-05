@@ -20,8 +20,8 @@ engine.py, that reproduces the game: replaying the recorded actions through it m
 engine.py starts with a FIXED INTERFACE block: the Sprite, Action and State classes and the rules for how a State is
 drawn. Do not edit that block. It already provides what every game shares, with the same rules as the real games:
 sprites with layers, visibility, collidability, blocking modes, rotation, mirroring and scale; collisions
-(state.try_move, state.collisions, sprite.collides_with); lookups (state.sprite_at, by_tag, by_name). Below it you
-write two functions:
+(state.try_move, state.collisions, sprite.collides_with); lookups (state.sprite_at, sprites_at, by_tag, by_name); and
+a per-level view (state.view: grid scale, rotation and mirroring of the whole screen). Below it you write two functions:
 - make_level(n) -> State: the state at the start of level n: grid size, every sprite (border, background, objects,
   HUD) and the hidden variables (state.vars).
 - step(state, action): apply one action to the state, in place. Set state.status = "level_solved" or "game_over"

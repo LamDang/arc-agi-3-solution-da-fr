@@ -227,6 +227,7 @@ def test_fixed_interface_follows_arcengine_sprites() -> None:
         for a in pairs:
             for b in pairs:
                 assert a[0].collides_with(b[0]) == a[1].collides_with(b[1])
+                assert a[0].collides_with(b[0], ignore_mode=True) == a[1].collides_with(b[1], ignoreMode=True)
         state, level = api.State(grid=(16, 16), sprites=[o for o, _ in pairs]), Level(sprites=[t for _, t in pairs])
         for _ in range(10):
             x, y, tag, everything = rng.randint(-2, 14), rng.randint(-2, 14), rng.choice([None, "a"]), rng.random() < 0.3
@@ -258,6 +259,35 @@ def test_render_matches_arcengine_camera() -> None:
             + [o for o, _ in pairs],
         )
         assert np.array_equal(render(state), expected)
+
+
+def test_view_turns_the_frame_and_clicks_follow() -> None:
+    import random
+
+    from engine_re.game_api import canonical, click_cell, render
+
+    api, rng = canonical(), random.Random(2)
+    for _ in range(40):
+        w, h = rng.randint(3, 20), rng.randint(3, 20)
+        cells = [api.Sprite([[rng.randint(0, 15)]], x=gx, y=gy) for gx in range(w) for gy in range(h)]
+        hud = api.Sprite([[11] * 5], x=2, y=0, screen=True, layer=5)
+        plain = api.State(grid=(w, h), sprites=cells + [hud])
+        view = api.View(scale=rng.choice([None, 1, 2]), rotation=rng.choice([0, 90, 180, 270]),
+                        mirror_ud=rng.random() < 0.5, mirror_lr=rng.random() < 0.5)
+        turned = api.State(grid=(w, h), sprites=cells + [hud], view=view)
+        base = render(api.State(grid=(w, h), sprites=cells + [hud], view=api.View(scale=view.scale)))
+        expected = np.rot90(base, k=-(view.rotation // 90))
+        expected = np.flipud(expected) if view.mirror_ud else expected
+        expected = np.fliplr(expected) if view.mirror_lr else expected
+        assert np.array_equal(render(turned), expected)  # the HUD turns with the frame
+        # Clicking anywhere on a drawn cell gives that cell back.
+        frame = render(turned)
+        marker = cells[rng.randrange(len(cells))]
+        marker.pixels = [[16 - 1 if marker.pixels[0][0] != 15 else 0]]
+        changed = np.argwhere(render(turned) != frame)
+        for y, x in changed[:5]:
+            assert click_cell(turned, int(x), int(y)) == (marker.x, marker.y)
+        del plain
 
 
 def test_game_runner_follows_the_episode_rules() -> None:

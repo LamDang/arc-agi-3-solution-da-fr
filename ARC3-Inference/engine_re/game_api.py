@@ -51,18 +51,22 @@ FIXED_INTERFACE = BEGIN_MARKER + '''
 #     a step changes survives a RESET, and make_level may reuse module-level data.
 #   - Outcomes: step() sets state.status = "level_solved" (the next level starts, or the game is won
 #     after the last one) or "game_over". The harness counts levels and handles WIN and GAME_OVER.
-#   - Clicks: action.cell is the grid cell under the click, None outside the grid.
+#   - Clicks: action.x, action.y is the screen pixel clicked; action.cell is the grid cell under it,
+#     found through the inverse of the view transform (step 3 below), or None outside the grid.
 #   - Drawing, of the final state of each action only:
 #     1. Start from a 64x64 screen filled with colour 5.
 #     2. Draw each visible sprite as sprite.render(), lowest layer first; sprites on the same layer
 #        are drawn in list order, so later ones end up on top.
 #        - A grid sprite (screen=False) is placed on the logical grid. The grid (w, h) = state.grid
-#          is scaled up by s = min(64 // w, 64 // h) and centred: grid cell (gx, gy) fills the s x s
-#          screen block whose top-left pixel is (ox + gx * s, oy + gy * s), with
-#          ox = (64 - w * s) // 2 and oy = (64 - h * s) // 2. Parts outside the grid are not drawn.
+#          is scaled up by s = state.view.scale, or by default min(64 // w, 64 // h), and centred:
+#          grid cell (gx, gy) fills the s x s screen block whose top-left pixel is
+#          (ox + gx * s, oy + gy * s), with ox = (64 - w * s) // 2 and oy = (64 - h * s) // 2.
+#          Parts outside the grid are not drawn.
 #        - A screen sprite (screen=True) is placed in screen pixels, unscaled: use it for things
 #          drawn at screen resolution, such as a budget bar in the border.
 #        - Pixels -1 (transparent) and -2 (invisible but solid) are not drawn.
+#     3. Turn the whole frame, screen sprites included, by state.view.rotation (clockwise), then
+#        flip it if state.view.mirror_ud (top-bottom) and state.view.mirror_lr (left-right).
 #     So the border colour is a 64x64 screen sprite on the lowest layer and the background is a
 #     grid-sized sprite on the layer above; make both collidable=False so nothing bumps into them.
 #
@@ -153,12 +157,15 @@ class Sprite:
         """An independent copy, with any fields changed, e.g. wall.clone(x=3, y=4)."""
         return replace(deepcopy(self), **changes)
 
-    def collides_with(self, other: "Sprite") -> bool:
+    def collides_with(self, other: "Sprite", ignore_mode: bool = False) -> bool:
         """Both collidable, neither blocking "none", in the same space, and overlapping: by bounding
-        box, or by pixels other than -1 if either sprite blocks by "pixel"."""
-        if self is other or not (self.collidable and other.collidable) or self.screen != other.screen:
+        box, or by pixels other than -1 if either sprite blocks by "pixel". ignore_mode=True skips
+        the collidable and blocking "none" checks."""
+        if self is other or self.screen != other.screen:
             return False
-        if self.blocking == "none" or other.blocking == "none":
+        if not ignore_mode and not (self.collidable and other.collidable):
+            return False
+        if not ignore_mode and (self.blocking == "none" or other.blocking == "none"):
             return False
         x0, x1 = max(self.x, other.x), min(self.x + self.width, other.x + other.width)
         y0, y1 = max(self.y, other.y), min(self.y + self.height, other.y + other.height)
@@ -182,6 +189,16 @@ class Action:
     cell: tuple | None = None  # for a click: the grid cell (gx, gy) under it, None if outside the grid
 
 
+@dataclass
+class View:
+    """How the level is shown on the 64x64 screen (drawing steps 2 and 3)."""
+
+    scale: int | None = None  # grid scale; None: the largest that fits, min(64 // w, 64 // h)
+    rotation: int = 0  # the finished frame turned clockwise by 0, 90, 180 or 270 degrees
+    mirror_ud: bool = False  # then flipped top-bottom
+    mirror_lr: bool = False  # then flipped left-right
+
+
 @dataclass(eq=False)
 class State:
     """Everything about the current level. make_level() creates it; step() changes it in place."""
@@ -191,6 +208,7 @@ class State:
     vars: dict = field(default_factory=dict)  # hidden state: budget, counters, modes, what is selected, ...
     status: str = "playing"  # step() sets "level_solved" or "game_over"
     level: int = 0  # index of the current level, set by the harness
+    view: View = field(default_factory=View)  # scale, rotation and mirroring of the screen
 
     def by_tag(self, tag: str) -> list:
         """Sprites carrying this tag, in list order."""
@@ -214,6 +232,10 @@ class State:
             if tag is None or tag in s.tags:
                 return s
         return None
+
+    def sprites_at(self, x: int, y: int, screen: bool = False) -> list:
+        """Every sprite whose bounding box contains (x, y), in list order, whatever its flags."""
+        return [s for s in self.sprites if s.screen == screen and s.x <= x < s.x + s.width and s.y <= y < s.y + s.height]
 
     def collisions(self, sprite: Sprite) -> list:
         """The sprites that `sprite` collides with, in list order."""
@@ -275,20 +297,50 @@ def _normalise(text: str) -> str:
 # --- Rendering ------------------------------------------------------------------
 
 
-def geometry(grid: tuple) -> tuple[int, int, int]:
+def geometry(grid: tuple, scale: int | None = None) -> tuple[int, int, int]:
     """Scale and top-left offset of the logical grid on the 64x64 screen."""
     w, h = int(grid[0]), int(grid[1])
-    s = min(64 // w, 64 // h)
+    s = int(scale) if scale else min(64 // w, 64 // h)
     return s, (64 - w * s) // 2, (64 - h * s) // 2
 
 
-def to_grid(grid: tuple, x: int, y: int) -> tuple[int, int] | None:
-    """The grid cell under screen pixel (x, y), or None outside the grid."""
+def _view(state: Any) -> Any:
+    return getattr(state, "view", None)
+
+
+def view_transform(frame: np.ndarray, view: Any) -> np.ndarray:
+    """Drawing step 3: rotate clockwise, then mirror top-bottom, then left-right."""
+    if view is None:
+        return frame
+    k = (int(getattr(view, "rotation", 0)) // 90) % 4
+    if k:
+        frame = np.rot90(frame, k=-k)
+    if getattr(view, "mirror_ud", False):
+        frame = np.flipud(frame)
+    if getattr(view, "mirror_lr", False):
+        frame = np.fliplr(frame)
+    return np.ascontiguousarray(frame)
+
+
+_INDEX = np.arange(64 * 64).reshape(64, 64)
+
+
+def to_grid(grid: tuple, x: int, y: int, view: Any = None) -> tuple[int, int] | None:
+    """The grid cell under screen pixel (x, y), undoing the view transform, or None outside the grid."""
+    if not (0 <= x < 64 and 0 <= y < 64):
+        return None
+    if view is not None:
+        y, x = divmod(int(view_transform(_INDEX, view)[y, x]), 64)
     w, h = int(grid[0]), int(grid[1])
-    s, ox, oy = geometry(grid)
+    s, ox, oy = geometry(grid, getattr(view, "scale", None) if view is not None else None)
     if not (ox <= x < ox + w * s and oy <= y < oy + h * s):
         return None
     return (x - ox) // s, (y - oy) // s
+
+
+def click_cell(state: Any, x: int, y: int) -> tuple[int, int] | None:
+    """action.cell for a click at screen pixel (x, y) on this state."""
+    return to_grid(state.grid, x, y, _view(state))
 
 
 def _blit(screen: np.ndarray, px: np.ndarray, top: int, left: int, bottom: int, right: int) -> None:
@@ -315,7 +367,8 @@ def sprite_pixels(sprite: Any) -> np.ndarray:
 def render(state: Any) -> np.ndarray:
     """Draw a State as a 64x64 frame, following the rules in FIXED_INTERFACE."""
     w, h = int(state.grid[0]), int(state.grid[1])
-    s, ox, oy = geometry((w, h))
+    view = _view(state)
+    s, ox, oy = geometry((w, h), getattr(view, "scale", None) if view is not None else None)
     screen = np.full((64, 64), 5, np.int16)
     sprites = list(state.sprites)
     for i in sorted(range(len(sprites)), key=lambda i: (sprites[i].layer, i)):
@@ -338,7 +391,7 @@ def render(state: Any) -> np.ndarray:
         if s > 1:
             sub = np.repeat(np.repeat(sub, s, axis=0), s, axis=1)
         _blit(screen, sub, oy + (y + r0) * s, ox + (x + c0) * s, 64, 64)
-    return screen.astype(np.int8)
+    return view_transform(screen, view).astype(np.int8)
 
 
 # --- Running a game -----------------------------------------------------------------
@@ -406,7 +459,7 @@ class GameRunner:
             self.state = self.fresh(self.level)
         self.status = "NOT_FINISHED"
         x, y = int(getattr(action, "x", 0) or 0), int(getattr(action, "y", 0) or 0)
-        cell = to_grid(self.state.grid, x, y) if action_id == 6 else None
+        cell = click_cell(self.state, x, y) if action_id == 6 else None
         self.module.step(self.state, self.action_cls(id=action_id, x=x, y=y, cell=cell))
         outcome = self.state.status
         if outcome not in STATUSES:
@@ -443,6 +496,13 @@ def _problems_in_state(state: Any, sprite_cls: Any, state_cls: Any) -> list[str]
         problems.append("state.vars must be a dict")
     if getattr(state, "status", None) not in STATUSES:
         problems.append(f"state.status must be one of {STATUSES}, got {getattr(state, 'status', None)!r}")
+    view = getattr(state, "view", None)
+    if view is not None:
+        if getattr(view, "rotation", 0) not in (0, 90, 180, 270):
+            problems.append("state.view.rotation must be 0, 90, 180 or 270")
+        scale = getattr(view, "scale", None)
+        if scale is not None and not (isinstance(scale, int) and not isinstance(scale, bool) and scale >= 1):
+            problems.append("state.view.scale must be None or a positive int")
     for k, sprite in enumerate(sprites):
         label = f"sprite {k}" + (f" ({sprite.name!r})" if getattr(sprite, "name", "") else "")
         if sprite_cls is not None and not isinstance(sprite, sprite_cls):
@@ -552,7 +612,7 @@ def contract_checks(
                 trials.append((a, 0, 0))
         for action_id, x, y in trials:
             state = first_state(levels[0])
-            cell = to_grid(state.grid, x, y) if action_id == 6 else None
+            cell = click_cell(state, x, y) if action_id == 6 else None
             returned = module.step(state, action_cls(id=action_id, x=x, y=y, cell=cell))
             if returned is not None:
                 return f"step() returned {type(returned).__name__}: it must change the given state in place and return None"
@@ -571,7 +631,7 @@ def contract_checks(
             action_id = rng.choice(choices)
             x, y = (rng.randrange(64), rng.randrange(64)) if action_id == 6 else (0, 0)
             for state in (a, b):
-                cell = to_grid(state.grid, x, y) if action_id == 6 else None
+                cell = click_cell(state, x, y) if action_id == 6 else None
                 module.step(state, action_cls(id=action_id, x=x, y=y, cell=cell))
             same = int((render(a) != render(b)).sum()) == 0 and _canonical_vars(a) == _canonical_vars(b) and a.status == b.status
             if not same:

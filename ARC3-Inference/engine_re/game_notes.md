@@ -6,7 +6,7 @@ fixed interface. These are the facts that hold across the games.
 
 | Primitive | Fact |
 | --- | --- |
-| Screen | Every frame is 64x64 with 16 colours. A game draws onto a smaller logical grid, which is scaled up by a whole number (x1 to x5) and centred, with a border colour around it. HUD elements (a budget bar, lives, progress) are drawn at screen resolution afterwards, often in the border: make them screen sprites. |
+| Screen | Every frame is 64x64 with 16 colours. A game draws onto a smaller logical grid, which is scaled up by a whole number (x1 to x5) and centred, with a border colour around it. HUD elements (a budget bar, lives, progress) are drawn at screen resolution afterwards, often in the border: make them screen sprites. Some levels show the whole screen turned or mirrored (state.view). |
 | Time | Nothing moves without an input. The real game sometimes animates an action over several frames; only the last frame, the resulting state, is compared. |
 | Actions | RESET (handled by the harness), 1 up, 2 down, 3 left, 4 right, 5 interact, 6 click at (x, y), 7 undo. Each game advertises a fixed subset. |
 | Levels | Each level starts from its initial layout, also after a RESET, so a move budget refills then. Completing a level is permanent. After a game over only RESET is accepted. |

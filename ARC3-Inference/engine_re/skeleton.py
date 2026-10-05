@@ -26,7 +26,8 @@ Write two functions below the fixed interface:
 
 The fixed interface already provides what every game shares: sprites with layers, visibility,
 collidability, blocking modes, rotation, mirroring and scale; collisions (state.try_move,
-state.collisions); lookups (state.sprite_at, by_tag, by_name). The harness does the rest: it gives
+state.collisions); lookups (state.sprite_at, sprites_at, by_tag, by_name); and a per-level view
+(state.view: grid scale, and rotation and mirroring of the whole screen). The harness does the rest: it gives
 step() a fresh copy of the level's first state on entering a level and on every RESET (RESET
 restarts the current level), draws the state, counts completed levels and ends the game with WIN or
 GAME_OVER. This game advertises actions __ACTIONS__.
@@ -59,6 +60,7 @@ def make_level(n: int) -> State:
             # Sprite([[11] * 32], x=16, y=63, screen=True, layer=9, collidable=False, tags=("budget",)),  # HUD
         ],
         vars={},  # hidden state, e.g. {"budget": 32}
+        # view=View(rotation=180),  # only if the whole screen is shown turned or mirrored
     )
 
 
