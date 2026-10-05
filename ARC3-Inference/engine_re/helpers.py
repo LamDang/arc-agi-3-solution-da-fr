@@ -1,7 +1,9 @@
 """The functions preloaded in the agent's Python kernel.
 
 The kernel's namespace starts with np, the fixed-block classes (Sprite, Action, View, State), S
-(the recording's steps) and these functions; everything else here is private:
+(the recording's steps) and these functions; everything else here is private. In the stepwise
+harness (the kernel's --focus K) it holds `step` (a StepView of the step to fix) instead of S, and
+no summarize_levels; the recording on disk then holds only steps 0..K:
 
     read(path="engine.py", offset=None, limit=None)        the file with LINE#HASH anchors
     edit(path="engine.py", edits=[...])                    change it at those anchors
@@ -43,6 +45,7 @@ MAX_SHOWN = 4  # frames per show() call
 # Set by the kernel.
 trace: Trace = None  # type: ignore[assignment]
 S: list[Step] = []
+FOCUS: int | None = None  # the step to fix, in the stepwise harness: steps after it are not loaded
 ENGINE_PATH: Path = Path("engine.py")
 IMAGES = True  # False: show() prints hex views instead of making images
 _RPC: Callable[[dict], dict] | None = None  # sends edit/undo to the harness
@@ -199,6 +202,45 @@ def take_shown() -> list[dict[str, str]]:
     return out
 
 
+# --- The step to fix (stepwise harness) -------------------------------------------------------
+
+_ACTION_WORDS = {0: "RESET", 1: "up", 2: "down", 3: "left", 4: "right", 5: "interact", 6: "click", 7: "undo"}
+
+
+class StepView:
+    """The one recorded step shown in the stepwise harness: the step to fix.
+
+    index: its number k (steps 0..k-1 already pass); action: the Action played; before: the frame
+    before it (64x64, frame[y, x]; None for step 0); after: the frame after it, the one the tests
+    compare (also .last); frames: every frame it returned, (n, 64, 64); level: the level it is played
+    in; state, levels_completed: the game's state after it; win_levels, available_actions."""
+
+    def __init__(self, recording: Trace, k: int):
+        s = recording.steps[k]
+        self.index = k
+        self.action = s.action
+        self.frames = s.frames
+        self.after = self.last = s.last
+        self.before = recording.steps[k - 1].last if k > 0 else None
+        self.level = recording.steps[k - 1].levels_completed if k > 0 else 0
+        self.state = s.state
+        self.levels_completed = s.levels_completed
+        self.win_levels = s.win_levels
+        self.available_actions = s.available_actions
+
+    def __repr__(self) -> str:
+        what = _ACTION_WORDS.get(self.action.id, str(self.action))
+        if self.action.id == 6:
+            what += f" at ({self.action.x}, {self.action.y})"
+        return (f"<step {self.index}: {what} in level {self.level}; {len(self.frames)} frame(s); after it "
+                f"{self.state}, {self.levels_completed} level(s) completed>")
+
+
+def _visible(i: int) -> None:
+    if FOCUS is not None and not 0 <= i <= FOCUS:
+        raise ValueError(f"only steps 0-{FOCUS} are loaded: step {FOCUS} is the one to fix, later steps come later")
+
+
 # --- The recording, level by level ----------------------------------------------------------------
 
 _MOVE_NAMES = {0: "RESET", 1: "up", 2: "down", 3: "left", 4: "right", 5: "interact", 6: "click", 7: "undo"}
@@ -319,6 +361,7 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
     level=L starts at level L's start and replays only that level's steps before i, as
     run_tests(level=L) does; try_step(e, level=L), e being the step that entered level L, compares
     your make_level(L) with the level's recorded start."""
+    _visible(i)
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
@@ -463,10 +506,13 @@ def auto_sprites(
     else:
         starts = trace.level_starts()
         if level not in starts:
+            if FOCUS is not None:
+                raise ValueError(f"level {level} is not reached by step {FOCUS}; levels reached so far: {sorted(starts)}")
             raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
         source_frame = S[starts[level]].last
         evidence = [source_frame] + _level_frames(level)
-        what, function = f"the first frame of level {level} (S[{starts[level]}].last)", f"level_{level}_sprites"
+        where = f"S[{starts[level]}].last" if FOCUS is None else f"the frame after step {starts[level]}"
+        what, function = f"the first frame of level {level} ({where})", f"level_{level}_sprites"
     if source_frame is None or np.asarray(source_frame).shape != (64, 64):
         raise ValueError("auto_sprites needs a 64x64 frame")
     if region is not None:

@@ -1,6 +1,6 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images]
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests, and writes one JSON reply per line
@@ -44,6 +44,9 @@ MAX_OUTPUT_CHARS = 200_000
 PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels")
 # Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
+# The stepwise harness (--focus K): `step`, the step to fix, instead of the recording, and no summarize_levels.
+PRELOADED_STEP = ("step", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
+RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
@@ -78,12 +81,12 @@ def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> li
     return sorted(set(found), key=lambda f: (f[1], f[0]))
 
 
-def _reserved_error(found: list[tuple[str, int, str]]) -> str:
+def _reserved_error(found: list[tuple[str, int, str]], reserved: tuple[str, ...] = RESERVED) -> str:
     where = "; ".join(f"line {line}: {how}" for _, line, how in found)
     names = ", ".join(dict.fromkeys(name for name, _, _ in found))
     return (
         f"Error: nothing was run. This code would replace the harness's built-in {names} ({where}).\n"
-        f"These names are reserved: {', '.join(RESERVED)}. Give your own functions and variables other names.\n"
+        f"These names are reserved: {', '.join(reserved)}. Give your own functions and variables other names.\n"
     )
 
 
@@ -97,7 +100,7 @@ def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None =
             if builtins:
                 found = reserved_bindings(tree, tuple(builtins))
                 if found:
-                    print(_reserved_error(found), end="")
+                    print(_reserved_error(found, tuple(builtins)), end="")
                     return buffer.getvalue()
             last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
             exec(compile(tree, "<python>", "exec"), namespace)
@@ -122,6 +125,7 @@ def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None =
 def main() -> int:
     workspace, trace_dir = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     images = "--no-images" not in sys.argv[3:]
+    focus = int(sys.argv[sys.argv.index("--focus") + 1]) if "--focus" in sys.argv[3:] else None
     import numpy as np
 
     import scipy.ndimage  # noqa: F401
@@ -136,8 +140,15 @@ def main() -> int:
     api = game_api.canonical()
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
     namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
-    namespace.update({name: getattr(helpers, name) for name in PRELOADED})
-    builtins = {name: namespace[name] for name in RESERVED}
+    if focus is None:
+        namespace.update({name: getattr(helpers, name) for name in PRELOADED})
+        reserved = RESERVED
+    else:
+        helpers.FOCUS = focus
+        namespace["step"] = helpers.StepView(helpers.trace, focus)
+        namespace.update({name: getattr(helpers, name) for name in PRELOADED_STEP if name != "step"})
+        reserved = RESERVED_STEP
+    builtins = {name: namespace[name] for name in reserved}
     os.chdir(workspace)
     # Replies go on a private copy of stdout; fd 1 itself goes to /dev/null so
     # code that writes to it directly cannot corrupt the protocol.
@@ -172,6 +183,8 @@ def main() -> int:
 class KernelClient:
     """Parent side of the kernel: start, execute with a timeout, answer edit/undo, restart.
 
+    focus: the step to fix in the stepwise harness (the kernel then shows `step` instead of S).
+
     editor: what applies edit()/undo() (an engine_files.EngineEditor; by default one with versions
     in <workspace>/../engine_versions). After execute(), ``last_images`` holds what show() made:
     a list of (PNG bytes, caption)."""
@@ -184,6 +197,7 @@ class KernelClient:
         editor: Any = None,
         images: bool = True,
         log: Callable[[dict], None] | None = None,
+        focus: int | None = None,
     ):
         from engine_re.engine_files import EngineEditor
 
@@ -191,6 +205,7 @@ class KernelClient:
         self.trace_dir = Path(trace_dir).resolve()
         self.timeout = timeout
         self.images = images
+        self.focus = focus
         self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
@@ -199,6 +214,8 @@ class KernelClient:
         cmd = [sys.executable, "-m", "engine_re.kernel", str(self.workspace), str(self.trace_dir)]
         if not self.images:
             cmd.append("--no-images")
+        if self.focus is not None:
+            cmd += ["--focus", str(self.focus)]
         self.proc = subprocess.Popen(
             cmd,
             cwd=self.workspace,

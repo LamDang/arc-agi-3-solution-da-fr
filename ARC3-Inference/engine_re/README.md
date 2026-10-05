@@ -148,6 +148,27 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `finish(summary)` always runs the tests (`failures=1`). When
     everything passes the session ends; otherwise it returns the report (with
     its picture) and the session goes on.
+- **The stepwise harness, v6** (`stepwise.py`, `run_experiment --mode stepwise`,
+  the default). The harness drives the work: it replays the whole recording
+  through engine.py and, at the first step k that fails, opens a new
+  conversation whose first message is "Fix the breaking test: step k" (the
+  step's action and level, the test report with its picture, engine.py with
+  the FIXED block folded). In that conversation the kernel shows only step k
+  (`step`: `.before`, `.action`, `.after`, `.frames`, `.level`; no `S`, no
+  `summarize_levels`), the recording on disk holds steps 0..k, and the tests
+  replay steps 0..k. The conversation ends as soon as those pass (by
+  `finish`, `run_tests` or the automatic test after an edit), or after
+  `--episode-turns` turns (20). Then the harness replays again: steps after k
+  that already pass are skipped, and the next breaking step opens the next
+  conversation. Only engine.py (its comments and versions) carries over. A
+  step still broken after `--attempts` conversations (2) ends the run
+  (`stuck`). Files: `episode_trace/` (steps 0..k of the current
+  conversation), `episodes/epNNN.json` and `episodes.jsonl` (one per
+  conversation), `result.json` (`"mode": "stepwise"`, the episodes, the
+  current `episode` and `step`); transcript, tests and images are shared, with
+  an `episode` field. Every step report also says, for a click, which grid
+  cell it lands on and which of the engine's sprites are there (the one
+  `state.sprite_at(*action.cell)` returns marked). `--mode single` runs v5.
 - **The opening** (`agent.py`). Before the first turn of a new session the
   harness plays the first round itself: in the kernel, `auto_sprites(0)` makes
   sprite code for level 0's first frame and one `edit()` puts it above

@@ -34,6 +34,12 @@ test report's picture (the engine's final frame next to the original's, the diff
 boxed). When a newer such message is added, the images of the older ones are replaced by a short
 placeholder. The PNGs are saved under ``<game_dir>/images/`` and the transcript logs their paths.
 
+Step mode (v6, ``focus=k``, driven by engine_re.stepwise): one conversation that fixes the
+breaking step k. Its trace (``trace_dir``) holds steps 0..k, its kernel shows only step k
+(``step``), its tests replay steps 0..k, and it ends with status "passed" as soon as they pass. Its
+first message (prompts.episode_message) comes with the test report of step k; there is no opening,
+no resume and no final test. Turn numbers continue from ``turn_offset``; records carry "episode".
+
 Sessions survive interruptions: result.json is rewritten every turn with status "running", and
 running a game again whose session did not end continues from its engine.py (and its versions)
 with a fresh conversation, carrying over the turns, tokens, cost, time and test history.
@@ -49,7 +55,7 @@ import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import requests
 
@@ -57,7 +63,7 @@ from engine_re import diff_report, hashline
 from engine_re.engine_files import best_key
 from engine_re.game_api import fixed_block_lines
 from engine_re.kernel import KernelClient
-from engine_re.prompts import first_user_message, resume_user_message, system_prompt, tools
+from engine_re.prompts import episode_message, first_user_message, resume_user_message, system_prompt, tools
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import MAX_FAILURES, replay_test
 from engine_re.trace import Trace
@@ -284,6 +290,14 @@ class EngineAgent:
         interface: str = "simple",
         images: bool = True,
         opening: bool = True,
+        *,
+        trace_dir: Path | None = None,
+        focus: int | None = None,
+        episode: int | None = None,
+        turn_offset: int = 0,
+        prior_minutes: float = 0.0,
+        result_path: Path | None = None,
+        on_save: Callable[[AgentResult], None] | None = None,
     ):
         if interface != "simple":
             raise ValueError("the agent writes make_level/step engines only (interface='simple')")
@@ -291,24 +305,30 @@ class EngineAgent:
         self.match = match
         self.interface = interface
         self.images = images
-        self.opening = opening
+        self.focus = focus
+        self.mode = "single" if focus is None else "step"
+        self.episode = episode
+        self.opening = opening and focus is None
         self._in_opening = False
         self.dir = Path(game_dir).resolve()
-        self.trace_dir = self.dir / "trace"
+        self.trace_dir = Path(trace_dir).resolve() if trace_dir is not None else self.dir / "trace"
+        self.result_path = Path(result_path) if result_path is not None else self.dir / "result.json"
+        self.on_save = on_save
         self.workspace = self.dir / "workspace"
         self.engine_path = self.workspace / "engine.py"
         self.trace = Trace.load(self.trace_dir)
         self.model = model
         self.budget = budget
         self.client = client or OpenRouterClient(model)
-        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change)
+        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, focus=focus)
         self.result = AgentResult(
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images
         )
         self.messages: list[dict[str, Any]] = []
         self.best_key: tuple[int, int] = (-1, -1)
         self.passed = False
-        self.prior_minutes = 0.0
+        self.result.turns = turn_offset
+        self.prior_minutes = prior_minutes
         self.prior_notes = ""
         self.started = time.time()
         self.turns_since_test = 0
@@ -368,7 +388,7 @@ class EngineAgent:
         full = level is None
         if full:
             self.tested_hash = tested_hash
-        if auto != "opening":
+        if auto not in ("opening", "episode"):  # the harness's own tests are not the model's
             self.result.tests_run += 1
         # "from_level" keeps its earlier meaning for older readers of tests.jsonl, the level the engine
         # started at (null: a fresh engine). A full replay has "level" null and "total" = the trace length.
@@ -377,6 +397,8 @@ class EngineAgent:
             "turn": self.result.turns, "time": time.time(), "from_level": level or None, "auto": auto,
             "engine_sha": tested_hash, **report.summary(),
         }
+        if self.focus is not None:
+            entry.update(episode=self.episode, focus=self.focus)
         with (self.dir / "tests.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
         self._keep_test_images(report, auto)
@@ -430,7 +452,7 @@ class EngineAgent:
             return
         self.pending_test = []
         for image in report.images[:MAX_TEST_IMAGES]:
-            suffix = "_opening" if auto == "opening" else "_auto" if auto else ""
+            suffix = f"_{auto}" if isinstance(auto, str) else "_auto" if auto else ""
             path = self._save_png(image.png, f"turn{self.result.turns:03d}_step{image.step}{suffix}")
             self.pending_test.append((image.caption, path, image.png))
 
@@ -498,13 +520,18 @@ class EngineAgent:
         return self.prior_minutes + (time.time() - self.started) / 60
 
     def _log(self, record: dict[str, Any]) -> None:
+        if self.episode is not None:
+            record["episode"] = self.episode
         record["elapsed_min"] = round(self._elapsed_minutes(), 3)
         with (self.dir / "transcript.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
 
     def _save_result(self) -> None:
         self.result.minutes = round(self._elapsed_minutes(), 2)
-        (self.dir / "result.json").write_text(json.dumps(asdict(self.result), indent=2) + "\n", encoding="utf-8")
+        self.result_path.parent.mkdir(parents=True, exist_ok=True)
+        self.result_path.write_text(json.dumps(asdict(self.result), indent=2) + "\n", encoding="utf-8")
+        if self.on_save is not None:
+            self.on_save(self.result)
 
     def _restore(self) -> bool:
         """Load the turns, tokens, time and tests of an interrupted session."""
@@ -641,9 +668,29 @@ class EngineAgent:
             content.append({"type": "text", "text": TEST_IMAGE_NOTE + " " + caption})
             content.append({"type": "image_url", "image_url": {"url": diff_report.data_url(png)}})
         self.result.image_messages += 1
-        self._log({"turn": 0, "images": [str(path.relative_to(self.dir)) for _, path, _ in pictures],
+        self._log({"turn": self.result.turns + (self.focus is not None),
+                   "images": [str(path.relative_to(self.dir)) for _, path, _ in pictures],
                    "captions": [caption for caption, _, _ in pictures]})
         return content
+
+    def play_opening(self) -> dict[str, Any] | None:
+        """Only the opening, for the stepwise driver: engine.py from the template, auto_sprites(0) put
+        into make_level, the first test. Returns what _open returns."""
+        self.setup()
+        self.started = time.time()
+        try:
+            return self._open()
+        finally:
+            self.kernel.stop()
+
+    def _episode_content(self) -> str | list[dict[str, Any]]:
+        """Step mode: test steps 0..k and ask to fix step k (the first message, with the report's picture)."""
+        report = self._run_tests(None, 1, auto="episode")
+        text = report if isinstance(report, str) else _truncate(report.text, REPORT_CHARS)
+        self._log({"turn": self.result.turns + 1, "episode_start": {"step": self.focus, "report": text}})
+        return self._opening_content(
+            episode_message(self.game, self.trace, self.focus, text, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES))
+        )
 
     def setup(self) -> None:
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -654,7 +701,9 @@ class EngineAgent:
     def run(self) -> AgentResult:
         self.setup()
         self.started = time.time()
-        if self._restore():
+        if self.focus is not None:
+            opening = self._episode_content()
+        elif self._restore():
             report = replay_test(self.engine_path, self.trace, failures=1, scratch_root=self.dir, match=self.match)
             opening = resume_user_message(
                 self.game, self.trace, self.result.turns, _truncate(report.text, 6000),
@@ -665,7 +714,7 @@ class EngineAgent:
             opening = self._opening_content(
                 first_user_message(self.game, self.trace, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), done)
             )
-        system = system_prompt(self.match, self.interface, self.images)
+        system = system_prompt(self.match, self.interface, self.images, self.mode)
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
@@ -679,11 +728,14 @@ class EngineAgent:
         try:
             while True:
                 self._save_result()
+                if self.passed:  # step mode: the steps already pass
+                    self.result.status = "passed"
+                    break
                 reason = self._over_budget()
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self.messages, tools(self.images))
+                response = self.client.chat(self.messages, tools(self.images, self.mode))
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
@@ -749,7 +801,8 @@ class EngineAgent:
             self.result.error = f"{type(exc).__name__}: {exc}"
         finally:
             self.kernel.stop()
-            self._final_test()
+            if self.focus is None:
+                self._final_test()
             self._save_result()
         return self.result
 

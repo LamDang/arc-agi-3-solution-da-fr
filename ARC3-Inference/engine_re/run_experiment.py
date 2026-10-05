@@ -8,6 +8,11 @@ logged actions through the real engine (checking every final frame against the
 logged board), then let one agent per game work in parallel. Writes
 ``<out>/summary.json`` and ``<out>/summary.md``.
 
+--mode stepwise (the default, v6, engine_re.stepwise): the harness replays the
+recording and opens one conversation per breaking step ("fix step k"), each
+seeing only that step. --mode single (v5): one conversation over the whole
+recording.
+
 Running the same command again skips finished games and continues interrupted
 ones (see engine_re.agent).
 """
@@ -22,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from engine_re.agent import Budget, EngineAgent, ModelConfig
+from engine_re.stepwise import ATTEMPTS, EPISODE_TURNS, StepwiseRun
 from engine_re.trace import trace_from_run
 
 
@@ -93,6 +99,10 @@ def main() -> int:
         default=None,
         help="Comma-separated OpenRouter providers to use, in order, with no fallback (e.g. z-ai). Default: OpenRouter routes.",
     )
+    parser.add_argument("--mode", choices=("stepwise", "single"), default="stepwise",
+                        help="stepwise (v6): one conversation per breaking step; single (v5): one conversation for the recording.")
+    parser.add_argument("--episode-turns", type=int, default=EPISODE_TURNS, help="Stepwise: turns per conversation.")
+    parser.add_argument("--attempts", type=int, default=ATTEMPTS, help="Stepwise: conversations per step before the run stops.")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -114,10 +124,14 @@ def main() -> int:
         if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") != "running":
             print(f"[{game}] already finished; skipping", flush=True)
             return
-        agent = EngineAgent(
-            game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening
-        )
-        result = agent.run()
+        if args.mode == "stepwise":
+            runner = StepwiseRun(
+                game, game_dirs[game], model, budget, images=not args.no_images, episode_turns=args.episode_turns,
+                attempts=args.attempts, opening=not args.no_opening,
+            )
+        else:
+            runner = EngineAgent(game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening)
+        result = runner.run()
         final = result.final or {}
         print(
             f"[{game}] {result.status}: final {final.get('exact')}/{final.get('total')} exact, turns {result.turns}, "

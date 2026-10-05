@@ -1449,3 +1449,125 @@ def test_openrouter_client_can_pin_providers(monkeypatch):
         monkeypatch.setattr(client.session, "post", post)
         client.chat([], [])
         assert sent[-1].get("provider") == expected
+
+
+# --- The stepwise harness (v6) ----------------------------------------------------------------
+
+
+def _rewrite_now(game_code: str) -> str:
+    """Kernel code that puts `game_code` below the FIXED block of engine.py as it is now, through edit()."""
+    from engine_re.game_api import END_MARKER
+
+    new = _tail(_engine_source(game_code))
+    return (
+        "from pathlib import Path as _P\n"
+        "_t = _P('engine.py').read_text()\n"
+        f"_m = {END_MARKER!r}\n"
+        f"edit(edits=[{{'op': 'replace_text', 'oldText': _t[_t.index(_m) + len(_m):], 'newText': {new!r}}}])"
+    )
+
+
+class _RecordingModel(_ScriptedModel):
+    """A scripted model that keeps the first user message of every conversation."""
+
+    def __init__(self, turns):
+        super().__init__(turns)
+        self.openings: list[str] = []
+
+    def chat(self, messages, tools):
+        if len(messages) == 2:
+            content = messages[1]["content"]
+            self.openings.append(content if isinstance(content, str) else content[0]["text"])
+            self.tools = tools
+        return super().chat(messages, tools)
+
+
+def test_stepwise_fixes_one_breaking_step_at_a_time(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import Budget, ModelConfig
+    from engine_re.stepwise import StepwiseRun
+
+    tiny_trace.save(tmp_path / "trace")
+    no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
+    model = _RecordingModel(
+        [
+            [("python", {"code": _rewrite_now(no_up)})],  # conversation 1 (step 0): passes steps 0..0
+            [("python", {"code": "print(step.index, step.level, step.action.id, 'S' in globals(), step.before.shape)"})],
+            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # conversation 2 (step 4)
+        ]
+    )
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False).run()
+    assert result.status == "passed" and result.turns == 3 and result.engine_changes == 2
+    data = json.loads((tmp_path / "result.json").read_text())
+    assert data["mode"] == "stepwise" and [e["step"] for e in data["episodes"]] == [0, 4]
+    assert [e["fixed"] for e in data["episodes"]] == [True, True] and [e["turns"] for e in data["episodes"]] == [1, 2]
+    assert data["final"]["exact"] == 8 and data["passing_prefix"] == 8
+    # Each conversation asks to fix its step and sees only that step.
+    assert model.openings[0].startswith("Fix the breaking test: step 0.")
+    assert model.openings[1].startswith("Fix the breaking test: step 4.")
+    assert "Steps 0-3 of the recording pass with your engine.py; step 4 is the first that does not." in model.openings[1]
+    assert "Step 4: ACTION1 (up), played in level 0." in model.openings[1]
+    assert "level" not in model.tools[1]["function"]["parameters"]["properties"]
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    outputs = [r["output"] for r in records if r.get("tool") == "python"]
+    assert outputs[1].split() == ["4", "0", "1", "False", "(64,", "64)"]
+    assert [r["episode_start"]["step"] for r in records if "episode_start" in r] == [0, 4]
+    assert {r.get("episode") for r in records if "finish_reason" in r} == {1, 2}
+    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
+    assert [(t["auto"], t["focus"]) for t in tests] == [("episode", 0), (True, 0), ("episode", 4), (True, 4)]
+    assert len(Trace.load(tmp_path / "episode_trace")) == 5  # the last conversation saw steps 0..4
+
+
+def test_stepwise_stops_on_a_step_it_cannot_fix(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, ModelConfig
+    from engine_re.stepwise import StepwiseRun
+
+    tiny_trace.save(tmp_path / "trace")
+    model = _ScriptedModel([[("python", {"code": "1"})], [("python", {"code": "2"})]])
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False,
+                         episode_turns=1, attempts=2).run()
+    assert result.status == "stuck" and result.turns == 2 and result.final["first_fail"] == 0
+
+
+def test_stepwise_starts_with_the_opening(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, ModelConfig
+    from engine_re.stepwise import StepwiseRun
+
+    tiny_trace.save(tmp_path / "trace")
+    model = _RecordingModel([[("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})]])
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model).run()
+    assert result.opening == {"exact": True, "first_fail": 1, "passing_prefix": 1}
+    assert result.status == "passed" and result.engine_changes == 1 and result.tests_run == 1  # the automatic test
+    assert model.openings[0].startswith("Fix the breaking test: step 1.")
+    assert "lands on your grid cell" not in model.openings[0]  # not a click game
+
+
+def test_the_report_says_what_a_click_lands_on() -> None:
+    from types import SimpleNamespace
+
+    from engine_re import diff_report
+
+    def sprite(name, x, y, w, h, layer=0, collidable=True, screen=False):
+        return {"name": name, "x": x, "y": y, "w": w, "h": h, "layer": layer, "collidable": collidable, "screen": screen,
+                "visible": True, "tags": [], "blocking": "pixel"}
+
+    before = {"grid": [8, 8], "view": {"scale": None, "rotation": 0, "mirror_ud": False, "mirror_lr": False},
+              "sprites": [sprite("background", 0, 0, 8, 8, layer=-1, collidable=False), sprite("button", 2, 3, 2, 2)]}
+    lines = diff_report.click_lines(SimpleNamespace(id=6, x=2 * 8 + 3, y=3 * 8 + 1), before)  # scale 8: cell (2, 3)
+    assert lines[0].startswith("    the click (19, 25) lands on your grid cell (2, 3) (action.cell)")
+    assert '#1 "button"' in lines[1] and lines[1].endswith("<- state.sprite_at(*action.cell)")
+    assert '#0 "background"' in lines[2] and "sprite_at" not in lines[2]
+    assert diff_report.click_lines(SimpleNamespace(id=1, x=None, y=None), before) == []
+
+
+def test_the_step_prompts_name_every_builtin():
+    from engine_re.kernel import RESERVED_STEP
+    from engine_re.prompts import system_prompt, tools
+
+    for images in (True, False):
+        prompt = system_prompt(images=images, mode="step")
+        section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
+        assert all(name in section for name in RESERVED_STEP)
+        python = tools(images, "step")[0]["function"]["description"]
+        assert "S[" not in python and "summarize_levels" not in python and "step.after" in python

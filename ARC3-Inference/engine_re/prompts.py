@@ -3,6 +3,11 @@
 The agent has three tools: python (a kernel with the recording, read/edit/undo for engine.py and
 helpers to run and look at it), run_tests and finish. ``images`` says whether test reports and
 show() come with pictures; the texts follow it.
+
+Two modes. "single" (v5): one session over the whole recording. "step" (v6, engine_re.stepwise):
+the harness replays the recording and, at each step that breaks, opens a new conversation that
+asks to fix that step; the agent sees only that step (`step` in python, not S) and the tests
+replay steps 0 to it (episode_message is its first message).
 """
 
 from __future__ import annotations
@@ -219,35 +224,157 @@ your sprites there, what step() printed, the try_step command), and one line per
 _RUN_TESTS_NO_IMAGES = _RUN_TESTS.replace("(images, regions,\nyour sprites there,", "(regions with their\npixels, your sprites there,")
 
 
+# --- The stepwise harness (v6) -------------------------------------------------------------------
+
+_SYSTEM_STEP = """# Goal
+You are building engine.py, a Python model of a game, from a recording of someone playing it: every
+action they took and every frame the game returned. The harness replays the recording through
+engine.py step by step. When a step does not give the recorded result, it stops there and asks you to
+fix that step; once you have, it replays on to the next step that breaks and asks again, each time in
+a new conversation. engine.py (with its comments) and its versions carry over from one conversation to
+the next; nothing else does.
+Fix each step with the simplest general rule that explains it and keeps the earlier steps passing:
+the engine is later also played on action sequences nobody recorded, where general rules hold up and
+special cases keyed to step numbers do not.
+
+""" + _SYSTEM[_SYSTEM.index("# Setup") : _SYSTEM.index("# Tests")] + """# Tests (run_tests; finish runs them too)
+- Contract: the fixed block is unchanged; make_level(n) returns a valid State for every level reached so
+  far; step() accepts every advertised action; the same actions always give the same result.
+- Acceptance: the recorded steps from step 0 to the step you are fixing are replayed in order. After
+  every action, your final frame (every pixel) and the game status (NOT_FINISHED / WIN / GAME_OVER,
+  levels completed) must equal the recording. When the real game animated an action, only its last
+  frame is compared.
+- The report stops at the first failing step (or after up to 10, if you ask). For it you get:
+  __REPORT_IMAGES__;
+  for a click, the grid cell it lands on and your sprites there; for each region, the colours and
+  your sprites there; what your step() printed; and the python command that reproduces the step.
+
+# Built-in python functions
+These are python functions: call them in your code inside the python tool (the python tool's
+description has the details). They are not separate tools.
+- step: the step to fix, the only part of the recording shown: step.before, step.action, step.after
+  (the frame the tests compare), step.frames, step.level.
+- read(path="engine.py", offset=None, limit=None): print engine.py, each line with a LINE#HASH anchor.
+- edit(path="engine.py", edits=[...]): change engine.py at those anchors. engine.py changes only
+  through edit() and undo() called in the python tool; writing the file any other way is blocked.
+- undo(n=1, to=None): put engine.py back as it was n changes ago, or to="best".
+- render(state): draw a State as a 64x64 array, exactly as the tests do.
+- __SHOW_LINE__
+- try_step(i): your State before and after step i (0 to step.index), what your step() printed, and
+  where your frame differs from the recording.
+- auto_sprites(level) or auto_sprites(frame=...): sprite code that draws a frame exactly, ready for
+  edit(); for a level, its first frame.
+They come with np and the classes Sprite, Action, View, State. All these names are reserved: code that
+defines or assigns any of them is rejected before it runs.
+
+# How to work
+1. Look at what the step did: compare step.before with step.after, and read the report's regions and
+   what the click hit.
+2. Find the simplest rule that explains this step and agrees with what engine.py already does for the
+   earlier steps. The recording shows only part of what the game can do: reproduce what you see, with
+   no rule the steps give no evidence for.
+3. Change engine.py with edit(), run the tests, fix what they report (an earlier step that now breaks
+   counts too), and call finish when they pass.
+4. When the step starts a new level (the frame after it shows the next level), make_level must draw
+   that level: auto_sprites(n) gives code for its first frame. Reuse the sprite kinds engine.py already
+   has where they fit.
+5. Keep engine.py's comments up to date with the rules you found: the next conversation starts from
+   engine.py alone.
+Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
+inside step(); the test report and try_step show it.
+"""
+
+_RECORDING_SINGLE = _PYTHON[_PYTHON.index("The recording\n") : _PYTHON.index("engine.py (change it")]
+_RECORDING_STEP = """The step to fix
+- np (numpy), and the fixed-block classes Sprite, Action, View, State.
+- step: the recorded step that breaks, the only part of the recording shown (later steps are not
+  loaded; earlier ones already pass, and try_step(i) replays them on your engine).
+  - step.index: its number; steps 0 to step.index - 1 pass.
+  - step.action: an Action. .id is 0 (RESET) to 7; for a click (6), .x and .y are the screen pixel.
+  - step.before: the frame before the step, a numpy int8 array (64, 64) indexed frame[y, x] (row,
+    column); your engine already draws it. None for step 0.
+  - step.after: the frame after the step, the one the tests compare. step.frames: every frame the game
+    returned for it, (n, 64, 64), in order; n > 1 when the action was animated.
+  - step.level: the level it is played in; step.state ("NOT_FINISHED", "WIN" or "GAME_OVER") and
+    step.levels_completed: after it.
+
+"""
+_TRY_STEP_SINGLE = _PYTHON[_PYTHON.index("- try_step(i, state=None"): _PYTHON.index("Generating code")]
+_TRY_STEP_STEP = """- try_step(i, state=None, action=None) -> (before, after): loads engine.py fresh, gives your State
+  just before recorded step i, 0 to step.index (or `state`), applies that step's action (or `action`:
+  an id, or (6, x, y) for a click), prints what your step() printed, what changed in your state
+  (sprites by index #k and name, vars), and the regions where your frame differs from the recording
+  with your sprites in each. Returns copies of both states.
+
+"""
+_AUTO_SPRITES_HEAD_SINGLE = """- auto_sprites(level, grid=None, frame=None, region=None, merge=False) -> str: Python code for sprites
+  that draw the first frame of `level` exactly (or a given frame, or a region (x0, y0, x1, y1) of it):
+"""
+_AUTO_SPRITES_HEAD_STEP = """- auto_sprites(level, grid=None, frame=None, region=None, merge=False) -> str: Python code for sprites
+  that draw the first frame of `level`, a level reached so far, exactly (or a given frame such as
+  step.after, or a region (x0, y0, x1, y1) of it):
+"""
+_PYTHON_STEP = (
+    _PYTHON.replace(_RECORDING_SINGLE, _RECORDING_STEP)
+    .replace(_TRY_STEP_SINGLE, _TRY_STEP_STEP)
+    .replace(_AUTO_SPRITES_HEAD_SINGLE, _AUTO_SPRITES_HEAD_STEP)
+)
+assert _PYTHON_STEP.count("S[") == 0 and "summarize_levels" not in _PYTHON_STEP
+
+_RUN_TESTS_STEP = """Run the contract tests, then replay the recording in order from step 0 to the step you are fixing.
+Stops after `failures` failing steps (1 to 10, default 1). Reports how many steps pass before the
+first failure, the first failure in full (images, regions, what a click hit, your sprites there, what
+step() printed, the try_step command), and one line per further failure."""
+
+_FINISH_STEP = """Say the step is fixed. Runs the tests first (steps 0 to the step you are fixing): when they all pass,
+this conversation ends and the harness replays on to the next step that breaks; otherwise you get the
+report and go on. summary: the rule you added or changed."""
+
 _FINISH = """Ask to end the session. Runs the tests first: if anything fails you get the report and the session
 goes on; it ends only when every test passes. summary: what the engine implements."""
 
 
-def system_prompt(match: str = "final", interface: str = "simple", images: bool = True) -> str:
-    """The system prompt. Only the make_level/step interface scored on final frames is offered."""
+def system_prompt(match: str = "final", interface: str = "simple", images: bool = True, mode: str = "single") -> str:
+    """The system prompt. Only the make_level/step interface scored on final frames is offered.
+    mode "single": one session over the recording; "step": fix one breaking step (v6)."""
     if interface != "simple":
         raise ValueError("the agent offers only the simple interface (make_level/step)")
     if match != "final":
         raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-    return _SYSTEM.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images]).replace("__SHOW_LINE__", _SHOW_LINE[images])
+    text = {"single": _SYSTEM, "step": _SYSTEM_STEP}[mode]
+    return text.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images]).replace("__SHOW_LINE__", _SHOW_LINE[images])
 
 
 SYSTEM_PROMPT = system_prompt()
 
 
-def _python_description(images: bool) -> str:
+def _python_description(images: bool, mode: str = "single") -> str:
+    if mode == "step":
+        return _PYTHON_STEP.replace("__SHOW__", _SHOW[images].replace("S[i].last", "step.after"))
     return _PYTHON.replace("__SHOW__", _SHOW[images])
 
 
-def tools(images: bool = True) -> list[dict]:
-    """The tool schemas: python, run_tests and finish."""
+def tools(images: bool = True, mode: str = "single") -> list[dict]:
+    """The tool schemas: python, run_tests and finish (mode "step": the stepwise harness's texts,
+    and run_tests without `level`)."""
+    schemas = _tools(images, mode)
+    if mode == "step":
+        run_tests = schemas[1]["function"]
+        run_tests["description"] = _RUN_TESTS_STEP if images else _RUN_TESTS_STEP.replace("(images, regions,", "(regions with their pixels,")
+        del run_tests["parameters"]["properties"]["level"]
+        schemas[2]["function"]["description"] = _FINISH_STEP
+        schemas[2]["function"]["parameters"]["properties"]["summary"]["description"] = "The rule you added or changed."
+    return schemas
+
+
+def _tools(images: bool, mode: str) -> list[dict]:
     return copy.deepcopy(
         [
             {
                 "type": "function",
                 "function": {
                     "name": "python",
-                    "description": _python_description(images),
+                    "description": _python_description(images, mode),
                     "parameters": {
                         "type": "object",
                         "properties": {"code": {"type": "string", "description": "Python code to run."}},
@@ -356,6 +483,52 @@ Before your first turn the harness did the first round:
 {shown}
 
 {_first_task(opening.get("first_fail"))}"""
+
+
+def _action_text(action) -> str:
+    if action.id == 6:
+        return f"a click at screen pixel ({action.x}, {action.y})"
+    return "RESET" if action.id == 0 else f"ACTION{action.id} ({_ACTION_WORDS.get(action.id, '?')})"
+
+
+def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: str) -> str:
+    """The first message of a stepwise conversation: fix the breaking step k (steps 0..k-1 pass).
+    `trace` holds at least steps 0..k; `report` is the test report of the replay up to step k."""
+    s = trace.steps[k]
+    level = trace.steps[k - 1].levels_completed if k > 0 else 0
+    notes = []
+    if s.state == "WIN":
+        notes.append(f"This step solves level {level}, the last one: the game ends with WIN.")
+    elif s.levels_completed > level:
+        notes.append(
+            f"This step solves level {level}: the frame after it is level {s.levels_completed}'s first frame, which "
+            f"make_level({s.levels_completed}) must draw (auto_sprites({s.levels_completed}) gives code for it; reuse the "
+            "sprite kinds engine.py already has where they fit)."
+        )
+    if s.state == "GAME_OVER":
+        notes.append("After this step the game is over (GAME_OVER).")
+    if k == 0:
+        passed = "Step 0, level 0's first frame, does not pass yet."
+    else:
+        before = "Step 0 of the recording passes" if k == 1 else f"Steps 0-{k - 1} of the recording pass"
+        passed = f"{before} with your engine.py; step {k} is the first that does not."
+    return f"""Fix the breaking test: step {k}.
+
+Game: {game}. {passed}
+Step {k}: {_action_text(s.action)}, played in level {level}. The game returned {s.n_frames} frame(s) for it; the tests compare
+the last.{(" " + " ".join(notes)) if notes else ""}
+In python, `step` holds this step: step.before, step.action, step.after, step.frames.
+
+The test report:
+
+{report.strip()}
+
+engine.py now, as read() shows it (the FIXED block folded):
+
+{engine_read}
+
+Fix step {k}: find the simplest rule that explains it and keeps the earlier steps passing, change engine.py with
+edit(), run the tests, and call finish when they pass."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:

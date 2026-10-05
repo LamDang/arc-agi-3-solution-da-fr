@@ -18,8 +18,9 @@ kernel helper ``try_step`` (with summaries of states in the kernel), so both pri
 from __future__ import annotations
 
 import base64
-import json
 import io
+import json
+import types
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -216,6 +217,45 @@ def sprite_text(i: int, e: dict[str, Any]) -> str:
         if e.get(name, default) != default:
             parts.append(f"{name}={e.get(name)}")
     return " ".join(parts)
+
+
+def click_lines(action: Any, before: dict[str, Any] | None, limit: int = MAX_SPRITES) -> list[str]:
+    """For a click, what it landed on in the engine's state before the step (a state_summary): the
+    grid cell (action.cell) and the sprites whose box holds that cell, topmost first (the first
+    collidable one is what state.sprite_at(*action.cell) returns), or the screen sprites drawn at the
+    pixel when the click is outside the grid."""
+    if before is None or getattr(action, "id", None) != 6 or getattr(action, "x", None) is None:
+        return []
+    x, y = int(action.x), int(action.y)
+    try:
+        view = types.SimpleNamespace(**(before.get("view") or {}))
+        cell = game_api.to_grid(tuple(before["grid"]), x, y, view)
+    except Exception:  # noqa: BLE001  (a summary that cannot say it is not worth failing the report)
+        return []
+    sprites = before.get("sprites") or []
+    if cell is None:
+        here = [i for i, e in enumerate(sprites) if e.get("screen") is True
+                and (mask := game_api.unpack_footprint(e)) is not None and mask[y, x]]
+        head = f"    the click ({x}, {y}) is outside your grid (action.cell is None)"
+        where = "your screen sprites drawn at that pixel"
+    else:
+        gx, gy = cell
+        here = [i for i, e in enumerate(sprites) if e.get("screen") is not True
+                and isinstance(e.get("x"), int) and isinstance(e.get("y"), int)
+                and e["x"] <= gx < e["x"] + int(e.get("w") or 0) and e["y"] <= gy < e["y"] + int(e.get("h") or 0)]
+        here.sort(key=lambda i: -(sprites[i].get("layer") if isinstance(sprites[i].get("layer"), int) else 0))
+        head = f"    the click ({x}, {y}) lands on your grid cell {cell} (action.cell)"
+        where = "your sprites whose box holds that cell, topmost first"
+    if not here:
+        return [head + f"; {where}: none"]
+    picked = next((i for i in here if sprites[i].get("collidable") is True), None) if cell is not None else None
+    lines = [head + f"; {where}:"]
+    for i in here[:limit]:
+        mark = "   <- state.sprite_at(*action.cell)" if i == picked else ""
+        lines.append("        " + sprite_text(i, sprites[i]) + mark)
+    if len(here) > limit:
+        lines.append(f"        ... and {len(here) - limit} more")
+    return lines
 
 
 _TRACKED = ("x", "y", "layer", "collidable", "screen", "rotation", "mirror_ud", "mirror_lr", "scale", "name", "blocking")

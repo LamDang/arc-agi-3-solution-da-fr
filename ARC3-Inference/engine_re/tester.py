@@ -294,6 +294,7 @@ def describe_step(
     candidate's state summaries {"before": ..., "after": ...} if available; ``printed`` what the
     engine printed during the step."""
     lines = [f"--- Step {step.index}: {step.action}   (played in level {before})"]
+    lines += diff_report.click_lines(step.action, (states or {}).get("before"))
     if got is None or got_frames is None:
         lines.append("    your engine raised an error on this step (traceback above)" if crashed_here else "    not run (your engine stopped earlier)")
         lines += printed_lines(printed)
