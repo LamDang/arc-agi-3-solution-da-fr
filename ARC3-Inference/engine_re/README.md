@@ -231,7 +231,11 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     call, every advertised action accepted, determinism), then the acceptance
     test, the recording replayed in order: from step 0, or with `level=L` only
     level L (the engine starts at `make_level(L)`, its drawing is compared with
-    the level's recorded start, then it plays that level's steps). The report
+    the level's recorded start, then it plays that level's steps). A final
+    frame that differs by a single pixel within 2 px of the frame's edge still
+    passes, with a warning (`tester.HUD_BORDER`): that is a HUD bar's rounding,
+    and the prompt tells the model to model such bars as a per-level budget
+    drawn proportionally and not to chase the pixel. The report
     stops after `failures` failing steps (1 to 10, clamped; default 1): it says
     how many steps pass before the first failure, explains the first failure
     in full, with the picture, and gives one line per further failure (step,

@@ -71,6 +71,10 @@ FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
 # How the reports name the fields: as the model's recorded steps (helpers.StepView) do.
 SHOWN_AS = {"state": "outcome"}
 MATCH_MODES = ("final", "all")
+# A final frame that differs by one pixel this close to the frame's edge still passes, with a warning:
+# a HUD bar (a step or time budget drawn proportionally and rounded) sits there, and one pixel of it
+# is rounding, not a game mechanic.
+HUD_BORDER = 2
 
 
 @dataclass
@@ -79,6 +83,7 @@ class StepCheck:
     ok: bool
     final_ok: bool
     problems: list[str] = field(default_factory=list)
+    warning: str | None = None  # the step passes with this tolerated difference (see HUD_BORDER)
 
 
 @dataclass
@@ -113,6 +118,7 @@ class TestReport:
     detail_steps: list[int] = field(default_factory=list)  # steps explained in the text (a level start: its entry step)
     images: list[TestImage] = field(default_factory=list)
     signature: str = ""  # of the failure: the same first failing step, counts and differing regions give the same one
+    tolerated: list[int] = field(default_factory=list)  # steps passing with a one-pixel border difference (HUD_BORDER)
 
     @property
     def passed(self) -> bool:
@@ -254,6 +260,21 @@ def frame_diff(expected: np.ndarray, got: np.ndarray) -> dict[str, Any] | None:
     }
 
 
+def border_tolerance(expected: np.ndarray, got: np.ndarray) -> str | None:
+    """When ``got`` differs from ``expected`` by exactly one pixel within HUD_BORDER of the frame's edge,
+    a sentence saying so (the step is tolerated); None when the frames are equal or differ more."""
+    d = frame_diff(expected, got)
+    if d is None or d.get("count") != 1:
+        return None
+    r0, c0, _, _ = d["bbox"]
+    h, w = expected.shape
+    if min(r0, c0, h - 1 - r0, w - 1 - c0) >= HUD_BORDER:
+        return None
+    (exp, got_colour), _ = d["transitions"][0]
+    return (f"1 px differs at the frame border (row {r0}, col {c0}: expected {exp}, got {got_colour}); tolerated as"
+            f" HUD-bar rounding, not a failure")
+
+
 def crop_panels(expected: np.ndarray, got: np.ndarray, bbox: tuple[int, int, int, int], max_side: int = 24) -> str:
     """Expected and got side by side around ``bbox``, plus a mask of differing pixels."""
     r0, c0, r1, c1 = bbox
@@ -286,8 +307,12 @@ def check_step(step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | 
     if match == "all" and len(got_frames) != step.n_frames:
         problems.append("frame count")
     final_ok = step.n_frames == 0 and len(got_frames) == 0
+    warning = None
     if step.n_frames and len(got_frames):
         final_ok = frame_diff(step.frames[-1], got_frames[-1]) is None
+        if not final_ok:
+            warning = border_tolerance(step.frames[-1], got_frames[-1])
+            final_ok = warning is not None
     if not final_ok:
         problems.append("final frame")
     if match == "all" and step.n_frames and len(got_frames):
@@ -297,7 +322,7 @@ def check_step(step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | 
     for name in FIELDS:
         if getattr(step, name) != got.get(name):
             problems.append(name)
-    return StepCheck(step.index, not problems, final_ok, problems)
+    return StepCheck(step.index, not problems, final_ok, problems, warning if not problems else None)
 
 
 def describe_step(
@@ -519,10 +544,14 @@ def replay_test(
 
     start_frame = None
     start_frame_diff = None
+    start_warning: str | None = None
     if entry is not None and result.get("start_frame") is not None and trace[entry].last is not None:
         start_frame = np.asarray(result["start_frame"], np.int8)
         d = frame_diff(trace[entry].last, start_frame)
         start_frame_diff = 0 if d is None else d["count"]
+        if start_frame_diff and border_tolerance(trace[entry].last, start_frame):
+            start_warning = border_tolerance(trace[entry].last, start_frame)
+            start_frame_diff = 0
     start_bad = bool(start_frame_diff)
     contract_failures = [c for c in contract or [] if not c["ok"]]
     error = result.get("error")
@@ -630,6 +659,16 @@ def replay_test(
                 lines.append(
                     f"  Level start frame (step {entry}'s final frame vs your engine's render right after set_level({start_level})): {verdict}."
                 )
+    tolerated = [c.index for c in checks if c.warning]
+    if tolerated or start_warning:
+        lines.append("  WARNING (tolerated, not a failure): a HUD bar's rounding, most likely; nothing to fix unless it grows.")
+        if start_warning:
+            lines.append(f"    level {level if level is not None else from_level} start frame: {start_warning}")
+        shown = [c for c in checks if c.warning]
+        for c in shown[:3]:
+            lines.append(f"    step {c.index}: {c.warning}")
+        if len(shown) > 3:
+            lines.append(f"    ... and {len(shown) - 3} more such steps: {_ranges([c.index for c in shown[3:]])}")
     if error:
         if startup_error:
             what = f"make_level({start_level}) or " if start_level is not None else ""
@@ -745,6 +784,7 @@ def replay_test(
         signature=failure_signature(first_fail, exact, error, contract, first_regions),
         detail_steps=detail_steps,
         images=report_images,
+        tolerated=tolerated,
     )
 
 

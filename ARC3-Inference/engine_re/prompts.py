@@ -449,6 +449,13 @@ __OBJECTS__
    steps give no evidence for. Per-level constants in the level data (a rate, a budget, a size) are fine
    when the steps give no evidence of a formula: do not hunt for one. When a step contradicts a rule you
    wrote, replace it with the simplest rule that explains all the steps so far.
+   A long line or a strip of small blocks flush against a screen edge, outside the playing grid, that
+   shrinks or changes on every action is almost always a step or time budget (a HUD bar), not a game
+   mechanic: model it as a per-level budget drawn proportionally and rounded to the nearest pixel,
+   e.g. round(length * moves / budget), with the budget a per-level constant that fits the steps seen
+   so far. Several budgets may fit; any of them is right at this step, and a later step will narrow
+   it. Being one pixel off on such a bar is tolerated by the tests (a warning, not a failure), so do
+   not spend turns on it.
 3. Change engine.py with edit_file(), run the tests and fix what they report (an earlier step that now
    breaks counts too). When they pass, call commit_engine(message): what you changed and why. The next
    step is shown only after a commit.

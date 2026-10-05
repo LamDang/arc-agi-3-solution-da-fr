@@ -2459,3 +2459,35 @@ def test_openrouter_client_waits_out_rate_limits(monkeypatch):
     answers[:] = [Resp(400)]
     with pytest.raises(RuntimeError, match="OpenRouter HTTP 400"):
         client.chat([], [])
+
+
+def _trace_with_pixel(trace: Trace, step: int, row: int, col: int, n: int = 1) -> Trace:
+    """A copy of ``trace`` whose step ``step`` final frame has ``n`` pixels changed from (row, col) rightwards."""
+    import copy
+
+    out = copy.deepcopy(trace)
+    frames = out.steps[step].frames.copy()
+    for i in range(n):
+        frames[-1][row, col + i] = (int(frames[-1][row, col + i]) + 1) % 16
+    out.steps[step].frames = frames
+    return out
+
+
+def test_one_border_pixel_is_tolerated_with_a_warning(tmp_path: Path, tiny_trace: Trace) -> None:
+    engine = _engine(tmp_path, TINY_GAME.replace("DOWN", "1"))
+    report = replay_test(engine, _trace_with_pixel(tiny_trace, 3, 0, 5), scratch_root=tmp_path)
+    assert report.passed, report.text
+    assert report.tolerated == [3]
+    assert "WARNING (tolerated" in report.text and "step 3: 1 px differs at the frame border (row 0, col 5" in report.text
+    assert "ALL STEPS MATCH" in report.text
+    # The stepwise report (stops at the first failure) carries the same warning.
+    stop = replay_test(engine, _trace_with_pixel(tiny_trace, 3, 63, 63), failures=1, scratch_root=tmp_path)
+    assert stop.passed and stop.tolerated == [3] and "tolerated" in stop.text
+
+
+def test_interior_or_two_border_pixels_still_fail(tmp_path: Path, tiny_trace: Trace) -> None:
+    engine = _engine(tmp_path, TINY_GAME.replace("DOWN", "1"))
+    inside = replay_test(engine, _trace_with_pixel(tiny_trace, 3, 5, 5), scratch_root=tmp_path)
+    assert not inside.passed and inside.first_fail == 3 and inside.tolerated == []
+    two = replay_test(engine, _trace_with_pixel(tiny_trace, 3, 0, 5, n=2), scratch_root=tmp_path)
+    assert not two.passed and two.first_fail == 3 and "tolerated" not in two.text
