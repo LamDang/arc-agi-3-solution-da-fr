@@ -458,6 +458,9 @@ class AgentResult:
 
 
 class EngineAgent:
+    TOOLS = ("python", "run_tests", "commit_engine")  # the tools _dispatch accepts (a subclass adds its own)
+    BUILTINS = BUILTIN_FUNCTIONS  # python built-ins the model may call as tools (run as python)
+
     def __init__(
         self,
         game: str,
@@ -709,11 +712,12 @@ class EngineAgent:
             args = json.loads(arguments) if arguments.strip() else {}
         except json.JSONDecodeError as exc:
             return f"Error: tool arguments are not valid JSON ({exc}). Send a JSON object."
-        if name in BUILTIN_FUNCTIONS:  # a python function called as a tool: run it as python
+        if name in self.BUILTINS:  # a python function called as a tool: run it as python
             call = builtin_call_code(name, args)
             return BUILTIN_AS_TOOL.format(name=name, call=call) + self._tool_python(call)
-        if name not in ("python", "run_tests", "commit_engine"):
-            return f"Error: unknown tool {name!r}. The tools are python, run_tests and commit_engine."
+        if name not in self.TOOLS:
+            listed = ", ".join(self.TOOLS[:-1]) + " and " + self.TOOLS[-1]
+            return f"Error: unknown tool {name!r}. The tools are {listed}."
         handler = getattr(self, f"_tool_{name}")
         try:
             return handler(**args)
@@ -925,6 +929,8 @@ class EngineAgent:
                 focus = r["advance"]["next"]
             elif "resumed" in r:
                 focus = r["resumed"]["step"]
+            elif "plan" in r:  # the play-and-model agent (engine_re.play_agent): a PLAN message on the last step played
+                focus = r["plan"]["step"]
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
         if self.condense and fired is not None:
@@ -1283,14 +1289,12 @@ class EngineAgent:
         if resumed:
             pass
         elif self.stepwise:
-            first = self._replay_all()
-            if first is None:
+            opening = self._stepwise_start()
+            if opening is None:  # the whole recording passes already
                 self.result.status = "passed"
                 self._final_test()
                 self._save_result()
                 return self.result
-            self._focus_on(first)
-            opening = self._stepwise_opening()
         elif self._restore():
             report = replay_test(self.engine_path, self.trace, failures=1, scratch_root=self.dir, match=self.match)
             opening = resume_user_message(
@@ -1324,7 +1328,7 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self._context(), tools(self.images, self.mode, self.history))
+                response = self.client.chat(self._context(), self._tools())
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
@@ -1357,13 +1361,14 @@ class EngineAgent:
                     if idle_turns >= 4:
                         self.result.status = "stalled"
                         break
-                    self._say("user", CONTINUE)
+                    self._say("user", CONTINUE if self.TOOLS == EngineAgent.TOOLS else
+                              f"Continue by calling a tool ({', '.join(self.TOOLS[:-1])} or {self.TOOLS[-1]}).")
                     continue
                 idle_turns = 0
                 self.turns_since_test += 1
                 for call in assistant["tool_calls"]:
                     name = call["function"]["name"]
-                    counted = "python" if name in BUILTIN_FUNCTIONS else name  # a built-in called as a tool runs as python
+                    counted = "python" if name in self.BUILTINS else name  # a built-in called as a tool runs as python
                     self.result.tool_calls[counted] = self.result.tool_calls.get(counted, 0) + 1
                     t0 = time.time()
                     output = self._dispatch(name, call["function"]["arguments"])
@@ -1393,12 +1398,7 @@ class EngineAgent:
                     self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
                 # After the tool messages (and the automatic test): the turn's images.
                 self._attach_images()
-                if self.stepwise and self.commit is not None:  # only a commit moves on
-                    commit, self.commit = self.commit, None
-                    if not self._advance(commit):
-                        break
-                elif self.passed and not self.stepwise:
-                    self.result.status = "passed"
+                if not self._end_of_turn():
                     break
                 if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens:
                     if self.condense:
@@ -1414,6 +1414,28 @@ class EngineAgent:
             self._final_test()
             self._save_result()
         return self.result
+
+    def _tools(self) -> list[dict[str, Any]]:
+        return tools(self.images, self.mode, self.history)
+
+    def _stepwise_start(self) -> str | list[dict[str, Any]] | None:
+        """Stepwise: the first message, on the first step that fails; None when the whole recording passes."""
+        first = self._replay_all()
+        if first is None:
+            return None
+        self._focus_on(first)
+        return self._stepwise_opening()
+
+    def _end_of_turn(self) -> bool:
+        """After a turn's tool calls and images: stepwise, an accepted commit moves on (False ends the run when the
+        whole recording passes); single mode ends when the tests passed."""
+        if self.stepwise and self.commit is not None:  # only a commit moves on
+            commit, self.commit = self.commit, None
+            return self._advance(commit)
+        if self.passed and not self.stepwise:
+            self.result.status = "passed"
+            return False
+        return True
 
     def _final_test(self) -> None:
         """Authoritative full replay of the final engine.py."""

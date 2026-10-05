@@ -185,6 +185,64 @@ def parse_action_label(label: str) -> Action:
     raise ValueError(f"unrecognised action label {label!r}")
 
 
+def move_label(action: Action) -> str:
+    """The harness's label for an action: UP, DOWN, LEFT, RIGHT, SPACE, UNDO, RESET or MOUSE(row=r, col=c)."""
+    if action.id == 6:
+        return f"MOUSE(row={action.y}, col={action.x})"
+    return next((label for label, i in MODEL_LABELS.items() if i == action.id), ACTION_NAMES[action.id])
+
+
+def parse_move(item: Any) -> Action:
+    """An action as the model gives it to commit_moves or simulate: a label ("UP", "RESET", "ACTION3",
+    "MOUSE(row=46, col=12)"), an action id, an Action, a click as {"click": [x, y]}, {"x": x, "y": y},
+    {"action": "MOUSE", "row": r, "col": c}, (6, x, y) or "click 12 46" / "click(12, 46)" (x then y);
+    {"action": "UP"} or {"id": 1} for the others. Raises ValueError with the accepted forms otherwise."""
+    if isinstance(item, Action):
+        return item
+    if isinstance(item, bool):
+        raise ValueError(f"not an action: {item!r}")
+    if isinstance(item, int):
+        if item in ACTION_NAMES and item != 6:
+            return Action(item)
+        raise ValueError(f"action id {item} needs a click position: give {{'click': [x, y]}}" if item == 6 else f"unknown action id {item}")
+    if isinstance(item, (tuple, list)):
+        if len(item) == 3 and int(item[0]) == 6:
+            return Action(6, x=int(item[1]), y=int(item[2]))
+        if len(item) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in item):
+            return Action(6, x=int(item[0]), y=int(item[1]))
+        raise ValueError(f"not an action: {item!r} (a click is {{'click': [x, y]}} or (6, x, y))")
+    if isinstance(item, dict):
+        if "click" in item:
+            x, y = item["click"]
+            return Action(6, x=int(x), y=int(y))
+        if "row" in item and "col" in item:
+            return Action(6, x=int(item["col"]), y=int(item["row"]))
+        if "x" in item and "y" in item and item.get("action", "MOUSE") in ("MOUSE", "ACTION6", 6, "click"):
+            return Action(6, x=int(item["x"]), y=int(item["y"]))
+        if "action" in item:
+            return parse_move(item["action"])
+        if "id" in item:
+            return parse_move(int(item["id"]))
+        raise ValueError(f"not an action: {item!r}")
+    if isinstance(item, str):
+        text = item.strip()
+        match = re.fullmatch(r"(?:click|mouse)\s*\(?\s*(-?\d+)\s*[, ]\s*(-?\d+)\s*\)?", text, re.IGNORECASE)
+        if match:
+            return Action(6, x=int(match.group(1)), y=int(match.group(2)))
+        try:
+            return parse_action_label(text)
+        except ValueError:
+            pass
+        words = {"UP": 1, "DOWN": 2, "LEFT": 3, "RIGHT": 4, "SPACE": 5, "INTERACT": 5, "UNDO": 7, "RESET": 0}
+        if text.upper() in words:
+            return Action(words[text.upper()])
+        raise ValueError(
+            f"unrecognised action {item!r}: give UP, DOWN, LEFT, RIGHT, SPACE, UNDO, RESET, ACTIONn or a click as "
+            "{'click': [x, y]} (x the column, y the row, 0-63)"
+        )
+    raise ValueError(f"not an action: {item!r}")
+
+
 def events_path(run_dir: Path, game: str, pass_index: int = 0) -> Path:
     """The run's event log for one game, matched by game id or its prefix (ls20)."""
     matches = sorted((Path(run_dir) / "artifacts").glob(f"{game}*_p{pass_index}_events.jsonl"))

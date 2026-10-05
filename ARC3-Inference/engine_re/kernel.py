@@ -1,6 +1,6 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history]]
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history] [--play]]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests (a {"focus": k} request, from the stepwise harness, reloads
@@ -69,6 +69,9 @@ PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("engine",)
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
+# The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and simulate.
+PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "simulate")
+RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
     "engine is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
     "engine.step(...), engine.make_level(...) directly"
@@ -234,6 +237,7 @@ def main() -> int:
     images = "--no-images" not in sys.argv[3:]
     focus = int(sys.argv[sys.argv.index("--focus") + 1]) if "--focus" in sys.argv[3:] else None
     history = "--history" in sys.argv[3:]
+    play = "--play" in sys.argv[3:]
     import numpy as np
 
     import scipy.ndimage  # noqa: F401
@@ -250,7 +254,10 @@ def main() -> int:
     if focus is None:
         names, reserved = PRELOADED, RESERVED
     else:
-        names, reserved = (PRELOADED_HISTORY, RESERVED_HISTORY) if history else (PRELOADED_STEP, RESERVED_STEP)
+        if play:
+            names, reserved = PRELOADED_PLAY, RESERVED_PLAY
+        else:
+            names, reserved = (PRELOADED_HISTORY, RESERVED_HISTORY) if history else (PRELOADED_STEP, RESERVED_STEP)
         namespace["step_to_fix"] = helpers.recording[focus]
     namespace.update({name: getattr(helpers, name) for name in names if name != "step_to_fix"})
     builtins = {name: namespace[name] for name in reserved}
@@ -327,6 +334,7 @@ class KernelClient:
         log: Callable[[dict], None] | None = None,
         focus: int | None = None,
         history: bool = False,
+        play: bool = False,
     ):
         from engine_re.engine_files import EngineEditor
 
@@ -336,6 +344,7 @@ class KernelClient:
         self.images = images
         self.focus = focus
         self.history = history
+        self.play = play
         self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
@@ -345,7 +354,7 @@ class KernelClient:
         if not self.images:
             cmd.append("--no-images")
         if self.focus is not None:
-            cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else [])
+            cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else []) + (["--play"] if self.play else [])
         self.proc = subprocess.Popen(
             cmd,
             cwd=self.workspace,
