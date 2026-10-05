@@ -36,10 +36,10 @@ class Tiny(ARCBaseGame):
 ACTIONS = [Action(0), Action(2), Action(2), Action(4), Action(1), Action(1), Action(1), Action(3)]
 
 
-def _game_class(source: str) -> type:
+def _game_class(source: str, name: str = "Tiny") -> type:
     module = types.ModuleType("tiny_game")
     exec(compile(source, "tiny.py", "exec"), module.__dict__)
-    return module.Tiny
+    return getattr(module, name)
 
 
 @pytest.fixture()
@@ -143,12 +143,16 @@ def step(state, action):
 SIMPLE_TINY_GAME = 'PLAYER = Sprite([[9]], x=1, y=1, tags=("player",))\n' + SIMPLE_TINY_GAME
 
 
-def _simple_engine(tmp_path: Path, game_code: str) -> Path:
+def _engine_source(game_code: str) -> str:
+    """A make_level/step engine.py: the starting module with `game_code` as the game."""
     from engine_re.skeleton import render_skeleton
 
     skeleton = render_skeleton("tiny", [1, 2, 3, 4])
-    source = skeleton[: skeleton.index("# ==== YOUR GAME ====")] + game_code
-    return _engine(tmp_path, source)
+    return skeleton[: skeleton.index("# ==== YOUR GAME ====")] + game_code
+
+
+def _simple_engine(tmp_path: Path, game_code: str) -> Path:
+    return _engine(tmp_path, _engine_source(game_code))
 
 
 def test_simple_engine_passes_contract_and_acceptance(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -429,3 +433,430 @@ def test_compaction_keeps_tool_argument_keys() -> None:
     elided = json.loads(_elide_arguments(json.dumps({"content": "x" * 5000})))
     assert set(elided) == {"content"}
     assert len(elided["content"]) < 400 and "elided" in elided["content"]
+
+
+# --- Failure reports: stop_on_fail, one level, regions, sprites, images, reproduction ---------
+
+TWO_LEVELS = '''
+from arcengine import ARCBaseGame, Camera, GameAction, Level, Sprite
+
+MOVES = {GameAction.ACTION1: (0, -1), GameAction.ACTION2: (0, 1), GameAction.ACTION3: (-1, 0), GameAction.ACTION4: (1, 0)}
+
+
+class Two(ARCBaseGame):
+    def __init__(self, seed: int = 0) -> None:
+        levels = [
+            Level(sprites=[Sprite([[9]], name="player", x=1, y=1), Sprite([[5] * 8], name="wall", x=0, y=0)], grid_size=(8, 8)),
+            Level(sprites=[Sprite([[9]], name="player", x=1, y=3), Sprite([[8] * 8], name="wall", x=0, y=7)], grid_size=(8, 8)),
+        ]
+        super().__init__(game_id="two", levels=levels, camera=Camera(0, 0, 8, 8, 0, 3), available_actions=[1, 2, 3, 4])
+
+    def step(self) -> None:
+        dx, dy = MOVES.get(self.action.id, (0, 0))
+        if dx or dy:
+            self.try_move("player", dx, dy)
+        if self.current_level.get_sprites_by_name("player")[0].x >= 4:
+            self.next_level()
+        self.complete_action()
+'''
+# Level 0 is solved at step 3 (the player reaches x=4); steps 4-8 play level 1, with a RESET at step 7.
+TWO_ACTIONS = [Action(0), Action(4), Action(4), Action(4), Action(2), Action(4), Action(1), Action(0), Action(2)]
+
+SIMPLE_TWO = """
+LAYOUT = {0: ((1, 1), 5, 0), 1: ((1, 3), WALL1, 7)}
+
+
+def make_level(n):
+    (px, py), colour, wall_y = LAYOUT[n]
+    player = Sprite([[9]], x=px, y=py, name="player", tags=("player",))
+    return State(
+        grid=(8, 8),
+        sprites=[
+            Sprite([[3] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name="border"),
+            Sprite([[0] * 8 for _ in range(8)], layer=-1, collidable=False, name="background"),
+            player,
+            Sprite([[colour] * 8], x=0, y=wall_y, name="wall", tags=("wall",)),
+        ],
+        vars={"player": player},
+    )
+
+
+def step(state, action):
+    moves = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}
+    if action.id in moves:
+        state.try_move(state.vars["player"], *moves[action.id])
+    if state.vars["player"].x >= 4:
+        state.status = "level_solved"
+"""
+
+
+@pytest.fixture()
+def two_level_trace() -> Trace:
+    return record_trace(_game_class(TWO_LEVELS, "Two"), "two", TWO_ACTIONS)
+
+
+def _repro_commands(text: str) -> str:
+    """The python lines the report prints under "Reproduce in python:", as they would be pasted."""
+    lines = text.splitlines()
+    start = lines.index("  Reproduce in python:")
+    return "\n".join(line[4:] for line in lines[start + 1 :] if line.startswith("    "))
+
+
+def test_stop_on_fail_reports_only_the_first_failure(tmp_path: Path, tiny_trace: Trace) -> None:
+    engine = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    full = replay_test(engine, tiny_trace, scratch_root=tmp_path)
+    stop = replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    # The bookkeeping covers the whole replay either way; only the text stops.
+    text_only = ("stop_on_fail", "mode", "seconds", "detail_steps")
+    assert {k: v for k, v in stop.summary().items() if k not in text_only} == {
+        k: v for k, v in full.summary().items() if k not in text_only
+    }
+    assert stop.first_fail == 1 and stop.exact < stop.total
+    assert "step 0 matches; step 1 is the first mismatch" in stop.text
+    assert "--- Step 1: ACTION2" in stop.text and "--- Step 2" not in stop.text
+    assert "All mismatching steps" not in stop.text and "Per level" not in stop.text
+    assert "Reproduce in python:" in stop.text
+    # stop_on_fail=False reports everything, as before.
+    assert "All mismatching steps" in full.text and "Per level" in full.text and "--- Step 2" in full.text
+
+
+def test_stop_on_fail_reports_a_contract_failure_without_the_replay(tmp_path: Path, tiny_trace: Trace) -> None:
+    path = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    path.write_text(path.read_text().replace("    layer: int = 0  # higher", "    layer: int = 1  # higher"), encoding="utf-8")
+    stop = replay_test(path, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    assert "FAILED the FIXED INTERFACE block is unchanged" in stop.text
+    assert "not reported until the contract tests pass" in stop.text and "--- Step" not in stop.text
+    assert stop.total == len(tiny_trace) and stop.first_fail == 1  # still replayed for the bookkeeping
+    assert "--- Step 1" in replay_test(path, tiny_trace, stop_on_fail=False, scratch_root=tmp_path).text
+
+
+def test_level_only_replays_that_level(tmp_path: Path, two_level_trace: Trace) -> None:
+    from engine_re.tester import level_span
+
+    assert two_level_trace.level_starts() == {0: 0, 1: 3}
+    assert level_span(two_level_trace, 0) == (0, 0, 4) and level_span(two_level_trace, 1) == (3, 4, 9)
+    engine = _simple_engine(tmp_path, SIMPLE_TWO.replace("WALL1", "8"))
+    assert replay_test(engine, two_level_trace, scratch_root=tmp_path).passed
+    one = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path)
+    assert one.passed and (one.first_step, one.total, one.level) == (4, 5, 1), one.text
+    assert one.start_frame_diff == 0
+    assert "level 1 only" in one.text and "ALL 5 STEPS OF LEVEL 1 MATCH (and its start frame)" in one.text
+    zero = replay_test(engine, two_level_trace, level=0, scratch_root=tmp_path)
+    assert zero.passed and (zero.first_step, zero.total) == (0, 4)
+    with pytest.raises(ValueError, match="not a level"):
+        replay_test(engine, two_level_trace, level=2, scratch_root=tmp_path)
+
+
+def test_level_start_failure_is_explained_first(tmp_path: Path, two_level_trace: Trace) -> None:
+    engine = _simple_engine(tmp_path, SIMPLE_TWO.replace("WALL1", "11"))
+    report = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path, images=True)
+    assert not report.passed and report.start_frame_diff == 64 * 8
+    assert "the level 1 start frame differs (512 px)" in report.text
+    assert "--- Level 1 start" in report.text and "--- Step" not in report.text
+    assert "[1] rows 56-63, cols 0-63 (your grid cells x 0-7, y 7): 512 px differ, expected->got 8->11 x512" in report.text
+    assert '#3 "wall" tags=(wall) layer=0 x=0 y=7 size=8x1 visible collidable (shows at 512 of these px)' in report.text
+    assert "before, after = try_step(3, level=1)" in report.text
+    assert report.detail_steps == [3] and len(report.images) == 1 and report.images[0].png.startswith(b"\x89PNG")
+
+
+def test_find_regions_clusters_differences_with_a_gap_tolerance() -> None:
+    from engine_re import diff_report
+
+    expected = np.zeros((64, 64), np.int8)
+    got = expected.copy()
+    got[10:12, 10:12] = 9
+    got[10:12, 14] = 9  # two empty pixels from the block before: the same region
+    got[40, 40] = 3
+    got[60:62, 2:6] = 8
+    regions, hidden = diff_report.find_regions(expected, got)
+    assert hidden == 0 and [r.n for r in regions] == [1, 2, 3]
+    assert [r.core for r in regions] == [(10, 10, 11, 14), (40, 40, 40, 40), (60, 2, 61, 5)]
+    assert regions[0].box == (9, 9, 12, 15) and regions[0].changes == [(0, 9, 6)] and regions[0].pixels == 6
+    many = expected.copy()
+    many[::8, ::8] = 1  # 64 isolated pixels: only the largest few are numbered
+    regions, hidden = diff_report.find_regions(expected, many)
+    assert len(regions) == diff_report.MAX_REGIONS and hidden == 64 - diff_report.MAX_REGIONS
+
+
+def test_comparison_image_boxes_every_region_on_both_frames() -> None:
+    from engine_re import diff_report
+
+    expected = np.full((64, 64), 4, np.int8)
+    got = expected.copy()
+    got[20:24, 30:34] = 9
+    got[50, 5] = 11
+    regions, _ = diff_report.find_regions(expected, got)
+    img = diff_report.comparison_image(got, expected, regions, left_title="YOUR ENGINE", right_title="ORIGINAL GAME")
+    scale, pad, head = diff_report.UPSCALE, 12, 30
+    assert img.size == (2 * 64 * scale + 3 * pad, head + 64 * scale + pad)
+    pixels = np.asarray(img)
+    for left in (pad, 2 * pad + 64 * scale):  # both panels
+        for region in regions:
+            r0, c0, r1, c1 = region.box
+            top, mid = head + r0 * scale + 1, left + (c0 + c1 + 1) * scale // 2
+            assert tuple(pixels[top, mid]) == diff_report.BOX_RGB
+        inside = pixels[head + 22 * scale, left + 32 * scale]  # a differing pixel is not covered
+        assert tuple(inside) == (diff_report.PALETTE[9] if left == pad else diff_report.PALETTE[4])
+    png = diff_report.png_bytes(img)
+    assert png.startswith(b"\x89PNG") and diff_report.data_url(png).startswith("data:image/png;base64,")
+
+
+def test_palette_matches_the_main_harness() -> None:
+    from engine_re.diff_report import PALETTE
+    from inference.agent.vision_context import ARC_COLOR_MAP
+
+    assert PALETTE == ARC_COLOR_MAP
+
+
+def test_regions_list_the_sprites_drawn_there() -> None:
+    from engine_re import diff_report
+    from engine_re.game_api import canonical, render, state_summary
+
+    api = canonical()
+
+    def state(x: int, ghost: bool = True):
+        sprites = [
+            api.Sprite([[0] * 6 for _ in range(6)], layer=-1, collidable=False, name="background"),
+            api.Sprite([[9]], x=x, y=1, name="player", tags=("player",)),
+        ]
+        if ghost:
+            sprites.append(api.Sprite([[7]], x=3, y=1, visible=False, name="ghost"))
+        return api.State(grid=(6, 6), sprites=sprites, vars={"moves": x})  # scale 10, offset (2, 2)
+
+    live = state(1)
+    before = state_summary(live)
+    live.sprites[1].move(1, 0)  # the step, in place, as step() does
+    live.vars["moves"] = 2
+    expected = render(state(3, ghost=False))
+    expected[0, 30] = 11  # in the border, where nothing of the engine draws
+    lines, regions = diff_report.describe_frames(expected, render(live), before, state_summary(live), crops=False, images=True)
+    text = "\n".join(lines)
+    assert len(regions) == 2
+    assert "[1] rows 0, cols 30 (outside your grid)" in text
+    assert "no sprite of yours draws here (the empty screen is colour 5); the original shows 11 (yellow) x1" in text
+    assert "[2] rows 12-21, cols 22-41 (your grid cells x 2-3, y 1)" in text
+    assert '#1 "player" tags=(player) layer=0 x=2 y=1 size=1x1 visible collidable (shows at 100 of these px); this step: x 1->2' in text
+    assert '#2 "ghost" tags=() layer=0 x=3 y=1 size=1x1 HIDDEN (visible=False) collidable (hidden; would draw 100 of these px)' in text
+    assert "#0 \"background\" tags=() layer=-1 x=0 y=0 size=6x6 visible not collidable (shows at 100 of these px)" in text
+    assert "your state.vars changed: moves 1->2" in text
+
+
+def test_state_summary_follows_the_view() -> None:
+    from engine_re.game_api import canonical, state_summary, unpack_footprint
+
+    api = canonical()
+    sprite = api.Sprite([[9, 9]], x=1, y=1)
+    plain = state_summary(api.State(grid=(8, 8), sprites=[sprite]))
+    turned = state_summary(api.State(grid=(8, 8), sprites=[sprite], view=api.View(rotation=180)))
+    assert plain["sprites"][0]["box"] == [8, 8, 15, 23]
+    assert turned["sprites"][0]["box"] == [48, 40, 55, 55]
+    assert unpack_footprint(turned["sprites"][0]).sum() == 2 * 64
+
+
+PRINTING_STEP = """
+def step(state, action):
+    moves = {1: (0, -1), 2: (0, DOWN), 3: (-1, 0), 4: (1, 0)}
+    print("action", action.id, "player at", state.vars["player"].x, state.vars["player"].y)
+    if action.id in moves:
+        state.try_move(state.vars["player"], *moves[action.id])
+"""
+
+
+def _printing_tiny_game(down: str) -> str:
+    game = SIMPLE_TINY_GAME[: SIMPLE_TINY_GAME.index("def step(state, action):")] + PRINTING_STEP
+    return game.replace("DOWN", down)
+
+
+def test_printed_command_reproduces_the_failure_in_the_kernel(tmp_path: Path, tiny_trace: Trace) -> None:
+    tiny_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    engine = _simple_engine(workspace, _printing_tiny_game("2"))
+    report = replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    assert "your engine printed during this step:\n      action 2 player at 1 1" in report.text
+    command = _repro_commands(report.text)
+    assert command.startswith("before, after = try_step(1)\n# replays steps 0-0")
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        out = kernel.execute(command)  # exactly as printed
+        assert "Traceback" not in out, out
+        assert out.startswith("try_step(1): ACTION2 on your engine after replaying step 0 (level 0)\n")
+        assert "your engine printed during the step:\n  action 2 player at 1 1\n" in out
+        assert 'what the step changed in your state:\n  #2 "": y 1->3\n  vars: unchanged\n' in out
+        assert "compared with the recording after step 1 (expected = the original, got = yours):" in out
+        assert "[1] rows 16-31, cols 8-15 (your grid cells x 1, y 2-3)" in out and '#2 "" tags=(player)' in out
+        assert kernel.execute("print(type(before).__name__, after.sprites[2].y - before.sprites[2].y)").strip() == "State 2"
+        out = kernel.execute("b, a = try_step(1, action=4)")
+        assert '#2 "": x 1->2' in out and "not compared with the recording: the action is not step 1's recorded one (ACTION2)" in out
+        out = kernel.execute("b, a = try_step(2, state=after); print(a.sprites[2].y)")
+        assert "on your engine from the state you gave" in out and "(from the state you gave)" in out
+        assert out.strip().endswith("5")  # y=3 after step 1, and this engine moves down by 2
+    finally:
+        kernel.stop()
+
+
+def test_try_step_compares_a_level_start(tmp_path: Path, two_level_trace: Trace) -> None:
+    two_level_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    engine = _simple_engine(workspace, SIMPLE_TWO.replace("WALL1", "11"))
+    report = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path)
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        out = kernel.execute(_repro_commands(report.text) + "\nprint(before, after.level)")
+        assert "Traceback" not in out, out
+        assert "try_step(3, level=1): your make_level(1) as the test starts it" in out
+        assert '#3 "wall"' in out and "expected->got 8->11 x512" in out and out.strip().endswith("None 1")
+        out = kernel.execute("b, a = try_step(5, level=1)")
+        assert "on your engine started at level 1, after replaying step 4 (level 1)" in out and '#2 "player": x 1->2' in out
+        out = kernel.execute("b, a = try_step(3)")  # the full replay: step 3 completes level 0
+        assert "the level changed from 0 to 1: your state is now a fresh copy of make_level(1)" in out
+    finally:
+        kernel.stop()
+
+
+def test_engine_prints_are_captured_per_step_and_capped(tmp_path: Path) -> None:
+    from engine_re.candidate_runner import RUN_PRINT_LIMIT
+
+    noisy = SIMPLE_TINY_GAME.replace("DOWN", "1").replace(
+        "def step(state, action):", "def step(state, action):\n    print('step', action.id)\n    print('z' * 9000)"
+    )
+    engine = _simple_engine(tmp_path, noisy)
+    actions = [Action(0).to_json()] + [Action(2 + k % 2).to_json() for k in range(300)]
+    meta = {"win_levels": 1, "available_actions": [1, 2, 3, 4], "levels": [0]}
+    result, frames = run_candidate(engine, actions, scratch_root=tmp_path, meta=meta, inspect=[300])
+    assert result["error"] is None and len(frames) == len(actions)
+    prints = result["prints"]
+    assert "0" not in prints and prints["1"].startswith("step 2\nzzz") and "characters not kept" in prints["1"]
+    assert all(len(text) < 2100 for text in prints.values())
+    assert sum(len(text) for text in prints.values()) <= RUN_PRINT_LIMIT + 2100
+    assert result.get("prints_dropped", 0) > 0 and prints["300"].startswith("step 3")  # inspected: always kept
+    assert result["stdout"] == ""  # nothing reached the process's own stdout
+
+
+def test_state_changes_track_sprites_by_identity() -> None:
+    from engine_re.diff_report import state_changes
+    from engine_re.game_api import canonical, state_summary
+
+    api = canonical()
+    a, b, c = (api.Sprite([[1]], name=n) for n in "abc")
+    state = api.State(grid=(4, 4), sprites=[a, b, c], vars={"n": 1})
+    before = state_summary(state)
+    state.remove(a)  # b and c move up one index
+    b.move(1, 0)
+    c.visible = False
+    state.add(api.Sprite([[2]], x=3, y=3, name="d"))
+    state.vars["n"] = 2
+    state.status = "level_solved"
+    lines = state_changes(before, state_summary(state))
+    assert lines == [
+        '#0 "b": x 0->1 (it was #1 before the step)',
+        '#1 "c": hidden (it was #2 before the step)',
+        'added #2 "d" at x=3 y=3',
+        'removed: #0 "a" (its index before the step)',
+        "vars: n 1->2",
+        "status: playing -> level_solved",
+    ]
+
+
+def _image_messages(agent) -> list[tuple[int, dict]]:
+    return [(k, m) for k, m in enumerate(agent.messages) if m["role"] == "user" and isinstance(m["content"], list)]
+
+
+def test_agent_sends_the_latest_test_images_after_the_tool_messages(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    wrong = _engine_source(SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    model = _ScriptedModel(
+        [
+            [("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})],  # tested automatically
+            [("run_tests", {})],
+            [("run_tests", {"level": 0, "stop_on_fail": False})],
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
+    agent.run()
+    images = _image_messages(agent)
+    assert len(images) == 3 and agent.result.image_messages == 3
+    for k, _ in images:
+        assert agent.messages[k - 1]["role"] == "tool"  # after the turn's tool messages
+    assert all(isinstance(m["content"], str) for m in agent.messages if m["role"] == "tool")
+    latest = images[-1][1]["content"]
+    assert sum(p["type"] == "image_url" for p in latest) == 2  # stop_on_fail=false, details=2
+    assert all(p["image_url"]["url"].startswith("data:image/png;base64,") for p in latest if p["type"] == "image_url")
+    for _, earlier in images[:-1]:  # only the latest test keeps its images
+        assert all(p["type"] == "text" for p in earlier["content"]) and any("omitted" in p["text"] for p in earlier["content"])
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    saved = [path for r in records if "images" in r for path in r["images"]]
+    assert saved[0] == "images/turn001_step1_auto.png" and len(saved) == 4
+    assert all((tmp_path / path).read_bytes().startswith(b"\x89PNG") for path in saved)
+    assert "base64" not in (tmp_path / "transcript.jsonl").read_text()
+
+
+def test_agent_without_images_keeps_a_text_diff(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    wrong = _engine_source(SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    model = _ScriptedModel([[("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})]])
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=model, images=False)
+    agent.run()
+    assert not _image_messages(agent) and not (tmp_path / "images").exists()
+    auto = agent.messages[-1]["content"]
+    assert "[harness] engine.py changed" in auto and "one hex digit per pixel" in auto and "--- Step 1" in auto
+    assert len(auto) < 4000
+
+
+def test_agent_level_tests_are_kept_apart_from_full_replays(tmp_path: Path, two_level_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    two_level_trace.save(tmp_path / "trace")
+    wrong = _engine_source(SIMPLE_TWO.replace("WALL1", "11"))
+    model = _ScriptedModel(
+        [
+            [("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})],
+            [("run_tests", {"level": 1})],
+            [("run_tests", {"from_level": 1, "stop_on_fail": "false"})],  # the earlier name still works
+        ]
+    )
+    agent = EngineAgent("two", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
+    agent.run()
+    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
+    assert [(t["level"], t["from_level"], t["stop_on_fail"], t["total"]) for t in tests] == [
+        (None, None, True, 9), (1, 1, True, 5), (1, 1, False, 5),
+    ]
+    assert agent.result.best["total"] == 9 and agent.best_exact == tests[0]["exact"]
+    final = (tmp_path / "final_test.txt").read_text()
+    assert "All mismatching steps" in final  # the authoritative final test is the full report
+
+
+def test_compaction_handles_image_messages(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(keep_recent_tool_outputs=1), Budget(), client=_ScriptedModel([]))
+    picture = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+    agent.messages = [
+        {"role": "system", "content": "s"},
+        {"role": "tool", "tool_call_id": "a", "content": "x" * 1000},
+        {"role": "user", "content": [{"type": "text", "text": "images"}, picture]},
+        {"role": "tool", "tool_call_id": "b", "content": "y" * 1000},
+    ]
+    agent._compact()
+    assert agent.messages[2]["content"][1] == picture and "elided" in agent.messages[1]["content"]
+
+
+def test_prompt_and_tools_follow_the_image_setting() -> None:
+    from engine_re.prompts import TOOLS, system_prompt, tools
+
+    run_tests = next(t for t in TOOLS if t["function"]["name"] == "run_tests")["function"]
+    assert set(run_tests["parameters"]["properties"]) == {"level", "stop_on_fail", "details"}
+    assert "image" in run_tests["description"]
+    text_only = next(t for t in tools(False) if t["function"]["name"] == "run_tests")["function"]
+    assert "image" not in text_only["description"]
+    assert "image" not in system_prompt(images=False).lower() and "image" in system_prompt(images=True)

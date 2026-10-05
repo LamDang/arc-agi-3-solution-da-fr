@@ -6,6 +6,8 @@ Everything here is in the kernel's namespace: ``trace``, ``S`` (= trace.steps),
 
 from __future__ import annotations
 
+import contextlib
+import copy
 import sys
 import types
 from collections import Counter
@@ -14,7 +16,7 @@ from typing import Any, Callable, Iterable
 
 import numpy as np
 
-from engine_re import game_api
+from engine_re import diff_report, game_api, tester
 from engine_re.trace import Action, Step, Trace, new_game as _instantiate, perform
 
 HEX = "0123456789abcdef"
@@ -57,7 +59,14 @@ compare(i, obs)               diff an observation from play()/replay() against s
 engine()                      load engine.py fresh and return it as a module (engine().make_level(0), ...)
 render(state)                 draw a State as a 64x64 frame, exactly as the harness does
 game.state                    after play()/replay() on a make_level/step engine: the current State
-check_contract()              run the contract tests on engine.py (run_tests runs them too)"""
+check_contract()              run the contract tests on engine.py (run_tests runs them too)
+before, after = try_step(i, state=None, action=None, level=None)
+                              load engine.py fresh, replay steps 0..i-1 (or start from `state`), apply step i's
+                              action (or `action`: an id or (6, x, y)) and print what engine.py printed, what the
+                              step changed in your state (sprites as #k = state.sprites[k], vars, status) and,
+                              for the recorded action, the comparison with the recording as run_tests shows it;
+                              returns copies of your State before and after. print() in make_level/step to debug.
+                              (It rebinds the name `before`; before(i) above is S[i-1].last.)"""
     )
 
 
@@ -347,3 +356,154 @@ def compare(i: int, obs: dict[str, Any]) -> None:
         print(f"frames: real {step.n_frames}, yours {len(obs['frames'])} (only the final frame is compared)")
     print("final frame: ", end="")
     diff(step.last, obs["frames"][-1] if len(obs["frames"]) else None)
+
+
+# --- Reproducing and explaining one step (the command run_tests prints) -----------------------
+
+_FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
+
+
+def _as_action(action: Any, i: int) -> Action:
+    """The action to apply: step i's recorded one, or an id, (6, x, y), a dict or an Action."""
+    if action is None:
+        return S[i].action
+    if isinstance(action, Action):
+        return action
+    if isinstance(action, (int, np.integer)):
+        return Action(int(action))
+    if isinstance(action, (tuple, list)):
+        return Action(int(action[0]), *(int(v) for v in action[1:3]))
+    if isinstance(action, dict):
+        return Action.from_json(action)
+    if hasattr(action, "id"):
+        return Action(int(action.id), getattr(action, "x", None), getattr(action, "y", None))
+    raise TypeError(f"action must be an action id, (6, x, y) or an Action, not {type(action).__name__}")
+
+
+def _quietly(fn: Callable[[], Any], what: str) -> Any:
+    """Run fn with your engine's prints dropped; on an error say where it happened, then raise."""
+    try:
+        with contextlib.redirect_stdout(game_api.PrintCapture(0, 0)):
+            return fn()
+    except Exception:
+        print(f"your engine raised an error {what}:")
+        raise
+
+
+def _steps_text(first: int, last: int) -> str:
+    return f"step {first}" if first == last else f"steps {first}-{last}"
+
+
+def _print_output(capture: game_api.PrintCapture, what: str = "the step") -> None:
+    text = capture.getvalue()
+    if not text.strip():
+        print(f"your engine printed nothing during {what}")
+        return
+    kept, total = game_api.last_lines(text, lines=40, chars=3000)
+    print(f"your engine printed during {what}" + (f" (the last 40 of {total} lines):" if total > 40 else ":"))
+    print("\n".join("  " + line for line in kept.splitlines()))
+
+
+def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None = None) -> tuple[Any, Any]:
+    """Run step i on your engine and explain it; returns copies (before, after) of your State.
+
+    Loads engine.py fresh. The State before step i comes from replaying the recorded steps 0..i-1
+    through the harness rules (RESET, level changes, WIN, GAME_OVER), their prints dropped; or it
+    is `state` (a copy), when given. Then it applies step i's recorded action, or `action` (an id,
+    (6, x, y) or an Action), and prints:
+      - what engine.py printed during the step (print() freely in make_level and step);
+      - what the step changed in your state: sprites moved, changed, shown, hidden, added or
+        removed (#k = state.sprites[k]), state.vars and the status;
+      - with the recorded action, the comparison with the recording after step i, as run_tests
+        explains a failing step: numbered regions that differ and your sprites in each.
+    level=L starts at level L's start and replays only that level's steps before i, as
+    run_tests(level=L) does; try_step(e, level=L), e being the step that entered level L, compares
+    your make_level(L) with the level's recorded start."""
+    capture = game_api.PrintCapture()
+    try:
+        with contextlib.redirect_stdout(capture):
+            module = engine()
+    except Exception:
+        _print_output(capture, "loading engine.py")
+        raise
+    if not game_api.is_simple_engine(module):
+        return _try_arcengine_step(i, action)
+    game = game_api.GameRunner(module, S[0].win_levels, S[0].available_actions)
+    recorded = action is None
+    if state is not None:
+        game.state = copy.deepcopy(state)
+        game.level = int(getattr(state, "level", 0) or 0)
+        game.score = S[i - 1].levels_completed if 0 < i < len(S) else game.level
+        game.status = "NOT_FINISHED"
+        start = "from the state you gave"
+    elif level:
+        entry = trace.level_starts()[level]
+        if i < entry:
+            raise ValueError(f"level {level} starts with step {entry}'s final frame; its steps are {entry + 1} onwards")
+        capture = game_api.PrintCapture()
+        with contextlib.redirect_stdout(capture):
+            game.set_level(level)
+        game.score = level
+        if i == entry:
+            print(f"try_step({i}, level={level}): your make_level({level}) as the test starts it, against the level's recorded start")
+            _print_output(capture, f"make_level({level})")
+            after = game.state
+            lines, _ = diff_report.describe_frames(S[i].last, render(after), None, game_api.state_summary(after), crops=True, images=False)
+            print(f"compared with the recording (step {i}'s final frame; expected = the original, got = yours):")
+            print("\n".join(lines))
+            return None, copy.deepcopy(after)
+        for k in range(entry + 1, i):
+            _quietly(lambda k=k: game.perform(S[k].action), f"while replaying step {k}")
+        start = f"started at level {level}, after replaying {_steps_text(entry + 1, i - 1)}" if i > entry + 1 else f"at the start of level {level}"
+    else:
+        for k in range(i):
+            _quietly(lambda k=k: game.perform(S[k].action), f"while replaying step {k}")
+        start = f"after replaying {_steps_text(0, i - 1)}" if i else "fresh"
+    act = _as_action(action, i)
+    live = game.state
+    alive = list(getattr(live, "sprites", None) or [])  # keeps the sprite ids unique until the summary after the step
+    before_summary = game_api.state_summary(live) if live is not None else None
+    before = copy.deepcopy(live)
+    level_before = game.level
+    print(f"try_step({i}): {act} on your engine {start} (level {level_before})")
+    capture = game_api.PrintCapture()
+    try:
+        with contextlib.redirect_stdout(capture):
+            obs = game.perform(act)
+    except Exception:
+        _print_output(capture)
+        print("your engine raised an error in this step:")
+        raise
+    after_state = game.state
+    after_summary = game_api.state_summary(after_state) if after_state is not None else None
+    del alive
+    _print_output(capture)
+    print("what the step changed in your state:")
+    print("\n".join("  " + line for line in diff_report.state_changes(before_summary, after_summary)))
+    if not recorded:
+        print(f"not compared with the recording: the action is not step {i}'s recorded one ({S[i].action})")
+    elif i < len(S):
+        fields = {k: obs[k] for k in _FIELDS}
+        text, _ = tester.describe_step(
+            S[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
+            show_vars=False,
+        )
+        note = " (from the state you gave)" if state is not None else ""
+        print(f"compared with the recording after step {i}{note} (expected = the original, got = yours):")
+        print("\n".join(text.splitlines()[1:]))
+    return before, copy.deepcopy(after_state)
+
+
+def _try_arcengine_step(i: int, action: Any) -> tuple[None, None]:
+    """try_step for an ARCBaseGame engine: the prints and the comparison, without sprites."""
+    game = new_game()
+    for k in range(i):
+        _quietly(lambda k=k: play(game, S[k].action), f"while replaying step {k}")
+    capture = game_api.PrintCapture()
+    with contextlib.redirect_stdout(capture):
+        obs = play(game, _as_action(action, i))
+    _print_output(capture)
+    if action is None:
+        text, _ = tester.describe_step(S[i], {k: obs[k] for k in _FIELDS}, obs["frames"], tester.levels_before(trace)[i])
+        print("\n".join(text.splitlines()[1:]))
+    return None, None

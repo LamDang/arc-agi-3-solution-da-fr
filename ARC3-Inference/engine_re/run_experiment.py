@@ -90,6 +90,11 @@ def main() -> int:
         default="simple",
         help="simple = make_level/step on fixed Sprite/State classes (default); arcengine = an ARCBaseGame subclass.",
     )
+    parser.add_argument(
+        "--no-images",
+        action="store_true",
+        help="Text-only feedback: do not send pictures of the failing step's frames (for models without image input).",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -110,7 +115,9 @@ def main() -> int:
         if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") != "running":
             print(f"[{game}] already finished; skipping", flush=True)
             return
-        agent = EngineAgent(game, game_dirs[game], model, budget, match=args.match, interface=args.interface)
+        agent = EngineAgent(
+            game, game_dirs[game], model, budget, match=args.match, interface=args.interface, images=not args.no_images
+        )
         result = agent.run()
         final = result.final or {}
         print(

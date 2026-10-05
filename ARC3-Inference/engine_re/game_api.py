@@ -31,10 +31,13 @@ are meant to be scored with ``match="final"``.
 
 from __future__ import annotations
 
+import base64
 import copy
+import io
 import random
 import sys
 import types
+import zlib
 from typing import Any
 
 import numpy as np
@@ -364,6 +367,29 @@ def sprite_pixels(sprite: Any) -> np.ndarray:
     return np.asarray(canonical().Sprite.render(sprite), dtype=np.int16)
 
 
+def _place(screen: np.ndarray, px: np.ndarray, sprite: Any, w: int, h: int, s: int, ox: int, oy: int) -> None:
+    """Draw a sprite's pixels as drawn (values < 0 skipped) onto the unturned screen: screen sprites
+    in screen pixels; grid sprites clipped to the grid in grid cells, then scaled and placed."""
+    x, y = int(sprite.x), int(sprite.y)
+    if sprite.screen:
+        _blit(screen, px, y, x, 64, 64)
+        return
+    r0, c0 = max(0, -y), max(0, -x)
+    r1, c1 = min(px.shape[0], h - y), min(px.shape[1], w - x)
+    if r0 >= r1 or c0 >= c1:
+        return
+    sub = px[r0:r1, c0:c1]
+    if s > 1:
+        sub = np.repeat(np.repeat(sub, s, axis=0), s, axis=1)
+    _blit(screen, sub, oy + (y + r0) * s, ox + (x + c0) * s, 64, 64)
+
+
+def draw_order(state: Any) -> list[int]:
+    """Indices of state.sprites in drawing order: lowest layer first, then list order."""
+    sprites = list(state.sprites)
+    return sorted(range(len(sprites)), key=lambda i: (sprites[i].layer, i))
+
+
 def render(state: Any) -> np.ndarray:
     """Draw a State as a 64x64 frame, following the rules in FIXED_INTERFACE."""
     w, h = int(state.grid[0]), int(state.grid[1])
@@ -371,27 +397,173 @@ def render(state: Any) -> np.ndarray:
     s, ox, oy = geometry((w, h), getattr(view, "scale", None) if view is not None else None)
     screen = np.full((64, 64), 5, np.int16)
     sprites = list(state.sprites)
-    for i in sorted(range(len(sprites)), key=lambda i: (sprites[i].layer, i)):
+    for i in draw_order(state):
         sprite = sprites[i]
         if not sprite.visible:
             continue
         px = sprite_pixels(sprite)
         if px.ndim != 2 or px.size == 0:
             continue
-        x, y = int(sprite.x), int(sprite.y)
-        if sprite.screen:
-            _blit(screen, px, y, x, 64, 64)
-            continue
-        # Clip to the grid in grid cells, then scale and place on the screen.
-        r0, c0 = max(0, -y), max(0, -x)
-        r1, c1 = min(px.shape[0], h - y), min(px.shape[1], w - x)
-        if r0 >= r1 or c0 >= c1:
-            continue
-        sub = px[r0:r1, c0:c1]
-        if s > 1:
-            sub = np.repeat(np.repeat(sub, s, axis=0), s, axis=1)
-        _blit(screen, sub, oy + (y + r0) * s, ox + (x + c0) * s, 64, 64)
+        _place(screen, px, sprite, w, h, s, ox, oy)
     return view_transform(screen, view).astype(np.int8)
+
+
+# --- What the engine prints ---------------------------------------------------------------
+
+
+class PrintCapture(io.TextIOBase):
+    """A stand-in for stdout (``contextlib.redirect_stdout``) that keeps only the first `head` and
+    the last `tail` characters written, so an engine that prints a lot cannot exhaust memory or
+    swell a result file. ``getvalue()`` marks what was dropped."""
+
+    def __init__(self, head: int = 300, tail: int = 1700):
+        super().__init__()
+        self.head_limit, self.tail_limit = head, tail
+        self.head, self.tail, self.total = "", "", 0
+
+    def writable(self) -> bool:
+        return True
+
+    def write(self, text: str) -> int:
+        text = str(text)
+        written = len(text)
+        self.total += written
+        room = self.head_limit - len(self.head)
+        if room > 0:
+            self.head += text[:room]
+            text = text[room:]
+        if text:
+            self.tail = (self.tail + text[-self.tail_limit :])[-self.tail_limit :]
+        return written
+
+    def getvalue(self) -> str:
+        dropped = self.total - len(self.head) - len(self.tail)
+        return self.head + (f"\n[... {dropped} characters not kept ...]\n" if dropped > 0 else "") + self.tail
+
+
+def last_lines(text: str, lines: int = 20, chars: int = 1500, width: int = 200) -> tuple[str, int]:
+    """The end of some printed output: at most its last `lines` lines, each cut to `width`
+    characters, and `chars` characters in all; and how many lines it had."""
+    all_lines = text.rstrip("\n").splitlines()
+    kept = [line if len(line) <= width else line[:width] + f"... [{len(line) - width} more characters]" for line in all_lines[-lines:]]
+    while len(kept) > 1 and sum(len(line) + 1 for line in kept) > chars:
+        kept.pop(0)
+    return "\n".join(kept), len(all_lines)
+
+
+# --- Where each sprite is drawn (failure reports) ---------------------------------------
+
+
+def sprite_footprints(state: Any) -> list[np.ndarray | None]:
+    """For each sprite of state.sprites, in list order: a 64x64 bool mask of the screen pixels it
+    draws, as if it were visible (after rotation, scale, clipping to the grid and the view
+    transform), or None when it draws nothing on the screen."""
+    w, h = int(state.grid[0]), int(state.grid[1])
+    view = _view(state)
+    s, ox, oy = geometry((w, h), getattr(view, "scale", None) if view is not None else None)
+    masks: list[np.ndarray | None] = []
+    for sprite in list(state.sprites):
+        try:
+            px = sprite_pixels(sprite)
+            if px.ndim != 2 or px.size == 0:
+                masks.append(None)
+                continue
+            canvas = np.zeros((64, 64), np.int16)
+            _place(canvas, np.where(px >= 0, 1, -1).astype(np.int16), sprite, w, h, s, ox, oy)
+            mask = view_transform(canvas, view) == 1
+            masks.append(mask if mask.any() else None)
+        except Exception:  # noqa: BLE001  (a malformed sprite simply has no footprint)
+            masks.append(None)
+    return masks
+
+
+def _short_value(value: Any, index: dict[int, int], depth: int = 0) -> str:
+    """repr() of a state.vars value, with the state's sprites written as #index."""
+    if id(value) in index:
+        return f"#{index[id(value)]}"
+    if depth > 2:
+        return "..."
+    if isinstance(value, dict):
+        items = list(value.items())
+        body = ", ".join(f"{_short_value(k, index, depth + 1)}: {_short_value(v, index, depth + 1)}" for k, v in items[:6])
+        return "{" + body + (", ..." if len(items) > 6 else "") + "}"
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+        body = ", ".join(_short_value(v, index, depth + 1) for v in items[:8]) + (", ..." if len(items) > 8 else "")
+        if isinstance(value, list):
+            return f"[{body}]"
+        if isinstance(value, tuple):
+            return f"({body}{',' if len(items) == 1 else ''})"
+        return "{" + body + "}"
+    if hasattr(value, "pixels") and hasattr(value, "layer"):
+        return f"Sprite({getattr(value, 'name', '')!r}, not in state.sprites)"
+    text = repr(value)
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
+def state_summary(state: Any) -> dict[str, Any]:
+    """A JSON-ready description of a State for failure reports: grid, view, status, a short form of
+    state.vars, and for every sprite its fields and where it draws (screen bounding box and a
+    packed mask, see unpack_footprint). The candidate process computes it; the tester reads it."""
+    sprites = list(state.sprites)
+    index = {id(s): i for i, s in enumerate(sprites)}
+    view = _view(state)
+    grid = [int(state.grid[0]), int(state.grid[1])]
+    out: dict[str, Any] = {
+        "grid": grid,
+        "view": {
+            "scale": getattr(view, "scale", None),
+            "rotation": int(getattr(view, "rotation", 0) or 0),
+            "mirror_ud": bool(getattr(view, "mirror_ud", False)),
+            "mirror_lr": bool(getattr(view, "mirror_lr", False)),
+        },
+        "status": str(getattr(state, "status", "")),
+        "level": getattr(state, "level", None),
+        "vars": {},
+        "sprites": [],
+    }
+    try:
+        for k, v in list(dict(state.vars).items())[:16]:
+            out["vars"][str(k)] = _short_value(v, index)
+    except Exception:  # noqa: BLE001
+        out["vars"] = {"?": "state.vars could not be read"}
+    masks = sprite_footprints(state)
+    for sprite, mask in zip(sprites, masks):
+        # oid tells the same sprite object apart in two summaries of one state (before and after a
+        # step), as long as the caller keeps the objects alive in between.
+        entry: dict[str, Any] = {"oid": id(sprite)}
+        for name, default in (("name", ""), ("layer", 0), ("x", 0), ("y", 0), ("visible", True), ("collidable", True),
+                              ("screen", False), ("blocking", "pixel"), ("rotation", 0), ("mirror_ud", False),
+                              ("mirror_lr", False), ("scale", 1)):
+            value = getattr(sprite, name, default)
+            entry[name] = value if isinstance(value, (str, bool)) else int(value) if isinstance(value, (int, np.integer)) else repr(value)
+        entry["tags"] = [str(t) for t in getattr(sprite, "tags", ()) or ()]
+        try:
+            entry["w"], entry["h"] = int(sprite.width), int(sprite.height)
+            entry["pixels_crc"] = zlib.crc32(np.asarray(sprite.pixels, dtype=np.int16).tobytes())
+        except Exception:  # noqa: BLE001
+            entry["w"] = entry["h"] = 0
+            entry["pixels_crc"] = None
+        if mask is not None:
+            rows, cols = np.nonzero(mask)
+            r0, c0, r1, c1 = int(rows.min()), int(cols.min()), int(rows.max()), int(cols.max())
+            entry["box"] = [r0, c0, r1, c1]
+            entry["mask"] = base64.b64encode(np.packbits(mask[r0 : r1 + 1, c0 : c1 + 1]).tobytes()).decode("ascii")
+        out["sprites"].append(entry)
+    return out
+
+
+def unpack_footprint(entry: dict[str, Any]) -> np.ndarray | None:
+    """The 64x64 bool mask of where a sprite of a state_summary draws (None if nowhere)."""
+    box = entry.get("box")
+    if not box:
+        return None
+    r0, c0, r1, c1 = box
+    h, w = r1 - r0 + 1, c1 - c0 + 1
+    bits = np.unpackbits(np.frombuffer(base64.b64decode(entry["mask"]), np.uint8))[: h * w]
+    mask = np.zeros((64, 64), bool)
+    mask[r0 : r1 + 1, c0 : c1 + 1] = bits.reshape(h, w).astype(bool)
+    return mask
 
 
 # --- Running a game -----------------------------------------------------------------

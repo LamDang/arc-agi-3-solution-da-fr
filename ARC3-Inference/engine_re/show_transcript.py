@@ -36,6 +36,9 @@ def main() -> int:
         if "auto_test" in record:
             print(f"    [harness auto-test] {_one_line(record['auto_test'], args.chars)}")
             continue
+        if "images" in record:
+            print(f"    [harness images] {', '.join(record['images'])}")
+            continue
         usage = record.get("usage") or {}
         print(
             f"[turn {record['turn']}] prompt={usage.get('prompt_tokens')} out={usage.get('completion_tokens')} "
@@ -52,7 +55,10 @@ def main() -> int:
         print("\nTests (turn: exact/total, first mismatch):")
         for line in tests.read_text(encoding="utf-8").splitlines():
             t = json.loads(line)
-            level = f" from_level={t['from_level']}" if t.get("from_level") else ""
+            if t.get("level") is not None:
+                level = f" level={t['level']} only"
+            else:
+                level = f" from_level={t['from_level']}" if t.get("from_level") else ""
             print(f"  turn {t['turn']}{level}: {t['exact']}/{t['total']}, first mismatch {t['first_fail']}")
     return 0
 

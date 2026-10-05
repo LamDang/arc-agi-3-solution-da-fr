@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from collections import Counter
 from pathlib import Path
 
@@ -51,11 +52,14 @@ every contract test passing. The session ends as soon as that happens.
 # Tools
 - python: a persistent Python kernel. The recording is loaded as `trace` / `S` (S[i] is step i) with analysis helpers;
   call help_helpers() to list them. It can also run your engine for debugging (engine, render, new_game, play, replay,
-  compare, check_contract).
+  compare, check_contract, try_step).
 - view_engine, write_engine, edit_engine: read and change engine.py.
-- run_tests: the contract tests, then the acceptance test, reporting the first steps where your engine deviates, with
-  pixel diffs. from_level=L tests only level L onwards (the harness starts at make_level(L)), so you can work on a later
-  level before earlier ones pass.
+- run_tests: the contract tests, then the acceptance test. By default it stops at the first failure and explains it:
+  the regions of the final frame that differ (numbered__IMAGES_TOOL__), the colours, your sprites there (#12 means
+  state.sprites[12]) before and after the step, what engine.py printed during the step, and a try_step(i) command that
+  reproduces it in the kernel. level=L tests only level L (your engine starts at make_level(L)), so you can work on a
+  later level before earlier ones pass; stop_on_fail=false lists every failing step.
+- print() in make_level and step is captured per step: run_tests shows the failing step's output, try_step shows it too.
 - finish: stop, when every step matches or you are truly stuck.
 
 # How to work
@@ -69,8 +73,9 @@ every contract test passing. The session ends as soon as that happens.
 3. Model the game the way the real one is built: one tagged sprite per object (walls, pieces, buttons, goals), hidden
    values in state.vars (budget, counters, what is selected), and the HUD as screen sprites that step() updates. Use
    the built-in try_move, collisions, sprite_at and sprites_at rather than writing your own geometry.
-4. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only the
-   end state of each action counts, so skip animations.
+4. Then fix the first failing step each time: read the report__IMAGES_STEP__, run the try_step command it prints to see
+   your state before and after the step and what changed, implement the rule, re-test. Only the end state of each
+   action counts, so skip animations.
 5. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
 6. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
    more analysis. Every change should move the first mismatch later or fix more steps.
@@ -117,8 +122,9 @@ _RULES_AND_TOOLS = """
 - python: a persistent Python kernel. The recording is loaded as `trace` / `S` (S[i] is step i) with analysis helpers;
   call help_helpers() to list them. It can also run your engine for debugging (new_game, play, replay, compare).
 - view_engine, write_engine, edit_engine: read and change engine.py.
-- run_tests: replay and report the first steps where your engine deviates, with pixel diffs. from_level=L tests only
-  level L onwards (your engine starts at set_level(L)), so you can work on a later level before earlier ones pass.
+- run_tests: replay and report where your engine deviates (by default up to the first failure), with the differing
+  regions of the final frame. level=L tests only level L (your engine starts at set_level(L)), so you can work on a
+  later level before earlier ones pass; stop_on_fail=false lists every failing step.
 - finish: stop, when every step matches or you are truly stuck.
 
 # How to work
@@ -147,13 +153,16 @@ _STEP3 = {
 }
 
 
-def system_prompt(match: str = "final", interface: str = "simple") -> str:
+def system_prompt(match: str = "final", interface: str = "simple", images: bool = True) -> str:
     """The system prompt for an engine interface ("simple": make_level/step; "arcengine": an ARCBaseGame
-    subclass) and a matching rule ("final": last frame + state per step; "all": every frame, arcengine only)."""
+    subclass) and a matching rule ("final": last frame + state per step; "all": every frame, arcengine only).
+    images: whether test reports come with pictures of the failing step's frames."""
     if interface == "simple":
         if match != "final":
             raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-        return _SIMPLE_PROMPT + GAME_NOTES
+        text = _SIMPLE_PROMPT.replace("__IMAGES_TOOL__", "; also boxed in an image of your frame next to the original's" if images else "")
+        text = text.replace("__IMAGES_STEP__", " and its image" if images else "")
+        return text + GAME_NOTES
     if interface != "arcengine":
         raise ValueError(f"interface must be one of {INTERFACES}")
     body = _RULES_AND_TOOLS.replace("__STEP3__", _STEP3[match])
@@ -216,7 +225,7 @@ The current test result of engine.py:
 Read engine.py with view_engine, then continue."""
 
 
-TOOLS = [
+_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -283,20 +292,30 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "run_tests",
-            "description": (
-                "Test engine.py: the contract tests (for a make_level/step engine), then the acceptance test, which "
-                "replays the recorded actions through a fresh engine and compares with the recording. Reports how many "
-                "steps match, the first mismatching steps in detail (pixel diffs of the final frame, state fields, "
-                "tracebacks) and the list of all mismatching steps."
-            ),
+            "description": "__RUN_TESTS__",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "from_level": {
+                    "level": {
                         "type": "integer",
-                        "description": "Test only level L onwards: the engine starts at level L. Omit for a full replay.",
+                        "description": (
+                            "Test only level L: your engine starts at level L (make_level(L)), its drawing is compared "
+                            "with the level's recorded start, then it plays that level's recorded steps. Omit for the "
+                            "full replay from step 0."
+                        ),
                     },
-                    "details": {"type": "integer", "description": "How many failing steps to explain in detail (default 2, max 6)."},
+                    "stop_on_fail": {
+                        "type": "boolean",
+                        "description": (
+                            "true (default): the report stops at the first failing test, explained in detail. false: "
+                            "report everything: per-level counts, several failing steps explained, and the list of all "
+                            "failing steps."
+                        ),
+                    },
+                    "details": {
+                        "type": "integer",
+                        "description": "With stop_on_fail=false: how many failing steps to explain in detail (default 2, max 6).",
+                    },
                 },
             },
         },
@@ -314,3 +333,25 @@ TOOLS = [
         },
     },
 ]
+
+_RUN_TESTS = (
+    "Test engine.py: the contract tests (for a make_level/step engine), then the acceptance test, which replays the "
+    "recorded actions and compares each step's final frame and state with the recording. By default the report stops "
+    "at the first failure: which steps match, then the failing step explained: the regions of the final frame that "
+    "differ, numbered{images}, the colours (expected->got), your sprites in each region before and after the step "
+    "(#12 is state.sprites[12]), what engine.py printed during the step, and a try_step command that reproduces it "
+    "in the python kernel."
+)
+
+
+def tools(images: bool = True) -> list[dict]:
+    """The tool schemas; images: whether run_tests reports come with pictures of the frames."""
+    note = " and boxed in an image of your frame next to the original's" if images else ""
+    out = copy.deepcopy(_TOOLS)
+    for tool in out:
+        if tool["function"]["name"] == "run_tests":
+            tool["function"]["description"] = _RUN_TESTS.format(images=note)
+    return out
+
+
+TOOLS = tools(True)

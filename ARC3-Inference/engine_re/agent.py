@@ -13,9 +13,18 @@ The session stops when a full replay matches every step, when the model calls
 finish twice, or when a budget (turns, output tokens, cost, wall time) runs out.
 
 Feedback the harness adds on its own: when engine.py changed during a turn and
-was not tested since, a full replay runs automatically and its summary is
-appended to the turn's last tool output; after every TEST_NUDGE_TURNS turns
-without any test, a reminder to write and test is appended instead.
+was not tested since, run_tests runs automatically with its defaults (a full
+replay, reported up to the first failure) and its report is appended to the
+turn's last tool output; after every TEST_NUDGE_TURNS turns without any test, a
+reminder to write and test is appended instead.
+
+Images: a test report explains its failing step with numbered regions; with
+``images=True`` (the default) the harness also sends a picture of the engine's
+final frame and the original's with those regions boxed. Tool messages stay
+plain strings, so after the turn's tool messages one extra user message
+carries the latest test's images; when a newer one is added, the images of the
+older ones are replaced by a short placeholder. The PNGs are saved under
+``<game_dir>/images/`` and the transcript logs their paths, not their bytes.
 
 Sessions survive interruptions: result.json is rewritten every turn with status
 "running", and running a game again whose session did not end continues from
@@ -37,8 +46,9 @@ from typing import Any
 
 import requests
 
+from engine_re import diff_report
 from engine_re.kernel import KernelClient
-from engine_re.prompts import TOOLS, first_user_message, resume_user_message, system_prompt
+from engine_re.prompts import first_user_message, resume_user_message, system_prompt, tools
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import replay_test
 from engine_re.trace import Trace
@@ -53,9 +63,16 @@ NUDGE = (
     "even if partial, and run run_tests: its report shows exactly which step and pixels to fix next."
 )
 # When engine.py changed during a turn and the model did not test it, the
-# harness runs a full replay and appends this summary to the turn's last output.
-AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (full replay):\n{report}"
-AUTO_TEST_CHARS = 2500
+# harness runs run_tests() with its defaults (full replay, reported up to the
+# first failure) and appends the report to the turn's last output.
+AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\n{report}"
+AUTO_TEST_CHARS = 3500
+IMAGE_NOTE = (
+    "[harness] Images for the latest run_tests report: on the left your engine's final frame, on the right the "
+    "original game's (upscaled 8x). The differing regions are boxed and numbered as in the report's text."
+)
+IMAGE_PLACEHOLDER = "[image of an earlier test omitted; the latest test's images come later]"
+MAX_IMAGES_PER_MESSAGE = 3
 PYTHON_PAUSED = (
     "[harness] Python is paused: {n} python calls since engine.py last changed. Write what you have established "
     "into engine.py now with write_engine or edit_engine (even partially); python resumes as soon as engine.py "
@@ -204,6 +221,8 @@ class AgentResult:
     python_paused: int = 0
     match: str = "final"
     interface: str = "simple"
+    images: bool = True
+    image_messages: int = 0
 
 
 class EngineAgent:
@@ -216,10 +235,12 @@ class EngineAgent:
         client: OpenRouterClient | None = None,
         match: str = "final",
         interface: str = "simple",
+        images: bool = True,
     ):
         self.game = game
         self.match = match
         self.interface = interface
+        self.images = images
         self.dir = Path(game_dir).resolve()
         self.trace_dir = self.dir / "trace"
         self.workspace = self.dir / "workspace"
@@ -229,7 +250,9 @@ class EngineAgent:
         self.budget = budget
         self.client = client or OpenRouterClient(model)
         self.kernel = KernelClient(self.workspace, self.trace_dir)
-        self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface)
+        self.result = AgentResult(
+            game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images
+        )
         self.messages: list[dict[str, Any]] = []
         self.finish_requests = 0
         self.best_exact = -1
@@ -241,6 +264,8 @@ class EngineAgent:
         self.tested_hash: str | None = None
         self.python_since_change = 0
         self.engine_hash_seen: str | None = None
+        # The latest test's images, sent after the turn's tool messages: (caption, saved PNG path, PNG bytes).
+        self.pending_images: list[tuple[str, Path, bytes]] = []
 
     # --- tools -----------------------------------------------------------------
 
@@ -295,23 +320,44 @@ class EngineAgent:
     def _engine_hash(self) -> str:
         return hashlib.sha256(self.engine_path.read_bytes()).hexdigest()
 
-    def _tool_run_tests(self, from_level: int | None = None, details: int | None = None, auto: bool = False) -> str:
+    def _tool_run_tests(
+        self,
+        level: int | None = None,
+        stop_on_fail: bool = True,
+        details: int | None = None,
+        from_level: int | None = None,
+        auto: bool = False,
+    ) -> str:
+        """No level: the full replay; level=L: only level L. stop_on_fail (default): report up to the
+        first failure (the counts kept in tests.jsonl are those of the whole replay either way).
+        details: failing steps explained when stop_on_fail is false. from_level: the earlier name of
+        level, still accepted when the model uses it."""
+        if level is None and from_level is not None:
+            level = from_level
+        level = None if level is None else int(level)
+        if isinstance(stop_on_fail, str):
+            stop_on_fail = stop_on_fail.strip().lower() not in ("false", "0", "no", "")
         details = max(1, min(6, int(details or 2)))
         self.turns_since_test = 0
         tested_hash = self._engine_hash()
         try:
             report = replay_test(
-                self.engine_path, self.trace, from_level=from_level, details=details, scratch_root=self.dir, match=self.match
+                self.engine_path, self.trace, level=level, stop_on_fail=bool(stop_on_fail), details=details,
+                scratch_root=self.dir, match=self.match, images=self.images,
             )
         except ValueError as exc:
             return f"Error: {exc}"
-        if from_level in (None, 0):
+        full = level is None
+        if full:
             self.tested_hash = tested_hash
         self.result.tests_run += 1
-        entry = {"turn": self.result.turns, "time": time.time(), "from_level": from_level, "auto": auto, **report.summary()}
+        # "from_level" keeps its earlier meaning for older readers of tests.jsonl, the level the engine
+        # started at (null: a fresh engine). A full replay has "level" null and "total" = the trace length.
+        entry = {"turn": self.result.turns, "time": time.time(), "from_level": level or None, "auto": auto, **report.summary()}
         with (self.dir / "tests.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
-        if from_level in (None, 0):
+        self._keep_images(report, auto)
+        if full:
             if report.exact > self.best_exact:
                 self.best_exact = report.exact
                 shutil.copy(self.engine_path, self.dir / "engine_best.py")
@@ -321,6 +367,48 @@ class EngineAgent:
                 if self.result.first_pass_turn is None:
                     self.result.first_pass_turn = self.result.turns
         return _truncate(report.text, 9000)
+
+    def _keep_images(self, report: Any, auto: bool) -> None:
+        """Save a report's images as PNGs and queue them for the message after this turn's tools
+        (a later test in the same turn replaces them)."""
+        if not self.images:
+            return
+        self.pending_images = []
+        folder = self.dir / "images"
+        for image in report.images[:MAX_IMAGES_PER_MESSAGE]:
+            folder.mkdir(exist_ok=True)
+            stem = f"turn{self.result.turns:03d}_step{image.step}" + ("_auto" if auto else "")
+            path, n = folder / f"{stem}.png", 2
+            while path.exists():
+                path, n = folder / f"{stem}_{n}.png", n + 1
+            path.write_bytes(image.png)
+            self.pending_images.append((image.caption, path, image.png))
+
+    def _attach_images(self) -> None:
+        """Append one user message with the latest test's images after the turn's tool messages, and
+        replace the images of earlier such messages by a placeholder, so one set stays in the context."""
+        if not self.pending_images:
+            return
+        for message in self.messages:
+            if isinstance(message.get("content"), list):
+                message["content"] = [
+                    {"type": "text", "text": IMAGE_PLACEHOLDER} if part.get("type") == "image_url" else part
+                    for part in message["content"]
+                ]
+        content: list[dict[str, Any]] = [{"type": "text", "text": IMAGE_NOTE}]
+        for caption, _, png in self.pending_images:
+            content.append({"type": "text", "text": caption})
+            content.append({"type": "image_url", "image_url": {"url": diff_report.data_url(png)}})
+        self.messages.append({"role": "user", "content": content})
+        self.result.image_messages += 1
+        self._log(
+            {
+                "turn": self.result.turns,
+                "images": [str(path.relative_to(self.dir)) for _, path, _ in self.pending_images],
+                "captions": [caption for caption, _, _ in self.pending_images],
+            }
+        )
+        self.pending_images = []
 
     def _tool_finish(self, summary: str) -> str:
         self.finish_requests += 1
@@ -383,7 +471,7 @@ class EngineAgent:
             for line in tests.read_text(encoding="utf-8").splitlines():
                 entry = json.loads(line)
                 self.result.tests_run += 1
-                if entry.get("from_level") in (None, 0):
+                if entry.get("level") is None and entry.get("from_level") in (None, 0):
                     if entry["exact"] > self.best_exact:
                         self.best_exact = entry["exact"]
                         self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
@@ -406,7 +494,7 @@ class EngineAgent:
         tool_indices = [i for i, m in enumerate(self.messages) if m["role"] == "tool"]
         for i in tool_indices[: -self.model.keep_recent_tool_outputs]:
             content = self.messages[i]["content"]
-            if len(content) > 400:
+            if isinstance(content, str) and len(content) > 400:
                 self.messages[i]["content"] = content[:200] + f"\n[... older output elided to save context ({len(content)} chars)]"
         assistant_indices = [i for i, m in enumerate(self.messages) if m["role"] == "assistant"]
         for i in assistant_indices[: -self.model.keep_recent_reasoning]:
@@ -442,13 +530,13 @@ class EngineAgent:
         self.started = time.time()
         engine = self.engine_path.read_text(encoding="utf-8")
         if self._restore():
-            report = replay_test(self.engine_path, self.trace, details=2, scratch_root=self.dir, match=self.match)
+            report = replay_test(self.engine_path, self.trace, stop_on_fail=True, scratch_root=self.dir, match=self.match)
             opening = resume_user_message(
                 self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()), self.prior_notes
             )
         else:
             opening = first_user_message(self.game, self.trace, engine, self.interface)
-        system = system_prompt(self.match, self.interface)
+        system = system_prompt(self.match, self.interface, self.images)
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
@@ -466,7 +554,7 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self.messages, TOOLS)
+                response = self.client.chat(self.messages, tools(self.images))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
                 self.result.usage.add(usage)
@@ -515,7 +603,7 @@ class EngineAgent:
                     if name == "finish" and output == "Session finished.":
                         finished = True
                 if self.tested_hash is not None and self._engine_hash() != self.tested_hash:
-                    report = self._tool_run_tests(details=1, auto=True)
+                    report = self._tool_run_tests(auto=True)
                     self.messages[-1]["content"] += AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS))
                     self.result.auto_tests += 1
                     self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})
@@ -523,6 +611,8 @@ class EngineAgent:
                     self.messages[-1]["content"] += NUDGE.format(n=self.turns_since_test)
                     self.result.nudges += 1
                     self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
+                # After the tool messages (and the automatic test): the latest test's images.
+                self._attach_images()
                 if self.passed:
                     self.result.status = "passed"
                     break
