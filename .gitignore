@@ -14,6 +14,10 @@ __pycache__/
 environment_files/
 **/runs/*
 !**/runs/*.dvc
+# engine_re experiment runs: one DVC pointer per run in runs/engine-re/.
+!**/runs/engine-re/
+**/runs/engine-re/*
+!**/runs/engine-re/*.dvc
 
 # Node (figure tooling, if reintroduced)
 node_modules/

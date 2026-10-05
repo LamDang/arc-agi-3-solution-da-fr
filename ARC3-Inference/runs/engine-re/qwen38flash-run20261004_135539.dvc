@@ -1,0 +1,6 @@
+outs:
+- md5: 042a411a6acb4ea7d40b049eb72f5e4e.dir
+  size: 5000258
+  nfiles: 33
+  hash: md5
+  path: qwen38flash-run20261004_135539

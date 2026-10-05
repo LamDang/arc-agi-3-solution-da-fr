@@ -1,0 +1,6 @@
+outs:
+- md5: 332c1487cf8efa513b5822988e1f82cf.dir
+  size: 366440
+  nfiles: 21
+  hash: md5
+  path: qwen38flash-v6c-onlystep-lp85

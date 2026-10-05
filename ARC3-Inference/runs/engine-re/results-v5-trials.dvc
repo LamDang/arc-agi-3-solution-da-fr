@@ -1,0 +1,6 @@
+outs:
+- md5: a96e198d9e735c2b35bbc0d1648954ef.dir
+  size: 330253
+  nfiles: 9
+  hash: md5
+  path: results-v5-trials

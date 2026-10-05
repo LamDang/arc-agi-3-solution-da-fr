@@ -1,0 +1,6 @@
+outs:
+- md5: fb32dee7fb52307888d4e3e67faec324.dir
+  size: 3115
+  nfiles: 6
+  hash: md5
+  path: results-pilot-a-no-feedback

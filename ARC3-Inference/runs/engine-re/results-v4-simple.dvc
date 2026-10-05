@@ -1,0 +1,6 @@
+outs:
+- md5: 1dbf5ed15cf5efc45831160516420af0.dir
+  size: 1930132
+  nfiles: 43
+  hash: md5
+  path: results-v4-simple

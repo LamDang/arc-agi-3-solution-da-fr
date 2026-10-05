@@ -1,0 +1,6 @@
+outs:
+- md5: 0be9d0687a0e5e1abae1195b4ec5276e.dir
+  size: 686938
+  nfiles: 21
+  hash: md5
+  path: qwen38flash-v5e-lp85-50turns
