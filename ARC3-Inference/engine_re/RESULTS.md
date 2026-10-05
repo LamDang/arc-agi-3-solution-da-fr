@@ -358,6 +358,6 @@ uv run --no-sync python -m engine_re.run_experiment --run-dir runs/20261004_1355
 uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine best --rollouts 8 --length 40
 ```
 
-These commands now run the v4 configuration. To rerun v2 or v3 exactly, check out commit `cd76c9d` (before the v4 changes) and run the same commands, adding `--python-quota 30` for v3. Before running a generated
+These commands run the current harness (v5, not yet evaluated). To rerun an earlier configuration exactly, check out its commit first: `41df359` for v4, or `cd76c9d` for v2 and v3, adding `--python-quota 30` for v3. Before running a generated
 engine yourself, copy `results/<config>/<game>/engine_best.py` into a game
 directory.
