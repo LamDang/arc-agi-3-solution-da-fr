@@ -10,12 +10,19 @@ for the level's sprite list that redraws the frame exactly with ``game_api.rende
   ``inference/utils/segmentation.py``), or with ``merge=True`` per group of touching non-background
   regions (multi-coloured sprites, transparent around them); objects of identical pixels share
   one module-level constant named from its content (``SHAPE_<colours>_<w>x<h>_<4 hex>``, so the
-  same shape gets the same name in every level and constants already in engine.py are not
-  written again) and a tag of the same name in lower case;
+  same shape gets the same name in every level) and a tag of the same name in lower case;
+- reuse before new constants: a piece equal to a known pixel constant (one of engine.py's
+  module-level constants, hex strings or rows of numbers, or one written earlier in the same
+  call) as it is, turned or mirrored (Sprite.rotation, mirror_ud, mirror_lr, in Sprite.render's
+  order), scaled 2-5x, or with a one-to-one colour change (``shape_pixels(NAME, {old: new})``),
+  tried in that order, is drawn from that constant. Solid one-colour rectangles are only reused as
+  they are or turned: scaling or recolouring them would match by coincidence;
 - screen sprites, on top, for whatever the grid cannot draw: anything outside the grid (HUD)
   and pixels that break the grid's blocks.
 
-The code is executed and rendered to check it reproduces the frame.
+The code is executed and rendered to check it reproduces the frame. Its pixel rows come from
+``shape_pixels(shape, recolor=None)``, written once at the top unless engine.py defines it, which
+gives every sprite its own rows.
 
 What it cannot know: hidden or covered things, transparency, which regions belong to one real
 sprite, layers, tags, names and collidability, whether identical-looking objects are the same kind,
@@ -35,7 +42,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 import numpy as np
@@ -266,17 +273,23 @@ class SpriteCode:
     guess: GridGuess
     background: int
     objects: int
-    shapes: int
+    shapes: int  # kinds the code uses
     hud: int
     exact: bool
     differing: int
     function: str
-    skipped: list[str]  # names already defined in engine.py, so not emitted again
+    skipped: list[str]  # helpers already defined in engine.py, so not emitted again
+    pieces: int = 0  # objects + hud
+    new_kinds: int = 0  # constants this code defines
+    reuse: dict = field(default_factory=dict)  # how the other pieces reuse a kind: counts by "as is", "turned", ...
+    from_engine: list[str] = field(default_factory=list)  # engine.py constants the code uses
 
 
-HEX_PIXELS = '''def hex_pixels(*rows):
-    """Pixel rows from hex strings: one digit per pixel (colour 0-15), '.' transparent (-1)."""
-    return [[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows]
+SHAPE_PIXELS = '''def shape_pixels(shape, recolor=None):
+    """Fresh pixel rows from a shape: hex strings (one digit per pixel, '.' transparent) or rows of
+    colour numbers. recolor={old: new} changes colours, e.g. shape_pixels(SHAPE_4_3x2_ab12, {4: 9})."""
+    rows = [[-1 if ch == "." else int(ch, 16) for ch in row] if isinstance(row, str) else list(row) for row in shape]
+    return [[recolor.get(v, v) for v in row] for row in rows] if recolor else rows
 '''
 
 
@@ -312,6 +325,148 @@ def _region_mask(region: tuple[int, int, int, int] | None) -> np.ndarray:
     return mask
 
 
+# --- Reusing kinds: a piece that is an existing constant turned, mirrored, scaled or recoloured ----
+
+# (rotation, mirror_ud, mirror_lr): the 8 ways to turn and flip a picture, simplest first, applied
+# as Sprite.render does (rotation clockwise, then the flips).
+DIHEDRAL = ((0, False, False), (90, False, False), (180, False, False), (270, False, False),
+            (0, False, True), (0, True, False), (90, False, True), (90, True, False))
+SCALES = (2, 3, 4, 5)
+
+
+def as_shape(value: object) -> np.ndarray | None:
+    """A module-level value as a pixel array (-1 transparent), if it is a pixel constant: hex strings
+    as auto_sprites writes them ('.' transparent), or rows of colour numbers (-2 counts as transparent)."""
+    try:
+        if isinstance(value, np.ndarray):
+            if value.ndim != 2 or value.dtype.kind not in "iu" or not value.size:
+                return None
+            arr = value.astype(np.int16)
+        elif isinstance(value, (list, tuple)) and value and all(isinstance(r, str) for r in value):
+            if len({len(r) for r in value}) != 1 or not value[0] or any(set(r) - set(HEX + ".") for r in value):
+                return None
+            arr = np.array([[-1 if ch == "." else int(ch, 16) for ch in r] for r in value], np.int16)
+        elif isinstance(value, (list, tuple)) and value and all(isinstance(r, (list, tuple)) for r in value):
+            if len({len(r) for r in value}) != 1 or not value[0]:
+                return None
+            if not all(isinstance(v, (int, np.integer)) and not isinstance(v, bool) for r in value for v in r):
+                return None
+            arr = np.array(value, np.int16)
+        else:
+            return None
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if arr.min() < -2 or arr.max() > 15 or arr.shape[0] > 64 or arr.shape[1] > 64 or (arr < 0).all():
+        return None
+    return np.where(arr < 0, -1, arr).astype(np.int16)
+
+
+def _turn(arr: np.ndarray, rotation: int, mirror_ud: bool, mirror_lr: bool, scale: int) -> np.ndarray:
+    out = np.rot90(arr, -(rotation // 90))  # clockwise
+    if mirror_ud:
+        out = out[::-1]
+    if mirror_lr:
+        out = out[:, ::-1]
+    if scale > 1:
+        out = np.repeat(np.repeat(out, scale, axis=0), scale, axis=1)
+    return out
+
+
+def _colour_map(base: np.ndarray, piece: np.ndarray) -> dict[int, int] | None:
+    """The one-to-one colour change turning `base` into `piece` (same transparent pixels), if any."""
+    if base.shape != piece.shape or not np.array_equal(base < 0, piece < 0):
+        return None
+    pairs = set(zip(base[base >= 0].tolist(), piece[piece >= 0].tolist()))
+    olds, news = [a for a, _ in pairs], [b for _, b in pairs]
+    if len(set(olds)) != len(pairs) or len(set(news)) != len(pairs):
+        return None
+    return {a: b for a, b in sorted(pairs) if a != b} or None
+
+
+@dataclass
+class Placement:
+    """One sprite of the generated code: a kind (constant) and how it is shown."""
+
+    name: str
+    x: int
+    y: int
+    screen: bool = False
+    rotation: int = 0
+    mirror_ud: bool = False
+    mirror_lr: bool = False
+    scale: int = 1
+    recolor: dict | None = None
+    reuse: str = ""  # "": a new kind; else "as is", "turned", "scaled" or "recoloured"
+    from_engine: bool = False
+
+    def fields(self) -> str:
+        out = f"x={self.x}, y={self.y}"
+        if self.rotation:
+            out += f", rotation={self.rotation}"
+        if self.mirror_ud:
+            out += ", mirror_ud=True"
+        if self.mirror_lr:
+            out += ", mirror_lr=True"
+        if self.scale > 1:
+            out += f", scale={self.scale}"
+        return out
+
+    def pixels_call(self) -> str:
+        colours = f", {{{', '.join(f'{a}: {b}' for a, b in self.recolor.items())}}}" if self.recolor else ""
+        return f"shape_pixels({self.name}{colours})"
+
+
+class _Kinds:
+    """The pixel constants a piece can reuse: engine.py's (in file order), then those this call made."""
+
+    def __init__(self, existing: dict[str, np.ndarray]):
+        self.items: list[tuple[str, np.ndarray, bool]] = [(n, a, True) for n, a in existing.items()]
+        self.taken = set(existing)
+
+    def add(self, name: str, arr: np.ndarray) -> None:
+        self.items.append((name, arr, False))
+        self.taken.add(name)
+
+    def match(self, piece: np.ndarray) -> tuple[str, dict, str, bool] | None:
+        """(name, Sprite fields, how, from engine.py) of the simplest way to draw `piece` from a known
+        kind: as it is, then turned or mirrored, then scaled (and maybe turned), then recoloured (and
+        maybe turned or scaled). At most two of the three changes at once, and a solid rectangle of
+        one colour only as it is or turned: anything more matches by coincidence."""
+        solid = bool((piece >= 0).all() and (piece == piece.flat[0]).all())
+        h, w = piece.shape
+        tiers: list[tuple[str, list[tuple[int, bool, bool, int]], bool]] = [
+            ("as is", [(0, False, False, 1)], False),
+            ("turned", [(r, u, lr, 1) for r, u, lr in DIHEDRAL[1:]], False),
+        ]
+        if not solid:
+            tiers += [
+                ("scaled", [(r, u, lr, k) for k in SCALES for r, u, lr in DIHEDRAL], False),
+                ("recoloured", [(r, u, lr, 1) for r, u, lr in DIHEDRAL] + [(0, False, False, k) for k in SCALES], True),
+            ]
+        for how, transforms, recolour in tiers:
+            for name, arr, engine in self.items:
+                ah, aw = arr.shape
+                for rotation, ud, lr, k in transforms:
+                    th, tw = (aw, ah) if rotation in (90, 270) else (ah, aw)
+                    if (th * k, tw * k) != (h, w):
+                        continue
+                    turned = _turn(arr, rotation, ud, lr, k)
+                    mapping = None
+                    if recolour:
+                        mapping = _colour_map(turned, piece)
+                        if mapping is None:
+                            continue
+                    elif not np.array_equal(turned, piece):
+                        continue
+                    fields = {"rotation": rotation, "mirror_ud": ud, "mirror_lr": lr, "scale": k, "recolor": mapping}
+                    return name, fields, how, engine
+        return None
+
+
+def _rows_array(rows: tuple[str, ...]) -> np.ndarray:
+    return np.array([[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows], np.int16)
+
+
 def sprite_code(
     frame: np.ndarray,
     guess: GridGuess,
@@ -321,14 +476,18 @@ def sprite_code(
     source: str = "",
     region: tuple[int, int, int, int] | None = None,
     defined: set[str] | None = None,
+    existing: dict[str, object] | None = None,
 ) -> SpriteCode:
     """Python code for a sprite list that redraws `frame` exactly on the grid `guess` (see the module
     docstring). merge: one sprite per group of touching non-background regions instead of per
     single-colour region. region (x0, y0, x1, y1, screen pixels, inclusive): only the objects inside
-    it, without border and background. defined: names engine.py already defines, not emitted again."""
+    it, without border and background. defined: names engine.py already defines, not emitted again.
+    existing: engine.py's module-level values; its pixel constants are reused, as they are or turned,
+    mirrored, scaled or recoloured, before any new constant is written."""
     frame = np.asarray(frame).astype(np.int16)
     g = guess
     defined = set(defined or ())
+    known = {n: a for n, a in ((n, as_shape(v)) for n, v in (existing or {}).items() if not n.startswith("_")) if a is not None}
     inside = _region_mask(region)
     logical = _logical(frame, g)
     background = int(np.bincount(logical.ravel().astype(np.int64) % 16).argmax())
@@ -338,57 +497,66 @@ def sprite_code(
     cell_in = cell_in.reshape(g.height, s, g.width, s).all(axis=(1, 3))
     logical = np.where(cell_in, logical, background)
 
-    names: dict[tuple[str, ...], str] = {}
-    order: list[tuple[str, ...]] = []
-    counts: Counter = Counter()
-    screen_shapes: set[tuple[str, ...]] = set()
+    kinds = _Kinds(known)
+    new_rows: dict[str, tuple[str, ...]] = {}  # the constants this call writes, in order
+    uses: Counter = Counter()
+    screen_kinds: set[str] = set()
 
-    def name_of(rows: tuple[str, ...], screen: bool = False) -> str:
-        if rows not in names:
+    def place(x: int, y: int, rows: tuple[str, ...], screen: bool = False) -> Placement:
+        piece = _rows_array(rows)
+        found = kinds.match(piece)
+        if found is None:
             name = shape_name(rows)
-            while name in names.values():  # two different shapes with one name: keep them apart
+            while name in kinds.taken or name in defined:  # one name for two different shapes: keep them apart
                 name += "_2"
-            names[rows] = name
-            order.append(rows)
-        counts[rows] += 1
+            kinds.add(name, piece)
+            new_rows[name] = rows
+            p = Placement(name, x, y, screen)
+        else:
+            name, fields, how, engine = found
+            p = Placement(name, x, y, screen, reuse=how, from_engine=engine, **fields)
+        uses[p.name] += 1
         if screen:
-            screen_shapes.add(rows)
-        return names[rows]
+            screen_kinds.add(p.name)
+        return p
 
-    objects = [(name_of(rows), x, y) for x, y, rows in (_cut(logical, m) for m in _components(logical, background, merge))]
+    objects = [place(x, y, rows) for x, y, rows in (_cut(logical, m) for m in _components(logical, background, merge))]
 
     api = game_api.canonical()
     view = api.View(scale=g.scale) if not g.default_scale else None
+    arrays = {**known, **{n: _rows_array(r) for n, r in new_rows.items()}}
 
-    def pixels(rows: tuple[str, ...]) -> list[list[int]]:
-        return [[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows]
+    def sprite(p: Placement, **extra: object) -> object:
+        pix = arrays[p.name].tolist()
+        if p.recolor:
+            pix = [[p.recolor.get(v, v) for v in row] for row in pix]
+        return api.Sprite(pix, x=p.x, y=p.y, rotation=p.rotation, mirror_ud=p.mirror_ud, mirror_lr=p.mirror_lr, scale=p.scale, **extra)
 
     base = [
         api.Sprite([[g.border] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False),
         api.Sprite([[background] * g.width for _ in range(g.height)], layer=-1, collidable=False),
     ]
-    by_name = {n: r for r, n in names.items()}
-    drawn = base + [api.Sprite(pixels(by_name[n]), x=x, y=y) for n, x, y in objects]
+    drawn = base + [sprite(p) for p in objects]
     state = api.State(grid=(g.width, g.height), sprites=drawn, **({"view": view} if view else {}))
     residual = (game_api.render(state).astype(np.int16) != frame) & inside
-    huds = []
+    huds: list[Placement] = []
     if residual.any():
         values = np.where(residual, frame, -1)
-        huds = [(name_of(rows, True), x, y) for x, y, rows in (_cut(frame, m) for m in _components(values, -1, merge))]
+        huds = [place(x, y, rows, True) for x, y, rows in (_cut(frame, m) for m in _components(values, -1, merge))]
+        arrays.update({n: _rows_array(r) for n, r in new_rows.items()})
 
     where = "" if region is None else f", region x {region[0]}-{region[2]}, y {region[1]}-{region[3]}"
     lines = [
         f"# ---- auto_sprites{source}: grid {g.width}x{g.height} at scale {g.scale}{where} ----",
         "# A starting point, not the game's real sprites: rename, merge and retag them, and check them against the steps.",
     ]
-    skipped = [n for n in ["hex_pixels", *names.values()] if n in defined]
-    if "hex_pixels" not in defined:
-        lines += ["", ""] + HEX_PIXELS.rstrip("\n").split("\n")
-    constants = [r for r in order if names[r] not in defined]
-    if constants:
+    skipped = ["shape_pixels"] if "shape_pixels" in defined else []
+    if "shape_pixels" not in defined:
+        lines += ["", ""] + SHAPE_PIXELS.rstrip("\n").split("\n")
+    if new_rows:
         lines += ["", ""]
-        for rows in constants:
-            lines += _shape_lines(names[rows], rows, _describe_shape(rows, counts[rows], rows in screen_shapes))
+        for name, rows in new_rows.items():
+            lines += _shape_lines(name, rows, _describe_shape(rows, uses[name], name in screen_kinds))
     view_text = f", view=View(scale={g.scale})" if view else ""
     what = "objects in the region" if region is not None else "sprites of the frame"
     lines += [
@@ -403,22 +571,41 @@ def sprite_code(
             f"        Sprite([[{g.border}] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name=\"border\"),",
             f"        Sprite([[{background}] * {g.width} for _ in range({g.height})], layer=-1, collidable=False, name=\"background\"),",
         ]
-    for name, x, y in objects:
-        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, tags=("{name.lower()}",)),')
-    for name, x, y in huds:
-        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, screen=True, layer=1, collidable=False, tags=("hud", "{name.lower()}")),')
+    for p in objects:
+        lines.append(f'        Sprite({p.pixels_call()}, {p.fields()}, tags=("{p.name.lower()}",)),')
+    for p in huds:
+        lines.append(f'        Sprite({p.pixels_call()}, {p.fields()}, screen=True, layer=1, collidable=False, tags=("hud", "{p.name.lower()}")),')
     lines.append("    ]")
     code = "\n".join(lines) + "\n\n\n"  # two blank lines after it, ready to insert before the next definition
 
-    # Check: run the code (with the constants it did not repeat) on the fixed interface and draw it.
+    # Check: run the code (with engine.py's constants it uses) on the fixed interface and draw it.
     namespace = dict(vars(api))
-    exec(compile(HEX_PIXELS, "<auto_sprites>", "exec", dont_inherit=True), namespace)
-    namespace.update({n: r for r, n in names.items()})
+    exec(compile(SHAPE_PIXELS, "<auto_sprites>", "exec", dont_inherit=True), namespace)
+    namespace.update({n: v for n, v in (existing or {}).items() if n in known})
     exec(compile(code, "<auto_sprites>", "exec", dont_inherit=True), namespace)
     made = namespace[function]()
     check = api.State(grid=(g.width, g.height), sprites=(base + made) if region is not None else made, **({"view": api.View(scale=g.scale)} if view else {}))
     differing = int(((game_api.render(check).astype(np.int16) != frame) & inside).sum())
+    placed = objects + huds
+    reuse = Counter(p.reuse for p in placed if p.reuse)
     return SpriteCode(
-        code=code, guess=g, background=background, objects=len(objects), shapes=len({n for n, _, _ in objects}),
+        code=code, guess=g, background=background, objects=len(objects), shapes=len({p.name for p in placed}),
         hud=len(huds), exact=differing == 0, differing=differing, function=function, skipped=skipped,
+        pieces=len(placed), new_kinds=len(new_rows), reuse=dict(reuse),
+        from_engine=sorted({p.name for p in placed if p.from_engine}),
     )
+
+
+def kinds_summary(code: SpriteCode) -> str:
+    """'12 pieces: 7 reuse existing kinds (2 as they are, 3 turned, 2 recoloured; 4 from engine.py), 5 new kinds'."""
+    reused = sum(code.reuse.values())
+    parts = [f"{n} {how}" if how != "as is" else f"{n} as they are" for how, n in sorted(code.reuse.items(), key=lambda t: _HOW.index(t[0]))]
+    detail = ", ".join(parts)
+    used = len(code.from_engine)
+    if used:
+        detail += f"; {used} kind{'s' if used > 1 else ''} from engine.py"
+    reuse_text = f"{reused} reuse existing kinds ({detail})" if reused else "none reuses an existing kind"
+    return f"{code.pieces} pieces: {reuse_text}, {code.new_kinds} new kind{'s' if code.new_kinds != 1 else ''}"
+
+
+_HOW = ("as is", "turned", "scaled", "recoloured")

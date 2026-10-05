@@ -947,6 +947,66 @@ def test_auto_sprites_redraws_every_reference_level_start_exactly() -> None:
     assert right >= 33  # sp80 level 5 draws its grid's outer cells in the border colour
 
 
+def _level_start(game: str, level: int) -> np.ndarray:
+    with np.load(LEVEL_STARTS) as data:
+        names = [str(n) for n in data["names"]]
+        return data["frames"][next(k for k, n in enumerate(names) if n.startswith(f"{game}:{level}:"))]
+
+
+def test_auto_sprites_reuses_an_earlier_levels_kinds_turned() -> None:
+    from engine_re import game_api
+    from engine_re.auto_sprites import SHAPE_PIXELS, guess_grid, kinds_summary, sprite_code
+
+    # vc33 draws each level as one picture turned by a multiple of 90 degrees: level 0 by 270, level 2 not at all.
+    namespace = dict(vars(game_api.canonical()))
+    exec(SHAPE_PIXELS, namespace)
+    first = sprite_code(_level_start("vc33", 0), guess_grid(_level_start("vc33", 0)))
+    exec(first.code, namespace)  # as if level 0's code had been put into engine.py
+    existing = {k: v for k, v in namespace.items() if k.startswith("SHAPE_")}
+    frame = _level_start("vc33", 2)
+    second = sprite_code(frame, guess_grid(frame), function="level_2_sprites", existing=existing, defined={*existing, "shape_pixels"})
+    assert second.exact and second.reuse.get("turned", 0) >= 5, kinds_summary(second)
+    assert kinds_summary(second).startswith(f"{second.pieces} pieces: {sum(second.reuse.values())} reuse existing kinds (")
+    piece = next(n for n in existing if n.startswith("SHAPE_4_2x3_"))  # the floating piece's top
+    assert f"Sprite(shape_pixels({piece}), x=46, y=21, rotation=90, tags=(" in second.code and piece in second.from_engine
+    defined_again = [line for line in second.code.splitlines() if line.split(" = ")[0] in existing]
+    assert not defined_again and "def shape_pixels" not in second.code
+
+
+def test_auto_sprites_matches_turned_mirrored_scaled_and_recoloured_pieces() -> None:
+    from engine_re.auto_sprites import GridGuess, kinds_summary, sprite_code
+
+    f = np.array([[0, 1, 1], [1, 1, 0], [0, 1, 0]])  # chiral: its mirror image is not a rotation of it
+    cells = np.zeros((16, 16), np.int16)
+
+    def put(x: int, y: int, shape: np.ndarray, colour: int) -> None:
+        cells[y : y + shape.shape[0], x : x + shape.shape[1]][shape > 0] = colour
+
+    put(1, 1, f, 10)
+    put(6, 1, np.rot90(f, -1), 10)  # turned 90 degrees clockwise
+    put(11, 1, f[:, ::-1], 10)  # mirrored left-right
+    put(1, 6, np.kron(f, np.ones((2, 2), int)), 10)  # scaled 2x
+    put(9, 6, f, 12)  # recoloured
+    put(1, 13, np.ones((1, 3), int), 9)  # a solid bar, and the same bar turned
+    put(6, 12, np.ones((3, 1), int), 9)
+    put(9, 13, np.ones((1, 6), int), 9)  # a longer bar: a new kind, not the first one scaled
+    put(12, 10, np.ones((2, 1), int), 5)  # engine.py's WALL (rows of numbers), turned
+    frame = np.repeat(np.repeat(cells, 4, axis=0), 4, axis=1).astype(np.int8)
+    guess = GridGuess(16, 16, 4, 0, 0, 0, 1, "as given")
+    code = sprite_code(frame, guess, existing={"WALL": [[5, 5]], "SPEED": 3, "NAMES": ["a", "b"]})
+    assert code.exact, code.code
+    assert kinds_summary(code) == "9 pieces: 6 reuse existing kinds (4 turned, 1 scaled, 1 recoloured; 1 kind from engine.py), 3 new kinds"
+    lines = [line.strip() for line in code.code.splitlines() if line.strip().startswith("Sprite(shape_pixels(")]
+    first = lines[0].split("(")[2].split(")")[0]
+    assert lines[0].startswith(f"Sprite(shape_pixels({first}), x=1, y=1, tags=(")
+    assert any(line.startswith(f"Sprite(shape_pixels({first}), x=6, y=1, rotation=90,") for line in lines)
+    assert any(line.startswith(f"Sprite(shape_pixels({first}), x=11, y=1, mirror_lr=True,") for line in lines)
+    assert any(line.startswith(f"Sprite(shape_pixels({first}), x=1, y=6, scale=2,") for line in lines)
+    assert any(line.startswith(f"Sprite(shape_pixels({first}, {{10: 12}}), x=9, y=6,") for line in lines)
+    assert any(line.startswith("Sprite(shape_pixels(WALL), x=12, y=10, rotation=90,") for line in lines)
+    assert code.from_engine == ["WALL"] and "WALL =" not in code.code
+
+
 def test_guess_grid_takes_a_coarse_scale_only_with_evidence() -> None:
     from engine_re.auto_sprites import guess_grid
 
@@ -970,10 +1030,10 @@ def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) ->
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
         out = kernel.execute("code = auto_sprites(0)")
-        assert "Traceback" not in out, out
+        assert "Traceback" not in out and "did not load" not in out, out
         assert "assumed 8x8 at scale 8" in out and "Renders the frame exactly: yes" in out
         assert "def level_0_sprites() -> list:" in out and "Not the real sprites" in out
-        assert 'SHAPE_9_1x1_' in out and "def hex_pixels" in out
+        assert "SHAPE_9_1x1_" in out and "def shape_pixels" in out and "Kinds: 2 pieces: none reuses an existing kind, 2 new kinds." in out
         check = (
             "ns = {'Sprite': Sprite, 'State': State, 'View': View}; exec(code, ns)\n"
             "st = State(grid=(8, 8), sprites=ns['level_0_sprites']())\n"
@@ -982,6 +1042,13 @@ def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) ->
         assert kernel.execute(check).strip().endswith("True True (8, 8)")
         out = kernel.execute("c = auto_sprites(frame=S[2].last, grid=(16, 16), region=(8, 8, 23, 31)); print(c.exact)")
         assert "Renders the region exactly: yes" in out and "def frame_sprites_region()" in out and "border" not in out.split("def frame_sprites_region")[1]
+        # A pixel constant in engine.py is reused, not written again.
+        (workspace / "engine.py").write_text("WALL = [[5] * 8]\n", encoding="utf-8")
+        out = kernel.execute("code = auto_sprites(0)")
+        assert "Kinds: 2 pieces: 1 reuse existing kinds (1 as they are; 1 kind from engine.py), 1 new kind." in out
+        assert "  From engine.py: WALL." in out and "Sprite(shape_pixels(WALL), x=0, y=0, tags=(\"wall\",))" in out
+        (workspace / "engine.py").write_text("WALL = [[5] * 8]\nraise SystemExit\n", encoding="utf-8")
+        assert "(engine.py did not load, so its constants were not reused: SystemExit" in kernel.execute("code = auto_sprites(0)")
     finally:
         kernel.stop()
 

@@ -124,10 +124,11 @@ engine.py (python cannot open it for writing; edit() is the only way to change i
   file changed since your read) is rejected: read again. Edits inside the FIXED block are rejected.
   Prints what changed, a syntax check, and fresh anchors around the change.
 - undo(n=1, to=None): put engine.py back as it was n changes ago, or to="best": the version that
-  passed the most steps before its first failure so far (to=k: version k). Every change (each edit() call, and undo itself) is
-  kept as a numbered version, so nothing is lost: undo() right after an undo() brings the undone change
-  back. Prints the recent versions (what changed, and the test result of each version that was tested),
-  what this undo restored, and a reminder to read() again for fresh anchors.
+  passed the most steps before its first failure so far (to=k: version k). Every change (each edit()
+  call, and undo itself) is kept as a numbered version, so nothing is lost: undo() right after an
+  undo() brings the undone change back. Prints the recent versions (what changed, and the test result
+  of each version that was tested), what this undo restored, and a reminder to read() again for fresh
+  anchors.
 
 Running your engine
 - render(state) -> np.ndarray (64, 64): draws a State exactly as the tests do (the Drawing rules), with

@@ -367,6 +367,18 @@ def _defined_names() -> set[str]:
     return set(re.findall(r"^(?:def\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\()", text, re.M))
 
 
+def _engine_values() -> tuple[dict[str, Any], str | None]:
+    """engine.py's module-level values (for the pixel constants auto_sprites can reuse), or why not."""
+    if not ENGINE_PATH.exists():
+        return {}, None
+    try:
+        with contextlib.redirect_stdout(game_api.PrintCapture(0, 0)):
+            module = _load_engine()
+    except (Exception, SystemExit) as exc:  # a broken engine.py only means nothing to reuse
+        return {}, f"{type(exc).__name__}: {exc}"
+    return dict(vars(module)), None
+
+
 def auto_sprites(
     level: int = 0,
     grid: tuple[int, int] | None = None,
@@ -380,8 +392,10 @@ def auto_sprites(
     exactly, and the code. It guesses the grid (grid=(w, h) overrides it), splits the frame into
     4-connected single-colour pieces (merge=True: touching pieces of different colours become one
     sprite, -1 elsewhere in its box), gives identical pieces one pixel constant named from its
-    content, SHAPE_<colours>_<w>x<h>_<hash> (the same name in every call), and leaves out constants
-    engine.py already defines. A starting point, NOT the game's real sprites."""
+    content, SHAPE_<colours>_<w>x<h>_<hash> (the same name in every call), and draws a piece that is
+    an existing constant (engine.py's, or one made earlier in the call) as it is, turned, mirrored,
+    scaled or recoloured from that constant instead of writing a new one. A starting point, NOT the
+    game's real sprites."""
     if frame is not None:
         source_frame = np.asarray(frame)
         evidence = [source_frame]
@@ -410,7 +424,10 @@ def auto_sprites(
         guess = _auto.GridGuess(w, h, s, ox, oy, int(np.bincount(np.asarray(ring, np.int64) % 16).argmax()), 1, "as given")
         assumed, how = f"{w}x{h} at scale {s} (as given)", ""
     defined = _defined_names()
-    result = _auto.sprite_code(source_frame, guess, merge=merge, function=function, source=args, region=region, defined=defined)
+    existing, load_error = _engine_values()
+    result = _auto.sprite_code(
+        source_frame, guess, merge=merge, function=function, source=args, region=region, defined=defined, existing=existing
+    )
     code = GeneratedCode(result.code)
     code.exact, code.grid, code.scale, code.info = result.exact, guess.grid, guess.scale, result
     pieces = "one sprite per group of touching pieces (merge=True)" if merge else "one sprite per single-colour piece"
@@ -419,12 +436,17 @@ def auto_sprites(
           f"({COLOR_NAMES.get(guess.border, '?')}); pass grid=(w, h) if that is wrong.")
     if how:
         print(f"  ({how}.)")
-    print(f"Found: background colour {result.background}, {result.objects} objects of {result.shapes} shapes ({pieces}), "
+    print(f"Found: background colour {result.background}, {result.objects} objects ({pieces}), "
           f"{result.hud} screen sprite(s) for displays or pixels off the grid.")
+    print(f"Kinds: {_auto.kinds_summary(result)}.")
+    if result.from_engine:
+        print(f"  From engine.py: {', '.join(result.from_engine)}.")
+    if load_error:
+        print(f"  (engine.py did not load, so its constants were not reused: {load_error})")
     target = "the region" if region is not None else "the frame"
     print(f"Renders {target} exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
     if result.skipped:
-        print(f"Already in engine.py, so not repeated: {', '.join(result.skipped)}.")
+        print(f"Already in engine.py, so not repeated: {', '.join(result.skipped)}().")
     if function in defined:
         print(f"engine.py already defines {function}(): replace it rather than adding a second one.")
     print("Not the real sprites: one colour per sprite, nothing hidden or covered, transparency unknown, layers, tags "

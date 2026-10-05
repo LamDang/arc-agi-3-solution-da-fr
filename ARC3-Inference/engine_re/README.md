@@ -97,8 +97,20 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       (`auto_sprites.py`): border and background sprites, one sprite per
       single-colour 4-connected region (`merge=True`: per group of touching
       regions), identical objects sharing a constant named from its content
-      (`SHAPE_<colours>_<w>x<h>_<4 hex>`; constants engine.py already defines
-      are skipped), screen sprites for the HUD. It guesses the logical grid
+      (`SHAPE_<colours>_<w>x<h>_<4 hex>`), screen sprites for the HUD. A piece
+      that is an existing pixel constant (one of engine.py's module-level
+      constants, hex strings or rows of numbers, or one made earlier in the
+      call) is drawn from it rather than written again: as it is, turned or
+      mirrored (`rotation`, `mirror_ud`, `mirror_lr`), scaled 2-5x, or
+      recoloured one-to-one (`shape_pixels(NAME, {old: new})`), tried in that
+      order, with at most two of these changes at once and solid one-colour
+      rectangles only as they are or turned. It prints a summary such as "14
+      pieces: 12 reuse existing kinds (6 as they are, 5 turned, 1
+      recoloured; 6 kinds from engine.py), 2 new kinds". Run level after
+      level on the reference ports, the later levels draw many pieces from
+      the earlier levels' kinds (vc33's levels, each drawn turned by 0 to 270
+      degrees, as turned copies), and all 34 level starts are still drawn
+      exactly. It guesses the logical grid
       conservatively (33 of the 34 level starts of the reference ports right,
       and every one of their 1,529 recorded frames on its own), runs the code
       and prints whether it renders the frame exactly. A starting point, not
