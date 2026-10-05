@@ -182,3 +182,13 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
     assert outputs[2].startswith("[harness] Python is paused")
     assert outputs[4].strip() == "4"
     assert agent.result.python_paused == 1
+
+
+def test_compaction_keeps_tool_argument_keys() -> None:
+    import json
+
+    from engine_re.agent import _elide_arguments
+
+    elided = json.loads(_elide_arguments(json.dumps({"content": "x" * 5000})))
+    assert set(elided) == {"content"}
+    assert len(elided["content"]) < 400 and "elided" in elided["content"]

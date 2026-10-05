@@ -119,6 +119,21 @@ def _truncate(text: str, limit: int = TOOL_OUTPUT_CHARS) -> str:
     return f"{text[:head]}\n...[{len(text) - head - tail} characters truncated]...\n{text[-tail:]}"
 
 
+def _elide_arguments(arguments: str) -> str:
+    """Shorten a past tool call's long string arguments, keeping the tool's own
+    keys: a placeholder key would teach the model a call shape the tools reject."""
+    try:
+        args = json.loads(arguments)
+    except json.JSONDecodeError:
+        return json.dumps({"code": f"# [{len(arguments)} characters elided to save context]"})
+    if not isinstance(args, dict):
+        return arguments
+    for key, value in args.items():
+        if isinstance(value, str) and len(value) > 600:
+            args[key] = f"{value[:300]}\n# [... {len(value) - 300} more characters elided to save context]"
+    return json.dumps(args)
+
+
 class OpenRouterClient:
     def __init__(self, config: ModelConfig, api_key: str | None = None):
         self.config = config
@@ -388,7 +403,7 @@ class EngineAgent:
             for call in m.get("tool_calls") or []:
                 args = call["function"]["arguments"]
                 if len(args) > 1500:
-                    call["function"]["arguments"] = json.dumps({"elided": f"{len(args)} characters of arguments elided to save context"})
+                    call["function"]["arguments"] = _elide_arguments(args)
 
     def _over_budget(self) -> str | None:
         u = self.result.usage
