@@ -242,6 +242,22 @@ same five games (all in `results/`):
 | ls20 | time limit | 0/867, crashes on load | 0% (3%) | 182, 91 (98, 41) | 229 | 115 | 459,012 | $1.01 |
 | **total** | 2/5 | | | | 724 | 383 | 1,553,775 | $2.77 |
 
+<!-- v4-tokens:start -->
+**Tokens (v4).** Every request of every session, as OpenRouter reported it:
+
+| game | requests | prompt tokens | of which cached | output tokens | of which reasoning | largest prompt | cost |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ft09 | 64 | 4,828,376 | 4,631,296 (96%) | 87,930 | 73,051 (83%) | 140,329 | $0.14 |
+| sp80 | 114 | 11,125,007 | 10,200,576 (92%) | 352,426 | 316,464 (90%) | 153,193 | $0.47 |
+| vc33 | 123 | 11,492,826 | 11,014,656 (96%) | 183,905 | 160,215 (87%) | 142,785 | $0.33 |
+| lp85 | 194 | 22,963,208 | 21,251,840 (93%) | 470,502 | 402,185 (85%) | 160,579 | $0.82 |
+| ls20 | 229 | 28,844,385 | 26,392,320 (91%) | 459,012 | 401,988 (88%) | 190,449 | $1.01 |
+| **total** | 724 | 79,253,802 | 73,490,688 (93%) | 1,553,775 | 1,353,903 (87%) | | $2.77 |
+
+Prompt tokens are the whole conversation re-sent on each request, so they grow
+with the turn count; 93% of them were served from the provider's cache.
+<!-- v4-tokens:end -->
+
 **What happened.** The transcripts can be read turn by turn in
 [`results/v4_transcripts/v4-agent-transcripts.html`](results/v4_transcripts/v4-agent-transcripts.html),
 annotated for ls20, lp85 and vc33.
@@ -313,18 +329,194 @@ candidate engine and replaying `evaluate.py`'s rollouts. Details are in
   - a one-pixel display error that fails every step, so no reward for fixing
     the rest;
   - a `finish` tool that lets the agent leave.
-- **Next (v5, in progress):**
-  - **Tools:** only `python`, `run_tests` and `finish`.
-    - `finish` runs the tests and ends the session only when all pass.
-    - `read`/`edit`/`undo` run inside python, address lines by anchors, and
-      cannot change the fixed block.
-  - **Failure report:** `run_tests` stops at the first failure and shows both
-    frames as images, with the differing regions boxed. It also lists the
-    agent's sprites in each region, what `step()` printed, and a one-line
-    reproduction (`try_step`).
-  - **Generated code:** `auto_sprites` writes sprite code for a level layout,
-    and `show` displays frames as images.
-  - **Prompt:** goal, setup, drawing rules, tests and tools.
+- **Next:** the v5 harness, tried on lp85 in the [next section](#v5-trials-on-lp85-50-turns).
+
+<!-- v5-trials:start -->
+## v5 trials on lp85, 50 turns
+
+**What v5 changes against v4.** The interface, the model and the budgets stay;
+how the agent works changes.
+- **Tools:** `python`, `run_tests(level, failures)` and `finish`. `finish` runs
+  the tests and ends the session only when they all pass.
+- **Inside python:** the recording `S`, plus `read` and `edit` (line anchors, as
+  in pi's hashline edit), `undo` (every change is a numbered version), `render`,
+  `show` (frames as images), `try_step` (the state before and after one
+  recorded step) and `auto_sprites` (sprite code that redraws a level's first
+  frame exactly). Python cannot write `engine.py` directly.
+- **Failure report:** the recording is replayed in order and the report stops
+  at the first failing step. It shows both frames as images with the differing
+  regions boxed, the agent's sprites in each region, what `step()` printed and
+  the `try_step` command that reproduces the step.
+- **Prompt:** goal, setup, drawing rules, tests and how to work: reproduce what
+  was observed with the simplest general rule, start from `auto_sprites(0)`,
+  pass the steps in order, and reuse sprite kinds across levels. Details are in
+  [README.md](README.md).
+- **Trial 2 adds:** a prompt section naming the built-in functions, a kernel
+  that refuses code which redefines one, a first message that ends with the
+  first move (`auto_sprites(0)` into `make_level`, then `run_tests`), and a
+  retry for answers the provider ends with `finish_reason: error`.
+
+**Setup.** lp85 only, the game where v4 ran 164 turns without writing to
+`engine.py`. Same model and limits except 50 turns, one session each, images on.
+Trial 1 was stopped by hand at turn 34 to fix what it showed. Trial 2 runs the
+fixed harness; the figures below are a snapshot of it while it runs.
+
+**All tokens.**
+
+| session | status | turns | minutes | requests | prompt tokens | of which cached | output tokens | of which reasoning | largest prompt | tests | cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| v5 trial 1 | stopped by hand | 34 | 13 | 34 | 1,925,585 | 1,761,536 (91%) | 63,258 | 57,604 (91%) | 114,130 | 1 | $0.076 |
+| v5 trial 2 | running (snapshot) | 33 | 25 | 33 | 2,614,716 | 2,281,728 (87%) | 120,252 | 114,207 (95%) | 141,188 | 0 | $0.143 |
+
+The same sessions at equal turn counts, against v2 and v4 on lp85:
+
+| session | after turn | minutes | prompt tokens | of which cached | output tokens | of which reasoning | cost |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| v2 | 10 | 4 | 225,070 | 81% | 14,275 | 13,255 | $0.016 |
+| v2 | 20 | 6 | 760,503 | 92% | 20,767 | 18,425 | $0.030 |
+| v2 | 30 | 12 | 1,502,180 | 94% | 42,529 | 38,703 | $0.056 |
+| v2 | 34 | 14 | 1,898,973 | 94% | 50,857 | 46,372 | $0.068 |
+| v2 | 40 | 17 | 2,610,819 | 95% | 65,111 | 59,892 | $0.090 |
+| v2 | 50 | 25 | 3,604,741 | 93% | 97,799 | 90,403 | $0.135 |
+| v4 | 10 | 2 | 192,994 | 80% | 9,200 | 8,387 | $0.013 |
+| v4 | 20 | 10 | 846,064 | 89% | 40,915 | 38,139 | $0.045 |
+| v4 | 30 | 14 | 1,882,238 | 93% | 59,719 | 55,207 | $0.075 |
+| v4 | 34 | 20 | 2,376,193 | 90% | 87,491 | 80,831 | $0.110 |
+| v4 | 40 | 22 | 2,907,624 | 92% | 94,672 | 86,599 | $0.124 |
+| v4 | 50 | 31 | 4,139,997 | 93% | 129,388 | 118,186 | $0.165 |
+| v5 trial 1 | 10 | 3 | 187,125 | 78% | 10,058 | 8,687 | $0.013 |
+| v5 trial 1 | 20 | 7 | 716,606 | 88% | 37,596 | 34,491 | $0.041 |
+| v5 trial 1 | 30 | 11 | 1,479,586 | 89% | 54,763 | 50,024 | $0.064 |
+| v5 trial 1 | 34 | 13 | 1,925,585 | 91% | 63,258 | 57,604 | $0.076 |
+| v5 trial 2 | 10 | 4 | 269,346 | 83% | 17,558 | 15,555 | $0.019 |
+| v5 trial 2 | 20 | 15 | 1,060,308 | 89% | 66,398 | 62,739 | $0.064 |
+| v5 trial 2 | 30 | 24 | 2,324,375 | 88% | 117,368 | 111,866 | $0.129 |
+| v5 trial 2 | 33 | 25 | 2,614,716 | 87% | 120,252 | 114,207 | $0.143 |
+
+<details><summary>Every turn of trial 1</summary>
+
+| turn | minute | prompt tokens | cached | output tokens | reasoning |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0.1 | 9,340 | 0 | 137 | 27 |
+| 2 | 0.1 | 10,542 | 0 | 115 | 24 |
+| 3 | 0.2 | 10,870 | 10,496 | 105 | 39 |
+| 4 | 0.3 | 13,139 | 10,752 | 172 | 52 |
+| 5 | 0.9 | 17,428 | 13,056 | 3,314 | 3,176 |
+| 6 | 1.3 | 21,312 | 17,408 | 268 | 216 |
+| 7 | 1.7 | 22,353 | 21,248 | 2,256 | 2,019 |
+| 8 | 1.9 | 24,916 | 22,272 | 805 | 678 |
+| 9 | 2.1 | 26,711 | 24,832 | 902 | 746 |
+| 10 | 2.5 | 30,514 | 26,624 | 1,984 | 1,710 |
+| 11 | 3.4 | 33,886 | 30,464 | 5,258 | 4,982 |
+| 12 | 3.7 | 39,751 | 33,792 | 1,445 | 1,299 |
+| 13 | 4.1 | 48,999 | 39,680 | 1,902 | 1,568 |
+| 14 | 4.4 | 51,689 | 48,896 | 1,729 | 1,679 |
+| 15 | 4.5 | 53,468 | 51,456 | 61 | 20 |
+| 16 | 4.5 | 53,592 | 53,248 | 194 | 101 |
+| 17 | 4.6 | 54,046 | 53,504 | 205 | 40 |
+| 18 | 5.4 | 55,301 | 54,016 | 4,955 | 4,690 |
+| 19 | 7.1 | 63,869 | 55,296 | 10,673 | 10,435 |
+| 20 | 7.4 | 74,880 | 63,744 | 1,116 | 990 |
+| 21 | 7.8 | 76,552 | 74,752 | 1,807 | 1,702 |
+| 22 | 7.9 | 20,593 | 0 | 174 | 174 |
+| 23 | 8.0 | 80,856 | 80,384 | 178 | 23 |
+| 24 | 8.1 | 20,834 | 0 | 171 | 171 |
+| 25 | 8.9 | 81,588 | 81,152 | 3,987 | 3,841 |
+| 26 | 9.2 | 86,450 | 81,408 | 1,423 | 1,077 |
+| 27 | 9.8 | 89,271 | 86,272 | 3,295 | 3,059 |
+| 28 | 9.9 | 99,438 | 89,088 | 467 | 320 |
+| 29 | 10.9 | 100,817 | 99,328 | 5,403 | 5,126 |
+| 30 | 11.0 | 106,581 | 100,608 | 262 | 40 |
+| 31 | 11.3 | 108,401 | 106,496 | 1,655 | 1,507 |
+| 32 | 11.4 | 110,841 | 108,288 | 589 | 280 |
+| 33 | 11.7 | 112,627 | 110,592 | 1,245 | 940 |
+| 34 | 12.5 | 114,130 | 112,384 | 5,006 | 4,853 |
+| **34 turns** | 12.5 | 1,925,585 | 1,761,536 | 63,258 | 57,604 |
+
+</details>
+
+<details><summary>Every turn of trial 2</summary>
+
+| turn | minute | prompt tokens | cached | output tokens | reasoning |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0.1 | 9,666 | 256 | 129 | 8 |
+| 2 | 0.1 | 13,449 | 9,472 | 211 | 111 |
+| 3 | 0.7 | 17,700 | 13,312 | 1,964 | 1,711 |
+| 4 | 0.7 | 19,745 | 17,664 | 266 | 13 |
+| 5 | 0.8 | 20,502 | 19,712 | 190 | 105 |
+| 6 | 1.7 | 28,319 | 20,480 | 3,983 | 3,885 |
+| 7 | 2.4 | 33,632 | 28,160 | 3,011 | 2,698 |
+| 8 | 3.3 | 37,420 | 33,536 | 3,821 | 3,626 |
+| 9 | 3.8 | 42,702 | 37,376 | 2,018 | 1,741 |
+| 10 | 4.2 | 46,211 | 42,496 | 1,965 | 1,657 |
+| 11 | 4.5 | 48,501 | 46,080 | 900 | 710 |
+| 12 | 4.8 | 50,248 | 48,384 | 1,472 | 1,363 |
+| 13 | 5.4 | 57,628 | 50,176 | 3,015 | 2,916 |
+| 14 | 6.6 | 68,455 | 57,600 | 5,721 | 5,492 |
+| 15 | 7.7 | 75,664 | 68,352 | 4,624 | 4,491 |
+| 16 | 8.5 | 83,752 | 75,520 | 3,523 | 3,438 |
+| 17 | 8.8 | 88,566 | 83,712 | 1,192 | 949 |
+| 18 | 12.3 | 90,661 | 88,320 | 16,957 | 16,625 |
+| 19 | 14.0 | 108,245 | 90,624 | 8,341 | 8,157 |
+| 20 | 14.7 | 119,242 | 108,032 | 3,095 | 3,043 |
+| 21 | 17.0 | 125,511 | 119,040 | 12,086 | 12,033 |
+| 22 | 19.6 | 141,095 | 125,440 | 13,529 | 13,401 |
+| 23 | 21.5 | 107,055 | 9,984 | 10,690 | 10,522 |
+| 24 | 22.0 | 118,246 | 107,008 | 2,614 | 2,282 |
+| 25 | 22.2 | 121,661 | 118,016 | 1,010 | 848 |
+| 26 | 22.9 | 122,976 | 121,600 | 3,757 | 3,680 |
+| 27 | 23.0 | 126,959 | 122,880 | 779 | 652 |
+| 28 | 23.3 | 128,024 | 126,720 | 1,627 | 1,420 |
+| 29 | 23.6 | 135,032 | 128,000 | 1,633 | 1,155 |
+| 30 | 24.2 | 137,508 | 134,912 | 3,245 | 3,134 |
+| 31 | 24.4 | 141,188 | 137,472 | 1,022 | 897 |
+| 32 | 24.8 | 73,744 | 17,664 | 1,409 | 1,111 |
+| 33 | 24.9 | 75,409 | 73,728 | 453 | 333 |
+| **33 turns** | 24.9 | 2,614,716 | 2,281,728 | 120,252 | 114,207 |
+
+</details>
+
+**What happened.**
+- **Trial 1 (34 turns, 13 minutes).**
+  - **One test, no engine.** At turn 1 it called `run_tests` and got the first
+    image report; the provider took the image without error. It then used only
+    python for 33 turns, never wrote to `engine.py`, and never called `read`,
+    `edit`, `undo`, `render`, `try_step` or `auto_sprites`.
+  - **It hid `show`.** At turn 4 it defined its own `show()`, which replaced the
+    built-in. When it later called `show(..., boxes=...)` (turns 14-16) its own
+    function failed, and it decided the built-in was broken.
+  - **Two empty turns.** Turns 22 and 24 ended with `finish_reason: error` and
+    were counted as turns.
+  - **Where the analysis went.** Level 0's ring rule at turn 11, then the first
+    frames of levels 1-7, then the budget bar over every level.
+- **Trial 2 (snapshot at turn 30, 24 minutes).**
+  - **A good start.** Turn 1 was `auto_sprites(0)`: it printed sprite code that
+    redraws level 0's first frame exactly. At turn 3 it tried to define `show`,
+    the kernel refused to run it, and at turn 4 it renamed its function.
+  - **Then the same habit.** It analysed level 0 on turns 2-11, then moved to
+    the first frames of every level, level 1's rings, level 2's rings and
+    level 3, and by turn 30 had not called `edit()` or `run_tests` once. The
+    `auto_sprites` code from turn 1 was never put into `engine.py`.
+  - **Twice the tokens.** At turn 30 it had written 117,368 output
+    tokens, against 59,719 for v4 and 54,763 for trial 1 at the same turn. Four
+    turns (18, 21, 22 and 23) spent 52,581 reasoning tokens between them, one
+    of them 3.5 minutes long. It took 24 minutes for 30 turns, against 14 for
+    v4.
+  - **A cache miss at turn 23.** The prompt reached 141,095 tokens at turn 22,
+    the harness cut old tool outputs, and the next request (107,055 tokens)
+    had only 9,984 of them cached.
+
+**So far.** The new tools work: the image went through the provider, the
+reserved-name rule fired and the agent recovered in one turn, and
+`auto_sprites` drew the first frame exactly. The prompt change did not change
+the habit: in both trials the agent analysed every level before writing, and in
+trial 2 it did so with more thinking per turn.
+
+Candidates, not tried yet: start `engine.py` with level 0 already in place
+(the harness runs `auto_sprites(0)` and applies it, so the first report is about
+step 1), and show the agent only the levels the tests have reached, plus the
+next one.
+<!-- v5-trials:end -->
 
 ## Caveats
 
