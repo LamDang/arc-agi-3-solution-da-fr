@@ -1493,7 +1493,7 @@ def test_stepwise_fixes_one_breaking_step_at_a_time(tmp_path: Path, tiny_trace: 
     model = _RecordingModel(
         [
             [("python", {"code": _rewrite_now(no_up)})],  # conversation 1 (step 0): passes steps 0..0
-            [("python", {"code": "print(step.index, step.level, step.action.id, 'S' in globals(), step.before.shape)"})],
+            [("python", {"code": "print(step.index, step.level, step.action.id, len(S), S[-1].action == step.action, step.before.shape)"})],
             [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # conversation 2 (step 4)
         ]
     )
@@ -1508,10 +1508,11 @@ def test_stepwise_fixes_one_breaking_step_at_a_time(tmp_path: Path, tiny_trace: 
     assert model.openings[1].startswith("Fix the breaking test: step 4.")
     assert "Steps 0-3 of the recording pass with your engine.py; step 4 is the first that does not." in model.openings[1]
     assert "Step 4: ACTION1 (up), played in level 0." in model.openings[1]
+    assert "S holds the recording so far, steps 0-4" in model.openings[1]
     assert "level" not in model.tools[1]["function"]["parameters"]["properties"]
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
     outputs = [r["output"] for r in records if r.get("tool") == "python"]
-    assert outputs[1].split() == ["4", "0", "1", "False", "(64,", "64)"]
+    assert outputs[1].split() == ["4", "0", "1", "5", "True", "(64,", "64)"]  # the recording so far: steps 0..4
     assert [r["episode_start"]["step"] for r in records if "episode_start" in r] == [0, 4]
     assert {r.get("episode") for r in records if "finish_reason" in r} == {1, 2}
     tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
@@ -1524,10 +1525,14 @@ def test_stepwise_stops_on_a_step_it_cannot_fix(tmp_path: Path, tiny_trace: Trac
     from engine_re.stepwise import StepwiseRun
 
     tiny_trace.save(tmp_path / "trace")
-    model = _ScriptedModel([[("python", {"code": "1"})], [("python", {"code": "2"})]])
+    model = _ScriptedModel([[("python", {"code": "print('S' in globals(), step.index)"})], [("python", {"code": "2"})]])
     result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False,
-                         episode_turns=1, attempts=2).run()
+                         episode_turns=1, attempts=2, history=False).run()
     assert result.status == "stuck" and result.turns == 2 and result.final["first_fail"] == 0
+    import json
+
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert next(r["output"] for r in records if r.get("tool") == "python").split() == ["False", "0"]  # only the step
 
 
 def test_stepwise_starts_with_the_opening(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -1562,12 +1567,13 @@ def test_the_report_says_what_a_click_lands_on() -> None:
 
 
 def test_the_step_prompts_name_every_builtin():
-    from engine_re.kernel import RESERVED_STEP
+    from engine_re.kernel import RESERVED_HISTORY, RESERVED_STEP
     from engine_re.prompts import system_prompt, tools
 
     for images in (True, False):
-        prompt = system_prompt(images=images, mode="step")
-        section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
-        assert all(name in section for name in RESERVED_STEP)
-        python = tools(images, "step")[0]["function"]["description"]
-        assert "S[" not in python and "summarize_levels" not in python and "step.after" in python
+        for history, reserved in ((True, RESERVED_HISTORY), (False, RESERVED_STEP)):
+            prompt = system_prompt(images=images, mode="step", history=history)
+            section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
+            assert all(name in section for name in reserved), (history, [n for n in reserved if n not in section])
+            python = tools(images, "step", history)[0]["function"]["description"]
+            assert ("S[" in python) == history and ("summarize_levels" in python) == history and "step.after" in python

@@ -272,6 +272,8 @@ def _levels_text(recording: Trace) -> str:
         solved = [i for i in indices if steps[i].levels_completed > level]
         if solved:
             ended = f"solved at step {solved[0]}" + (" (WIN)" if steps[solved[0]].state == "WIN" else "")
+        elif FOCUS is not None:
+            ended = f"not solved by step {len(steps) - 1}, the step to fix (later steps are not loaded)"
         else:
             ended = f"not solved: the recording ends ({steps[-1].state})"
         rows.append((
@@ -289,6 +291,9 @@ def _levels_text(recording: Trace) -> str:
     head = (f"The recording: {len(steps)} steps (S[0] is the RESET that starts the game), {len(played)} of the game's "
             f"{win} levels played; after step {len(steps) - 1} it is {steps[-1].state} with "
             f"{steps[-1].levels_completed} level(s) completed.")
+    if FOCUS is not None:
+        head = (f"The recording so far: steps 0-{len(steps) - 1} (S[0] is the RESET that starts the game; step "
+                f"{len(steps) - 1} is the one to fix), {len(played)} of the game's {win} levels reached.")
     note = ("A level's first frame is the last frame of the step that solved the level before (S[0].last for level 0). "
             "\"animated\": steps that returned more than one frame; the tests compare only the last one.")
     return "\n".join([head] + table + [note])

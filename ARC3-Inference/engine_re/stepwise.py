@@ -8,7 +8,8 @@ The loop:
      level 0's first frame is drawn (agent.EngineAgent.play_opening).
   2. Replay the whole recording through engine.py. If every step passes, the run is done.
   3. At the first step k that fails, open a new conversation (an EngineAgent in step mode): its
-     kernel shows only step k (`step`, not S), its tests replay steps 0..k, its first message says
+     kernel shows the recording so far (S, steps 0..k; with history=False only `step`) and step k
+     (`step`), never a later step; its tests replay steps 0..k, its first message says
      "Fix the breaking test: step k" with the report. It ends as soon as steps 0..k pass (finish,
      run_tests or the automatic test), or when its turns (`episode_turns`) or a budget run out.
   4. Back to 2: the steps after k that already pass are skipped, and the next breaking step opens the
@@ -67,6 +68,7 @@ class StepwiseRun:
         episode_turns: int = EPISODE_TURNS,
         attempts: int = ATTEMPTS,
         opening: bool = True,
+        history: bool = True,
     ):
         self.game = game
         self.dir = Path(game_dir).resolve()
@@ -79,6 +81,7 @@ class StepwiseRun:
         self.episode_turns = episode_turns
         self.attempts = attempts
         self.opening = opening
+        self.history = history
         self.engine_path = self.dir / "workspace" / "engine.py"
         self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace), match=match, images=images)
         self.episodes: list[dict[str, Any]] = []
@@ -96,7 +99,7 @@ class StepwiseRun:
         result.minutes = round(self._minutes(), 2)
         data = {
             **asdict(result), "mode": "stepwise", "episodes": self.episodes, "passing_prefix": self.passing_prefix,
-            "episode_turns": self.episode_turns, "attempts": self.attempts, **self.current,
+            "episode_turns": self.episode_turns, "attempts": self.attempts, "history": self.history, **self.current,
         }
         (self.dir / "result.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -227,7 +230,7 @@ class StepwiseRun:
         )
         self.current = {"episode": n, "step": k}
         agent = self._agent(
-            budget=budget, opening=False, trace_dir=episode_dir, focus=k, episode=n, turn_offset=offset,
+            budget=budget, opening=False, trace_dir=episode_dir, focus=k, history=self.history, episode=n, turn_offset=offset,
             prior_minutes=self._minutes(), result_path=self.dir / "episodes" / f"ep{n:03d}.json", on_save=self._live,
         )
         part = agent.run()

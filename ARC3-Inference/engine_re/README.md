@@ -153,10 +153,11 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   through engine.py and, at the first step k that fails, opens a new
   conversation whose first message is "Fix the breaking test: step k" (the
   step's action and level, the test report with its picture, engine.py with
-  the FIXED block folded). In that conversation the kernel shows only step k
-  (`step`: `.before`, `.action`, `.after`, `.frames`, `.level`; no `S`, no
-  `summarize_levels`), the recording on disk holds steps 0..k, and the tests
-  replay steps 0..k. The conversation ends as soon as those pass (by
+  the FIXED block folded). In that conversation the kernel shows the recording
+  so far: `S` holds steps 0..k (the recording on disk too; later steps are not
+  loaded), `step` is step k (`.before`, `.action`, `.after`, `.frames`,
+  `.level`) and `summarize_levels()` lists the levels reached; with
+  `--only-step` it shows only `step`. The tests replay steps 0..k. The conversation ends as soon as those pass (by
   `finish`, `run_tests` or the automatic test after an edit), or after
   `--episode-turns` turns (20). Then the harness replays again: steps after k
   that already pass are skipped, and the next breaking step opens the next

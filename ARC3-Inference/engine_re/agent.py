@@ -35,8 +35,8 @@ boxed). When a newer such message is added, the images of the older ones are rep
 placeholder. The PNGs are saved under ``<game_dir>/images/`` and the transcript logs their paths.
 
 Step mode (v6, ``focus=k``, driven by engine_re.stepwise): one conversation that fixes the
-breaking step k. Its trace (``trace_dir``) holds steps 0..k, its kernel shows only step k
-(``step``), its tests replay steps 0..k, and it ends with status "passed" as soon as they pass. Its
+breaking step k. Its trace (``trace_dir``) holds steps 0..k, its kernel shows step k (``step``)
+and, with ``history`` (the default), the recording so far (S, steps 0..k), its tests replay steps 0..k, and it ends with status "passed" as soon as they pass. Its
 first message (prompts.episode_message) comes with the test report of step k; there is no opening,
 no resume and no final test. Turn numbers continue from ``turn_offset``; records carry "episode".
 
@@ -293,6 +293,7 @@ class EngineAgent:
         *,
         trace_dir: Path | None = None,
         focus: int | None = None,
+        history: bool = True,
         episode: int | None = None,
         turn_offset: int = 0,
         prior_minutes: float = 0.0,
@@ -306,6 +307,7 @@ class EngineAgent:
         self.interface = interface
         self.images = images
         self.focus = focus
+        self.history = history
         self.mode = "single" if focus is None else "step"
         self.episode = episode
         self.opening = opening and focus is None
@@ -320,7 +322,7 @@ class EngineAgent:
         self.model = model
         self.budget = budget
         self.client = client or OpenRouterClient(model)
-        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, focus=focus)
+        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, focus=focus, history=history)
         self.result = AgentResult(
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images
         )
@@ -689,7 +691,8 @@ class EngineAgent:
         text = report if isinstance(report, str) else _truncate(report.text, REPORT_CHARS)
         self._log({"turn": self.result.turns + 1, "episode_start": {"step": self.focus, "report": text}})
         return self._opening_content(
-            episode_message(self.game, self.trace, self.focus, text, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES))
+            episode_message(self.game, self.trace, self.focus, text, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES),
+                            self.history)
         )
 
     def setup(self) -> None:
@@ -714,7 +717,7 @@ class EngineAgent:
             opening = self._opening_content(
                 first_user_message(self.game, self.trace, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), done)
             )
-        system = system_prompt(self.match, self.interface, self.images, self.mode)
+        system = system_prompt(self.match, self.interface, self.images, self.mode, self.history)
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
@@ -735,7 +738,7 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self.messages, tools(self.images, self.mode))
+                response = self.client.chat(self.messages, tools(self.images, self.mode, self.history))
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}

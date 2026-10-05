@@ -1,6 +1,6 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K]
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history]]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests, and writes one JSON reply per line
@@ -44,9 +44,12 @@ MAX_OUTPUT_CHARS = 200_000
 PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels")
 # Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
-# The stepwise harness (--focus K): `step`, the step to fix, instead of the recording, and no summarize_levels.
+# The stepwise harness (--focus K): `step`, the step to fix, instead of the recording, and no summarize_levels;
+# with --history also S, the recording so far (steps 0..K, all the trace on disk holds), and summarize_levels.
 PRELOADED_STEP = ("step", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
+PRELOADED_HISTORY = PRELOADED + ("step",)
+RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
@@ -126,6 +129,7 @@ def main() -> int:
     workspace, trace_dir = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     images = "--no-images" not in sys.argv[3:]
     focus = int(sys.argv[sys.argv.index("--focus") + 1]) if "--focus" in sys.argv[3:] else None
+    history = "--history" in sys.argv[3:]
     import numpy as np
 
     import scipy.ndimage  # noqa: F401
@@ -145,9 +149,10 @@ def main() -> int:
         reserved = RESERVED
     else:
         helpers.FOCUS = focus
+        names = PRELOADED_HISTORY if history else PRELOADED_STEP
         namespace["step"] = helpers.StepView(helpers.trace, focus)
-        namespace.update({name: getattr(helpers, name) for name in PRELOADED_STEP if name != "step"})
-        reserved = RESERVED_STEP
+        namespace.update({name: getattr(helpers, name) for name in names if name != "step"})
+        reserved = RESERVED_HISTORY if history else RESERVED_STEP
     builtins = {name: namespace[name] for name in reserved}
     os.chdir(workspace)
     # Replies go on a private copy of stdout; fd 1 itself goes to /dev/null so
@@ -183,7 +188,8 @@ def main() -> int:
 class KernelClient:
     """Parent side of the kernel: start, execute with a timeout, answer edit/undo, restart.
 
-    focus: the step to fix in the stepwise harness (the kernel then shows `step` instead of S).
+    focus: the step to fix in the stepwise harness (the kernel then shows `step` instead of S);
+    history: with focus, also S, the recording so far (steps 0..focus), and summarize_levels.
 
     editor: what applies edit()/undo() (an engine_files.EngineEditor; by default one with versions
     in <workspace>/../engine_versions). After execute(), ``last_images`` holds what show() made:
@@ -198,6 +204,7 @@ class KernelClient:
         images: bool = True,
         log: Callable[[dict], None] | None = None,
         focus: int | None = None,
+        history: bool = False,
     ):
         from engine_re.engine_files import EngineEditor
 
@@ -206,6 +213,7 @@ class KernelClient:
         self.timeout = timeout
         self.images = images
         self.focus = focus
+        self.history = history
         self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
@@ -215,7 +223,7 @@ class KernelClient:
         if not self.images:
             cmd.append("--no-images")
         if self.focus is not None:
-            cmd += ["--focus", str(self.focus)]
+            cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else [])
         self.proc = subprocess.Popen(
             cmd,
             cwd=self.workspace,

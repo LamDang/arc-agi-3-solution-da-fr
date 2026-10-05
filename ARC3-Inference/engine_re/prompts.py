@@ -252,8 +252,7 @@ special cases keyed to step numbers do not.
 # Built-in python functions
 These are python functions: call them in your code inside the python tool (the python tool's
 description has the details). They are not separate tools.
-- step: the step to fix, the only part of the recording shown: step.before, step.action, step.after
-  (the frame the tests compare), step.frames, step.level.
+__STEP_BULLET__
 - read(path="engine.py", offset=None, limit=None): print engine.py, each line with a LINE#HASH anchor.
 - edit(path="engine.py", edits=[...]): change engine.py at those anchors. engine.py changes only
   through edit() and undo() called in the python tool; writing the file any other way is blocked.
@@ -283,6 +282,15 @@ defines or assigns any of them is rejected before it runs.
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
 inside step(); the test report and try_step show it.
 """
+
+_STEP_BULLET = {
+    False: """- step: the step to fix, the only part of the recording shown: step.before, step.action, step.after
+  (the frame the tests compare), step.frames, step.level.""",
+    True: """- S: the recording so far, steps 0 to the step to fix (later steps are not loaded yet); step = S[-1],
+  the step to fix: step.before, step.action, step.after (the frame the tests compare), step.frames,
+  step.level.
+- summarize_levels(): the levels reached so far, the steps played in each and how they ended.""",
+}
 
 _RECORDING_SINGLE = _PYTHON[_PYTHON.index("The recording\n") : _PYTHON.index("engine.py (change it")]
 _RECORDING_STEP = """The step to fix
@@ -314,6 +322,31 @@ _AUTO_SPRITES_HEAD_STEP = """- auto_sprites(level, grid=None, frame=None, region
   that draw the first frame of `level`, a level reached so far, exactly (or a given frame such as
   step.after, or a region (x0, y0, x1, y1) of it):
 """
+_RECORDING_HISTORY = """The recording so far
+- np (numpy), and the fixed-block classes Sprite, Action, View, State.
+- S: the recording up to the step to fix, a list of steps: S[0] is the RESET that starts the game and
+  S[-1] is the step to fix. Later steps are not loaded yet: each conversation sees the recording up to
+  its own breaking step. Steps 0 to len(S) - 2 already pass.
+  - S[i].action: an Action. .id is 0 (RESET) to 7; for a click (6), .x and .y are the screen pixel.
+  - S[i].frames: numpy int8 array, shape (n, 64, 64): every frame the game returned for this action,
+    in order; n > 1 when the action was animated. Index a frame as frame[y, x] (row, column).
+  - S[i].last: S[i].frames[-1], the frame after the action: the one the tests compare. The frame
+    before step i is S[i-1].last.
+  - S[i].state: "NOT_FINISHED", "WIN" or "GAME_OVER" after the action.
+  - S[i].levels_completed: levels completed after the action; step i is played in level
+    S[i-1].levels_completed.
+  - S[i].win_levels, S[i].available_actions.
+- step: the step to fix, S[-1]: step.index, step.action, step.before (S[-2].last), step.after
+  (step.last), step.frames, step.level (the level it is played in), step.state, step.levels_completed.
+- summarize_levels(): print one row per level reached so far: its first frame (S[k].last), the steps
+  played in it and their actions, the animated steps, RESETs and game overs, and how it ended.
+
+"""
+_PYTHON_HISTORY = (
+    _PYTHON.replace(_RECORDING_SINGLE, _RECORDING_HISTORY)
+    .replace(_TRY_STEP_SINGLE, _TRY_STEP_STEP)
+    .replace(_AUTO_SPRITES_HEAD_SINGLE, _AUTO_SPRITES_HEAD_STEP)
+)
 _PYTHON_STEP = (
     _PYTHON.replace(_RECORDING_SINGLE, _RECORDING_STEP)
     .replace(_TRY_STEP_SINGLE, _TRY_STEP_STEP)
@@ -334,30 +367,35 @@ _FINISH = """Ask to end the session. Runs the tests first: if anything fails you
 goes on; it ends only when every test passes. summary: what the engine implements."""
 
 
-def system_prompt(match: str = "final", interface: str = "simple", images: bool = True, mode: str = "single") -> str:
+def system_prompt(
+    match: str = "final", interface: str = "simple", images: bool = True, mode: str = "single", history: bool = True
+) -> str:
     """The system prompt. Only the make_level/step interface scored on final frames is offered.
-    mode "single": one session over the recording; "step": fix one breaking step (v6)."""
+    mode "single": one session over the recording; "step": fix one breaking step (v6), seeing the
+    recording up to it (history) or only that step."""
     if interface != "simple":
         raise ValueError("the agent offers only the simple interface (make_level/step)")
     if match != "final":
         raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-    text = {"single": _SYSTEM, "step": _SYSTEM_STEP}[mode]
+    text = {"single": _SYSTEM, "step": _SYSTEM_STEP.replace("__STEP_BULLET__", _STEP_BULLET[history])}[mode]
     return text.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images]).replace("__SHOW_LINE__", _SHOW_LINE[images])
 
 
 SYSTEM_PROMPT = system_prompt()
 
 
-def _python_description(images: bool, mode: str = "single") -> str:
+def _python_description(images: bool, mode: str = "single", history: bool = True) -> str:
+    if mode == "step" and history:
+        return _PYTHON_HISTORY.replace("__SHOW__", _SHOW[images])
     if mode == "step":
         return _PYTHON_STEP.replace("__SHOW__", _SHOW[images].replace("S[i].last", "step.after"))
     return _PYTHON.replace("__SHOW__", _SHOW[images])
 
 
-def tools(images: bool = True, mode: str = "single") -> list[dict]:
+def tools(images: bool = True, mode: str = "single", history: bool = True) -> list[dict]:
     """The tool schemas: python, run_tests and finish (mode "step": the stepwise harness's texts,
-    and run_tests without `level`)."""
-    schemas = _tools(images, mode)
+    and run_tests without `level`; history: whether python shows the recording so far)."""
+    schemas = _tools(images, mode, history)
     if mode == "step":
         run_tests = schemas[1]["function"]
         run_tests["description"] = _RUN_TESTS_STEP if images else _RUN_TESTS_STEP.replace("(images, regions,", "(regions with their pixels,")
@@ -367,14 +405,14 @@ def tools(images: bool = True, mode: str = "single") -> list[dict]:
     return schemas
 
 
-def _tools(images: bool, mode: str) -> list[dict]:
+def _tools(images: bool, mode: str, history: bool) -> list[dict]:
     return copy.deepcopy(
         [
             {
                 "type": "function",
                 "function": {
                     "name": "python",
-                    "description": _python_description(images, mode),
+                    "description": _python_description(images, mode, history),
                     "parameters": {
                         "type": "object",
                         "properties": {"code": {"type": "string", "description": "Python code to run."}},
@@ -491,7 +529,7 @@ def _action_text(action) -> str:
     return "RESET" if action.id == 0 else f"ACTION{action.id} ({_ACTION_WORDS.get(action.id, '?')})"
 
 
-def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: str) -> str:
+def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: str, history: bool = True) -> str:
     """The first message of a stepwise conversation: fix the breaking step k (steps 0..k-1 pass).
     `trace` holds at least steps 0..k; `report` is the test report of the replay up to step k."""
     s = trace.steps[k]
@@ -512,12 +550,15 @@ def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: s
     else:
         before = "Step 0 of the recording passes" if k == 1 else f"Steps 0-{k - 1} of the recording pass"
         passed = f"{before} with your engine.py; step {k} is the first that does not."
+    shown = (f"In python, S holds the recording so far, steps 0-{k} (later steps are not loaded), and `step` is step {k} "
+             "(S[-1]): step.before, step.action, step.after, step.frames." if history else
+             "In python, `step` holds this step: step.before, step.action, step.after, step.frames.")
     return f"""Fix the breaking test: step {k}.
 
 Game: {game}. {passed}
 Step {k}: {_action_text(s.action)}, played in level {level}. The game returned {s.n_frames} frame(s) for it; the tests compare
 the last.{(" " + " ".join(notes)) if notes else ""}
-In python, `step` holds this step: step.before, step.action, step.after, step.frames.
+{shown}
 
 The test report:
 

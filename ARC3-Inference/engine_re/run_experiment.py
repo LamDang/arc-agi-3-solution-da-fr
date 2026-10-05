@@ -103,6 +103,8 @@ def main() -> int:
                         help="stepwise (v6): one conversation per breaking step; single (v5): one conversation for the recording.")
     parser.add_argument("--episode-turns", type=int, default=EPISODE_TURNS, help="Stepwise: turns per conversation.")
     parser.add_argument("--attempts", type=int, default=ATTEMPTS, help="Stepwise: conversations per step before the run stops.")
+    parser.add_argument("--only-step", action="store_true",
+                        help="Stepwise: python shows only the step to fix, not the recording so far (S, steps 0..k).")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -127,7 +129,7 @@ def main() -> int:
         if args.mode == "stepwise":
             runner = StepwiseRun(
                 game, game_dirs[game], model, budget, images=not args.no_images, episode_turns=args.episode_turns,
-                attempts=args.attempts, opening=not args.no_opening,
+                attempts=args.attempts, opening=not args.no_opening, history=not args.only_step,
             )
         else:
             runner = EngineAgent(game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening)
