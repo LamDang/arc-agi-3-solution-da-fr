@@ -166,7 +166,7 @@ Other tools:
 | `diagnostics.html` | TAAF diagnostics page. |
 | `artifacts/*_viewer_data.json`, `artifacts/*_events.jsonl` | Viewer data: boards, actions, rewards, level changes, tokens per step. |
 | `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
-| `<game>_p<pass>_requests.jsonl` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run. Two lines per model request: `request` (full messages and tools) and `response` (finish reason, provider, `usage`). These files get large. Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
+| `<game>_p<pass>_requests.jsonl.xz` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run, compressed with xz when the game run ends (still `.jsonl` while it plays, or if the run was killed). Two lines per model request: `request` (full messages and tools) and `response` (the model's `reply`, finish reason, provider, `usage`). See [Request log size](#request-log-size). Older runs have uncompressed logs whose `response` lines repeat the request instead of the reply, and can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
 | `artifacts/*_game_code.json` | Only with `ARC3_GAME_CODE_DIR`: the source files the agent could read, with sha256 and line counts. |
@@ -252,6 +252,27 @@ dvc pull                                       # everything the branch tracks
 dvc exp pull origin <name> && dvc exp apply <name>                   # an experiment
 ```
 
+## Request log size
+
+Each request line holds the whole conversation sent to the model, including
+the grid images, so a game run's log repeats itself and grows fast: 115 MB for
+one game in `runs/engine-code`. Only about 3% of it is new from one request to
+the next. Two things keep the logs small:
+
+- `response` lines hold the model's reply and usage, not a second copy of the
+  request. Older logs repeat the request there, which doubles their size.
+- When a game run ends, the solver replaces its log with an xz copy. xz's 8 MB
+  window sees each request as a near-copy of the one before: that 115 MB log
+  becomes 0.5 MB, and a whole run directory about 70 times smaller. gzip and
+  zip, with a 32 KB window, only reach about 5 times.
+
+To read a log, use `inference.utils.run_artifacts.open_log`, which opens both
+`.jsonl` and `.jsonl.xz`, or `xzcat`. `scripts/dvc_eval.py`,
+`scripts/token_breakdown.py` and the viewer read both. DVC stores files as
+they are, so a run archived after this change takes about 70 times less space
+in the cache and in S3. An older run can be shrunk before `dvc add` with
+`xz -T0 runs/<run>/*requests.jsonl`.
+
 ## Token spend
 
 `benchmark.json` records output tokens per action. Its input-token field
@@ -262,9 +283,10 @@ the request logs:
 ```bash
 uv run --no-sync python - runs/<run> <<'EOF'
 import json, pathlib, sys
+from inference.utils.run_artifacts import open_log
 totals = {}
-for path in pathlib.Path(sys.argv[1]).glob("*requests.jsonl"):
-    for line in path.open(encoding="utf-8"):
+for path in pathlib.Path(sys.argv[1]).glob("*requests.jsonl*"):
+    for line in open_log(path):
         record = json.loads(line)
         if record.get("event") != "response":
             continue

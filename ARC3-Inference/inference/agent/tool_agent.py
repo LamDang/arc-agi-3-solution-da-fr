@@ -3326,9 +3326,10 @@ def _resolve_request_log_path(state_path: Path) -> Path:
 def _append_request_snapshot(
     log_path: Path,
     *,
-    messages: list[dict[str, Any]],
+    messages: list[dict[str, Any]] | None,
     tools: list[dict[str, Any]] | None,
     event: str | None = None,
+    reply: dict[str, Any] | None = None,
     tool_choice: str | None = None,
     finish_reason: str | None = None,
     served_by: str | None = None,
@@ -3338,10 +3339,13 @@ def _append_request_snapshot(
     usage: dict[str, Any] | None = None,
     chat_template_kwargs: dict[str, Any] | None = None,
 ) -> None:
-    payload = {
-        "messages": messages,
-        "tools": tools or [],
-    }
+    # A response line carries the model's reply, not the request again: the
+    # request line just before it already holds the messages and tools.
+    payload: dict[str, Any] = (
+        {"messages": messages, "tools": tools or []} if messages is not None else {}
+    )
+    if isinstance(reply, dict):
+        payload["reply"] = reply
     if isinstance(chat_template_kwargs, dict) and chat_template_kwargs:
         payload["chat_template_kwargs"] = dict(chat_template_kwargs)
     if isinstance(usage, dict) and usage:
@@ -6795,9 +6799,10 @@ class ToolAgent:
                     if self._save_request_logs:
                         _append_request_snapshot(
                             _resolve_request_log_path(state_path),
-                            messages=latest_request_messages,
-                            tools=latest_request_tools,
+                            messages=None,
+                            tools=None,
                             event="response",
+                            reply=result.message,
                             tool_choice=latest_request_tool_choice,
                             analysis_step=analysis_step,
                             action=display_action_num,

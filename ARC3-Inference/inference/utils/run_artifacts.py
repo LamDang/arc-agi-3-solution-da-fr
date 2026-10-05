@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import logging
+import lzma
 import re
+import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import TextIO
 
 
 log = logging.getLogger(__name__)
@@ -142,3 +145,37 @@ def setup_logging_for_experiment(log_file_path: str | Path, fmt: str) -> Path:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     return log_path
+
+
+# A finished game run's request log is kept as <name>.xz. Each request repeats
+# the conversation so far, which xz's 8 MB window finds again: a 115 MB log
+# becomes about 0.5 MB. gzip's 32 KB window misses it and only reaches 5x.
+COMPRESSED_LOG_SUFFIX = ".xz"
+
+
+def existing_log(path: Path) -> Path | None:
+    """`path` if it exists, else its compressed copy, else None."""
+    for candidate in (path, path.with_name(path.name + COMPRESSED_LOG_SUFFIX)):
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def open_log(path: Path) -> TextIO:
+    """Open a JSONL log for reading, plain or xz-compressed."""
+    if path.name.endswith(COMPRESSED_LOG_SUFFIX):
+        return lzma.open(path, "rt", encoding="utf-8")
+    return path.open(encoding="utf-8")
+
+
+def compress_log(path: Path) -> Path | None:
+    """Replace a finished log with an xz copy. Returns the copy, or None if `path` is missing."""
+    if not path.exists():
+        return None
+    target = path.with_name(path.name + COMPRESSED_LOG_SUFFIX)
+    partial = target.with_name(target.name + ".partial")
+    with path.open("rb") as source, lzma.open(partial, "wb", preset=6) as sink:
+        shutil.copyfileobj(source, sink, 1 << 20)
+    partial.replace(target)
+    path.unlink()
+    return target

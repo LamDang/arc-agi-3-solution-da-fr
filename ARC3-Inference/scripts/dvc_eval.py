@@ -25,6 +25,8 @@ from typing import Any
 
 import yaml
 
+from inference.utils.run_artifacts import open_log
+
 PARAMS_PATH = Path("params.yaml")
 RUN_DIR = Path("runs/dvc-eval")
 METRICS_PATH = Path("metrics.json")
@@ -59,8 +61,9 @@ def _usage_totals(run_dir: Path) -> dict[str, float]:
     # summary requests are not logged, so these totals leave them out.
     totals = {key: 0.0 for key in USAGE_KEYS}
     found = False
-    for path in sorted(run_dir.glob("*requests.jsonl")):
-        with path.open(encoding="utf-8") as lines:
+    logs = [*run_dir.glob("*requests.jsonl"), *run_dir.glob("*requests.jsonl.xz")]
+    for path in sorted(logs):
+        with open_log(path) as lines:
             for line in lines:
                 # Request lines carry the full conversation; skip parsing them.
                 if '"event": "response"' not in line:

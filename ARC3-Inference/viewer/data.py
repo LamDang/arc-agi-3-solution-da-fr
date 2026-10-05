@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from inference.utils.run_artifacts import is_selectable_run_dir_name, run_dir_sort_key
+from inference.utils.run_artifacts import (
+    existing_log,
+    is_selectable_run_dir_name,
+    open_log,
+    run_dir_sort_key,
+)
 from inference.utils.viewer_artifacts import load_raw_events
 
 
@@ -376,8 +381,8 @@ def _artifact_metadata(root_run_dir: Path, viewer_data_path: Path) -> dict[str, 
 def _run_dir_fingerprint(run_dir: Path) -> tuple[Any, ...]:
     relevant_paths: list[Path] = []
     relevant_paths.extend(_viewer_data_paths(run_dir))
-    relevant_paths.extend(sorted(run_dir.glob("*requests.jsonl")))
-    relevant_paths.extend(sorted(run_dir.glob("seeds/*/*requests.jsonl")))
+    relevant_paths.extend(sorted(run_dir.glob("*requests.jsonl*")))
+    relevant_paths.extend(sorted(run_dir.glob("seeds/*/*requests.jsonl*")))
     relevant_paths.extend(sorted(run_dir.glob("seeds/*/run_config.json")))
     total_size = 0
     max_mtime_ns = 0
@@ -1027,8 +1032,9 @@ def _resolve_request_log_path(*, run_dir: Path, viewer_data_path: Path, game_id:
             candidates.append(run_dir / f"{stem}_requests.jsonl")
     candidates.append(run_dir / "requests.jsonl")
     for candidate in candidates:
-        if candidate.exists():
-            return candidate
+        found = existing_log(candidate)
+        if found is not None:
+            return found
     return None
 
 
@@ -1044,7 +1050,9 @@ def _load_request_snapshots(path: Path | None) -> list[dict[str, Any]]:
     if path is None or not path.exists():
         return []
     snapshots: list[dict[str, Any]] = []
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    with open_log(path) as handle:
+        lines = handle.read().splitlines()
+    for raw_line in lines:
         line = raw_line.strip()
         if not line:
             continue
@@ -1405,7 +1413,12 @@ def _latest_request_snapshot(
 ) -> dict[str, Any] | None:
     if analysis_step is None:
         return None
-    matches = [snapshot for snapshot in request_snapshots if snapshot.get("analysis_step") == analysis_step]
+    # response lines carry no messages (newer logs), so only requests qualify
+    matches = [
+        snapshot
+        for snapshot in request_snapshots
+        if snapshot.get("analysis_step") == analysis_step and snapshot.get("messages")
+    ]
     if not matches:
         return None
     return sorted(

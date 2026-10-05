@@ -45,6 +45,8 @@ from typing import Any, Iterator
 
 import requests
 
+from inference.utils.run_artifacts import existing_log, open_log
+
 CODE_READ = re.compile(r"\b(read_game_code|game_code|game_code_files)\b")
 LEVEL = re.compile(r"Current state: step \d+, level (\d+)")
 TOPICS = ("mechanics", "planning", "tooling", "other")
@@ -131,7 +133,7 @@ def _message_key(message: dict[str, Any]) -> str:
 
 def _records(paths: list[Path]) -> Iterator[dict[str, Any]]:
     for path in paths:
-        with path.open(encoding="utf-8") as lines:
+        with open_log(path) as lines:
             for line in lines:
                 yield json.loads(line)
 
@@ -139,9 +141,10 @@ def _records(paths: list[Path]) -> Iterator[dict[str, Any]]:
 def load_responses(logs: list[Path], game: str) -> list[Response]:
     """The responses in a game run's logs, each with the assistant message it produced.
 
-    A response's message first appears in a later request. New messages there
-    go to the most recent responses still waiting for one, so a message the
-    harness never re-sent leaves only its own response without text.
+    Newer logs store the message on the response line (`reply`). In older ones
+    it first appears in a later request: new messages there go to the most
+    recent responses still waiting for one, so a message the harness never
+    re-sent leaves only its own response without text.
     """
     responses: list[Response] = []
     waiting: list[Response] = []
@@ -219,7 +222,12 @@ def load_responses(logs: list[Path], game: str) -> list[Response]:
             context_text_chars=context_text,
         )
         responses.append(response)
-        waiting.append(response)
+        reply = record.get("reply")
+        if isinstance(reply, dict):
+            seen.add(_message_key(reply))
+            _attach(response, reply, call_owner, code_call_ids)
+        else:
+            waiting.append(response)
     return responses
 
 
@@ -255,6 +263,10 @@ def _continued_game(generic: Path, logs: dict[str, list[Path]]) -> str:
     game's own log.
     """
     first = next(r for r in _records([generic]) if r.get("event") == "request")
+    texts = {}
+    for game, paths in logs.items():
+        with open_log(paths[0]) as handle:
+            texts[game] = handle.read()
     ids = [
         str(call.get("id"))
         for message in first.get("messages") or []
@@ -263,8 +275,8 @@ def _continued_game(generic: Path, logs: dict[str, list[Path]]) -> str:
     ]
     owners = [
         game
-        for game, paths in logs.items()
-        if any(call_id in paths[0].read_text(encoding="utf-8") for call_id in ids[:5])
+        for game, text in texts.items()
+        if any(call_id in text for call_id in ids[:5])
     ]
     if len(owners) != 1:
         raise SystemExit(f"Cannot tell which game {generic} continues: {owners}")
@@ -328,17 +340,16 @@ def _fill_from_transcript(responses: list[Response], transcript: Path) -> None:
 
 
 def load_run(run_dir: Path) -> list[Response]:
-    logs = {
-        log.name.split("-", 1)[0]: [log] for log in sorted(run_dir.glob("*_requests.jsonl"))
-    }
-    generic = run_dir / "requests.jsonl"
-    if generic.exists():
+    found = [*run_dir.glob("*_requests.jsonl"), *run_dir.glob("*_requests.jsonl.xz")]
+    logs = {log.name.split("-", 1)[0]: [log] for log in sorted(found)}
+    generic = existing_log(run_dir / "requests.jsonl")
+    if generic is not None:
         logs[_continued_game(generic, logs)].append(generic)
     benchmark = _benchmark(run_dir)
     responses: list[Response] = []
     for game, paths in logs.items():
         game_responses = load_responses(paths, game)
-        stem = paths[0].name.removesuffix("_requests.jsonl")
+        stem = paths[0].name.removesuffix(".xz").removesuffix("_requests.jsonl")
         _fill_from_transcript(game_responses, run_dir / "transcripts" / f"{stem}.txt")
         for response in game_responses:
             # benchmark.json places level changes exactly; the turn opener

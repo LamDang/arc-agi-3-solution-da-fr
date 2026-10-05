@@ -47,6 +47,7 @@ from inference.agent.tool_agent import (
     _PRIORITY_UNTRIMMED_BASE,
     ToolAgent,
     _priority_gate,
+    _resolve_request_log_path,
 )
 from inference.framework.kaggle import (
     DEFAULT_QWEN_MODEL_DATASET_SOURCE,
@@ -61,6 +62,7 @@ from inference.framework.kaggle import (
     duck_kaggle_setup_command,
     duck_kaggle_teardown_command,
 )
+from inference.utils.run_artifacts import compress_log
 from inference.utils.viewer_artifacts import (
     append_raw_events_sidecar,
     reset_raw_events_sidecar,
@@ -1892,6 +1894,7 @@ class HarnessSolver(Solver):
         pass_index: int,
         local_server: _LocalServerRuntime | None = None,
     ) -> None:
+        state_path: Path | None = None
         try:
             assert game.game_run is not None
             run = game.game_run
@@ -1918,6 +1921,21 @@ class HarnessSolver(Solver):
             session.play()
         except Exception as exc:
             self._finish_after_error(game, exc)
+        finally:
+            if state_path is not None:
+                self._compress_request_log(state_path)
+
+    def _compress_request_log(self, state_path: Path) -> None:
+        """Replace the game run's finished request log with an xz copy."""
+        path = _resolve_request_log_path(state_path)
+        # Only a game run's own log: the run-level requests.jsonl, used when the
+        # state file is outside artifacts/, may still be written by another game.
+        if path.name == "requests.jsonl":
+            return
+        try:
+            compress_log(path)
+        except OSError:
+            log.warning("could not compress %s; left uncompressed", path, exc_info=True)
 
     def _artifacts_dir(self) -> Path:
         root = self.job_dir or Path.cwd() / "taaf_harness_artifacts"
