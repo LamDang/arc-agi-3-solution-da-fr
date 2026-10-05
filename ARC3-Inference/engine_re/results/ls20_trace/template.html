@@ -1,0 +1,1320 @@
+<title>ls20 Engine Autopsy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Silkscreen&display=swap">
+<style>
+/* Layout: a debugger's report. One reading column (about 68ch) for prose; instrument panels
+   (frames, step strip, charts, transcript) run the full 1120px width. */
+:root {
+  --bg: #f3f4f6;
+  --surface: #ffffff;
+  --sunk: #eaedf1;
+  --ink: #121417;
+  --ink-2: #454b55;
+  --muted: #6f7681;
+  --line: #dce0e6;
+  --line-strong: #c4cad3;
+  --accent: #1762c2;
+  --accent-soft: #e4eefb;
+  --good: #0ca30c;
+  --good-ink: #0a6e0a;
+  --good-soft: #e3f3e3;
+  --bad: #d03b3b;
+  --bad-ink: #a92626;
+  --bad-soft: #fae8e8;
+  --note: #8a5a00;
+  --note-soft: #fdf3dc;
+  --diff: #ff1f5a;
+  --code-bg: #f6f7f9;
+  --c-move: #d3d8df;
+  --c-key: #2a78d6;
+  --c-push: #eb6834;
+  --c-refill: #1baf7a;
+  --c-bump: #eda100;
+  --c-death: #e87ba4;
+  --c-win: #008300;
+  --c-other: #4a505a;
+  --c-norun: #e4e7eb;
+  --font-display: "Silkscreen", "IBM Plex Mono", ui-monospace, monospace;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --t-xs: 0.75rem;
+  --t-sm: 0.8125rem;
+  --t-base: 0.9375rem;
+  --t-md: 1.0625rem;
+  --t-lg: 1.375rem;
+  --t-xl: 1.875rem;
+  --t-hero: clamp(3.25rem, 9vw, 5.5rem);
+  --radius: 8px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1013; --surface: #161a1f; --sunk: #1d2128; --ink: #eef0f3; --ink-2: #b8bec7; --muted: #848b96;
+    --line: #2a2f37; --line-strong: #3a414b; --accent: #62acff; --accent-soft: #15253a;
+    --good: #0ca30c; --good-ink: #4fd34f; --good-soft: #13281a; --bad: #d03b3b; --bad-ink: #ff8585; --bad-soft: #351a1c;
+    --note: #f0c060; --note-soft: #2c2412; --diff: #ff3d71; --code-bg: #12151a;
+    --c-move: #3a3f47; --c-key: #3987e5; --c-push: #d95926; --c-refill: #199e70; --c-bump: #c98500; --c-death: #d55181;
+    --c-win: #008300; --c-other: #a3aab4; --c-norun: #22262c;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1013; --surface: #161a1f; --sunk: #1d2128; --ink: #eef0f3; --ink-2: #b8bec7; --muted: #848b96;
+  --line: #2a2f37; --line-strong: #3a414b; --accent: #62acff; --accent-soft: #15253a;
+  --good: #0ca30c; --good-ink: #4fd34f; --good-soft: #13281a; --bad: #d03b3b; --bad-ink: #ff8585; --bad-soft: #351a1c;
+  --note: #f0c060; --note-soft: #2c2412; --diff: #ff3d71; --code-bg: #12151a;
+  --c-move: #3a3f47; --c-key: #3987e5; --c-push: #d95926; --c-refill: #199e70; --c-bump: #c98500; --c-death: #d55181;
+  --c-win: #008300; --c-other: #a3aab4; --c-norun: #22262c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 var(--t-base)/1.6 var(--font-body);
+  margin: 0;
+}
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible, canvas:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px;
+}
+code, kbd, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+code { background: var(--sunk); padding: 0.05em 0.35em; border-radius: 4px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+h2 { font-size: var(--t-xl); font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+h3 { font-size: var(--t-md); font-weight: 600; line-height: 1.35; }
+p { margin: 0; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner {
+  max-width: 1120px; margin: 0 auto; padding: 10px 20px;
+  display: flex; align-items: center; gap: 18px; overflow-x: auto; scrollbar-width: none;
+}
+.topbar-inner::-webkit-scrollbar { display: none; }
+.brand { font-family: var(--font-display); font-size: 1rem; color: var(--ink); text-decoration: none; white-space: nowrap; }
+.topbar nav { display: flex; gap: 4px; }
+.topbar nav a {
+  color: var(--ink-2); text-decoration: none; font-size: var(--t-sm); padding: 4px 10px; border-radius: 999px; white-space: nowrap;
+}
+.topbar nav a:hover { background: var(--sunk); color: var(--ink); }
+
+/* ---------- layout ---------- */
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 0 80px; }
+section { padding-block: 56px 8px; scroll-margin-top: 64px; }
+.prose { max-width: 68ch; display: grid; gap: 14px; }
+.prose p { color: var(--ink-2); }
+.prose strong { color: var(--ink); }
+.sec-head { display: grid; gap: 12px; margin-bottom: 24px; }
+.eyebrow { font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 500; }
+
+/* ---------- hero ---------- */
+.hero { padding-block: 48px 8px; display: grid; gap: 22px; }
+.hero h1 { display: grid; gap: 10px; }
+.wordmark { font-family: var(--font-display); font-weight: 400; font-size: var(--t-hero); line-height: 0.9; letter-spacing: 0.02em; }
+.wordmark .px { display: inline-block; width: 0.42em; height: 0.42em; margin-left: 0.12em; vertical-align: 0.06em; background: var(--diff); }
+.hero-sub { font-family: var(--font-body); font-size: var(--t-lg); font-weight: 500; color: var(--ink); line-height: 1.3; }
+.lede { font-size: var(--t-md); color: var(--ink-2); max-width: 68ch; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.stat { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.stat .label { font-size: var(--t-xs); color: var(--muted); }
+.stat .value { font-size: var(--t-lg); font-weight: 600; letter-spacing: -0.01em; }
+.stat .value small { font-size: var(--t-sm); font-weight: 400; color: var(--muted); }
+.stat .detail { font-size: var(--t-sm); color: var(--ink-2); }
+.stat.bad .value { color: var(--bad-ink); }
+@media (max-width: 560px) { .stat:last-child:nth-child(odd) { grid-column: 1 / -1; } }
+
+.answer { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.answer > div { border-top: 3px solid var(--ink); padding-top: 10px; display: grid; gap: 6px; align-content: start; }
+.answer h3 { font-size: var(--t-base); }
+.answer p { color: var(--ink-2); font-size: var(--t-sm); }
+
+/* ---------- panels ---------- */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; min-width: 0; }
+.panel + .panel { margin-top: 16px; }
+.bugs .panel, .obs .panel, .charts .panel { margin-top: 0; }
+.panel-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; margin-bottom: 14px; }
+.panel-title h3 { font-size: var(--t-base); }
+.panel-title .hint { font-size: var(--t-sm); color: var(--muted); }
+
+/* frames */
+.frames { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.frames.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.frame { display: grid; gap: 6px; min-width: 0; }
+.frame-label { display: flex; justify-content: space-between; gap: 8px; font-size: var(--t-sm); color: var(--ink-2); font-weight: 500; }
+.frame-label span:last-child { color: var(--muted); font-weight: 400; font-family: var(--font-mono); font-size: var(--t-xs); }
+.frame canvas, canvas.px {
+  width: 100%; aspect-ratio: 1 / 1; height: auto; display: block; image-rendering: pixelated; image-rendering: crisp-edges;
+  border-radius: 4px; background: var(--sunk); max-width: 100%;
+}
+.frame .empty {
+  aspect-ratio: 1 / 1; border-radius: 4px; border: 1px dashed var(--line-strong); display: grid; place-items: center;
+  color: var(--muted); font-size: var(--t-sm); text-align: center; padding: 12px;
+}
+.readout { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--muted); min-height: 1.6em; margin-top: 10px; }
+.readout b { color: var(--ink); font-weight: 500; }
+.sw { display: inline-block; width: 0.8em; height: 0.8em; border-radius: 2px; vertical-align: -0.05em; margin-right: 0.25em; box-shadow: inset 0 0 0 1px rgba(127,127,127,.45); }
+
+.strips { display: grid; gap: 10px; margin-top: 14px; }
+.strip-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; align-items: center; }
+.strip-row .rl { font-size: var(--t-sm); color: var(--ink-2); }
+.strip-row .rl small { display: block; color: var(--muted); font-size: var(--t-xs); }
+.film { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.film canvas { width: 54px; height: 54px; flex: none; image-rendering: pixelated; border-radius: 3px; cursor: pointer; border: 2px solid transparent; background: var(--sunk); }
+.film canvas.sel { border-color: var(--accent); }
+.film .none { font-size: var(--t-xs); color: var(--muted); align-self: center; }
+
+/* compare table */
+table { border-collapse: collapse; width: 100%; font-size: var(--t-sm); }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--ink-2); font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.06em; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; }
+.ok { color: var(--good-ink); }
+.no { color: var(--bad-ink); }
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: var(--t-xs); font-weight: 500; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.ok { background: var(--good-soft); }
+.pill.no { background: var(--bad-soft); }
+.pill.part { background: var(--note-soft); color: var(--note); }
+.pill.na { background: var(--sunk); color: var(--muted); }
+.pill .ic { font-family: var(--font-mono); font-weight: 600; }
+
+/* bugs */
+.bugs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.bug { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.bug-head { display: flex; gap: 10px; align-items: baseline; }
+.bug-tag { font-family: var(--font-mono); font-size: var(--t-xs); font-weight: 600; color: var(--bad-ink); background: var(--bad-soft); padding: 1px 7px; border-radius: 4px; flex: none; }
+.bug p { color: var(--ink-2); font-size: var(--t-sm); }
+.bug p strong { color: var(--ink); font-weight: 600; }
+pre.code {
+  margin: 0; font-family: var(--font-mono); font-size: var(--t-xs); line-height: 1.6; background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px 0; overflow-x: auto; color: var(--ink);
+}
+pre.code .l { display: block; padding: 0 12px 0 0; white-space: pre; }
+pre.code .n { display: inline-block; width: 3.6em; padding-right: 1em; text-align: right; color: var(--muted); user-select: none; }
+pre.code .hl { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
+.file-ref { font-family: var(--font-mono); font-size: var(--t-xs); color: var(--muted); }
+
+.callout { border-left: 3px solid var(--line-strong); padding: 4px 0 4px 14px; color: var(--ink-2); font-size: var(--t-sm); max-width: 80ch; }
+.callout strong { color: var(--ink); }
+
+/* step strip */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--t-sm); color: var(--ink-2); margin-bottom: 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.legend b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stripbox { position: relative; display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 10px 12px; align-items: center; }
+.stripbox .rl { font-size: var(--t-sm); color: var(--ink-2); line-height: 1.25; }
+.stripbox .rl small { display: block; color: var(--muted); font-size: var(--t-xs); }
+.stripbox canvas { width: 100%; height: 26px; display: block; cursor: crosshair; border-radius: 3px; }
+.ruler { display: flex; height: 22px; font-size: var(--t-xs); color: var(--muted); }
+.ruler div { border-left: 1px solid var(--line-strong); padding-left: 4px; white-space: nowrap; overflow: hidden; line-height: 22px; }
+.marks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.chip {
+  font: 500 var(--t-sm)/1.2 var(--font-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong);
+  border-radius: 999px; padding: 6px 12px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip .k { font-family: var(--font-mono); color: var(--muted); font-weight: 400; }
+.tip {
+  position: fixed; z-index: 50; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 8px 10px; font-size: var(--t-xs); line-height: 1.45; box-shadow: 0 6px 20px rgba(0,0,0,.15); max-width: 300px;
+}
+.tip b { font-size: var(--t-sm); }
+.tip .tl { color: var(--muted); }
+
+.levels { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.levels button { all: unset; cursor: pointer; display: grid; gap: 6px; min-width: 0; }
+.levels button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+.levels button:hover canvas { outline: 2px solid var(--accent); }
+.levels .cap { font-size: var(--t-xs); color: var(--muted); display: flex; justify-content: space-between; gap: 4px; }
+.levels .cap b { color: var(--ink); font-weight: 600; }
+
+/* player */
+.controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 7px; overflow: hidden; }
+.seg button { font: 500 var(--t-sm)/1 var(--font-body); background: var(--surface); color: var(--ink-2); border: 0; padding: 8px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line-strong); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.btn { font: 500 var(--t-sm)/1 var(--font-body); background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px 11px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.scrub { flex: 1 1 260px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.scrub input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.stepnum { width: 5.2em; font: 500 var(--t-sm) var(--font-mono); padding: 7px 8px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); color: var(--ink); }
+.player-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(250px, 1fr); gap: 18px; }
+.info { display: grid; gap: 14px; align-content: start; font-size: var(--t-sm); }
+.info .big { font-size: var(--t-lg); font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.info .big .act { font-family: var(--font-mono); font-size: var(--t-md); color: var(--ink-2); font-weight: 500; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+.verdict { padding: 10px 12px; border-radius: 6px; }
+.verdict.ok { background: var(--good-soft); }
+.verdict.no { background: var(--bad-soft); }
+.verdict.na { background: var(--sunk); color: var(--muted); }
+.verdict b { display: block; }
+.verdict ul { margin: 4px 0 0; padding-left: 18px; color: var(--ink-2); }
+.catdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+.kbd-hint { font-size: var(--t-xs); color: var(--muted); }
+.kbd-hint kbd { border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+/* charts */
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart-legend svg { width: auto; height: auto; display: inline-block; flex: none; }
+.chart .grid line { stroke: var(--line); stroke-width: 1; }
+.chart .axis text, .chart text.ax { fill: var(--muted); font: 400 11px var(--font-mono); }
+.chart .lbl { fill: var(--ink-2); font: 500 11.5px var(--font-body); }
+.chart .lbl-strong { fill: var(--ink); font: 600 12px var(--font-body); }
+.chart .phase { fill: var(--sunk); }
+.chart .phase-bad { fill: var(--bad-soft); }
+.chart .nudge { stroke: var(--note); stroke-width: 1.5; }
+.chart .best { fill: none; stroke: var(--c-key); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--c-key); stroke: var(--surface); stroke-width: 2; }
+.chart .dot0 { fill: var(--surface); stroke: var(--c-key); stroke-width: 2; }
+.chart .crash { stroke: var(--bad); stroke-width: 2.2; stroke-linecap: round; }
+.chart .area { fill: var(--c-key); opacity: 0.1; }
+.chart .line { fill: none; stroke: var(--c-key); stroke-width: 2; stroke-linejoin: round; }
+.chart .ref { stroke: var(--ink-2); stroke-width: 1; }
+.chart .hit { fill: transparent; cursor: pointer; }
+.chart .cross { stroke: var(--line-strong); stroke-width: 1; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--t-sm); color: var(--ink-2); margin-bottom: 8px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.charts { display: grid; gap: 16px; }
+
+.phases td:first-child, .phases td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.obs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.obs .panel { margin: 0; }
+.obs h3 { margin-bottom: 8px; }
+.obs p { color: var(--ink-2); font-size: var(--t-sm); }
+.obs p + p { margin-top: 8px; }
+blockquote.q { margin: 8px 0 0; padding: 8px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; font: 400 var(--t-xs)/1.55 var(--font-mono); color: var(--ink-2); }
+blockquote.q cite { display: block; font-style: normal; color: var(--muted); margin-bottom: 4px; }
+
+/* transcript */
+.tx-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 12px; }
+.tx-controls input[type=search] {
+  flex: 1 1 220px; min-width: 0; font: 400 var(--t-sm) var(--font-body); padding: 8px 12px; border: 1px solid var(--line-strong);
+  border-radius: 7px; background: var(--surface); color: var(--ink);
+}
+.tx-count { font-size: var(--t-sm); color: var(--muted); }
+.tx-list { display: grid; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+details.turn { border-top: 1px solid var(--line); }
+details.turn:first-child { border-top: 0; }
+details.turn > summary {
+  list-style: none; cursor: pointer; display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; gap: 4px 14px; padding: 11px 16px; align-items: start;
+}
+details.turn > summary::-webkit-details-marker { display: none; }
+details.turn > summary:hover { background: var(--code-bg); }
+details.turn[open] > summary { background: var(--code-bg); border-bottom: 1px solid var(--line); }
+.t-num { font-family: var(--font-mono); font-size: var(--t-sm); font-weight: 600; color: var(--ink); line-height: 1.5; }
+.t-num small { display: block; font-weight: 400; color: var(--muted); font-size: var(--t-xs); }
+.t-main { min-width: 0; display: grid; gap: 6px; }
+.t-sum { font-size: var(--t-sm); color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.t-note { font-size: var(--t-sm); color: var(--ink); background: var(--note-soft); border-radius: 6px; padding: 6px 10px; }
+.t-note b { color: var(--note); font-weight: 600; margin-right: 4px; }
+.t-chips { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 300px; }
+.tc { font-size: var(--t-xs); padding: 2px 7px; border-radius: 4px; background: var(--sunk); color: var(--ink-2); white-space: nowrap; font-family: var(--font-mono); }
+.tc.test-ok { background: var(--accent-soft); color: var(--accent); }
+.tc.test-bad { background: var(--bad-soft); color: var(--bad-ink); }
+.tc.nudge { background: var(--note-soft); color: var(--note); }
+.tc.edit { background: var(--ink); color: var(--surface); }
+.t-body { padding: 14px 16px 18px 104px; display: grid; gap: 14px; min-width: 0; }
+.t-block { display: grid; gap: 6px; min-width: 0; }
+.t-block h4 { margin: 0; font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.t-block pre {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 400 var(--t-xs)/1.6 var(--font-mono); background: var(--code-bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; max-height: 460px; overflow: auto; color: var(--ink);
+}
+.t-block pre.reason { font-family: var(--font-body); font-size: var(--t-sm); line-height: 1.6; color: var(--ink-2); background: transparent; border: 0; padding: 0 0 0 12px; border-left: 2px solid var(--line-strong); border-radius: 0; }
+.t-block pre.code-arg { white-space: pre; overflow-x: auto; }
+mark { background: color-mix(in srgb, var(--c-bump) 40%, transparent); color: inherit; border-radius: 2px; }
+.more { justify-self: start; }
+
+details.src { margin-top: 12px; }
+details.src summary { cursor: pointer; font-size: var(--t-sm); color: var(--accent); font-weight: 500; }
+details.src pre.code { margin-top: 10px; max-height: 560px; overflow: auto; }
+
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--t-sm); display: grid; gap: 8px; }
+footer code { font-size: var(--t-xs); }
+.loading { color: var(--muted); font-size: var(--t-sm); }
+
+@media (max-width: 860px) {
+  .frames { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .frames.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .bugs, .obs { grid-template-columns: minmax(0, 1fr); }
+  .player-grid { grid-template-columns: minmax(0, 1fr); }
+  .levels { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .strip-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+@media (max-width: 560px) {
+  .wrap { padding-inline: 16px; }
+  .stripbox { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .stripbox .spacer { display: none; }
+  details.turn > summary { grid-template-columns: 56px minmax(0, 1fr); }
+  .t-chips { grid-column: 2; justify-content: flex-start; max-width: none; }
+  .t-body { padding-left: 16px; }
+  .frames.three { grid-template-columns: minmax(0, 1fr); }
+  .panel { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">ls20</a>
+    <nav aria-label="Sections">
+      <a href="#divergence">Step 17</a>
+      <a href="#recording">The recording</a>
+      <a href="#player">Step player</a>
+      <a href="#session">The session</a>
+      <a href="#transcript">Transcript</a>
+    </nav>
+  </div>
+</div>
+
+<main class="wrap" id="top">
+  <header class="hero">
+    <div class="eyebrow">ARC-AGI-3 engine reverse-engineering · qwen/qwen3.8-flash · main run (v2)</div>
+    <h1>
+      <span class="wordmark">ls20<span class="px" aria-hidden="true"></span></span>
+      <span class="hero-sub">Why the agent's engine stops matching at step 17</span>
+    </h1>
+    <p class="lede">The agent had 115 minutes and the full 867-step recording of a real run. Its best engine reproduces the first 17 steps exactly, then goes out of sync and never recovers. Its final engine is worse: it matches 11 steps and crashes at step 172. This page shows the step where it breaks, every mechanic the recording needed, a frame-by-frame player against the real game, and the agent's full transcript.</p>
+
+    <div class="stats">
+      <div class="stat bad"><span class="label">Best engine (turn 136)</span><span class="value tnum">17 <small>/ 867 steps</small></span><span class="detail">first mismatch at step 17</span></div>
+      <div class="stat bad"><span class="label">Final engine (turn 252)</span><span class="value tnum">11 <small>/ 867 steps</small></span><span class="detail">crashes at step 172</span></div>
+      <div class="stat"><span class="label">Session</span><span class="value tnum">276 <small>turns</small></span><span class="detail">115 min, stopped by the time limit</span></div>
+      <div class="stat"><span class="label">Tests</span><span class="value tnum">31 <small>runs</small></span><span class="detail">20 crashed; all 31 were automatic</span></div>
+      <div class="stat"><span class="label">Tokens</span><span class="value tnum">384K <small>output</small></span><span class="detail">311K reasoning · 34.4M prompt · $0.97</span></div>
+    </div>
+
+    <div class="answer" aria-label="Short answer">
+      <div>
+        <h3>The first unusual step breaks it</h3>
+        <p>At step 17 the key rotates and matches the goal. The real game plays a 6-frame hint flash and charges nothing. The engine returns 1 frame, charges 1 and rotates the key the wrong way. Its leftover flash ticks then swallow the next move, so every later step is off.</p>
+      </div>
+      <div>
+        <h3>Most of the game was never modelled</h3>
+        <p>Pushers (47 steps of 17 frames), track movers, the colour and shape changers and entering a goal are all missing, so the engine can never finish a level. Fixing step 17 alone would only get it to step 130, the first push.</p>
+      </div>
+      <div>
+        <h3>A slow start and fragile rewrites</h3>
+        <p>97 turns of analysis before the first engine, despite three nudges. Two later rewrites each produced 8 crashing tests in a row. Nothing after minute 62 beat the best engine.</p>
+      </div>
+      <div>
+        <h3>It lost its own conclusions</h3>
+        <p>It noticed that step 17 is free at turn 142 and explained why at turn 204, then rediscovered it as new at turn 274. The prompt grew to 198K tokens, and the harness trimmed old reasoning to stay under it.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== STEP 17 ===================== -->
+  <section id="divergence">
+    <div class="sec-head">
+      <div class="eyebrow">Where it breaks</div>
+      <h2>Step 17: the player steps onto a rotation changer</h2>
+      <div class="prose">
+        <p>Steps 0–16 are plain moves plus one bump into the wrong goal, and the best engine reproduces them pixel for pixel. At step 17 (<code>DOWN</code>) the player lands on a rotation changer. The key turns from 270° to 0°, which now matches the level-0 goal. That triggers a rule that happens once in the whole 867-step recording: a free move with a hint flash.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><h3>Final frame of step 17</h3><span class="hint">Hover a frame to read pixel colours</span></div>
+      <div class="frames" id="d17-frames">
+        <div class="frame"><div class="frame-label"><span>Before (end of step 16)</span><span>64×64</span></div><canvas class="px" width="64" height="64" id="d17-before" aria-label="Frame before step 17"></canvas></div>
+        <div class="frame"><div class="frame-label"><span>Real game</span><span id="d17-real-n">6 frames</span></div><canvas class="px" width="64" height="64" id="d17-real" aria-label="Real game, final frame of step 17"></canvas></div>
+        <div class="frame"><div class="frame-label"><span>Agent's best engine</span><span id="d17-cand-n">1 frame</span></div><canvas class="px" width="64" height="64" id="d17-cand" aria-label="Best engine, final frame of step 17"></canvas></div>
+        <div class="frame"><div class="frame-label"><span>Difference</span><span id="d17-diff-n">70 px</span></div><canvas class="px" width="64" height="64" id="d17-diff" aria-label="Pixels that differ"></canvas></div>
+      </div>
+      <div class="readout" id="d17-readout">Pixels that differ are drawn in bright pink on a faded copy of the real frame.</div>
+      <div class="strips">
+        <div class="strip-row"><div class="rl">Real game<small>6 frames: flash, then settle</small></div><div class="film" id="d17-film-real"></div></div>
+        <div class="strip-row"><div class="rl">Best engine<small>1 frame</small></div><div class="film" id="d17-film-cand"></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>At step 17</th><th>Real game</th><th>Best engine</th></tr></thead>
+          <tbody>
+            <tr><td>Frames returned</td><td>6: hint flash, then settle</td><td class="no">1</td></tr>
+            <tr><td>Budget</td><td>27 → 27, the move is free</td><td class="no">27 → 26</td></tr>
+            <tr><td>Key glyph in the HUD</td><td>rotated 270° → 0°, matches the goal</td><td class="no">reflected instead of rotated (8 px wrong)</td></tr>
+            <tr><td>Hint flash (frame around the HUD box and the goal)</td><td>shown for 5 frames, gone in the final frame</td><td class="no">drawn in its only frame, so it stays on screen (60 px)</td></tr>
+            <tr><td>Next step (18, <code>UP</code>)</td><td>1 frame, the player moves up</td><td class="no">5 frames of leftover flash; the move is lost and the player is now one cell off</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="sec-head" style="margin-top:36px">
+      <h3>Four bugs in <code>engine_best.py</code> cause it</h3>
+    </div>
+    <div class="bugs">
+      <div class="panel bug">
+        <div class="bug-head"><span class="bug-tag">a</span><h3>The flash ends the action after 1 frame</h3></div>
+        <pre class="code"><span class="l"><span class="n">733</span>        if any(tuple(a[:2]) == key for a in self.cfg["arrows"]):</span><span class="l"><span class="n">734</span>            self.rotate_cw()</span><span class="l hl"><span class="n">735</span>            self._start_anim(5, flash="rotate")</span><span class="l hl"><span class="n">736</span>            self.complete_action()</span><span class="l"><span class="n">737</span>            return</span></pre>
+        <p><strong>Real game:</strong> the action keeps stepping while the flash counter runs down and calls <code>complete_action()</code> only when it reaches 0, so one action returns 6 frames. Here the action ends at once, and the 5 unused ticks are played at the start of the next action, which is how step 18 loses its move.</p>
+      </div>
+      <div class="panel bug">
+        <div class="bug-head"><span class="bug-tag">b</span><h3>The budget is charged before the changer check</h3></div>
+        <pre class="code"><span class="l"><span class="n">719</span>        if self.budget &lt; cost:</span><span class="l"><span class="n">720</span>            self.death_flash = True</span><span class="l"><span class="n">721</span>            self._start_anim(5, flash=None, after=self._after_death)</span><span class="l"><span class="n">722</span>            return</span><span class="l hl"><span class="n">723</span>        self.budget -= cost</span></pre>
+        <p><strong>Real game:</strong> when the hint flash starts, <code>if self.akoadfsur: return</code> (real L1970) skips the charge on the next line, so the move is free. Every other move is charged.</p>
+      </div>
+      <div class="panel bug">
+        <div class="bug-head"><span class="bug-tag">c</span><h3><code>rotate_cw</code> is a reflection</h3></div>
+        <pre class="code"><span class="l"><span class="n">683</span>    def rotate_cw(self):</span><span class="l"><span class="n">684</span>        p = self.pattern</span><span class="l hl"><span class="n">685</span>        self.pattern = [[p[2 - c][2 - r] for c in range(3)] for r in range(3)]</span></pre>
+        <p><strong>Correct:</strong> a clockwise turn of a 3×3 glyph is <code>p[2 - c][r]</code>. The code flips the glyph across its anti-diagonal, so the HUD key is 8 pixels wrong and can never match the goal. The agent found the right formula at turn 271, too late to matter.</p>
+      </div>
+      <div class="panel bug">
+        <div class="bug-head"><span class="bug-tag">d</span><h3>It flashes on every changer, in every level</h3></div>
+        <pre class="code"><span class="l"><span class="n">733</span>        if any(tuple(a[:2]) == key for a in self.cfg["arrows"]):</span><span class="l"><span class="n">734</span>            self.rotate_cw()</span><span class="l hl"><span class="n">735</span>            self._start_anim(5, flash="rotate")</span></pre>
+        <p><strong>Real game:</strong> the hint (<code>vqfjzzkhid</code>, real L2024–2037) fires only on level 0 <em>and</em> only when the new key matches an unfinished goal. Of 99 key changes in the recording, only step 17 meets both conditions. The other 98 take 1 frame and cost budget.</p>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top:20px">
+      <strong>Fixing these four is not enough.</strong> A goal tile can never be entered, because <code>is_walkable</code> (L716) runs before the goal check (L738), so the engine can never finish a level. Wall bumps play a free 6-frame flash where the real game uses 1 frame and charges the move (22 times in the recording). RESET does not restore the 3 lives. A copy patched in about 15 lines matches 130 of 867 steps, all of levels 0 and 1. It then fails at step 130, the first push, which this engine does not model at all.
+    </div>
+  </section>
+
+  <!-- ===================== RECORDING ===================== -->
+  <section id="recording">
+    <div class="sec-head">
+      <div class="eyebrow">What the engine had to reproduce</div>
+      <h2>867 steps, eleven kinds of step, six levels</h2>
+      <div class="prose">
+        <p>You move a block through a maze in 5-pixel steps. The HUD box at the bottom left shows a key: a 3×3 glyph with a shape, a colour and a rotation. Stepping on a changer tile changes one of the three. A goal box lets you in only when the key matches its glyph. Every move costs budget, rings refill it, and running out costs one of 3 lives. From level 2, pusher bars sweep across the maze and carry the player in a 17-frame animation. Levels 4 and 5 add changers that slide along a track.</p>
+        <p>Each strip has one cell per step. The top row is what the real game did. The rows under it show whether each engine matched that step. Click any cell to open it in the step player.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="legend" id="cat-legend"></div>
+      <div class="stripbox" id="stripbox">
+        <div class="rl">Real game<small>kind of step</small></div><canvas id="strip-real" height="26" aria-label="Kind of each recorded step"></canvas>
+        <div class="rl">Best engine<small>turn 136</small></div><canvas id="strip-best" height="26" aria-label="Best engine match per step"></canvas>
+        <div class="rl">Final engine<small>turn 252</small></div><canvas id="strip-final" height="26" aria-label="Final engine match per step"></canvas>
+        <div class="spacer"></div><div class="ruler" id="ruler"></div>
+      </div>
+      <div class="legend" style="margin:12px 0 0" id="match-legend">
+        <span><i style="background:var(--good)"></i>matches exactly</span>
+        <span><i style="background:var(--bad)"></i>differs</span>
+        <span><i style="background:var(--c-norun);box-shadow:inset 0 0 0 1px var(--line-strong)"></i>not run (the engine had crashed)</span>
+      </div>
+      <div class="marks" id="marks"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><h3>Start of each level in the recording</h3><span class="hint">Level 6 is never reached. Click a level to open it in the player.</span></div>
+      <div class="levels" id="levels"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><h3>Which mechanics the best engine handles</h3><span class="hint">Counts are steps in the recording, classified by replaying the real engine</span></div>
+      <div class="table-wrap">
+        <table id="coverage">
+          <thead><tr><th>Kind of step</th><th class="num">Steps</th><th class="num">First at</th><th>Best engine</th><th>What is wrong</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PLAYER ===================== -->
+  <section id="player">
+    <div class="sec-head">
+      <div class="eyebrow">Frame by frame</div>
+      <h2>Step player</h2>
+      <div class="prose"><p>Both engines get the same recorded actions as the real game. Pick a step to see the real game's frames next to the engine's, the pixels that differ, and the real engine's hidden state after the step.</p></div>
+    </div>
+    <div class="panel">
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Engine">
+          <button type="button" id="eng-best" aria-pressed="true">Best · turn 136</button>
+          <button type="button" id="eng-final" aria-pressed="false">Final · turn 252</button>
+        </div>
+        <div class="scrub">
+          <button type="button" class="btn" id="prev" aria-label="Previous step">◀</button>
+          <input type="range" id="slider" min="0" max="866" value="17" aria-label="Step">
+          <button type="button" class="btn" id="next" aria-label="Next step">▶</button>
+          <input type="number" class="stepnum" id="stepnum" min="0" max="866" value="17" aria-label="Step number">
+        </div>
+        <span class="kbd-hint"><kbd>←</kbd> <kbd>→</kbd> step · <kbd>space</kbd> play frames</span>
+      </div>
+      <div class="marks" id="jumps" style="margin:0 0 16px"></div>
+      <div class="player-grid">
+        <div>
+          <div class="frames three">
+            <div class="frame"><div class="frame-label"><span>Real game</span><span id="p-real-k"></span></div><canvas class="px" width="64" height="64" id="p-real" aria-label="Real game frame"></canvas></div>
+            <div class="frame"><div class="frame-label"><span id="p-cand-title">Best engine</span><span id="p-cand-k"></span></div><div id="p-cand-wrap"><canvas class="px" width="64" height="64" id="p-cand" aria-label="Engine frame"></canvas></div></div>
+            <div class="frame"><div class="frame-label"><span>Difference</span><span id="p-diff-n"></span></div><canvas class="px" width="64" height="64" id="p-diff" aria-label="Pixels that differ"></canvas></div>
+          </div>
+          <div class="readout" id="p-readout">Hover a frame to read pixel colours.</div>
+          <div class="strips">
+            <div class="strip-row"><div class="rl">Real game<small id="p-film-real-n"></small></div><div class="film" id="p-film-real"></div></div>
+            <div class="strip-row"><div class="rl" id="p-film-cand-label">Engine<small id="p-film-cand-n"></small></div><div class="film" id="p-film-cand"></div></div>
+          </div>
+        </div>
+        <div class="info" id="p-info"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SESSION ===================== -->
+  <section id="session">
+    <div class="sec-head">
+      <div class="eyebrow">The agent's 115 minutes</div>
+      <h2>How the session went</h2>
+      <div class="prose"><p>Every test in the session ran automatically, because the harness replays the recording whenever <code>engine.py</code> changes. The model itself never called <code>run_tests</code>. The best result came at minute 62 and nothing after it did better.</p></div>
+    </div>
+    <div class="charts">
+      <div class="panel chart">
+        <div class="panel-title"><h3>Steps matched by each test</h3><span class="hint">Hover a mark for the test result</span></div>
+        <div class="chart-legend">
+          <span><svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="var(--c-key)"/></svg>test result</span>
+          <span><svg width="14" height="14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11" stroke="var(--bad)" stroke-width="2.2" stroke-linecap="round"/></svg>engine crashed</span>
+          <span><svg width="22" height="14" aria-hidden="true"><path d="M1 10 H9 V4 H21" stroke="var(--c-key)" stroke-width="2" fill="none"/></svg>best so far</span>
+          <span><svg width="10" height="14" aria-hidden="true"><line x1="5" y1="1" x2="5" y2="13" stroke="var(--note)" stroke-width="1.5"/></svg>harness nudge to test</span>
+        </div>
+        <div id="chart-tests"></div>
+      </div>
+      <div class="panel chart">
+        <div class="panel-title"><h3>Prompt size per request</h3><span class="hint">Tokens sent to the model on each turn</span></div>
+        <div id="chart-prompt"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <div class="table-wrap">
+        <table class="phases">
+          <thead><tr><th>Turns</th><th>Minutes</th><th>What happened</th></tr></thead>
+          <tbody>
+            <tr><td>1–97</td><td>0–40</td><td>Analysis in Python only, despite nudges at turns 30, 60 and 90. It found the pushers at turns 47–50 (it called them "lasers" that sweep from column 8 to 33 and carry the player) and a changer sliding on a track at turns 80–81. It never implemented either.</td></tr>
+            <tr><td>98–137</td><td>41–63</td><td>First engine, a 14 KB write that crashed on load. It then baked every level's maze into the file as data (44 KB by turn 136), and edits brought it to 11, 16 and then 17 matched steps at turn 136, the best of the run.</td></tr>
+            <tr><td>138–163</td><td>63–75</td><td>Back to analysis. At turn 142 it noticed that step 17 is free. It then chased key changes on levels 3–5 and called them "a rabbit hole" at turn 156.</td></tr>
+            <tr><td>164–195</td><td>76–86</td><td>A full rewrite: 8 crashing tests in a row (unpacking errors, wrong <code>Level</code> API, a syntax error), then back to 11 steps.</td></tr>
+            <tr><td>196–233</td><td>86–97</td><td>At turn 204 it found the real step-17 condition (the rotated key matches the goal), then dropped it for a "level 0 only" flag at turns 222–224. Three tool calls failed on an <code>elided</code> argument copied from the compacted history. A chunked rewrite followed, with 8 more crashes.</td></tr>
+            <tr><td>234–276</td><td>97–115</td><td>Fixing crashes. The final engine at turn 252 matches 11 steps and crashes at step 172. At turn 276, the last turn, it was still restating how goals work when the time limit hit.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="obs">
+      <div class="panel">
+        <h3>It forgot what it had worked out</h3>
+        <p>The rule behind step 17 was found twice and lost twice. At turn 142 it wrote that the arrow entry is free. At turn 274, two minutes before the end, it rediscovered the same fact as a surprise.</p>
+        <blockquote class="q"><cite>turn 142 · minute 65</cite>Level 0: bar at 16 = 27, at 17 = 27 (arrow entry, free), at 18 = 26.</blockquote>
+        <blockquote class="q"><cite>turn 274 · minute 114</cite>And the budget did NOT decrease at step 17 (27 → 27)! Interesting: stepping on the arrow is free?</blockquote>
+      </div>
+      <div class="panel">
+        <h3>It copied the harness's trim marker</h3>
+        <p>To keep the prompt under its limit, the harness shortens old reasoning to its last 1,200 characters and prefixes it with <code>[earlier reasoning trimmed] ...</code>. From turn 114 on, the model began 82 of its own new reasoning blocks with that same marker and started them mid-sentence, imitating the trimmed history it was reading.</p>
+        <blockquote class="q"><cite>turn 204 · start of the model's own reasoning</cite>[earlier reasoning trimmed] ...free at step 17 relates to the pattern MATCHING the target.</blockquote>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== TRANSCRIPT ===================== -->
+  <section id="transcript">
+    <div class="sec-head">
+      <div class="eyebrow">The agent's own words</div>
+      <h2>Transcript</h2>
+      <div class="prose"><p>All 276 turns: the model's reasoning, the code it ran, what the tools returned, and every automatic test report. Notes mark the turns that explain the outcome. Tool outputs longer than 8,000 characters are cut.</p></div>
+    </div>
+    <div class="tx-controls">
+      <div class="seg" role="group" aria-label="Filter turns" id="tx-filter">
+        <button type="button" data-f="notes" aria-pressed="true">Key turns</button>
+        <button type="button" data-f="tests" aria-pressed="false">Tests</button>
+        <button type="button" data-f="crash" aria-pressed="false">Crashes</button>
+        <button type="button" data-f="nudge" aria-pressed="false">Nudges</button>
+        <button type="button" data-f="all" aria-pressed="false">All</button>
+      </div>
+      <input type="search" id="tx-search" placeholder="Search reasoning, code and output, e.g. laser" aria-label="Search the transcript">
+      <span class="tx-count" id="tx-count"></span>
+    </div>
+    <div class="tx-list" id="tx-list"><div class="loading" style="padding:16px">Loading the transcript…</div></div>
+
+    <details class="src">
+      <summary>Show the full best engine (<code>engine_best.py</code>, 750 lines)</summary>
+      <pre class="code" id="src-best"></pre>
+    </details>
+    <details class="src">
+      <summary>Show the full final engine (<code>engine_final.py</code>, 832 lines)</summary>
+      <pre class="code" id="src-final"></pre>
+    </details>
+  </section>
+
+  <footer>
+    <p>Data: run <code>runs/20261004_135539</code>, agent output <code>engine_re/results/v2-main/ls20/</code>, real engine <code>environment_files/ls20/9607627b/ls20.py</code>. Both engines were replayed in the same sandbox the agent's tests used. Step kinds come from replaying the real engine and reading its hidden state.</p>
+    <p>Line numbers in the bug cards refer to <code>engine_best.py</code> unless marked “real”.</p>
+  </footer>
+</main>
+
+<div class="tip" id="tip" hidden></div>
+
+<script type="text/plain" id="payload">__PAYLOAD__</script>
+<script>
+(function () {
+"use strict";
+
+const PAL = ["#FFFFFF","#CCCCCC","#999999","#666666","#333333","#000000","#E53AA3","#FF7BCC","#F93C31","#1E93FF","#88D8F1","#FFDC00","#FF851B","#921231","#4FCC30","#A356D6"];
+const PAL_NAME = ["white","light grey","grey","dark grey","darker grey","black","magenta","pink","red","blue","light blue","yellow","orange","maroon","green","purple"];
+const PAL_RGB = PAL.map(h => [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]);
+
+const CATS = {
+  move:     { label: "Plain move",               v: "--c-move" },
+  key:      { label: "Key change",               v: "--c-key" },
+  hint:     { label: "Key change + hint flash",  v: "--c-key" },
+  push:     { label: "Push (17 frames)",         v: "--c-push" },
+  refill:   { label: "Budget refill",            v: "--c-refill" },
+  bump:     { label: "Wall bump",                v: "--c-bump" },
+  goalbump: { label: "Wrong-goal bump",          v: "--c-bump" },
+  death:    { label: "Death (budget ran out)",   v: "--c-death" },
+  win:      { label: "Level won",                v: "--c-win" },
+  reset:    { label: "Reset",                    v: "--c-other" },
+  gameover: { label: "Game over",                v: "--c-other" },
+};
+const LEGEND = [
+  ["Plain move", "--c-move", ["move"]],
+  ["Key change", "--c-key", ["key", "hint"]],
+  ["Push", "--c-push", ["push"]],
+  ["Budget refill", "--c-refill", ["refill"]],
+  ["Bump (wall or wrong goal)", "--c-bump", ["bump", "goalbump"]],
+  ["Death", "--c-death", ["death"]],
+  ["Level won", "--c-win", ["win"]],
+  ["Reset or game over", "--c-other", ["reset", "gameover"]],
+];
+const COVERAGE = {
+  move:     ["ok",   "Handled", "Matches on level 0. Later levels drift because earlier steps are already off."],
+  key:      ["no",   "Wrong",   "Only rotation is modelled, and as a reflection. The shape changer is treated as a rotator and the colour changer does nothing."],
+  hint:     ["no",   "Wrong",   "Step 17: see the four bugs above."],
+  push:     ["no",   "Missing", "The pusher bars are drawn as static decoration."],
+  refill:   ["ok",   "Handled", "Rings refill the budget."],
+  bump:     ["no",   "Wrong",   "Plays a free 6-frame flash; the real game takes 1 frame and charges the move."],
+  goalbump: ["part", "By luck", "Matches only because every blocked move flashes, and the goal tile is never walkable."],
+  death:    ["part", "Partly",  "Plays a 6-frame death flash like the real game, but also on the last life, where the real game ends at once."],
+  win:      ["no",   "Never",   "A goal tile can never be entered, so the engine never wins a level."],
+  reset:    ["part", "Partly",  "Restarts the level but does not restore the 3 lives."],
+  gameover: ["part", "Partly",  "Plays 6 frames before game over; the real game takes 1."],
+};
+
+/* ---------- helpers ---------- */
+const $ = id => document.getElementById(id);
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function hexRgb(h) {
+  h = h.replace("#", "");
+  if (h.length === 3) h = h.split("").map(c => c + c).join("");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function fmtK(n) { return n >= 1e6 ? (n/1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n/1e3) + "K" : String(n); }
+
+async function gunzipB64(b64) {
+  const bin = atob(b64);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  const stream = new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/* ---------- frames ---------- */
+function makeSource(buf, off) {
+  return {
+    off,
+    steps: off.length - 1,
+    count(s) { return s < off.length - 1 ? off[s + 1] - off[s] : null; },
+    frame(s, k) {
+      if (s >= off.length - 1) return null;
+      const n = off[s + 1] - off[s];
+      if (k < 0 || k >= n) return null;
+      const idx = off[s] + k, base = idx * 2048, out = new Uint8Array(4096);
+      for (let i = 0; i < 2048; i++) { const b = buf[base + i]; out[2*i] = b >> 4; out[2*i + 1] = b & 15; }
+      return out;
+    },
+    last(s) { const n = this.count(s); return n ? this.frame(s, n - 1) : null; },
+  };
+}
+function drawFrame(canvas, f) {
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(64, 64);
+  for (let i = 0; i < 4096; i++) { const c = PAL_RGB[f[i]]; img.data[4*i] = c[0]; img.data[4*i+1] = c[1]; img.data[4*i+2] = c[2]; img.data[4*i+3] = 255; }
+  ctx.putImageData(img, 0, 0);
+}
+function drawDiff(canvas, a, b) {
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(64, 64);
+  const bg = hexRgb(css("--surface") || "#ffffff");
+  const hot = hexRgb(css("--diff") || "#ff1f5a");
+  let n = 0;
+  for (let i = 0; i < 4096; i++) {
+    let c;
+    if (b && a[i] !== b[i]) { c = hot; n++; }
+    else {
+      const p = PAL_RGB[a[i]], g = 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2];
+      c = [bg[0] * 0.72 + g * 0.28, bg[1] * 0.72 + g * 0.28, bg[2] * 0.72 + g * 0.28];
+    }
+    img.data[4*i] = c[0]; img.data[4*i+1] = c[1]; img.data[4*i+2] = c[2]; img.data[4*i+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return n;
+}
+function countDiff(a, b) { let n = 0; for (let i = 0; i < 4096; i++) if (a[i] !== b[i]) n++; return n; }
+function thumb(f, sel, onClick, label) {
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 64; c.className = sel ? "sel" : "";
+  c.setAttribute("aria-label", label);
+  c.tabIndex = 0;
+  drawFrame(c, f);
+  if (onClick) {
+    c.addEventListener("click", onClick);
+    c.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } });
+  }
+  return c;
+}
+function pixelAt(canvas, ev) {
+  const r = canvas.getBoundingClientRect();
+  const col = Math.floor((ev.clientX - r.left) / r.width * 64), row = Math.floor((ev.clientY - r.top) / r.height * 64);
+  if (col < 0 || col > 63 || row < 0 || row > 63) return null;
+  return { row, col, i: row * 64 + col };
+}
+function swatchHTML(v) {
+  const s = el("span"); s.append(Object.assign(el("span", "sw"), { style: "background:" + PAL[v] }), document.createTextNode(v + " " + PAL_NAME[v]));
+  return s;
+}
+function bindReadout(canvases, out, get) {
+  canvases.forEach(cv => {
+    cv.addEventListener("mousemove", ev => {
+      const p = pixelAt(cv, ev); if (!p) return;
+      const { real, cand } = get();
+      out.replaceChildren();
+      const b = el("b", null, `row ${p.row}, col ${p.col}`);
+      out.append(b, document.createTextNode("  ·  real "));
+      if (real) out.append(swatchHTML(real[p.i])); else out.append(document.createTextNode("—"));
+      out.append(document.createTextNode("  ·  engine "));
+      if (cand) out.append(swatchHTML(cand[p.i])); else out.append(document.createTextNode("no frame"));
+      if (real && cand && real[p.i] !== cand[p.i]) out.append(Object.assign(el("b", null, "  differs"), { style: "color:var(--bad-ink)" }));
+    });
+  });
+}
+
+/* ---------- tooltip ---------- */
+const tip = $("tip");
+function showTip(ev, nodes) {
+  tip.replaceChildren(...nodes);
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + w > window.innerWidth - 8) x = ev.clientX - w - 14;
+  if (y + h > window.innerHeight - 8) y = ev.clientY - h - 14;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+function hideTip() { tip.hidden = true; }
+
+/* ---------- main ---------- */
+async function main() {
+  const D = JSON.parse(new TextDecoder().decode(await gunzipB64($("payload").textContent.trim())));
+  const [realBuf, bestBuf, finalBuf] = await Promise.all([
+    gunzipB64(D.real.frames), gunzipB64(D.engines.best.frames), gunzipB64(D.engines.final.frames),
+  ]);
+  const REAL = makeSource(realBuf, D.real.off);
+  const ENG = {
+    best: Object.assign(makeSource(bestBuf, D.engines.best.off), { meta: D.engines.best, name: "Best engine", turn: 136 }),
+    final: Object.assign(makeSource(finalBuf, D.engines.final.off), { meta: D.engines.final, name: "Final engine", turn: 252 }),
+  };
+  const S = D.steps, N = S.length;
+  const levelOf = i => (i === 0 ? 0 : S[i - 1].lc);
+  const levelStarts = Object.entries(D.level_starts).map(([lc, i]) => [Number(lc), i]).sort((a, b) => a[0] - b[0]);
+  const levelRanges = levelStarts.map(([lc, i], j) => {
+    const start = lc === 0 ? 0 : i + 1;
+    const end = j + 1 < levelStarts.length ? levelStarts[j + 1][1] : N - 1;
+    return { lc, start, end };
+  });
+  const bestGameOver = D.engines.best.checks.findIndex(c => c.st === "GAME_OVER");
+  const firstOf = cat => S.findIndex(s => s.cat === cat);
+
+  /* ----- step 17 ----- */
+  (function divergence() {
+    const s = 17;
+    const before = REAL.last(s - 1), real = REAL.last(s), cand = ENG.best.last(s);
+    drawFrame($("d17-before"), before); drawFrame($("d17-real"), real); drawFrame($("d17-cand"), cand);
+    const n = drawDiff($("d17-diff"), real, cand);
+    $("d17-diff-n").textContent = n + " px differ";
+    $("d17-real-n").textContent = REAL.count(s) + " frames";
+    $("d17-cand-n").textContent = ENG.best.count(s) + " frame" + (ENG.best.count(s) === 1 ? "" : "s");
+    const fr = $("d17-film-real"), fc = $("d17-film-cand");
+    for (let k = 0; k < REAL.count(s); k++) fr.append(thumb(REAL.frame(s, k), false, null, "Real frame " + (k + 1)));
+    for (let k = 0; k < ENG.best.count(s); k++) fc.append(thumb(ENG.best.frame(s, k), false, null, "Engine frame " + (k + 1)));
+    bindReadout([$("d17-before"), $("d17-real"), $("d17-cand"), $("d17-diff")], $("d17-readout"), () => ({ real, cand }));
+    window.__redrawD17 = () => drawDiff($("d17-diff"), real, cand);
+  })();
+
+  /* ----- legend + coverage ----- */
+  const counts = {};
+  S.forEach(s => { counts[s.cat] = (counts[s.cat] || 0) + 1; });
+  const lg = $("cat-legend");
+  LEGEND.forEach(([label, v, cats]) => {
+    const n = cats.reduce((a, c) => a + (counts[c] || 0), 0);
+    const sp = el("span"); const i = el("i"); i.style.background = `var(${v})`;
+    sp.append(i, document.createTextNode(label + " "), el("b", null, String(n)));
+    lg.append(sp);
+  });
+  const tb = $("coverage").querySelector("tbody");
+  Object.keys(COVERAGE).sort((a, b) => (counts[b] || 0) - (counts[a] || 0)).forEach(cat => {
+    const [cls, verdict, why] = COVERAGE[cat];
+    const tr = el("tr");
+    const td0 = el("td"); const dot = el("span", "catdot"); dot.style.background = `var(${CATS[cat].v})`; td0.append(dot, document.createTextNode(CATS[cat].label));
+    const first = firstOf(cat);
+    const td2 = el("td", "num"); const a = el("button", "chip"); a.style.padding = "2px 9px"; a.textContent = String(first); a.addEventListener("click", () => openStep(first)); td2.append(a);
+    const icon = { ok: "✓", no: "✗", part: "~" }[cls];
+    const td3 = el("td"); const p = el("span", "pill " + cls); p.append(el("span", "ic", icon), document.createTextNode(verdict)); td3.append(p);
+    tr.append(td0, el("td", "num", String(counts[cat] || 0)), td2, td3, el("td", null, why));
+    tb.append(tr);
+  });
+
+  /* ----- strips ----- */
+  const strips = [
+    { cv: $("strip-real"), color: i => css(CATS[S[i].cat].v) },
+    { cv: $("strip-best"), color: i => { const c = D.engines.best.checks[i]; return c.n == null ? css("--c-norun") : c.ok ? css("--good") : css("--bad"); } },
+    { cv: $("strip-final"), color: i => { const c = D.engines.final.checks[i]; return c.n == null ? css("--c-norun") : c.ok ? css("--good") : css("--bad"); } },
+  ];
+  const MARKS = [
+    [11, "first wrong-goal bump"], [17, "best engine breaks"], [24, "level 0 won"], [130, "first push"],
+    [172, "final engine crashes"], [bestGameOver, "best engine hits game over"],
+  ];
+  function drawStrips() {
+    const dpr = window.devicePixelRatio || 1;
+    strips.forEach(({ cv, color }) => {
+      const w = cv.clientWidth; if (!w) return;
+      cv.width = Math.round(w * dpr); cv.height = Math.round(26 * dpr);
+      const ctx = cv.getContext("2d");
+      for (let i = 0; i < N; i++) {
+        const x0 = Math.floor(i * cv.width / N), x1 = Math.floor((i + 1) * cv.width / N);
+        ctx.fillStyle = color(i); ctx.fillRect(x0, 0, Math.max(1, x1 - x0), cv.height);
+      }
+      ctx.fillStyle = css("--ink");
+      MARKS.forEach(([i]) => { if (i < 0) return; const x = Math.round((i + 0.5) * cv.width / N); ctx.fillRect(x - Math.round(dpr / 2), 0, Math.max(1, Math.round(dpr)), Math.round(4 * dpr)); ctx.fillRect(x - Math.round(dpr / 2), cv.height - Math.round(4 * dpr), Math.max(1, Math.round(dpr)), Math.round(4 * dpr)); });
+    });
+  }
+  function stepTip(i) {
+    const s = S[i], b = D.engines.best.checks[i], f = D.engines.final.checks[i];
+    const nodes = [el("b", null, `Step ${i} · ${s.a}`), el("div", "tl", `Level ${levelOf(i)} · ${CATS[s.cat].label} · ${s.n} frame${s.n === 1 ? "" : "s"}`)];
+    const line = (name, c) => el("div", null, `${name}: ` + (c.n == null ? "not run" : c.ok ? "matches" : "differs (" + c.p.join(", ") + ")"));
+    nodes.push(line("Best", b), line("Final", f));
+    return nodes;
+  }
+  strips.forEach(({ cv }) => {
+    const idx = ev => { const r = cv.getBoundingClientRect(); return Math.min(N - 1, Math.max(0, Math.floor((ev.clientX - r.left) / r.width * N))); };
+    cv.addEventListener("mousemove", ev => showTip(ev, stepTip(idx(ev))));
+    cv.addEventListener("mouseleave", hideTip);
+    cv.addEventListener("click", ev => { hideTip(); openStep(idx(ev)); });
+  });
+  const ruler = $("ruler");
+  levelRanges.forEach(r => {
+    const d = el("div", null, r.end - r.start + 1 >= 110 ? `Level ${r.lc} · ${r.end - r.start + 1} steps` : `L${r.lc}`);
+    d.style.width = ((r.end - r.start + 1) / N * 100) + "%";
+    d.title = `Level ${r.lc}: steps ${r.start}–${r.end}`;
+    ruler.append(d);
+  });
+  const marks = $("marks");
+  MARKS.forEach(([i, label]) => {
+    if (i < 0) return;
+    const b = el("button", "chip"); b.type = "button";
+    b.append(el("span", "k", "step " + i), document.createTextNode(label));
+    b.addEventListener("click", () => openStep(i));
+    marks.append(b);
+  });
+
+  /* ----- level gallery ----- */
+  const lv = $("levels");
+  levelRanges.forEach(r => {
+    const startFrameStep = r.lc === 0 ? 0 : r.start - 1;
+    const b = el("button"); b.type = "button"; b.setAttribute("aria-label", `Open level ${r.lc} in the player`);
+    const c = el("canvas", "px"); c.width = 64; c.height = 64; drawFrame(c, REAL.last(startFrameStep));
+    const cap = el("div", "cap"); cap.append(el("b", null, "Level " + r.lc), el("span", null, `steps ${r.start}–${r.end}`));
+    b.append(c, cap);
+    b.addEventListener("click", () => openStep(r.start));
+    lv.append(b);
+  });
+
+  /* ----- player ----- */
+  const P = { step: 17, eng: "best", k: null, timer: null };
+  const jumps = $("jumps");
+  [[17, "best engine breaks"], [18, "move lost to leftover flash"], [11, "wrong-goal bump"], [130, "first push"], [172, "final engine crash"], [24, "level 0 won"]]
+    .forEach(([i, label]) => {
+      const b = el("button", "chip"); b.type = "button";
+      b.append(el("span", "k", "step " + i), document.createTextNode(label));
+      b.addEventListener("click", () => setStep(i));
+      jumps.append(b);
+    });
+  function setEngine(e) {
+    P.eng = e; P.k = null;
+    $("eng-best").setAttribute("aria-pressed", String(e === "best"));
+    $("eng-final").setAttribute("aria-pressed", String(e === "final"));
+    render();
+  }
+  $("eng-best").addEventListener("click", () => setEngine("best"));
+  $("eng-final").addEventListener("click", () => setEngine("final"));
+  function setStep(i) {
+    stopPlay();
+    P.step = Math.max(0, Math.min(N - 1, i)); P.k = null;
+    $("slider").value = P.step; $("stepnum").value = P.step;
+    render();
+  }
+  function openStep(i) {
+    setStep(i);
+    $("player").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+  window.__openStep = openStep;
+  $("slider").addEventListener("input", e => setStep(Number(e.target.value)));
+  $("stepnum").addEventListener("change", e => setStep(Number(e.target.value) || 0));
+  $("prev").addEventListener("click", () => setStep(P.step - 1));
+  $("next").addEventListener("click", () => setStep(P.step + 1));
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    const r = $("player").getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); setStep(P.step - 1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); setStep(P.step + 1); }
+    else if (e.key === " " && t === document.body) { e.preventDefault(); togglePlay(); }
+  });
+  function maxK() { return Math.max(REAL.count(P.step) || 0, ENG[P.eng].count(P.step) || 0); }
+  function stopPlay() { if (P.timer) { clearInterval(P.timer); P.timer = null; } }
+  function togglePlay() {
+    if (P.timer) { stopPlay(); return; }
+    const m = maxK(); if (m <= 1) return;
+    P.k = 0; render();
+    P.timer = setInterval(() => { P.k++; if (P.k >= m) { stopPlay(); P.k = null; } render(); }, 160);
+  }
+  let curReal = null, curCand = null;
+  function render() {
+    const s = P.step, E = ENG[P.eng], st = S[s], chk = E.meta.checks[s];
+    const nReal = REAL.count(s), nCand = E.count(s);
+    const kReal = P.k == null ? nReal - 1 : Math.min(P.k, nReal - 1);
+    const kCand = P.k == null ? (nCand ? nCand - 1 : -1) : P.k;
+    curReal = REAL.frame(s, kReal);
+    curCand = nCand ? E.frame(s, kCand) : null;
+    drawFrame($("p-real"), curReal);
+    $("p-real-k").textContent = `frame ${kReal + 1} of ${nReal}`;
+    $("p-cand-title").textContent = E.name;
+    const wrap = $("p-cand-wrap");
+    const candCanvas = $("p-cand");
+    let empty = wrap.querySelector(".empty");
+    if (curCand) {
+      candCanvas.hidden = false; if (empty) empty.remove();
+      drawFrame(candCanvas, curCand);
+      $("p-cand-k").textContent = `frame ${kCand + 1} of ${nCand}`;
+    } else {
+      candCanvas.hidden = true;
+      if (!empty) { empty = el("div", "empty"); wrap.append(empty); }
+      empty.textContent = nCand == null ? "Not run: the engine crashed at an earlier step" : `No frame ${kCand + 1}: the engine returned ${nCand}`;
+      $("p-cand-k").textContent = nCand == null ? "not run" : `${nCand} frame${nCand === 1 ? "" : "s"}`;
+    }
+    const nd = drawDiff($("p-diff"), curReal, curCand);
+    $("p-diff-n").textContent = curCand ? `${nd} px differ` : "real frame only";
+
+    const fr = $("p-film-real"), fc = $("p-film-cand");
+    fr.replaceChildren(); fc.replaceChildren();
+    for (let k = 0; k < nReal; k++) fr.append(thumb(REAL.frame(s, k), k === kReal && (P.k != null || nReal > 1), () => { stopPlay(); P.k = k; render(); }, `Real frame ${k + 1}`));
+    if (nCand) for (let k = 0; k < nCand; k++) fc.append(thumb(E.frame(s, k), k === kCand && (P.k != null || nCand > 1), () => { stopPlay(); P.k = k; render(); }, `Engine frame ${k + 1}`));
+    else fc.append(el("span", "none", nCand == null ? "not run" : "no frames"));
+    $("p-film-real-n").textContent = `${nReal} frame${nReal === 1 ? "" : "s"}`;
+    $("p-film-cand-label").firstChild.textContent = E.name;
+    $("p-film-cand-n").textContent = nCand == null ? "not run" : `${nCand} frame${nCand === 1 ? "" : "s"}`;
+
+    const info = $("p-info"); info.replaceChildren();
+    const big = el("div", "big"); big.append(el("span", null, "Step " + s), el("span", "act", st.a));
+    const cat = el("div"); const dot = el("span", "catdot"); dot.style.background = `var(${CATS[st.cat].v})`;
+    cat.append(dot, document.createTextNode(`${CATS[st.cat].label} · level ${levelOf(s)}`));
+    info.append(big, cat);
+    const v = el("div", "verdict " + (chk.n == null ? "na" : chk.ok ? "ok" : "no"));
+    v.append(el("b", null, chk.n == null ? "Not run" : chk.ok ? "Engine matches this step" : "Engine differs"));
+    if (chk.n != null && !chk.ok) {
+      const ul = el("ul");
+      const names = { "frame count": "frame count", "final frame": "final frame pixels", "animation frames": "animation frames", "state": "game state", "levels_completed": "levels completed", "available_actions": "available actions" };
+      chk.p.forEach(p => ul.append(el("li", null, names[p] || p)));
+      v.append(ul);
+    }
+    info.append(v);
+    const kv = el("dl", "kv");
+    const row = (k, val) => { kv.append(el("dt", null, k), el("dd", null, val)); };
+    row("Real frames", String(nReal));
+    row("Engine frames", nCand == null ? "not run" : String(nCand));
+    row("Real state", `${st.st.replace("_", " ").toLowerCase()} · ${st.lc} won`);
+    row("Engine state", chk.st ? `${chk.st.replace("_", " ").toLowerCase()} · ${chk.lc} won` : "—");
+    info.append(kv);
+    if (st.h) {
+      info.append(el("div", "eyebrow", "Real engine, hidden state after the step"));
+      const kv2 = el("dl", "kv");
+      const r2 = (k, val) => { kv2.append(el("dt", null, k), el("dd", null, val)); };
+      r2("Player", `x ${st.h.x}, y ${st.h.y}`);
+      r2("Key", `shape ${st.h.shape} · colour ${st.h.colour} · ${st.h.rot * 90}°`);
+      r2("Budget", `${st.h.budget} of ${st.h.budget_max}`);
+      r2("Lives", String(st.h.lives));
+      if (st.kd && st.kd.length) r2("Key changed", st.kd.map(k => ({ rot: "rotation", shape: "shape", colour: "colour" })[k] || k).join(", "));
+      info.append(kv2);
+    }
+    if (E.meta.error_step === s) {
+      const pre = el("pre"); pre.textContent = E.meta.error.split("\n").slice(-4).join("\n");
+      pre.style.cssText = "margin:0;white-space:pre-wrap;font:400 var(--t-xs)/1.5 var(--font-mono);background:var(--bad-soft);padding:8px 10px;border-radius:6px;overflow-wrap:anywhere";
+      info.append(el("div", "eyebrow", "The engine crashed here"), pre);
+    }
+  }
+  bindReadout([$("p-real"), $("p-cand"), $("p-diff")], $("p-readout"), () => ({ real: curReal, cand: curCand }));
+  render();
+
+  /* ----- charts ----- */
+  const turns = D.turns;
+  const minOfTurn = {}; turns.forEach(t => { if (t.min != null) minOfTurn[t.turn] = t.min; });
+  const NS = "http://www.w3.org/2000/svg";
+  function svgEl(tag, attrs, text) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+
+  function chartTests() {
+    const host = $("chart-tests"); host.replaceChildren();
+    const W = Math.max(320, host.clientWidth), H = W < 560 ? 240 : 270;
+    const m = { l: 40, r: 16, t: 34, b: 34 };
+    const x = v => m.l + v / 116 * (W - m.l - m.r), y = v => H - m.b - v / 20 * (H - m.t - m.b);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Steps matched by each test over the 115-minute session" });
+    const phases = [[0, 40.6, "analysis only, no engine", "phase"], [75.7, 85.1, "rewrite: 8 crashes", "phase-bad"], [95.7, 97.4, "chunked rewrite: 8 crashes", "phase-bad"]];
+    phases.forEach(([a, b, label, cls]) => {
+      svg.append(svgEl("rect", { x: x(a), y: m.t, width: Math.max(2, x(b) - x(a)), height: H - m.t - m.b, class: cls }));
+    });
+    const g = svgEl("g", { class: "grid" });
+    [0, 5, 10, 15, 20].forEach(v => { g.append(svgEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) })); svg.append(svgEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end", class: "ax" }, String(v))); });
+    svg.insertBefore(g, svg.firstChild.nextSibling);
+    const step = W < 560 ? 30 : 15;
+    for (let v = 0; v <= 115; v += step) svg.append(svgEl("text", { x: x(v), y: H - m.b + 18, "text-anchor": "middle", class: "ax" }, v + (v === 0 ? " min" : "")));
+    // phase labels
+    svg.append(svgEl("text", { x: x(1.5), y: m.t + 16, class: "lbl" }, W < 560 ? "analysis only" : "analysis only, no engine"));
+    svg.append(svgEl("text", { x: x(80.4), y: m.t - 8, "text-anchor": "middle", class: "lbl" }, W < 560 ? "rewrite" : "rewrite: 8 crashes"));
+    svg.append(svgEl("text", { x: x(96.5), y: m.t + 16, "text-anchor": "middle", class: "lbl" }, W < 560 ? "" : "chunked rewrite"));
+    // nudges
+    turns.filter(t => t.nudge).forEach(t => { svg.append(svgEl("line", { x1: x(t.min), x2: x(t.min), y1: m.t, y2: H - m.b, class: "nudge" })); });
+    // time limit
+    svg.append(svgEl("line", { x1: x(115.07), x2: x(115.07), y1: m.t - 6, y2: H - m.b, class: "ref" }));
+    svg.append(svgEl("text", { x: x(115.07) - 4, y: m.t - 10, "text-anchor": "end", class: "lbl" }, "time limit"));
+    // best-so-far step line
+    const tests = D.tests.map(t => Object.assign({}, t, { min: minOfTurn[t.turn] }));
+    let best = 0; let d = `M ${x(0)} ${y(0)}`;
+    tests.forEach(t => { if (t.exact > best) { d += ` H ${x(t.min)} V ${y(t.exact)}`; best = t.exact; } });
+    d += ` H ${x(115.07)}`;
+    svg.append(svgEl("path", { d, class: "best" }));
+    // marks
+    tests.forEach((t, j) => {
+      const cx = x(t.min), cy = y(t.exact);
+      let mark;
+      if (t.err) { const s = 4.5; mark = svgEl("path", { d: `M ${cx - s} ${cy - s} L ${cx + s} ${cy + s} M ${cx + s} ${cy - s} L ${cx - s} ${cy + s}`, class: "crash" }); }
+      else mark = svgEl("circle", { cx, cy, r: 4.5, class: t.exact ? "dot" : "dot0" });
+      svg.append(mark);
+      const hit = svgEl("circle", { cx, cy, r: 11, class: "hit", tabindex: "0" });
+      const nodes = () => {
+        const n = [el("b", null, t.err ? `${t.exact} / ${t.total} · crashed` : `${t.exact} / ${t.total} steps`), el("div", "tl", `turn ${t.turn} · minute ${t.min.toFixed(1)}`)];
+        if (t.err) n.push(el("div", null, t.err + (t.err_step != null ? ` (at step ${t.err_step})` : " (on load)")));
+        n.push(el("div", "tl", "Click to open this turn in the transcript"));
+        return n;
+      };
+      hit.addEventListener("mousemove", ev => showTip(ev, nodes()));
+      hit.addEventListener("mouseleave", hideTip);
+      hit.addEventListener("focus", () => { const r = hit.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.bottom }, nodes()); });
+      hit.addEventListener("blur", hideTip);
+      hit.addEventListener("click", () => { hideTip(); openTurn(t.turn); });
+      svg.append(hit);
+    });
+    const bt = tests.find(t => t.exact === 17);
+    svg.append(svgEl("text", { x: x(bt.min) + 8, y: y(17) - 9, class: "lbl-strong" }, "17 steps, turn 136"));
+    const ft = tests[tests.length - 1];
+    svg.append(svgEl("text", { x: x(ft.min) + 4, y: y(ft.exact) + 22, "text-anchor": "end", class: "lbl" }, "final: 11, crash at step 172"));
+    svg.append(svgEl("text", { x: m.l, y: 12, class: "ax" }, "steps matched (of 867)"));
+    host.append(svg);
+  }
+
+  function chartPrompt() {
+    const host = $("chart-prompt"); host.replaceChildren();
+    const W = Math.max(320, host.clientWidth), H = W < 560 ? 200 : 220;
+    const m = { l: 46, r: 16, t: 22, b: 34 };
+    const pts = turns.filter(t => t.usage && t.min != null).map(t => ({ t: t.turn, m: t.min, p: t.usage.p, c: t.usage.c }));
+    const x = v => m.l + v / 116 * (W - m.l - m.r), y = v => H - m.b - v / 200000 * (H - m.t - m.b);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Prompt tokens per request over the session" });
+    const g = svgEl("g", { class: "grid" });
+    [0, 50000, 100000, 150000, 200000].forEach(v => { g.append(svgEl("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) })); svg.append(svgEl("text", { x: m.l - 8, y: y(v) + 4, "text-anchor": "end", class: "ax" }, v ? (v / 1000) + "K" : "0")); });
+    svg.append(g);
+    const step = W < 560 ? 30 : 15;
+    for (let v = 0; v <= 115; v += step) svg.append(svgEl("text", { x: x(v), y: H - m.b + 18, "text-anchor": "middle", class: "ax" }, v + (v === 0 ? " min" : "")));
+    let d = pts.map((p, i) => `${i ? "L" : "M"} ${x(p.m).toFixed(1)} ${y(p.p).toFixed(1)}`).join(" ");
+    svg.append(svgEl("path", { d: d + ` L ${x(pts[pts.length - 1].m)} ${y(0)} L ${x(pts[0].m)} ${y(0)} Z`, class: "area" }));
+    svg.append(svgEl("path", { d, class: "line" }));
+    svg.append(svgEl("line", { x1: m.l, x2: W - m.r, y1: y(140000), y2: y(140000), class: "ref" }));
+    svg.append(svgEl("text", { x: m.l + 6, y: y(140000) - 6, class: "lbl" }, "140K: trimming starts"));
+    const peak = pts.reduce((a, b) => (b.p > a.p ? b : a));
+    svg.append(svgEl("circle", { cx: x(peak.m), cy: y(peak.p), r: 4.5, class: "dot" }));
+    svg.append(svgEl("text", { x: x(peak.m) - 8, y: y(peak.p) - 2, "text-anchor": "end", class: "lbl-strong" }, `peak ${Math.round(peak.p / 1000)}K`));
+    // crosshair
+    const cross = svgEl("line", { y1: m.t, y2: H - m.b, class: "cross", visibility: "hidden" });
+    const cdot = svgEl("circle", { r: 4.5, class: "dot", visibility: "hidden" });
+    svg.append(cross, cdot);
+    const overlay = svgEl("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent" });
+    overlay.addEventListener("mousemove", ev => {
+      const r = svg.getBoundingClientRect(); const mx = (ev.clientX - r.left) / r.width * W;
+      let best = pts[0]; for (const p of pts) if (Math.abs(x(p.m) - mx) < Math.abs(x(best.m) - mx)) best = p;
+      cross.setAttribute("x1", x(best.m)); cross.setAttribute("x2", x(best.m)); cross.setAttribute("visibility", "visible");
+      cdot.setAttribute("cx", x(best.m)); cdot.setAttribute("cy", y(best.p)); cdot.setAttribute("visibility", "visible");
+      showTip(ev, [el("b", null, `${best.p.toLocaleString()} prompt tokens`), el("div", "tl", `turn ${best.t} · minute ${best.m.toFixed(1)}`), el("div", null, `${best.c.toLocaleString()} output tokens this turn`)]);
+    });
+    overlay.addEventListener("mouseleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); cdot.setAttribute("visibility", "hidden"); });
+    svg.append(overlay);
+    svg.append(svgEl("text", { x: m.l, y: 12, class: "ax" }, "prompt tokens per request"));
+    host.append(svg);
+  }
+
+  /* ----- transcript ----- */
+  const NOTES = {
+    1: ["Start", "Begins by reading the helper list. Every one of the first 97 turns is a Python call; no engine is written yet."],
+    30: ["Nudge 1", "The harness reminds it to put what it knows into engine.py and test. It keeps analysing."],
+    47: ["Finds the pushers", "Notices the 17-frame steps move the player far in one action and guesses a \"laser\" sweep."],
+    50: ["Understands the push", "Works out that the bar sweeps from column 8 to 33 and back, carrying the player. Pushers are never implemented."],
+    60: ["Nudge 2", "Still no engine and no test."],
+    80: ["Finds a track mover", "Sees a changer sliding between columns 15 and 25 on its own. Also never implemented."],
+    90: ["Nudge 3", "Still no engine and no test."],
+    98: ["First engine", "Writes a 14 KB engine in one go, with the level mazes as tile strings. The automatic test crashes on load (IndexError)."],
+    133: ["First real progress", "11 steps match: the plain moves of level 0."],
+    136: ["Best engine of the run", "17 steps match. This is engine_best.py. Nothing later beats it."],
+    142: ["Notices step 17 is free", "\"Level 0: bar at 16 = 27, at 17 = 27 (arrow entry, free), at 18 = 26.\" It does not turn this into code."],
+    156: ["Gives up on key changes", "Cannot explain the key changes on level 5 (the colour and shape changers) and calls it \"a rabbit hole\"."],
+    164: ["Rewrite begins", "A full rewrite produces 8 crashing tests in a row."],
+    204: ["Finds the real rule", "Works out that step 17 is free and flashes because the rotated key matches the goal. A level-1 counter-example makes it drop the idea; the real rule also requires level 0."],
+    215: ["Tool call rejected", "Copies an \"elided\" argument from its compacted history, so the harness rejects the call. Also decides to \"deprioritize levels 2+\"."],
+    222: ["Hard-codes a flag", "\"level 0 = anim+free; all other levels = no anim, charged. I'll add a per-level flag.\" Close, but drops the match condition."],
+    226: ["Chunked rewrite", "Writes the engine in parts; 8 more crashing tests (missing class, undefined names, an unclosed bracket)."],
+    252: ["Final engine", "11 steps match, then a crash at step 172 (ring_sprites missing after a death). This is engine_final.py."],
+    271: ["Rule list, still wrong", "Writes out its full rule list. Wall bumps are still a free 6-frame flash; the hint is still \"level 0 only\"."],
+    274: ["Rediscovers step 17", "\"Interesting: stepping on the arrow is free?\" It had found this at turn 142."],
+    276: ["Time runs out", "Still restating how goals work when the 115-minute limit ends the session."],
+  };
+  const testByTurn = {}; D.tests.forEach(t => { testByTurn[t.turn] = t; });
+  const TRIM = "[earlier reasoning trimmed] ...";
+  const rows = [];
+  const list = $("tx-list"); list.replaceChildren();
+  turns.forEach(t => {
+    const det = el("details", "turn"); det.id = "turn-" + t.turn;
+    const sum = el("summary");
+    const num = el("div", "t-num", "T" + t.turn); num.append(el("small", null, t.min != null ? t.min.toFixed(1) + " min" : ""));
+    const main = el("div", "t-main");
+    const note = NOTES[t.turn];
+    if (note) { const n = el("div", "t-note"); n.append(el("b", null, note[0] + "."), document.createTextNode(" " + note[1])); main.append(n); }
+    let r = (t.reasoning || "").trim(); if (r.startsWith(TRIM)) r = "… " + r.slice(TRIM.length).trim();
+    main.append(el("div", "t-sum", r.replace(/\s+/g, " ").slice(0, 320) || (t.content || "(no reasoning)")));
+    const chips = el("div", "t-chips");
+    const callCounts = {}; t.calls.forEach(c => { callCounts[c.name] = (callCounts[c.name] || 0) + 1; });
+    Object.entries(callCounts).forEach(([name, n]) => chips.append(el("span", "tc" + (name !== "python" ? " edit" : ""), name + (n > 1 ? " ×" + n : ""))));
+    const test = testByTurn[t.turn];
+    if (test) chips.append(el("span", "tc " + (test.err ? "test-bad" : "test-ok"), test.err ? `test: crashed` : `test: ${test.exact}/${test.total}`));
+    if (t.nudge) chips.append(el("span", "tc nudge", "nudge"));
+    if (t.usage) chips.append(el("span", "tc", fmtK(t.usage.p) + " in · " + fmtK(t.usage.c) + " out"));
+    sum.append(num, main, chips);
+    det.append(sum);
+    let built = false;
+    det.addEventListener("toggle", () => {
+      if (!det.open || built) return;
+      built = true;
+      const body = el("div", "t-body");
+      const block = (title, text, cls) => { const b = el("div", "t-block"); b.append(el("h4", null, title)); const pre = el("pre", cls || ""); pre.textContent = text; b.append(pre); body.append(b); };
+      if (t.reasoning) block("Reasoning", t.reasoning, "reason");
+      if (t.content) block("Message", t.content, "reason");
+      t.calls.forEach((c, i) => {
+        const a = c.args || {};
+        const keys = Object.keys(a);
+        if (keys.length === 1 && typeof a[keys[0]] === "string") block(`Tool call ${i + 1}: ${c.name} (${keys[0]})`, a[keys[0]], "code-arg");
+        else block(`Tool call ${i + 1}: ${c.name}`, keys.map(k => typeof a[k] === "string" && a[k].includes("\n") ? `${k}:\n${a[k]}` : `${k}: ${JSON.stringify(a[k])}`).join("\n\n"), "code-arg");
+      });
+      t.outputs.forEach((o, i) => block(`Output ${i + 1}: ${o.tool}${o.s != null ? " · " + o.s + " s" : ""}`, o.out));
+      if (t.auto) block("Automatic test (the harness replays the recording after engine.py changes)", t.auto);
+      if (t.nudge) block("Harness nudge", `[harness] ${t.nudge} turns since your last run_tests (or none yet). Put what you have established into engine.py now, even if partial, and run run_tests: its report shows exactly which step and pixels to fix next.`);
+      det.append(body);
+    });
+    const hay = [t.reasoning, t.content, ...t.calls.map(c => JSON.stringify(c.args)), ...t.outputs.map(o => o.out), t.auto, note ? note.join(" ") : ""].join("\n").toLowerCase();
+    rows.push({ t, det, hay, note: !!note, test: !!test, crash: !!(test && test.err), nudge: !!t.nudge });
+    list.append(det);
+  });
+  let filter = "notes";
+  function applyFilter() {
+    const q = $("tx-search").value.trim().toLowerCase();
+    let shown = 0;
+    rows.forEach(r => {
+      const pass = (filter === "all" || (filter === "notes" && r.note) || (filter === "tests" && r.test) || (filter === "crash" && r.crash) || (filter === "nudge" && r.nudge)) && (!q || r.hay.includes(q));
+      r.det.hidden = !pass; if (pass) shown++;
+    });
+    $("tx-count").textContent = `${shown} of ${rows.length} turns`;
+  }
+  $("tx-filter").querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    filter = b.dataset.f;
+    $("tx-filter").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    applyFilter();
+  }));
+  let qTimer = null;
+  $("tx-search").addEventListener("input", () => {
+    clearTimeout(qTimer);
+    qTimer = setTimeout(() => {
+      if ($("tx-search").value.trim() && filter !== "all") {
+        filter = "all";
+        $("tx-filter").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.f === "all")));
+      }
+      applyFilter();
+    }, 160);
+  });
+  applyFilter();
+  function openTurn(n) {
+    const r = rows.find(r => r.t.turn === n); if (!r) return;
+    if (r.det.hidden) {
+      filter = "all"; $("tx-search").value = "";
+      $("tx-filter").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.f === "all")));
+      applyFilter();
+    }
+    r.det.open = true;
+    r.det.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  }
+
+  /* ----- engine sources ----- */
+  function fillSource(pre, text) {
+    const frag = document.createDocumentFragment();
+    text.split("\n").forEach((line, i) => {
+      const l = el("span", "l"); l.append(el("span", "n", String(i + 1)), document.createTextNode(line)); frag.append(l);
+    });
+    pre.append(frag);
+  }
+  let srcBuilt = { best: false, final: false };
+  document.querySelectorAll("details.src").forEach((d, i) => d.addEventListener("toggle", () => {
+    const key = i === 0 ? "best" : "final";
+    if (d.open && !srcBuilt[key]) { srcBuilt[key] = true; fillSource($("src-" + key), D.engines[key].source); }
+  }));
+
+  /* ----- draw + theme/resize ----- */
+  function drawAll() { drawStrips(); chartTests(); chartPrompt(); }
+  drawAll();
+  let rT = null;
+  window.addEventListener("resize", () => { clearTimeout(rT); rT = setTimeout(drawAll, 120); });
+  const redrawTheme = () => { drawAll(); render(); if (window.__redrawD17) window.__redrawD17(); };
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", redrawTheme);
+  new MutationObserver(redrawTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+
+main().catch(err => {
+  const msg = el("p", "loading", "The data on this page could not be loaded: " + err.message);
+  document.querySelector("#divergence .sec-head").append(msg);
+  console.error(err);
+});
+})();
+</script>

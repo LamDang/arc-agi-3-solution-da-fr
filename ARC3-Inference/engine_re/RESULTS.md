@@ -144,7 +144,7 @@ mechanics are summarised in
     random play rarely reaches.
   - **Levels 3-6:** placeholders. Gates and the 43-frame swap animation were
     described in its notes but never coded.
-- **ls20: far off** ([analysis](results/analysis/ls20.md)).
+- **ls20: far off** ([analysis](results/analysis/ls20.md); interactive trace viewer: [`results/ls20_trace/ls20_trace.html`](results/ls20_trace/ls20_trace.html), built by `results/ls20_trace/build.py`).
   - **What is right:** the maze layout and plain moves.
   - **What is wrong:**
     - a key rotation that is actually a reflection;
