@@ -892,11 +892,19 @@ def test_compaction_handles_image_messages(tmp_path: Path, tiny_trace: Trace) ->
     assert agent.messages[2]["content"][1] == picture and "elided" in agent.messages[1]["content"]
 
 
-def test_the_tools_are_python_run_tests_and_finish() -> None:
+def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
+    import re
+
     from engine_re.prompts import TOOLS, system_prompt, tools
 
-    assert [t["function"]["name"] for t in TOOLS] == ["python", "run_tests", "finish"]
-    assert [t["function"]["name"] for t in tools(False)] == ["python", "run_tests", "finish"]
+    for mode, history in (("single", True), ("step", True), ("step", False)):
+        schemas = tools(False, mode, history)
+        assert [t["function"]["name"] for t in schemas] == ["python", "run_tests", "commit_engine"]
+        commit = schemas[2]["function"]
+        assert commit["parameters"]["required"] == ["message"] and "which guesses remain" in commit["description"]
+        assert ("never move on" in commit["description"]) == (mode == "step")
+    for mode in ("single", "step"):
+        assert "commit_engine" in system_prompt(mode=mode) and not re.search(r"\bfinish\b", system_prompt(mode=mode))
     run_tests = TOOLS[1]["function"]
     assert set(run_tests["parameters"]["properties"]) == {"level", "failures"}
     assert run_tests["description"].startswith("Run the contract tests, then replay the recording in order")
@@ -1225,24 +1233,26 @@ def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     assert not editor.handle({"op": "undo", "n": 99})["ok"]
 
 
-def test_finish_runs_the_tests_and_ends_only_when_they_pass(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_commit_engine_runs_the_tests_and_ends_only_when_they_pass(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
     model = _ScriptedModel(
         [
-            [("finish", {"summary": "nothing yet"})],  # fails: the session goes on
-            [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "1"))}), ("finish", {"summary": "moves"})],
+            [("commit_engine", {})],  # no message: refused, nothing runs
+            [("commit_engine", {"message": "nothing yet"})],  # fails: the session goes on
+            [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "1"))}), ("commit_engine", {"message": "moves"})],
             [("python", {"code": "1"})],  # never reached
         ]
     )
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), opening=False, client=model)
     result = agent.run()
     tool_outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
-    assert tool_outputs[0].startswith("Not finished: the tests still fail, so the session goes on.")
-    assert "--- Step 0: RESET" in tool_outputs[0]
+    assert tool_outputs[0].startswith("Error: commit_engine needs a message")
+    assert tool_outputs[1].startswith("Not committed: the tests still fail, so the session goes on.")
+    assert "--- Step 0: RESET" in tool_outputs[1]
     assert tool_outputs[-1] == "Every test passes. Session finished."
-    assert result.status == "passed" and result.turns == 2 and result.finish_calls == 2 and result.finish_summary == "moves"
+    assert result.status == "passed" and result.turns == 3 and result.commit_calls == 2 and result.commit_message == "moves"
     assert result.tests_run == 2 and result.auto_tests == 0
 
 
@@ -1488,9 +1498,61 @@ class _RecordingModel(_ScriptedModel):
         return super().chat(messages, tools)
 
 
-def test_stepwise_leads_one_conversation_from_step_to_step(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_stepwise_moves_on_only_after_a_commit(tmp_path: Path, tiny_trace: Trace) -> None:
     import json
 
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+    from engine_re.stepwise import StepwiseRun
+
+    tiny_trace.save(tmp_path / "trace")
+    no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
+    first, last = "Moves: steps 1-3 show the piece one cell per key. Guess: up does nothing.", "Up moves the piece too (step 4)."
+    model = _RecordingModel(
+        [
+            [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],  # steps 0..0 pass (automatic test): no move on
+            [("run_tests", {})],  # they still pass: still no move on
+            [("commit_engine", {"message": first})],  # the commit moves on, to step 4
+            [("python", {"code": "print(kept + 1, step_to_fix.index, step_to_fix.level, len(recording), recording[-1] is step_to_fix)"})],
+            [("commit_engine", {"message": "nothing yet"})],  # step 4 still fails: no move on
+            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # steps 0..4 pass: no move on
+            [("commit_engine", {"message": last})],  # the whole recording passes
+        ]
+    )
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False).run()
+    assert result.status == "passed" and result.turns == 7 and result.engine_changes == 2 and result.commit_calls == 3
+    assert [(a["fixed"], a["next"], a["message"], a["turn"]) for a in result.advances] == [(0, 4, first, 3), (4, None, last, 7)]
+    assert all(len(a["engine_sha"]) == 64 and isinstance(a["version"], int) for a in result.advances)
+    assert result.final["exact"] == 8 and result.passing_prefix == 8 and result.mode == "stepwise" and result.commit_message == last
+    # One conversation: one first message, then the harness's message about the next step, in the same history.
+    assert len(model.openings) == 1 and model.openings[0].startswith("Fix the breaking test: step 0.")
+    users = [m["content"] if isinstance(m["content"], str) else m["content"][0]["text"] for m in model.last_messages if m["role"] == "user"]
+    advance = next(u for u in users if u.startswith("Commit accepted"))
+    assert advance.startswith("Commit accepted: steps 0-0 pass. The harness replayed on: steps 1-3 (3 more steps) passed without "
+                              "error. Step 4 is the next that fails.")
+    assert "Step 4: ACTION1 (up), played in level 0" in advance and "`recording` now holds the recording up to step 4" in advance
+    outputs = [m["content"] for m in model.last_messages if m["role"] == "tool"]
+    hint = "Steps {} pass. You can now call commit_engine(message) to submit the fix, or keep refining first"
+    assert "[harness] engine.py changed, so it was tested automatically" in outputs[0] and hint.format("0-0") in outputs[0]
+    assert "ALL STEPS MATCH" in outputs[1] and hint.format("0-0") in outputs[1]
+    assert outputs[2] == "Committed: steps 0-0 pass. The harness now replays the rest of the recording."
+    assert outputs[3].split() == ["42", "4", "0", "5", "True"]  # the kernel kept its variables; recording grew to step 4
+    assert outputs[4].startswith("Not committed: steps 0-4 do not all pass yet, so nothing moves on.")
+    assert hint.format("0-4") in outputs[5]
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    commits = [r["commit"] for r in records if "commit" in r]
+    assert [(c["fixed"], c["next"], c["message"]) for c in commits] == [(0, 4, first), (4, None, last)]
+    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
+    assert [(t["auto"], t["focus"]) for t in tests] == [
+        ("episode", 0), (True, 0), (False, 0), (False, 0), ("advance", 4), (False, 4), (True, 4), (False, 4),
+    ]
+    assert len(Trace.load(tmp_path / "visible_trace")) == 5  # the model saw steps 0..4, never 5..7
+    # An interrupted run would get its commits back from the transcript.
+    again = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(), client=_ScriptedModel([]), stepwise=True)
+    again._restore()
+    assert again.result.advances == result.advances and again.result.commit_calls == 3 and again.result.commit_message == last
+
+
+def test_a_commit_dropped_when_engine_changes_after_it(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.agent import Budget, ModelConfig
     from engine_re.stepwise import StepwiseRun
 
@@ -1498,31 +1560,15 @@ def test_stepwise_leads_one_conversation_from_step_to_step(tmp_path: Path, tiny_
     no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
     model = _RecordingModel(
         [
-            [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],  # step 0: passes steps 0..0, the harness moves on
-            [("python", {"code": "print(kept + 1, step_to_fix.index, step_to_fix.level, len(recording), recording[-1] is step_to_fix)"})],
-            [("finish", {"summary": "nothing yet"})],  # step 4 still fails
-            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # step 4 fixed: the recording passes
+            [("python", {"code": _rewrite_now(no_up)}), ("commit_engine", {"message": "moves"}),
+             ("python", {"code": _rewrite_now(no_up.replace("3: (-1, 0)", "3: (-2, 0)"))})],
+            [("python", {"code": "1"})],
         ]
     )
-    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False).run()
-    assert result.status == "passed" and result.turns == 4 and result.engine_changes == 2
-    assert [(a["fixed"], a["next"]) for a in result.advances] == [(0, 4), (4, None)]
-    assert result.final["exact"] == 8 and result.passing_prefix == 8 and result.mode == "stepwise"
-    # One conversation: one first message, then the harness's message about the next step, in the same history.
-    assert len(model.openings) == 1 and model.openings[0].startswith("Fix the breaking test: step 0.")
-    advance = [m["content"] for m in model.last_messages if m["role"] == "user"][1]
-    advance = advance if isinstance(advance, str) else advance[0]["text"]
-    assert advance.startswith("Steps 0-0 pass. The harness replayed on: steps 1-3 (3 more steps) passed without error. "
-                              "Step 4 is the next that fails.")
-    assert "Step 4: ACTION1 (up), played in level 0" in advance and "`recording` now holds the recording up to step 4" in advance
-    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
-    outputs = [r["output"] for r in records if r.get("tool") in ("python", "finish")]
-    assert outputs[1].split() == ["42", "4", "0", "5", "True"]  # the kernel kept its variables; recording grew to step 4
-    assert outputs[2].startswith("Not finished")
-    assert [r["advance"]["next"] for r in records if "advance" in r] == [4]
-    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
-    assert [(t["auto"], t["focus"]) for t in tests] == [("episode", 0), (True, 0), ("advance", 4), (False, 4), (True, 4)]
-    assert len(Trace.load(tmp_path / "visible_trace")) == 5  # the model saw steps 0..4, never 5..7
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=model, opening=False).run()
+    assert result.advances == [] and result.step == 0 and result.status == "budget_turns"
+    outputs = [m["content"] for m in model.last_messages if m["role"] == "tool"]
+    assert outputs[1].startswith("Committed") and "so the commit was not kept: call commit_engine again" in outputs[2]
 
 
 def test_stepwise_has_no_limit_per_step(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -1544,10 +1590,14 @@ def test_stepwise_starts_with_the_opening(tmp_path: Path, tiny_trace: Trace) -> 
     from engine_re.stepwise import StepwiseRun
 
     tiny_trace.save(tmp_path / "trace")
-    model = _RecordingModel([[("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})]])
+    model = _RecordingModel([
+        [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],
+        [("commit_engine", {"message": "Each key moves the piece one cell."})],
+    ])
     result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model).run()
     assert result.opening == {"exact": True, "first_fail": 1, "passing_prefix": 1}
-    assert result.status == "passed" and result.engine_changes == 1 and result.tests_run == 1  # the automatic test
+    assert result.status == "passed" and result.engine_changes == 1 and result.tests_run == 2  # the automatic test, the commit's
+    assert [(a["fixed"], a["next"]) for a in result.advances] == [(1, None)]
     assert model.openings[0].startswith("Fix the breaking test: step 1.")
     assert "lands on your grid cell" not in model.openings[0]  # not a click game
 

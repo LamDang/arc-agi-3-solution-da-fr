@@ -24,7 +24,7 @@ agent.py ── python ──────────► kernel.py   persistent,
    │                             │ read_file / edit_file / undo_edit ──► engine_files.py ──► workspace/engine.py
    │                             │                        (the only writer; versions in engine_versions/)
    │     ── run_tests ───────► tester.py ──► candidate_runner.py (sandboxed; gets only the actions)
-   │     ── finish ──────────► tester.py (the session ends only when every test passes)
+   │     ── commit_engine ───► tester.py (submits engine.py; stepwise: the only way on)
    ▼
 result.json, transcript.jsonl, tests.jsonl, engine_best.py, images/
    │
@@ -166,9 +166,13 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     contract test does not hide the replay. The counts kept (`tests.jsonl`,
     best engine, pass) always come from the whole replay; the text is what
     stops. The automatic test uses `failures=1`.
-  - `finish(summary)` always runs the tests (`failures=1`). When
-    everything passes the session ends; otherwise it returns the report (with
-    its picture) and the session goes on.
+  - `commit_engine(message)` submits engine.py: it always runs the tests
+    (`failures=1`). `message` is required: what changed and the analysis
+    behind each rule (which steps or frames show it), and the guesses left;
+    `result.json` keeps the last one (`commit_message`, `commit_calls`). In the
+    single mode, when everything passes the session ends; otherwise it returns
+    the report (with its picture) and the session goes on. (It replaces the
+    earlier `finish(summary)`; transcripts with `finish` records still load.)
 - **The stepwise harness, v6** (`stepwise.py`, the stepwise mode of `agent.py`,
   `run_experiment --mode stepwise`, the default). The harness leads one
   conversation from one breaking step to the next. It replays the whole
@@ -179,17 +183,24 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   steps 0..k (so does `visible_trace/` on disk), `step_to_fix` is step k
   (`recording[-1]`, the same `StepView`) and `summarize_levels()` lists the
   levels reached; with `--only-step`, python shows only `step_to_fix`. Its tests
-  replay steps 0..k. As soon as they pass (by `finish`, `run_tests` or the
-  automatic test after an edit), the harness replays on and adds a user message
-  to the same conversation: steps 0..k pass, how many more steps passed without
-  error, and the next step k' that fails, with its report. The kernel keeps its
+  replay steps 0..k. Only `commit_engine(message)` moves on: when `run_tests`
+  or the automatic test after an edit shows steps 0..k pass, the report only
+  adds that a commit is now possible, so the model can keep refining (e.g. make
+  a rule more general). A commit whose tests fail returns the report and
+  nothing moves on. A commit whose tests pass is recorded (a `commit` record in
+  the transcript, an entry in `advances`), and the harness replays on and adds
+  a user message to the same conversation: the commit was accepted, how many
+  more steps passed without error, and the next step k' that fails, with its
+  report. If engine.py changes after the commit in the same turn, the commit is
+  dropped and the model is told to commit again. The kernel keeps its
   variables and `recording` grows to step k' (the same list object). There is
   no limit per step: the run ends
   when the recording passes, or when a budget runs out, the model stops calling
   tools, or a request fails for good. `result.json` adds `"mode":
   "stepwise"`, `step` (the step being fixed), `passing_prefix` (of the last
-  replay) and `advances` (per step fixed: the turn, the step, the next failing
-  step); transcript records carry `step`. Every step report also says, for a
+  replay) and `advances` (per accepted commit: the turn, the step fixed, the
+  next failing step or null, the message, the engine's sha256 and version);
+  transcript records carry `step`. Every step report also says, for a
   click, which grid cell it lands on (the `action.cell` that `step()` gets) and
   which of the engine's sprites are there (the one
   `state.sprite_at(*action.cell)` returns marked). `--mode
@@ -232,7 +243,8 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   requires the frame count and every animation frame to match, which is how
   the v2 and v3 runs were scored. The session stops when a full replay matches
   every step (with every contract test passing), whether from `run_tests`, an
-  automatic test or `finish`, or when a budget (turns, output tokens, cost,
+  automatic test or `commit_engine` (stepwise: from a commit only), or when a
+  budget (turns, output tokens, cost,
   wall time) runs out. Only full replays count towards passing and
   `engine_best.py`, with their counts over the whole recording whatever the
   report shows; one-level tests do not. `engine_best.py` (and
@@ -302,7 +314,7 @@ Each game directory holds `trace/`, `workspace/engine.py` (final),
 `versions.jsonl`), `transcript.jsonl` (turns, tool outputs, one record per
 edit or undo with its line range and diff, and one per `show_frames()` with its image
 paths; `show_transcript --diffs` prints the diffs), `tests.jsonl`,
-`result.json` (status, turns, tokens, cost, best and final test, finish calls,
+`result.json` (status, turns, tokens, cost, best and final test, commit calls and message,
 engine changes), `images/` (the pictures sent to the model,
 `turn<N>_step<S>[_auto|_opening].png` and `turn<N>_show<K>.png`) and
 `evaluation_<engine>.json`. In `tests.jsonl` a full replay has `"level": null`

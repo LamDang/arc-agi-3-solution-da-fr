@@ -1,7 +1,7 @@
 """System prompt, first user message and tool schemas for the reverse-engineering agent.
 
 The agent has three tools: python (a kernel with the recording, read_file/edit_file/undo_edit for
-engine.py and functions to run and look at it), run_tests and finish. ``images`` says whether test
+engine.py and functions to run and look at it), run_tests and commit_engine. ``images`` says whether test
 reports and show_frames() come with pictures; the texts follow it.
 
 Every system prompt has an "# Objects" section (``objects_reference``): a typed reference of what
@@ -12,8 +12,9 @@ built-in functions. The python tool's description names the preloaded names and 
 Two modes. "single" (v5): one session over the whole recording. "step" (v6, engine_re.stepwise):
 the harness replays the recording and asks to fix the first step that breaks; the agent sees the
 recording up to it (`recording` and `step_to_fix`; with history=False only `step_to_fix`) and the
-tests replay steps 0 to it. When they pass, the harness replays on and, in the same conversation,
-names the next step that breaks (episode_message is the first message, advance_message each next one).
+tests replay steps 0 to it. When they pass and the agent submits engine.py with commit_engine, the
+harness replays on and, in the same conversation, names the next step that breaks (episode_message is
+the first message, advance_message each next one).
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ cases do not.
 Clicks: action.x, action.y is the clicked screen pixel; action.cell is the grid cell (gx, gy) under it
 once step 3 is undone, or None outside the grid. Coordinates: x is the column, y the row, (0, 0) top-left.
 
-# Tests (run_tests; finish runs them too)
+# Tests (run_tests; commit_engine runs them too)
 - Contract: the fixed block is unchanged; make_level(n) returns a valid State for every recorded level;
   step() accepts every advertised action; the same actions always give the same result.
 - Acceptance: the recorded actions are replayed. After every action, your final frame (every pixel) and
@@ -363,14 +364,15 @@ _SYSTEM_STEP = """# Goal
 You are building engine.py, a Python model of a game, from a recording of someone playing it: every
 action they took and every frame the game returned. The harness replays the recording through
 engine.py step by step. When a step does not give the recorded result, it stops there and asks you to
-fix that step. Once the steps up to it pass, it replays on and tells you, in this conversation, how
-many more steps passed and which step breaks next; you see the recording only up to that step. This
-goes on until the whole recording passes.
+fix that step. Once the steps up to it pass and you submit engine.py with commit_engine, it replays
+on and tells you, in this conversation, how many more steps passed and which step breaks next; you see
+the recording only up to that step. Passing tests alone do not move on: until you commit you can keep
+refining, e.g. make a rule more general. This goes on until the whole recording passes.
 Fix each step with the simplest general rule that explains it and keeps the earlier steps passing:
 the engine is later also played on action sequences nobody recorded, where general rules hold up and
 special cases keyed to step numbers do not.
 
-""" + _SYSTEM[_SYSTEM.index("# Setup") : _SYSTEM.index("# Tests")] + """# Tests (run_tests; finish runs them too)
+""" + _SYSTEM[_SYSTEM.index("# Setup") : _SYSTEM.index("# Tests")] + """# Tests (run_tests; commit_engine runs them too)
 - Contract: the fixed block is unchanged; make_level(n) returns a valid State for every level reached so
   far; step() accepts every advertised action; the same actions always give the same result.
 - Acceptance: the recorded steps from step 0 to the step you are fixing are replayed in order. After
@@ -389,8 +391,10 @@ __OBJECTS__
 2. Find the simplest rule that explains this step and agrees with what engine.py already does for the
    earlier steps. The recording shows only part of what the game can do: reproduce what you see, with
    no rule the steps give no evidence for.
-3. Change engine.py with edit_file(), run the tests, fix what they report (an earlier step that now
-   breaks counts too), and call finish when they pass.
+3. Change engine.py with edit_file(), run the tests and fix what they report (an earlier step that now
+   breaks counts too). When they pass, make sure each rule is as simple and general as the steps allow,
+   then call commit_engine(message): what you changed and why. The next step is shown only after a
+   commit.
 4. When the step starts a new level (the frame after it shows the next level), make_level must draw
    that level: auto_sprites(n) gives code for its first frame. Reuse the sprite kinds engine.py already
    has where they fit.
@@ -405,12 +409,19 @@ Stops after `failures` failing steps (1 to 10, default 1). Reports how many step
 first failure, the first failure in full (images, regions, what a click hit, your sprites there, what
 step() printed, the replay_step command), and one line per further failure."""
 
-_FINISH_STEP = """Say the step is fixed. Runs the tests first (steps 0 to the step you are fixing): when they all pass,
-the harness replays on and tells you the next step that breaks (or that the whole recording passes);
-otherwise you get the report and go on. summary: the rule you added or changed."""
+_COMMIT_MESSAGE = (
+    "What you changed and the key analysis behind each rule: what in the recording shows it (which steps or "
+    "frames, what changed), and which guesses remain."
+)
 
-_FINISH = """Ask to end the session. Runs the tests first: if anything fails you get the report and the session
-goes on; it ends only when every test passes. summary: what the engine implements."""
+_COMMIT_STEP = """Submit engine.py as your fix of the step. Runs the tests first (steps 0 to the step you are
+fixing): if any fails you get the report and nothing moves on; when they all pass, the commit is kept
+and the harness replays on and tells you the next step that breaks (or that the whole recording
+passes). Passing tests alone (run_tests, or the automatic test after an edit) never move on, so you can
+keep refining first. message: """ + _COMMIT_MESSAGE
+
+_COMMIT = """Submit engine.py as your engine. Runs the tests first: if anything fails you get the report and the
+session goes on; it ends when every test passes. message: """ + _COMMIT_MESSAGE
 
 
 def system_prompt(
@@ -435,15 +446,14 @@ def _python_description(mode: str = "single", history: bool = True) -> str:
 
 
 def tools(images: bool = True, mode: str = "single", history: bool = True) -> list[dict]:
-    """The tool schemas: python, run_tests and finish (mode "step": the stepwise harness's texts,
+    """The tool schemas: python, run_tests and commit_engine (mode "step": the stepwise harness's texts,
     and run_tests without `level`; history: whether python shows the recording so far)."""
     schemas = _tools(images, mode, history)
     if mode == "step":
         run_tests = schemas[1]["function"]
         run_tests["description"] = _RUN_TESTS_STEP if images else _RUN_TESTS_STEP.replace("(images, regions,", "(regions with their pixels,")
         del run_tests["parameters"]["properties"]["level"]
-        schemas[2]["function"]["description"] = _FINISH_STEP
-        schemas[2]["function"]["parameters"]["properties"]["summary"]["description"] = "The rule you added or changed."
+        schemas[2]["function"]["description"] = _COMMIT_STEP
     return schemas
 
 
@@ -488,12 +498,12 @@ def _tools(images: bool, mode: str, history: bool) -> list[dict]:
             {
                 "type": "function",
                 "function": {
-                    "name": "finish",
-                    "description": _FINISH,
+                    "name": "commit_engine",
+                    "description": _COMMIT,
                     "parameters": {
                         "type": "object",
-                        "properties": {"summary": {"type": "string", "description": "What the engine implements."}},
-                        "required": ["summary"],
+                        "properties": {"message": {"type": "string", "description": _COMMIT_MESSAGE}},
+                        "required": ["message"],
                     },
                 },
             },
@@ -522,7 +532,7 @@ def recording_summary(trace: Trace) -> str:
 
 def _first_task(first_fail: int | None) -> str:
     if first_fail is None:
-        return "Every test passes already: call finish."
+        return "Every test passes already: call commit_engine(message)."
     if first_fail == 0:
         what = "step 0 pass, level 0's first frame (make_level(0) does not draw it exactly yet), then step 1"
     elif first_fail == 1:
@@ -611,19 +621,20 @@ engine.py now, as read_file() shows it (the FIXED block folded):
 {engine_read}
 
 Fix step {k}: find the simplest rule that explains it and keeps the earlier steps passing, change engine.py with
-edit_file(), run the tests, and call finish when they pass."""
+edit_file(), and run the tests. When they pass, call commit_engine(message) to submit the fix (you may refine it first);
+the next steps are shown only after a commit."""
 
 
 def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True) -> str:
-    """The user message when steps 0..fixed pass and the harness replayed on to step k, the next that
+    """The user message when a commit of steps 0..fixed was accepted and the harness replayed on to step k, the next that
     fails (`trace` is the whole recording; the model now sees it up to k)."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     if k == fixed + 1:
-        passed = f"Steps 0-{fixed} pass. The next step, {k}, fails."
+        passed = f"Commit accepted: steps 0-{fixed} pass. The next step, {k}, fails."
     else:
         between = f"step {fixed + 1}" if k == fixed + 2 else f"steps {fixed + 1}-{k - 1}"
-        passed = (f"Steps 0-{fixed} pass. The harness replayed on: {between} ({k - fixed - 1} more step"
+        passed = (f"Commit accepted: steps 0-{fixed} pass. The harness replayed on: {between} ({k - fixed - 1} more step"
                   f"{'s' if k - fixed - 1 > 1 else ''}) passed without error. Step {k} is the next that fails.")
     notes = []
     if s.state == "WIN":
@@ -646,7 +657,7 @@ The test report:
 
 {report.strip()}
 
-Fix step {k} the same way, keeping steps 0-{k - 1} passing, and call finish when they pass."""
+Fix step {k} the same way, keeping steps 0-{k - 1} passing, and call commit_engine(message) when they pass."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:

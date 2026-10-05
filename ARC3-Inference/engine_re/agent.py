@@ -13,8 +13,10 @@ One `EngineAgent` works on one game in its own directory:
 
 Tools: python (a kernel with the recording and read_file/edit_file/undo_edit/render_state/show_frames/
 replay_step/auto_sprites; it cannot write engine.py except through edit_file() and undo_edit(), which
-the harness applies), run_tests and finish. finish runs the tests: the session ends when every test passes (by finish, run_tests
-or the automatic test) or when a budget (turns, output tokens, cost, wall time) runs out.
+the harness applies), run_tests and commit_engine(message), which submits engine.py: it runs the
+tests, and the message says what changed and why (result.json keeps it). In the single mode the
+session ends when every test passes (by commit_engine, run_tests or the automatic test) or when a
+budget (turns, output tokens, cost, wall time) runs out.
 
 The opening: before the first turn of a new session the harness plays the first round itself. In the
 kernel, auto_sprites(0) makes sprite code for level 0's first frame and one edit_file() puts it above
@@ -38,10 +40,14 @@ Stepwise mode (v6, ``stepwise=True``, see engine_re.stepwise): one conversation 
 recording one breaking step at a time. The harness replays the whole recording; at the first step k
 that fails it shows the model the recording up to k (``visible_trace/``: ``recording`` holds steps
 0..k with ``history``, and ``step_to_fix`` is step k), its tests replay steps 0..k, and its message
-asks to fix step k. When steps 0..k pass, the harness replays on and adds a user message to the same
-conversation: how many more steps passed and the next one that fails, with its report (the kernel
-keeps its variables; ``recording`` grows to the new step). The conversation ends with status "passed"
-when the whole recording passes, or when a budget runs out; there is no per-step limit.
+asks to fix step k. Only commit_engine(message) moves on: when steps 0..k pass, the commit is
+recorded (transcript "commit" record, result.json ``advances``: the message, the engine's hash and
+version) and the harness replays on and adds a user message to the same conversation: how many more
+steps passed and the next one that fails, with its report (the kernel keeps its variables;
+``recording`` grows to the new step). Tests that pass without a commit (run_tests, the automatic
+test) only say that a commit is now possible, so the model can keep refining first. The conversation
+ends with status "passed" when a commit makes the whole recording pass, or when a budget runs out;
+there is no per-step limit.
 
 Sessions survive interruptions: result.json is rewritten every turn with status "running", and
 running a game again whose session did not end continues from its engine.py (and its versions)
@@ -87,6 +93,15 @@ NUDGE = (
 AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\n{report}"
 REPORT_CHARS = 9000  # a test report in a tool output
 AUTO_TEST_CHARS = 3500
+# Stepwise: appended to a test (run_tests or the automatic one) that shows steps 0..k pass.
+COMMIT_HINT = (
+    "\n\nSteps 0-{k} pass. You can now call commit_engine(message) to submit the fix, or keep refining first (e.g. "
+    "make a rule more general); the next steps are shown only after a commit."
+)
+COMMIT_DROPPED = (
+    "\n\n[harness] engine.py changed after commit_engine in this turn, so the commit was not kept: call commit_engine "
+    "again once the tests pass."
+)
 IMAGE_NOTE = "[harness] The images of this turn, in order:"
 TEST_IMAGE_NOTE = (
     "From the latest run_tests report: on the left your engine's final frame, on the right the original game's "
@@ -269,8 +284,8 @@ class AgentResult:
     first_pass_turn: int | None = None
     best: dict[str, Any] | None = None
     final: dict[str, Any] | None = None
-    finish_summary: str | None = None
-    finish_calls: int = 0
+    commit_message: str | None = None  # the message of the last commit_engine call
+    commit_calls: int = 0
     error: str | None = None
     trace_steps: int = 0
     resumes: int = 0
@@ -287,7 +302,8 @@ class AgentResult:
     mode: str = "single"  # "stepwise": one conversation led from one breaking step to the next
     step: int | None = None  # stepwise: the step being fixed
     passing_prefix: int | None = None  # stepwise: steps passing in order in the last replay of the recording
-    advances: list = field(default_factory=list)  # stepwise: {"turn", "fixed", "next", "passed"} per step fixed
+    # stepwise: one per accepted commit: {"turn", "fixed", "next", "message", "engine_sha", "version"}
+    advances: list = field(default_factory=list)
 
 
 class EngineAgent:
@@ -346,6 +362,7 @@ class EngineAgent:
         # The turn's pictures, sent after its tool messages: (caption, saved PNG path, PNG bytes).
         self.pending_shown: list[tuple[str, Path, bytes]] = []
         self.pending_test: list[tuple[str, Path, bytes]] = []
+        self.commit: dict[str, Any] | None = None  # stepwise: an accepted commit_engine, applied after the turn
 
     # --- tools -----------------------------------------------------------------
 
@@ -371,7 +388,13 @@ class EngineAgent:
         failing steps (clamped to 1..MAX_FAILURES); the counts kept in tests.jsonl are those of the
         whole replay either way."""
         report = self._run_tests(level, failures, auto=False)
-        return report if isinstance(report, str) else _truncate(report.text, REPORT_CHARS)
+        return report if isinstance(report, str) else _truncate(report.text, REPORT_CHARS) + self._commit_hint(report)
+
+    def _commit_hint(self, report: Any) -> str:
+        """Stepwise: the sentence that says steps 0..k pass and a commit is now possible."""
+        if self.stepwise and not isinstance(report, str) and report.passed and report.level is None:
+            return COMMIT_HINT.format(k=self.focus)
+        return ""
 
     def _run_tests(self, level: Any, failures: Any, auto: bool) -> Any:
         """Run and record a test; returns the TestReport, or an error text."""
@@ -416,24 +439,36 @@ class EngineAgent:
                 self.best_key = key
                 shutil.copy(self.engine_path, self.dir / "engine_best.py")
                 self.result.best = {"turn": self.result.turns, **report.summary()}
+            self.passed = report.passed  # the latest full test (stepwise: steps 0..k)
             if report.passed:
-                self.passed = True
                 if self.result.first_pass_turn is None:
                     self.result.first_pass_turn = self.result.turns
         return report
 
-    def _tool_finish(self, summary: str) -> str:
-        """Run the tests; the session ends only when every test passes."""
-        self.result.finish_calls += 1
-        self.result.finish_summary = summary
+    def _tool_commit_engine(self, message: Any = None) -> str:
+        """Submit engine.py: run the tests. Single mode: the session ends when every test passes.
+        Stepwise: when steps 0..k pass, the commit is kept and the harness moves on after the turn."""
+        if not isinstance(message, str) or not message.strip():
+            return ("Error: commit_engine needs a message: what you changed and the key analysis behind each rule (what in "
+                    "the recording shows it: which steps or frames, what changed), and which guesses remain. Nothing was "
+                    "committed.")
+        self.result.commit_calls += 1
+        self.result.commit_message = message
         report = self._run_tests(None, 1, auto=False)
         if isinstance(report, str):
             return report
-        if report.passed:
-            if self.stepwise:
-                return f"Steps 0-{self.focus} pass."
+        if not report.passed:
+            what = f"steps 0-{self.focus} do not all pass yet, so nothing moves on" if self.stepwise else "the tests still fail, so the session goes on"
+            return f"Not committed: {what}. The report:\n\n" + _truncate(report.text, REPORT_CHARS)
+        if not self.stepwise:
             return "Every test passes. Session finished."
-        return "Not finished: the tests still fail, so the session goes on. The report:\n\n" + _truncate(report.text, REPORT_CHARS)
+        sha = self._engine_hash()
+        self.commit = {"message": message, "engine_sha": sha, "version": self._version_of(sha)}
+        return f"Committed: steps 0-{self.focus} pass. The harness now replays the rest of the recording."
+
+    def _version_of(self, sha: str) -> int | None:
+        """The number of the latest saved version of engine.py with this sha256, if any."""
+        return next((v["version"] for v in reversed(self.kernel.editor.versions()) if v.get("sha") == sha), None)
 
     # --- images ----------------------------------------------------------------
 
@@ -514,8 +549,8 @@ class EngineAgent:
             args = json.loads(arguments) if arguments.strip() else {}
         except json.JSONDecodeError as exc:
             return f"Error: tool arguments are not valid JSON ({exc}). Send a JSON object."
-        if name not in ("python", "run_tests", "finish"):
-            return f"Error: unknown tool {name!r}. The tools are python, run_tests and finish."
+        if name not in ("python", "run_tests", "commit_engine"):
+            return f"Error: unknown tool {name!r}. The tools are python, run_tests and commit_engine."
         handler = getattr(self, f"_tool_{name}")
         try:
             return handler(**args)
@@ -546,6 +581,8 @@ class EngineAgent:
         if not transcript.exists():
             return False
         thoughts = []
+        commits: list[dict[str, Any]] = []
+        advances: list[dict[str, Any]] = []
         for line in transcript.read_text(encoding="utf-8").splitlines():
             record = json.loads(line)
             if "finish_reason" in record:
@@ -556,11 +593,20 @@ class EngineAgent:
                     thoughts.append((record["turn"], text.strip()))
             elif "tool" in record:
                 self.result.tool_calls[record["tool"]] = self.result.tool_calls.get(record["tool"], 0) + 1
+                if record["tool"] in ("commit_engine", "finish"):  # finish: the tool of earlier runs
+                    self.result.commit_calls += 1
             elif "engine_change" in record and record.get("by") != "harness":
                 self.result.engine_changes += 1
-            elif "advance" in record:
-                self.result.advances.append({"turn": record["turn"], "fixed": record["advance"]["fixed"], "next": record["advance"]["next"]})
+            elif "commit" in record:
+                commits.append({"turn": record["turn"], **record["commit"]})
+            elif "advance" in record:  # runs from before commit_engine log only their advances
+                advances.append({"turn": record["turn"], "fixed": record["advance"]["fixed"], "next": record["advance"]["next"]})
             self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
+        self.result.advances = commits or advances
+        if commits:
+            self.result.commit_message = commits[-1].get("message")
+            if commits[-1].get("next") is None:  # that commit made the whole recording pass (run() replays to confirm)
+                self.result.first_pass_turn = commits[-1]["turn"]
         tests = self.dir / "tests.jsonl"
         if tests.exists():
             for line in tests.read_text(encoding="utf-8").splitlines():
@@ -725,17 +771,19 @@ class EngineAgent:
                             self.history)
         )
 
-    def _advance(self) -> bool:
-        """Steps 0..k pass: replay on. Returns False when the whole recording passes (the session ends);
-        otherwise moves to the next failing step and adds a user message saying so."""
+    def _advance(self, commit: dict[str, Any]) -> bool:
+        """A commit was accepted (steps 0..k pass): record it and replay on. Returns False when the whole
+        recording passes (the session ends); otherwise moves to the next failing step and adds a user
+        message saying so."""
         fixed = self.focus
         k = self._replay_all()
+        entry = {"turn": self.result.turns, "fixed": fixed, "next": k, **commit}
+        self.result.advances.append(entry)
+        self._log({"turn": self.result.turns, "commit": {key: v for key, v in entry.items() if key != "turn"}})
         if k is None:
             self.result.status = "passed"
             self.result.first_pass_turn = self.result.turns
-            self.result.advances.append({"turn": self.result.turns, "fixed": fixed, "next": None})
             return False
-        self.result.advances.append({"turn": self.result.turns, "fixed": fixed, "next": k})
         self._focus_on(k)
         self.passed = False
         text = self._step_report("advance")
@@ -789,8 +837,6 @@ class EngineAgent:
         try:
             while True:
                 self._save_result()
-                if self.passed and self.stepwise and not self._advance():  # the steps already pass
-                    break
                 reason = self._over_budget()
                 if reason:
                     self.result.status = reason
@@ -828,7 +874,7 @@ class EngineAgent:
                     if idle_turns >= 4:
                         self.result.status = "stalled"
                         break
-                    self.messages.append({"role": "user", "content": "Continue by calling a tool (python, run_tests or finish)."})
+                    self.messages.append({"role": "user", "content": "Continue by calling a tool (python, run_tests or commit_engine)."})
                     continue
                 idle_turns = 0
                 self.turns_since_test += 1
@@ -839,10 +885,14 @@ class EngineAgent:
                     output = self._dispatch(name, call["function"]["arguments"])
                     self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
                     self._log({"turn": self.result.turns, "tool": name, "seconds": round(time.time() - t0, 2), "output": output})
-                if not self.passed and self.tested_hash is not None and self._engine_hash() != self.tested_hash:
+                changed = self.tested_hash is not None and self._engine_hash() != self.tested_hash
+                if changed and self.commit is not None and self.commit["engine_sha"] != self._engine_hash():
+                    self.commit = None  # engine.py changed after the commit in the same turn
+                    self.messages[-1]["content"] += COMMIT_DROPPED
+                if changed and (self.stepwise or not self.passed):
                     tested = self._run_tests(None, 1, auto=True)
                     report = tested if isinstance(tested, str) else tested.text
-                    self.messages[-1]["content"] += AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS))
+                    self.messages[-1]["content"] += AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS)) + self._commit_hint(tested)
                     self.result.auto_tests += 1
                     self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})
                 elif self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:
@@ -851,10 +901,11 @@ class EngineAgent:
                     self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
                 # After the tool messages (and the automatic test): the turn's images.
                 self._attach_images()
-                if self.passed and self.stepwise:
-                    if not self._advance():
+                if self.stepwise and self.commit is not None:  # only a commit moves on
+                    commit, self.commit = self.commit, None
+                    if not self._advance(commit):
                         break
-                elif self.passed:
+                elif self.passed and not self.stepwise:
                     self.result.status = "passed"
                     break
                 if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens:
