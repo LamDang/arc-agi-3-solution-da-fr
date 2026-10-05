@@ -14,7 +14,8 @@ seeing only that step. --mode single (v5): one conversation over the whole
 recording.
 
 Running the same command again skips finished games and continues interrupted
-ones (see engine_re.agent).
+ones, and ones stopped by an error such as a provider outage (see engine_re.agent
+and engine_re.stepwise).
 """
 
 from __future__ import annotations
@@ -123,7 +124,7 @@ def main() -> int:
 
     def work(game: str) -> None:
         previous = game_dirs[game] / "result.json"
-        if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") != "running":
+        if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") not in ("running", "error"):
             print(f"[{game}] already finished; skipping", flush=True)
             return
         if args.mode == "stepwise":

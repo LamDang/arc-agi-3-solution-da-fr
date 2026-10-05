@@ -90,6 +90,9 @@ TEST_IMAGE_NOTE = (
 )
 IMAGE_PLACEHOLDER = "[image omitted; the latest images come later]"
 MAX_IMAGES_PER_MESSAGE = 6
+# OpenRouter requests: tries per request; the waits double from 2 s to 60 s, about 17 minutes in all, which
+# outlasts an upstream rate limit (HTTP 429) that ended a run after 10 tries.
+RETRIES = 20
 MAX_TEST_IMAGES = 3
 PYTHON_PAUSED = (
     "[harness] Python is paused: {n} python calls since engine.py last changed. Until engine.py changes, only python "
@@ -215,7 +218,7 @@ class OpenRouterClient:
         if self.config.providers:
             payload["provider"] = {"order": list(self.config.providers), "allow_fallbacks": False}
         delay = 2.0
-        for attempt in range(10):
+        for attempt in range(RETRIES):
             try:
                 resp = self.session.post(
                     OPENROUTER_URL,
@@ -240,7 +243,7 @@ class OpenRouterClient:
                     error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                 else:
                     raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:1000]}")
-            if attempt == 9:
+            if attempt == RETRIES - 1:
                 raise RuntimeError(f"OpenRouter request failed after retries: {error}")
             time.sleep(delay + random.random())
             delay = min(delay * 2, 60)

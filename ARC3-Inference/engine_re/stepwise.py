@@ -132,7 +132,7 @@ class StepwiseRun:
         if not path.exists():
             return
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("mode") != "stepwise" or data.get("status") != "running":
+        if data.get("mode") != "stepwise" or data.get("status") not in ("running", "error"):
             return
         self.episodes = list(data.get("episodes") or [])
         self.prior_minutes = float(data.get("minutes") or 0.0)
@@ -177,6 +177,8 @@ class StepwiseRun:
                 opener.setup()
         last_step, attempt = None, 0
         for e in self.episodes:  # a restored run continues the attempt count of its last step
+            if e.get("status") == "error":  # a conversation cut by an error is not an attempt
+                continue
             last_step, attempt = e["step"], (attempt + 1 if e["step"] == last_step else 1)
         try:
             while True:
