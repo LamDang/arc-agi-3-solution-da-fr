@@ -738,7 +738,7 @@ class EngineAgent:
 
         for r in records[begin + 1 :]:
             if "finish_reason" in r:
-                prompt_tokens = (r.get("usage") or {}).get("prompt_tokens") or prompt_tokens
+                prompt_tokens = max(prompt_tokens, (r.get("usage") or {}).get("prompt_tokens") or 0)  # ever over: compacted
                 assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
                 if r.get("reasoning"):
                     assistant["reasoning"] = r["reasoning"]
