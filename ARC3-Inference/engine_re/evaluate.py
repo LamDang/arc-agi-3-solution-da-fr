@@ -5,12 +5,14 @@
 For every game directory of an experiment, three checks:
 
 1. Recorded replay: the agent's own test, the recorded actions from step 0.
-2. Held-out rollouts: for each level the recording reached, both engines start at
-   ``set_level(L)`` and play the same random action sequences (keys drawn from
-   the advertised actions; clicks aimed mostly at object pixels; occasional
-   RESET; RESET after a game over). A rollout stops when the real engine leaves
-   the levels the recording covers. Reported: steps that match exactly, and the
-   mean number of steps before the first mismatch.
+2. Held-out rollouts: for each level the recording reached, both engines replay
+   the recorded actions up to the step that entered that level, then play the
+   same random action sequence (keys drawn from the advertised actions; clicks
+   aimed mostly at object pixels; occasional RESET; RESET after a game over).
+   Only the random part is compared, through the public interface alone. A
+   rollout stops when the real engine leaves the levels the recording covers.
+   Reported: steps that match exactly, those among steps that changed the
+   screen, and the mean number of steps before the first mismatch.
 3. A source scan for patterns that could read answers instead of computing them.
 
 Writes ``<game>/evaluation.json`` and ``<experiment>/evaluation.md``.
@@ -63,14 +65,14 @@ def random_actions(trace: Trace, level: int, n: int, rng: random.Random) -> list
     return actions
 
 
-def real_rollout(game_cls: type, level: int, actions: list[Action], max_level: int) -> tuple[list[Action], list[Step]]:
-    """Play actions on the real engine from set_level(level), inserting a RESET
-    after every game over, and stop before leaving the recorded levels.
-    Returns the actions actually played and the real observations."""
+def real_rollout(game_cls: type, prefix: list[Action], actions: list[Action], max_level: int) -> tuple[list[Action], list[Step]]:
+    """Replay ``prefix`` on a fresh real engine, then play ``actions``, inserting
+    a RESET after every game over and stopping before the engine leaves the
+    recorded levels. Returns the actions played after the prefix and the real
+    observations for them."""
     game = new_game(game_cls)
-    if level:
-        game.set_level(level)
-        game._score = level
+    for action in prefix:
+        perform(game, action)
     played, steps = [], []
     queue = list(actions)
     while queue:
@@ -102,12 +104,12 @@ def evaluate_game(game_dir: Path, engine_path: Path, environments_dir: Path, rol
     for level in playable:
         level_total = level_exact = level_changing = level_changing_exact = full = 0
         prefixes, examples = [], []
+        entry = trace.level_starts()[level]
+        recorded = trace.actions[: entry + 1]
         for _ in range(rollouts):
-            actions, real_steps = real_rollout(game_cls, level, random_actions(trace, level, length, rng), max_level)
-            result, frames = run_candidate(
-                engine_path, [a.to_json() for a in actions], start_level=level or None, scratch_root=game_dir
-            )
-            got = result.get("steps", [])
+            actions, real_steps = real_rollout(game_cls, recorded, random_actions(trace, level, length, rng), max_level)
+            result, frames = run_candidate(engine_path, [a.to_json() for a in recorded + actions], scratch_root=game_dir)
+            got, frames = result.get("steps", [])[len(recorded) :], frames[len(recorded) :]
             checks = [
                 check_step(step, got[k] if k < len(got) else None, frames[k] if k < len(frames) else None)
                 for k, step in enumerate(real_steps)
@@ -117,7 +119,7 @@ def evaluate_game(game_dir: Path, engine_path: Path, environments_dir: Path, rol
             level_exact += sum(ok)
             # Steps where the real screen changed or animated: a do-nothing engine cannot match these.
             for k, step in enumerate(real_steps):
-                prev = real_steps[k - 1].last if k else None
+                prev = real_steps[k - 1].last if k else trace[entry].last
                 if step.n_frames > 1 or prev is None or step.last is None or not np.array_equal(prev, step.last):
                     level_changing += 1
                     level_changing_exact += ok[k]
