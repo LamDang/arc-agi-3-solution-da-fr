@@ -38,10 +38,14 @@ evaluate.py: candidate vs real engine on new random action sequences per level
 - **Interface** (`skeleton.py`, `api_notes.md`). The engine is a module with one
   `arcengine.ARCBaseGame` subclass, the same interface as the real games: the
   harness calls `perform_action` and compares what it returns. The skeleton
-  gives the structure every real game follows (sprite art, levels, a
-  screen-space HUD, `on_set_level`, `step`) and nothing game-specific beyond the
-  class name and the advertised actions. The API notes describe arcengine's
-  fixed main loop, sprites, levels and camera, plus the primitives table.
+  has code only for what the agent writes: tagged sprite prototypes, levels
+  built from clones of them plus a `data` dict, `on_set_level` and `step` (with
+  the library's `try_move_sprite` collision). Comments explain the rest: where
+  visible and hidden state live, how entering a level or RESET rebuilds it
+  from a pristine copy, screen-space UI, and that only the final frame counts.
+  Nothing game-specific beyond the class name and the advertised actions. The
+  API notes describe arcengine's fixed main loop, sprites, levels and camera,
+  plus the primitives table.
 - **Tools** (`agent.py`, `prompts.py`):
   - `python`: a persistent kernel with the trace loaded as `trace` / `S` and
     analysis helpers (`helpers.py`: summaries, hex region views, frame diffs,
@@ -50,7 +54,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `view_engine`, `write_engine`, `edit_engine`: read and change `engine.py`.
   - `run_tests(from_level=None, details=2)`: full replay, or one level onwards
     (the engine starts at `set_level(L)`), reporting matching steps, the first
-    mismatch with side-by-side pixel crops, frame counts, state fields,
+    mismatch with side-by-side pixel crops of the final frame, state fields,
     tracebacks, and the list of all mismatching steps.
   - `finish(summary)`.
 - **Feedback the harness adds** (`agent.py`). The model's reasoning is sent
@@ -62,9 +66,12 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   test, a reminder to write and test is appended instead. The prompt asks for a
   `notes.md` of established facts, which outlives compaction and interruptions.
   These came from pilot sessions; see [RESULTS.md](RESULTS.md).
-- **Passing.** A step matches when the number of frames, every pixel of every
-  frame, the state, levels completed, win levels and available actions all
-  match. The session stops when a full replay matches every step, when the
+- **Passing** (`--match`). By default (`final`) a step matches when its last
+  frame and the state, levels completed, win levels and available actions all
+  match; animation frames are not compared, so the agent spends nothing on
+  them (it can still look at them to understand an action). `--match all`
+  also requires the frame count and every animation frame to match, which is
+  how the v2 and v3 runs were scored. The session stops when a full replay matches every step, when the
   model calls `finish` twice, or when a budget (turns, output tokens, cost,
   wall time) runs out. An interrupted session resumes from its `engine.py`
   with a fresh conversation that carries its notes and last reasoning.

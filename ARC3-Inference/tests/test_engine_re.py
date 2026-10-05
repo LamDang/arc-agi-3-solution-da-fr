@@ -82,6 +82,40 @@ def test_divergence_is_located(tmp_path: Path, tiny_trace: Trace) -> None:
     assert "--- Step 1: ACTION2" in report.text
 
 
+ANIMATED_STEP = """    def step(self) -> None:
+        if not getattr(self, "ticks", 0):
+            dx, dy = MOVES.get(self.action.id, (0, 0))
+            if dx or dy:
+                self.try_move("player", dx, dy)
+            self.ticks = 3 if (dx or dy) else 1
+        self.ticks -= 1
+        if self.ticks == 0:
+            self.complete_action()
+"""
+
+
+def test_animation_frames_are_compared_only_with_match_all(tmp_path: Path) -> None:
+    # The real game spends 3 frames on each move; the candidate does it in one.
+    plain_step = TINY_GAME[TINY_GAME.index("    def step(self)") :]
+    animated = TINY_GAME.replace("DOWN", "1").replace(plain_step, ANIMATED_STEP)
+    trace = record_trace(_game_class(animated), "tiny", ACTIONS)
+    assert trace[1].n_frames == 3
+    engine = _engine(tmp_path, TINY_GAME.replace("DOWN", "1"))
+    final = replay_test(engine, trace, scratch_root=tmp_path)
+    assert final.passed, final.text
+    strict = replay_test(engine, trace, scratch_root=tmp_path, match="all")
+    assert not strict.passed and strict.first_fail == 1
+    assert "frame count" in strict.text
+
+
+def test_skeleton_runs_as_an_engine(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.skeleton import render_skeleton
+
+    report = replay_test(_engine(tmp_path, render_skeleton("tiny", [1, 2, 3, 4])), tiny_trace, scratch_root=tmp_path)
+    assert report.error is None, report.error
+    assert "--- Step 0: RESET" in report.text
+
+
 def test_engine_crash_is_reported(tmp_path: Path, tiny_trace: Trace) -> None:
     source = TINY_GAME.replace("DOWN", "1").replace("self.complete_action()", "raise RuntimeError('boom')")
     report = replay_test(_engine(tmp_path, source), tiny_trace, scratch_root=tmp_path)

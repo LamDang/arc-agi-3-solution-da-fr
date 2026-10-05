@@ -38,7 +38,7 @@ from typing import Any
 import requests
 
 from engine_re.kernel import KernelClient
-from engine_re.prompts import SYSTEM_PROMPT, TOOLS, first_user_message, resume_user_message
+from engine_re.prompts import TOOLS, first_user_message, resume_user_message, system_prompt
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import replay_test
 from engine_re.trace import Trace
@@ -202,11 +202,21 @@ class AgentResult:
     nudges: int = 0
     auto_tests: int = 0
     python_paused: int = 0
+    match: str = "final"
 
 
 class EngineAgent:
-    def __init__(self, game: str, game_dir: Path, model: ModelConfig, budget: Budget, client: OpenRouterClient | None = None):
+    def __init__(
+        self,
+        game: str,
+        game_dir: Path,
+        model: ModelConfig,
+        budget: Budget,
+        client: OpenRouterClient | None = None,
+        match: str = "final",
+    ):
         self.game = game
+        self.match = match
         self.dir = Path(game_dir).resolve()
         self.trace_dir = self.dir / "trace"
         self.workspace = self.dir / "workspace"
@@ -216,7 +226,7 @@ class EngineAgent:
         self.budget = budget
         self.client = client or OpenRouterClient(model)
         self.kernel = KernelClient(self.workspace, self.trace_dir)
-        self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace))
+        self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace), match=match)
         self.messages: list[dict[str, Any]] = []
         self.finish_requests = 0
         self.best_exact = -1
@@ -287,7 +297,9 @@ class EngineAgent:
         self.turns_since_test = 0
         tested_hash = self._engine_hash()
         try:
-            report = replay_test(self.engine_path, self.trace, from_level=from_level, details=details, scratch_root=self.dir)
+            report = replay_test(
+                self.engine_path, self.trace, from_level=from_level, details=details, scratch_root=self.dir, match=self.match
+            )
         except ValueError as exc:
             return f"Error: {exc}"
         if from_level in (None, 0):
@@ -427,13 +439,13 @@ class EngineAgent:
         self.started = time.time()
         engine = self.engine_path.read_text(encoding="utf-8")
         if self._restore():
-            report = replay_test(self.engine_path, self.trace, details=2, scratch_root=self.dir)
+            report = replay_test(self.engine_path, self.trace, details=2, scratch_root=self.dir, match=self.match)
             opening = resume_user_message(
                 self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()), self.prior_notes
             )
         else:
             opening = first_user_message(self.game, self.trace, engine)
-        system = SYSTEM_PROMPT
+        system = system_prompt(self.match)
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
@@ -528,7 +540,7 @@ class EngineAgent:
     def _final_test(self) -> None:
         """Authoritative full replay of the final engine.py."""
         try:
-            report = replay_test(self.engine_path, self.trace, details=3, scratch_root=self.dir)
+            report = replay_test(self.engine_path, self.trace, details=3, scratch_root=self.dir, match=self.match)
             self.result.final = report.summary()
             (self.dir / "final_test.txt").write_text(report.text + "\n", encoding="utf-8")
         except Exception as exc:  # noqa: BLE001

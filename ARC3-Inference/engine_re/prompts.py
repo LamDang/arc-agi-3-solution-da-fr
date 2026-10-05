@@ -9,16 +9,31 @@ from engine_re.trace import Trace
 
 API_NOTES = (Path(__file__).with_name("api_notes.md")).read_text(encoding="utf-8")
 
-SYSTEM_PROMPT = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
+_INTRO = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
 You have every action that was played and every frame the real engine returned. Your job is to write a Python module,
-engine.py, that reproduces the real engine exactly: replaying the recorded actions through a fresh instance of your
-engine must return exactly the recorded observations at every step.
+engine.py, that reproduces the real engine: replaying the recorded actions through a fresh instance of your engine
+must return the recorded observations at every step.
+"""
 
+_PASSING = {
+    "final": """
+# What passing means
+run_tests replays the recorded actions through a fresh instance of your engine and compares, after every action: the
+FINAL frame (every pixel of the last frame the action returned), the state (NOT_FINISHED / WIN / GAME_OVER),
+levels_completed, win_levels and available_actions. Animation frames and the number of frames are NOT compared: the
+real game sometimes animates an action over several frames, but your engine only needs its end result, so do each
+action's whole effect in one step() call and then call complete_action(). Look at animation frames only to understand
+what an action does. The goal is "ALL STEPS MATCH". The session ends as soon as that happens.
+""",
+    "all": """
 # What passing means
 run_tests replays the recorded actions through a fresh instance of your engine and compares, at every step: the number
 of frames, every pixel of every frame, the state (NOT_FINISHED / WIN / GAME_OVER), levels_completed, win_levels and
 available_actions. The goal is "ALL STEPS MATCH". The session ends as soon as that happens.
+""",
+}
 
+_RULES_AND_TOOLS = """
 # Rules
 - Implement the game's real rules and level data, so that your engine would also be right on actions nobody played.
   Do not hard-code recorded frames, per-step outputs or anything keyed to the step number or the action history:
@@ -44,15 +59,31 @@ available_actions. The goal is "ALL STEPS MATCH". The session ends as soon as th
    to get a layout pixel-exact: downsample the level's first frame to the logical grid (logical(frame, geom)), keep
    everything that never changes as one background sprite, and make separate sprites only for the things that move,
    change or get clicked.
-3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Count frames:
-   every call to step() before complete_action() renders one frame, and entering a new level adds one more.
-4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
+__STEP3__4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
 5. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
    more analysis. Every change should move the first mismatch later or fix more steps.
 6. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
    questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
 
-""" + API_NOTES
+"""
+
+_STEP3 = {
+    "final": """3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only
+   the end state of each action counts, so skip animations.
+""",
+    "all": """3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Count frames:
+   every call to step() before complete_action() renders one frame, and entering a new level adds one more.
+""",
+}
+
+
+def system_prompt(match: str = "final") -> str:
+    """The system prompt for a matching rule: "final" (last frame + state per step) or "all" (every frame)."""
+    body = _RULES_AND_TOOLS.replace("__STEP3__", _STEP3[match])
+    return _INTRO + _PASSING[match] + body + API_NOTES
+
+
+SYSTEM_PROMPT = system_prompt("final")
 
 
 def describe_trace(trace: Trace) -> str:
@@ -171,7 +202,7 @@ TOOLS = [
             "name": "run_tests",
             "description": (
                 "Replay the recorded actions through a fresh instance of engine.py and compare with the recording. "
-                "Reports how many steps match, the first mismatching steps in detail (pixel diffs, frame counts, "
+                "Reports how many steps match, the first mismatching steps in detail (pixel diffs of the final frame, "
                 "state fields, tracebacks) and the list of all mismatching steps."
             ),
             "parameters": {

@@ -1,106 +1,126 @@
-"""The starting engine module handed to the agent: the structure every real game
-follows (sprites, levels, a screen-space HUD, an ARCBaseGame subclass), with no
-game-specific content beyond the class name and the advertised actions."""
+"""The starting engine module handed to the agent.
+
+It has code for only the three things the agent must write (sprites, levels and
+the game's step), and explains the rest in comments: where a game keeps its
+state, how levels are rebuilt on entry and RESET, screen-space UI, and that only
+the final frame of each action is checked. No game-specific content beyond the
+class name and the advertised actions.
+"""
 
 from __future__ import annotations
 
 TEMPLATE = '''"""Re-implementation of ARC-AGI-3 game "{game}", reverse-engineered from a recorded run.
 
-Contract (the test harness relies on it):
-- The module defines one subclass of arcengine.ARCBaseGame, `{cls}`, constructible
-  as `{cls}()` (an optional `seed` keyword is allowed).
-- It is self-contained: it imports only the standard library, numpy and arcengine,
-  and reads no files. All level data lives in this file.
-- The harness creates a fresh instance and calls perform_action(...) once per
-  recorded action (step 0 is RESET), comparing every frame returned plus state,
-  levels_completed, win_levels and available_actions.
-- ONLY_RESET_LEVELS=true is set, so RESET restarts the current level.
+What is tested: a fresh {cls}() replays the recorded actions (step 0 is RESET). After every action,
+the LAST frame your engine returns must equal the recorded final frame, and state, levels_completed,
+win_levels and available_actions must match. Animation frames are not compared.
+
+Rules: one ARCBaseGame subclass, constructible as {cls}(); standard library, numpy and arcengine
+only; no file reads, so all sprite and level data lives in this file. RESET restarts the current
+level (ONLY_RESET_LEVELS=true); after a game over only RESET is accepted (the base class handles it).
 """
 
 from __future__ import annotations
 
-import numpy as np
-from arcengine import (
-    ARCBaseGame,
-    BlockingMode,
-    Camera,
-    GameAction,
-    GameState,
-    InteractionMode,
-    Level,
-    RenderableUserDisplay,
-    Sprite,
-)
+from arcengine import ARCBaseGame, BlockingMode, Camera, GameAction, Level, RenderableUserDisplay, Sprite
 
-# ---------------------------------------------------------------------------
-# 1. Sprite art, in logical-grid pixels. -1 = transparent, -2 = invisible but solid.
-# ---------------------------------------------------------------------------
-SPRITES: dict[str, list[list[int]]] = {{
-    # "player": [[9, 9], [9, 9]],
+# =============================================================================
+# 1. SPRITES: one prototype per kind of object.
+#
+# A Sprite is the picture AND the state of an object: x, y, pixels, rotation,
+# layer, visibility and collision are all mutable, and the screen is drawn from
+# them. Pixels are colour indices 0-15; -1 is transparent, -2 is invisible but
+# solid. Tags let the game find objects again: level.get_sprites_by_tag("wall").
+# Collision is pixel-exact by default (blocking=BlockingMode.PIXEL_PERFECT);
+# use BlockingMode.NOT_BLOCKED for things you can walk over.
+# Levels never use a prototype directly; they place clones of it (place()).
+# =============================================================================
+SPRITES: dict[str, Sprite] = {{
+    # "player": Sprite(pixels=[[9, 9], [9, 9]], name="player", tags=["player"], layer=1),
+    # "wall":   Sprite(pixels=[[4]], name="wall", tags=["wall"]),
+    # "goal":   Sprite(pixels=[[14]], name="goal", tags=["goal"], blocking=BlockingMode.NOT_BLOCKED),
 }}
 
 
-def make_sprite(key: str, x: int, y: int, *, name: str | None = None, layer: int = 0,
-                tags: tuple[str, ...] = (), blocking: BlockingMode = BlockingMode.PIXEL_PERFECT,
-                **kwargs) -> Sprite:
-    return Sprite([row[:] for row in SPRITES[key]], name=name or key, x=x, y=y, layer=layer,
-                  tags=list(tags), blocking=blocking, **kwargs)
+def place(key: str, x: int, y: int) -> Sprite:
+    """A fresh copy of a prototype at logical-grid position (x, y) (x = column, y = row)."""
+    return SPRITES[key].clone().set_position(x, y)
 
 
-# ---------------------------------------------------------------------------
-# 2. Levels, in order. grid_size=(width, height) is the logical grid; the camera
-#    scales it by min(64 // width, 64 // height) and centres it on the 64x64 screen.
-#    Each level is rebuilt from this pristine copy on entry and on RESET.
-# ---------------------------------------------------------------------------
-def build_levels() -> list[Level]:
-    return [
-        Level(sprites=[], grid_size=(64, 64), name="level1", data={{}}),
-    ]
+# =============================================================================
+# 2. LEVELS, in order.
+#
+# A Level is the list of sprites present when it starts, plus `data`: per-level
+# settings (move budget, target colour, ...) read with level.get_data(key).
+# grid_size=(width, height) is the logical grid; the camera scales it by
+# min(64 // width, 64 // height) and centres it on the 64x64 screen.
+#
+# The engine keeps a pristine copy of every level. Entering a level and RESET
+# both replace the live level with a fresh copy and then call on_set_level(),
+# so everything the player changed (positions, removed objects) is undone.
+# =============================================================================
+LEVELS: list[Level] = [
+    Level(
+        sprites=[
+            # place("player", 1, 1),
+            # place("wall", 0, 0),
+        ],
+        grid_size=(64, 64),
+        data={{}},  # e.g. {{"budget": 30}}
+        name="level1",
+    ),
+]
 
 
-# ---------------------------------------------------------------------------
-# 3. Screen-space UI, drawn on the 64x64 frame after the scaled grid
-#    (e.g. a move-budget bar in the border).
-# ---------------------------------------------------------------------------
-class Hud(RenderableUserDisplay):
-    def __init__(self, game: "{cls}") -> None:
-        self.game = game
-
-    def render_interface(self, frame: np.ndarray) -> np.ndarray:
-        return frame
-
-
-# ---------------------------------------------------------------------------
-# 4. The game.
-# ---------------------------------------------------------------------------
+# =============================================================================
+# 3. THE GAME
+#
+# Where the game's state lives:
+# - Visible state: the sprites of self.current_level. Move, recolour or hide
+#   them (sprite.set_position, sprite.pixels / color_remap, set_visible).
+# - Hidden state (counters, modes, what is selected, ...): plain attributes on
+#   self. Per-level ones are set in on_set_level(), which runs on level entry
+#   and on every RESET, so a RESET restores them. Game-wide ones are set in
+#   __init__ BEFORE super().__init__(), because super().__init__() already calls
+#   on_set_level() for the first level.
+# - Bookkeeping kept by ARCBaseGame (don't duplicate it): self.level_index,
+#   self.current_level, self._state, self._score (= levels_completed),
+#   self._action_count.
+#
+# Screen-space UI (a budget bar, lives, ...) is drawn on the 64x64 frame after
+# the scaled grid by a RenderableUserDisplay passed in Camera(interfaces=[...]);
+# its render_interface(frame) edits and returns the frame (numpy array, [row, col]).
+# Add one only if the recording shows such UI.
+# =============================================================================
 class {cls}(ARCBaseGame):
     def __init__(self, seed: int = 0) -> None:
-        # Attributes used by on_set_level must exist before super().__init__,
-        # which calls set_level(0) -> on_set_level.
-        self.hud = Hud(self)
-        camera = Camera(0, 0, 64, 64, background=0, letter_box=0, interfaces=[self.hud])
-        super().__init__(game_id="{game}", levels=build_levels(), camera=camera,
-                         available_actions={actions})
+        camera = Camera(0, 0, 64, 64, background=0, letter_box=0, interfaces=[])
+        super().__init__(game_id="{game}", levels=LEVELS, camera=camera, available_actions={actions})
 
     def on_set_level(self, level: Level) -> None:
-        """Runs on entering a level and on every level reset: (re)initialise per-level state."""
+        """Level entry and RESET: find this level's sprites and reset per-level state."""
+        # self.player = self.current_level.get_sprites_by_tag("player")[0]
+        # self.budget = self.current_level.get_data("budget")
 
     def step(self) -> None:
-        """Called repeatedly until complete_action(); every call renders one frame."""
+        """One action: apply its whole effect, then call complete_action().
+
+        Only the final frame of the action is compared, so do not reproduce
+        animations: one step() call renders one frame, and that is enough.
+        Ends: self.next_level() when the level is solved (after the last level it
+        means WIN), self.lose() for game over.
+        """
         action = self.action.id
-        if action == GameAction.ACTION1:  # up
-            pass
-        elif action == GameAction.ACTION2:  # down
-            pass
-        elif action == GameAction.ACTION3:  # left
-            pass
-        elif action == GameAction.ACTION4:  # right
-            pass
+        moves = {{GameAction.ACTION1: (0, -1), GameAction.ACTION2: (0, 1), GameAction.ACTION3: (-1, 0), GameAction.ACTION4: (1, 0)}}
+        if action in moves:
+            dx, dy = moves[action]
+            # Built-in collision: try_move_sprite moves the sprite, and if it now overlaps a
+            # collidable sprite it moves it back and returns the sprites hit ([] = it moved).
+            # hit = self.try_move_sprite(self.player, dx, dy)
         elif action == GameAction.ACTION5:  # interact
             pass
-        elif action == GameAction.ACTION6:  # click at screen pixel (x, y)
-            x, y = self.action.data.get("x", 0), self.action.data.get("y", 0)
-            cell = self.camera.display_to_grid(x, y)  # (grid_x, grid_y), or None in the letterbox
+        elif action == GameAction.ACTION6:  # click: screen pixel -> logical grid cell (None in the border)
+            cell = self.camera.display_to_grid(self.action.data.get("x", 0), self.action.data.get("y", 0))
         self.complete_action()
 '''
 

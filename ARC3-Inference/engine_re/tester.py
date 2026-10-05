@@ -2,11 +2,15 @@
 
 The candidate runs in a separate sandboxed process (``candidate_runner``) that
 gets only the actions. This module compares what it returned with the trace,
-step by step. A step passes when everything the real engine returned matches:
-the number of frames, every frame's pixels, the game state, levels completed,
-win levels and available actions.
+step by step. Two matching rules:
 
-Two modes:
+- ``final`` (default): a step passes when its last frame and the state fields
+  (state, levels completed, win levels, available actions) match. Animation
+  frames and the frame count are not compared.
+- ``all``: every frame must match too, so the frame count and each animation
+  frame count as well.
+
+Two replay modes:
 
 - full replay: a fresh engine plays every action from step 0;
 - one level (``from_level=L``): the engine starts with ``set_level(L)`` and
@@ -33,6 +37,7 @@ from engine_re.trace import Step, Trace
 
 HEX = "0123456789abcdef"
 FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
+MATCH_MODES = ("final", "all")
 
 
 @dataclass
@@ -57,6 +62,7 @@ class TestReport:
     seconds: float
     checks: list[StepCheck]
     text: str = ""
+    match: str = "final"
 
     @property
     def passed(self) -> bool:
@@ -169,17 +175,20 @@ def _describe_diff(d: dict[str, Any]) -> str:
     return f"{d['count']} pixels differ in rows {r0}-{r1}, cols {c0}-{c1} (expected->got colour: {trans})"
 
 
-def check_step(step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | None) -> StepCheck:
+def check_step(step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | None, match: str = "final") -> StepCheck:
+    if match not in MATCH_MODES:
+        raise ValueError(f"match must be one of {MATCH_MODES}")
     if got is None or got_frames is None:
         return StepCheck(step.index, False, False, ["not run"])
     problems = []
-    if len(got_frames) != step.n_frames:
+    if match == "all" and len(got_frames) != step.n_frames:
         problems.append("frame count")
     final_ok = step.n_frames == 0 and len(got_frames) == 0
     if step.n_frames and len(got_frames):
         final_ok = frame_diff(step.frames[-1], got_frames[-1]) is None
-        if not final_ok:
-            problems.append("final frame")
+    if not final_ok:
+        problems.append("final frame")
+    if match == "all" and step.n_frames and len(got_frames):
         n = min(step.n_frames, len(got_frames))
         if any(frame_diff(step.frames[k], got_frames[k]) is not None for k in range(n - 1)):
             problems.append("animation frames")
@@ -190,12 +199,38 @@ def check_step(step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | 
 
 
 def describe_step(
-    step: Step, got: dict[str, Any] | None, got_frames: np.ndarray | None, before: int, crashed_here: bool = False
+    step: Step,
+    got: dict[str, Any] | None,
+    got_frames: np.ndarray | None,
+    before: int,
+    crashed_here: bool = False,
+    match: str = "final",
 ) -> str:
     """Detailed explanation of one failing step."""
     lines = [f"--- Step {step.index}: {step.action}   (levels_completed before the step: {before})"]
     if got is None or got_frames is None:
         lines.append("    your engine raised an error on this step (traceback above)" if crashed_here else "    not run (the engine stopped earlier)")
+        return "\n".join(lines)
+    if match == "final":
+        lines.append(
+            f"    expected: state={step.state}, levels_completed={step.levels_completed}, "
+            f"win_levels={step.win_levels}, available_actions={step.available_actions}"
+        )
+        lines.append(
+            f"    got:      state={got.get('state')}, levels_completed={got.get('levels_completed')}, "
+            f"win_levels={got.get('win_levels')}, available_actions={got.get('available_actions')}"
+        )
+        if step.n_frames > 1:
+            lines.append(f"    (the real game animated this action over {step.n_frames} frames; only the last is compared)")
+        if step.n_frames and len(got_frames):
+            d = frame_diff(step.frames[-1], got_frames[-1])
+            if d is None:
+                lines.append("    final frame: matches")
+            else:
+                lines.append(f"    final frame: {_describe_diff(d)}")
+                lines.append(crop_panels(step.frames[-1], got_frames[-1], d["bbox"]))
+        elif step.n_frames != len(got_frames):
+            lines.append(f"    final frame: expected {'a frame' if step.n_frames else 'no frame'}, got {len(got_frames)} frame(s)")
         return "\n".join(lines)
     lines.append(
         f"    expected: {step.n_frames} frame(s), state={step.state}, levels_completed={step.levels_completed}, "
@@ -250,7 +285,10 @@ def replay_test(
     from_level: int | None = None,
     details: int = 2,
     scratch_root: Path | None = None,
+    match: str = "final",
 ) -> TestReport:
+    if match not in MATCH_MODES:
+        raise ValueError(f"match must be one of {MATCH_MODES}")
     starts = trace.level_starts()
     if from_level is not None and from_level != 0:
         if from_level >= trace[0].win_levels:
@@ -275,7 +313,7 @@ def replay_test(
     for k, step in enumerate(steps):
         got = got_steps[k] if k < len(got_steps) else None
         frames = got_frames[k] if k < len(got_frames) else None
-        checks.append(check_step(step, got, frames))
+        checks.append(check_step(step, got, frames, match))
     exact = sum(c.ok for c in checks)
     final = sum(c.final_ok for c in checks)
     failing = [c.index for c in checks if not c.ok]
@@ -287,7 +325,10 @@ def replay_test(
         start_frame_diff = 0 if d is None else d["count"]
 
     lines = [f"TEST RESULT ({mode})"]
-    lines.append(f"  {exact}/{len(steps)} steps match exactly; {final}/{len(steps)} final frames match.")
+    if match == "final":
+        lines.append(f"  {exact}/{len(steps)} steps match (final frame and state; animation frames are not compared).")
+    else:
+        lines.append(f"  {exact}/{len(steps)} steps match exactly; {final}/{len(steps)} final frames match.")
     if first_fail is None and result.get("error") is None:
         lines.append("  ALL STEPS MATCH.")
     elif first_fail is not None:
@@ -329,7 +370,7 @@ def replay_test(
             got = got_steps[k] if k < len(got_steps) else None
             frames = got_frames[k] if k < len(got_frames) else None
             crashed_here = result.get("error") is not None and result.get("error_step") == k
-            lines.append(describe_step(steps[k], got, frames, before_level[idx], crashed_here))
+            lines.append(describe_step(steps[k], got, frames, before_level[idx], crashed_here, match))
         lines.append(f"  All mismatching steps: {_ranges(failing)}")
 
     return TestReport(
@@ -345,4 +386,5 @@ def replay_test(
         seconds=float(result.get("seconds", 0.0)),
         checks=checks,
         text="\n".join(lines),
+        match=match,
     )

@@ -78,6 +78,12 @@ def main() -> int:
         "--python-quota", type=int, default=None, help="Pause the python tool after this many calls without an engine.py change."
     )
     parser.add_argument("--max-steps", type=int, default=None, help="Use only the first N steps of each trace.")
+    parser.add_argument(
+        "--match",
+        choices=["final", "all"],
+        default="final",
+        help="What a step must match: final = last frame + state (default); all = every animation frame too.",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -98,7 +104,7 @@ def main() -> int:
         if previous.exists() and json.loads(previous.read_text(encoding="utf-8")).get("status") != "running":
             print(f"[{game}] already finished; skipping", flush=True)
             return
-        agent = EngineAgent(game, game_dirs[game], model, budget)
+        agent = EngineAgent(game, game_dirs[game], model, budget, match=args.match)
         result = agent.run()
         final = result.final or {}
         print(

@@ -311,6 +311,6 @@ def compare(i: int, obs: dict[str, Any]) -> None:
         if getattr(step, name) != obs[name]:
             print(f"{name}: expected {getattr(step, name)}, got {obs[name]}")
     if step.n_frames != len(obs["frames"]):
-        print(f"frame count: expected {step.n_frames}, got {len(obs['frames'])}")
+        print(f"frames: real {step.n_frames}, yours {len(obs['frames'])} (only the final frame is compared)")
     print("final frame: ", end="")
     diff(step.last, obs["frames"][-1] if len(obs["frames"]) else None)

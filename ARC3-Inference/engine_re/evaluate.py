@@ -1,6 +1,6 @@
 """Does a reverse-engineered engine behave like the real one beyond the recording?
 
-    uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> [--engine best|final]
+    uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> [--engine best|final] [--match final|all]
 
 For every game directory of an experiment, three checks:
 
@@ -11,8 +11,10 @@ For every game directory of an experiment, three checks:
    aimed mostly at object pixels; occasional RESET; RESET after a game over).
    Only the random part is compared, through the public interface alone. A
    rollout stops when the real engine leaves the levels the recording covers.
-   Reported: steps that match exactly, those among steps that changed the
-   screen, and the mean number of steps before the first mismatch.
+   Reported: steps that match, those among steps that changed the screen, and
+   the mean number of steps before the first mismatch. ``--match final``
+   (default) compares each step's last frame and state fields; ``--match all``
+   compares every animation frame too.
 3. A source scan for patterns that could read answers instead of computing them.
 
 Writes ``<game>/evaluation.json`` and ``<experiment>/evaluation.md``.
@@ -88,14 +90,16 @@ def real_rollout(game_cls: type, prefix: list[Action], actions: list[Action], ma
     return played, steps
 
 
-def evaluate_game(game_dir: Path, engine_path: Path, environments_dir: Path, rollouts: int, length: int, seed: int) -> dict[str, Any]:
+def evaluate_game(
+    game_dir: Path, engine_path: Path, environments_dir: Path, rollouts: int, length: int, seed: int, match: str = "final"
+) -> dict[str, Any]:
     import os
 
     os.environ["ONLY_RESET_LEVELS"] = "true"
     trace = Trace.load(game_dir / "trace")
     game_cls = load_game_class(find_game_file(trace.game_id, environments_dir))
-    replay = replay_test(engine_path, trace, details=1, scratch_root=game_dir)
-    out: dict[str, Any] = {"engine": engine_path.name, "replay": replay.summary(), "levels": {}}
+    replay = replay_test(engine_path, trace, details=1, scratch_root=game_dir, match=match)
+    out: dict[str, Any] = {"engine": engine_path.name, "match": match, "replay": replay.summary(), "levels": {}}
     playable = [lvl for lvl in sorted(trace.level_starts()) if lvl < trace[0].win_levels]
     max_level = max(playable)
     rng = random.Random(seed)
@@ -111,16 +115,18 @@ def evaluate_game(game_dir: Path, engine_path: Path, environments_dir: Path, rol
             result, frames = run_candidate(engine_path, [a.to_json() for a in recorded + actions], scratch_root=game_dir)
             got, frames = result.get("steps", [])[len(recorded) :], frames[len(recorded) :]
             checks = [
-                check_step(step, got[k] if k < len(got) else None, frames[k] if k < len(frames) else None)
+                check_step(step, got[k] if k < len(got) else None, frames[k] if k < len(frames) else None, match)
                 for k, step in enumerate(real_steps)
             ]
             ok = [c.ok for c in checks]
             level_total += len(ok)
             level_exact += sum(ok)
-            # Steps where the real screen changed or animated: a do-nothing engine cannot match these.
+            # Steps where the real screen changed (or, when animation is compared, animated):
+            # a do-nothing engine cannot match these.
             for k, step in enumerate(real_steps):
                 prev = real_steps[k - 1].last if k else trace[entry].last
-                if step.n_frames > 1 or prev is None or step.last is None or not np.array_equal(prev, step.last):
+                animated = match == "all" and step.n_frames > 1
+                if animated or prev is None or step.last is None or not np.array_equal(prev, step.last):
                     level_changing += 1
                     level_changing_exact += ok[k]
             prefix = ok.index(False) if False in ok else len(ok)
@@ -167,6 +173,7 @@ def main() -> int:
     parser.add_argument("--length", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--games", default=None)
+    parser.add_argument("--match", choices=["final", "all"], default="final", help="final: last frame + state per step; all: every frame")
     args = parser.parse_args()
 
     games = args.games.split(",") if args.games else sorted(p.name for p in args.experiment.iterdir() if (p / "trace").is_dir())
@@ -176,13 +183,13 @@ def main() -> int:
         engine = game_dir / ("engine_best.py" if args.engine == "best" else "workspace/engine.py")
         if not engine.exists():
             engine = game_dir / "workspace/engine.py"
-        result = evaluate_game(game_dir, engine, args.environments_dir, args.rollouts, args.length, args.seed)
+        result = evaluate_game(game_dir, engine, args.environments_dir, args.rollouts, args.length, args.seed, args.match)
         (game_dir / f"evaluation_{args.engine}.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         rows.append((game, result))
         print(game, json.dumps({k: result[k] for k in ("replay", "heldout_exact_rate", "suspicious_patterns")}), flush=True)
 
     lines = [
-        f"Engine evaluated: `{args.engine}`. Held-out: {args.rollouts} random rollouts of {args.length} actions per recorded level.",
+        f"Engine evaluated: `{args.engine}`. Matching rule: `{args.match}`. Held-out: {args.rollouts} random rollouts of {args.length} actions per recorded level.",
         "",
         "| game | recorded replay exact | held-out exact steps | held-out steps that changed the screen | per level (exact rate, mean steps to first mismatch, rollouts fully matching) | lines | flagged patterns |",
         "| --- | --- | --- | --- | --- | --- | --- |",
