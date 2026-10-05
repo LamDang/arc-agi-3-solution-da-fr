@@ -14,7 +14,7 @@ agent spent 217K tokens of thinking on the code instead.
 
 | | Baseline | Engine code |
 | --- | --- | --- |
-| Run | `runs/20261004_135539` (DVC) | `runs/engine-code` (local only) |
+| Run | `runs/20261004_135539` (DVC) | `runs/engine-code` (DVC) |
 | Settings | `params.yaml` | `params.yaml` + `ARC3_GAME_CODE_DIR=game_code` |
 | Model | qwen/qwen3.8-flash, served by Alibaba for every request | same |
 | Games | ls20, ft09, vc33, sp80, lp85; 1 pass; 500K output tokens and 240 min per game | same |
@@ -147,8 +147,8 @@ Per-level figures are in `levels.csv`.
   is consistent, though: fewer tokens on 20 of the 27 levels both runs solved,
   and two unsolved games went to 100. A second sample of each arm would bound
   the variance. A no-access control was started alongside, then stopped when the
-  baseline's data could be pulled from DVC; its partial data is in
-  `runs/control` and is not used here.
+  baseline's data could be pulled from DVC. Its partial data is not used
+  here and not archived.
 - **The score is capped.** Each game scores at most 100, and the baseline already
   had 100 on three games. Actions are the better measure of efficiency there.
 - **Topic labels.** On the baseline's 54 hand-labelled chunks, this labeller
@@ -165,10 +165,23 @@ Per-level figures are in `levels.csv`.
 
 ## Reproduce
 
-From `ARC3-Inference/`, with `OPENROUTER_API_KEY` set:
+Both runs are in DVC. The bucket allows anonymous reads: without AWS
+credentials, set `dvc remote modify --local storage allow_anonymous_login true`
+first. From `ARC3-Inference/`:
 
 ```bash
-dvc pull runs/20261004_135539.dvc   # the baseline; bucket allows anonymous read
+dvc pull runs/20261004_135539.dvc runs/engine-code.dvc
+uv run --no-sync python scripts/token_breakdown.py runs/20261004_135539 runs/engine-code \
+  --out experiments/engine-code-access --names "baseline (no code),engine code"
+```
+
+The engine-code run's request logs were compressed with xz after the run
+(`*_requests.jsonl.xz`, 1.4 MB instead of 283 MB); its `response` lines still
+repeat the request, as logs did before that change.
+
+To play the engine-code arm again, with `OPENROUTER_API_KEY` set:
+
+```bash
 uv run --no-sync python scripts/extract_game_code.py ls20 ft09 vc33 sp80 lp85
 uv run --no-sync python scripts/dvc_eval.py --run-dir runs/engine-code \
   --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
