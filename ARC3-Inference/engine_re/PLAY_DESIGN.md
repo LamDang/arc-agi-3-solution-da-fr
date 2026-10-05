@@ -34,7 +34,12 @@ This document is the design to review before implementation. The run plan
                   all actions matched → PLAN again (new frame)   |   WIN → done
 ```
 
-One conversation per game, as in v6c. Three phases, driven by the harness:
+One conversation per game, as in v6c. This is the key idea: fitting and
+planning are done by the same agent in the same context, never by two agents
+handing an engine over. The reasoning that found a rule is still in context
+when the rule is used to plan, and the plan that failed is in context when
+its step is fitted. The harness only decides which phase the next message
+asks for. Three phases:
 
 - **Opening** (harness only, as today). Step 0 is the RESET that starts the
   game. The harness puts level 0's first frame into `make_level` from
@@ -117,11 +122,18 @@ tool, **`commit_moves(actions, note)`**.
 - `note`: one or two sentences: what the batch is meant to do and what the
   engine predicts (kept in the transcript and `result.json`; it is the
   planning record, as `commit_engine`'s message is the modelling record).
-- Refused (nothing sent) when engine.py differs from the last committed engine
-  or that engine did not pass every step so far: "commit_engine first". This
-  keeps the invariant that every prediction comes from an engine that
-  reproduces the whole game so far, so a mismatch is new information about
-  the game, never a stale engine.
+- **It runs the tests first, before anything reaches the real game.** The
+  current engine.py is replayed on every step so far (the same full test
+  `commit_engine` runs). If any step fails, nothing is sent: the output is
+  "Not sent: your engine does not reproduce the game so far" with the test
+  report, and the model is back in FIT. This holds whether the model skipped
+  the fit round, edited engine.py after committing, or committed an engine
+  that passed only by the HUD tolerance and then broke it. If every step
+  passes, the engine is recorded as committed (the batch's `note` stands as
+  its commit message when `commit_engine` was not called) and the batch is
+  sent. The invariant: every prediction comes from an engine that reproduces
+  the whole game so far, so a mismatch is new information about the game,
+  never a stale engine. The test costs one sandboxed replay, as a commit does.
 
 Built-ins added to the kernel (`helpers.py`), documented in the `# Objects`
 reference:
@@ -222,8 +234,9 @@ the game does not advertise) are refused before sending, with the valid form.
 - `_tool_commit_engine`: as in stepwise mode (tests 0..k must pass), then
   `committed_sha = hash`, `phase = "plan"`, and the output carries the nudge;
   `_advance` is replaced: no replay-on, the PLAN message is queued instead.
-- `_tool_commit_moves`: refused in FIT (until a commit) and when
-  `hash != committed_sha`; otherwise section 3.3. Applied after the turn's
+- `_tool_commit_moves`: runs the full test on the current engine.py; refused
+  with the report when any step fails (nothing sent); otherwise records the
+  engine as committed and queues the batch (section 3.3). Applied after the turn's
   tool calls like a commit today (`self.pending_batch`), so a turn that
   edits engine.py after `commit_moves` drops the batch with a note, as a
   commit is dropped now. One batch per turn.
@@ -335,9 +348,11 @@ rule affects.
 1. **Standalone harness in `engine_re`, not a solver in `inference/`.** It
    keeps every v6-v9 mechanism and their measurements comparable; the base
    harness is matched on artifacts (score, viewer), not on code.
-2. **`commit_moves` requires a committed, fully passing engine.** The pure
-   form of the loop. The escape hatch (3.6) is the only relaxation, and it is
-   explicit in the results (unexplained steps).
+2. **`commit_moves` tests the engine itself and refuses, with the report,
+   when any step so far fails, before the real game is touched.** The pure
+   form of the loop: the model cannot skip the fit. The escape hatch (3.6) is
+   the only relaxation, and it is explicit in the results (unexplained
+   steps).
 3. **Planning is in python (`simulate`), sending is a tool.** The tool that
    "gives the moves and gets final states" is `simulate`; `commit_moves` only
    sends. This lets the model search over its engine; a tool call per
@@ -359,9 +374,8 @@ rule affects.
    configuration, not the first.
 
 Open: whether the PLAN message should also give the base harness's
-board-diff image of the last step (cheap, may help) and whether `simulate`
-should refuse sequences longer than the batch size (it should not: searching
-needs long rollouts; only sending is capped).
+board-diff image of the last step (cheap, may help). `simulate` does not cap
+the sequence length: searching needs long rollouts; only sending is capped.
 
 ## 6. Expected failure modes
 
@@ -400,8 +414,8 @@ Proposed:
 | in the middle | **ls20** | 5 of 7 at 866 actions; the hardest game to model (pushers, 17-frame animations), so it tests the escape hatch and whether a partial model still cuts actions |
 | solved | **ft09** | won by the base agent in 100 actions; the engine was re-implemented correctly in 22 minutes in v4. The question here is cost: does the loop win at the same action count for less (or more) than the base agent's 101K output tokens and 31 minutes? |
 
-lp85 is the alternative for the solved case (every v5-v9 measurement is on
-it), proposed as the fourth run if the first three say the loop works.
+ft09 is the solved case (decided); lp85, where every v5-v9 measurement was
+made, is a fourth run if the first three say the loop works.
 
 Settings, one sample per game, all three in parallel, as the v9 runs but
 with the play agent's caps:
