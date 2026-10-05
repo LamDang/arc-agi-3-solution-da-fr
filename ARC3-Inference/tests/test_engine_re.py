@@ -180,6 +180,8 @@ def test_contract_catches_state_shared_between_levels(tmp_path: Path, tiny_trace
     shared = "PLAYER = Sprite([[9]], x=1, y=1, tags=('player',))\n" + shared
     report = replay_test(_simple_engine(tmp_path, shared), tiny_trace, scratch_root=tmp_path)
     assert "FAILED make_level(n) builds a fresh state on every call" in report.text
+    # The contract tests changed the shared sprite, but the replay runs on a freshly loaded module.
+    assert report.exact == len(tiny_trace) and not report.passed
 
 
 def test_render_matches_arcengine_camera() -> None:

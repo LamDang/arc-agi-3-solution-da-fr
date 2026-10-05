@@ -115,7 +115,9 @@ def main() -> int:
             result["contract"] = game_api.contract_checks(
                 module, source, levels=json.loads(args.levels or "[0]"), available_actions=available
             )
+            # The contract tests modify states on purpose; replay on a freshly loaded module.
             signal.setitimer(signal.ITIMER_REAL, args.step_timeout * 4)
+            module = load_module(source, engine_path)
             game = game_api.GameRunner(module, args.win_levels, available)
             play = game.perform
             if args.start_level is not None:
