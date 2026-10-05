@@ -1,21 +1,30 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests, and writes one JSON reply per line
-({"output": ...}). As in a notebook, the value of a final expression is
-printed. The kernel runs sandboxed (engine_re.guard): it can read the
-workspace and the trace, write only the workspace, and cannot start processes
-or open connections.
+({"output": ..., "images": [...]}). As in a notebook, the value of a final
+expression is printed. "images" holds the pictures show() made during the
+request (base64 PNG and caption), for the harness to attach.
 
-``KernelClient`` is the parent side: it starts the kernel, sends code, enforces
-a timeout and restarts the kernel when it hangs or dies.
+The kernel runs sandboxed (engine_re.guard): it can read the workspace and the
+trace, write only the workspace, and cannot start processes or open
+connections. It cannot write engine.py at all: edit() and undo() send their
+arguments to the harness as {"rpc": {...}} lines on the same channel and print
+the harness's reply, read from stdin ({"ok": ..., "text": ...}). The harness
+(``KernelClient`` with an ``engine_files.EngineEditor``) validates and applies
+them, so even a forged request can only make a valid edit.
+
+``KernelClient`` is the parent side: it starts the kernel, sends code, answers
+edit/undo requests, enforces a timeout and restarts the kernel when it hangs or
+dies.
 """
 
 from __future__ import annotations
 
 import ast
+import base64
 import contextlib
 import io
 import json
@@ -23,13 +32,16 @@ import os
 import select
 import subprocess
 import sys
+import time
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
+# What the namespace of the model's code starts with (besides np and the fixed-block classes).
+PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
 
 
 def _run(code: str, namespace: dict[str, Any]) -> str:
@@ -53,50 +65,85 @@ def _run(code: str, namespace: dict[str, Any]) -> str:
 
 def main() -> int:
     workspace, trace_dir = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
+    images = "--no-images" not in sys.argv[3:]
     import numpy as np
 
-    import arcengine  # noqa: F401
     import scipy.ndimage  # noqa: F401
-    from engine_re import guard, helpers
+    from engine_re import game_api, guard, helpers
     from engine_re.trace import Trace
 
     np.set_printoptions(linewidth=200, threshold=4096)
     helpers.trace = Trace.load(trace_dir)
     helpers.S = helpers.trace.steps
     helpers.ENGINE_PATH = workspace / "engine.py"
+    helpers.IMAGES = images
+    api = game_api.canonical()
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
-    namespace.update({k: v for k, v in vars(helpers).items() if not k.startswith("_") and k not in ("annotations",)})
+    namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
+    namespace.update({name: getattr(helpers, name) for name in PRELOADED})
     os.chdir(workspace)
     # Replies go on a private copy of stdout; fd 1 itself goes to /dev/null so
     # code that writes to it directly cannot corrupt the protocol.
     protocol = os.fdopen(os.dup(1), "w", encoding="utf-8")
     os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
-    guard.install(read_roots=[str(trace_dir)], write_roots=[str(workspace)])
 
-    for line in sys.stdin:
+    def rpc(request: dict[str, Any]) -> dict[str, Any]:
+        protocol.write(json.dumps({"rpc": request}) + "\n")
+        protocol.flush()
+        reply = sys.stdin.readline()
+        return json.loads(reply) if reply else {"ok": False, "text": "the harness did not answer"}
+
+    helpers._RPC = rpc
+    guard.install(read_roots=[str(trace_dir)], write_roots=[str(workspace)], protected=[str(workspace / "engine.py")])
+
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
         if not line.strip():
             continue
         request = json.loads(line)
         output = _run(request["code"], namespace)
         if len(output) > MAX_OUTPUT_CHARS:
             output = output[: MAX_OUTPUT_CHARS // 2] + "\n...[output truncated]...\n" + output[-MAX_OUTPUT_CHARS // 2 :]
-        protocol.write(json.dumps({"output": output}) + "\n")
+        shown = helpers.take_shown()
+        protocol.write(json.dumps({"output": output, "images": shown}) + "\n")
         protocol.flush()
     return 0
 
 
 class KernelClient:
-    """Parent side of the kernel: start, execute with a timeout, restart."""
+    """Parent side of the kernel: start, execute with a timeout, answer edit/undo, restart.
 
-    def __init__(self, workspace: Path, trace_dir: Path, timeout: float = 120.0):
+    editor: what applies edit()/undo() (an engine_files.EngineEditor; by default one with versions
+    in <workspace>/../engine_versions). After execute(), ``last_images`` holds what show() made:
+    a list of (PNG bytes, caption)."""
+
+    def __init__(
+        self,
+        workspace: Path,
+        trace_dir: Path,
+        timeout: float = 120.0,
+        editor: Any = None,
+        images: bool = True,
+        log: Callable[[dict], None] | None = None,
+    ):
+        from engine_re.engine_files import EngineEditor
+
         self.workspace = Path(workspace).resolve()
         self.trace_dir = Path(trace_dir).resolve()
         self.timeout = timeout
+        self.images = images
+        self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
         self.proc: subprocess.Popen | None = None
+        self.last_images: list[tuple[bytes, str]] = []
 
     def start(self) -> None:
+        cmd = [sys.executable, "-m", "engine_re.kernel", str(self.workspace), str(self.trace_dir)]
+        if not self.images:
+            cmd.append("--no-images")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "engine_re.kernel", str(self.workspace), str(self.trace_dir)],
+            cmd,
             cwd=self.workspace,
             env=sandbox_env(str(self.workspace)),
             stdin=subprocess.PIPE,
@@ -117,6 +164,7 @@ class KernelClient:
             self.proc = None
 
     def execute(self, code: str) -> str:
+        self.last_images = []
         if self.proc is None or self.proc.poll() is not None:
             self.start()
         assert self.proc is not None and self.proc.stdin is not None and self.proc.stdout is not None
@@ -126,21 +174,37 @@ class KernelClient:
         except BrokenPipeError:
             self.stop()
             return "The Python kernel had died; it was restarted and all variables were lost. Run your code again."
-        ready, _, _ = select.select([self.proc.stdout], [], [], self.timeout)
-        if not ready:
-            self.stop()
-            return f"Timed out after {self.timeout:g}s. The kernel was restarted and all variables were lost."
-        line = self.proc.stdout.readline()
-        if not line:
-            log = self.workspace.parent / "kernel_stderr.log"
-            tail = log.read_text(encoding="utf-8", errors="replace")[-1500:] if log.exists() else ""
-            self.stop()
-            return tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."
-        try:
-            return json.loads(line)["output"]
-        except (json.JSONDecodeError, KeyError):
-            self.stop()
-            return "Kernel protocol error; the kernel was restarted and all variables were lost."
+        deadline = time.time() + self.timeout
+        while True:
+            ready, _, _ = select.select([self.proc.stdout], [], [], max(0.0, deadline - time.time()))
+            if not ready:
+                self.stop()
+                return f"Timed out after {self.timeout:g}s. The kernel was restarted and all variables were lost."
+            line = self.proc.stdout.readline()
+            if not line:
+                log = self.workspace.parent / "kernel_stderr.log"
+                tail = log.read_text(encoding="utf-8", errors="replace")[-1500:] if log.exists() else ""
+                self.stop()
+                return tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                self.stop()
+                return "Kernel protocol error; the kernel was restarted and all variables were lost."
+            if "rpc" in message:
+                reply = self.editor.handle(message["rpc"])
+                try:
+                    self.proc.stdin.write(json.dumps(reply) + "\n")
+                    self.proc.stdin.flush()
+                except BrokenPipeError:
+                    pass
+                continue
+            for item in message.get("images") or []:
+                try:
+                    self.last_images.append((base64.b64decode(item["png"]), str(item.get("caption", ""))))
+                except (KeyError, ValueError, TypeError):
+                    continue
+            return message.get("output", "")
 
 
 if __name__ == "__main__":

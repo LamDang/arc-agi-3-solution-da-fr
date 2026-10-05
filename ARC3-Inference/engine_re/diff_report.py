@@ -402,7 +402,7 @@ def frame_image(frame: np.ndarray | None, scale: int = UPSCALE):
     return Image.fromarray(rgb, "RGB").resize((frame.shape[1] * scale, frame.shape[0] * scale), Image.Resampling.NEAREST)
 
 
-def _draw_boxes(img, regions: list[Region], scale: int, dx: int, dy: int) -> None:
+def _draw_boxes(img, regions: list[Any], scale: int, dx: int, dy: int) -> None:
     from PIL import ImageDraw
 
     draw = ImageDraw.Draw(img)
@@ -424,22 +424,36 @@ def _draw_boxes(img, regions: list[Region], scale: int, dx: int, dy: int) -> Non
         draw.text((lx + 3 - left, ly + 2 - top), label, fill=EDGE_RGB, font=font)
 
 
-def comparison_image(got: np.ndarray | None, expected: np.ndarray, regions: list[Region], *, left_title: str, right_title: str, scale: int = UPSCALE):
-    """Your frame (left) and the original's (right), side by side with titles, the differing
-    regions boxed and numbered on both."""
+@dataclass
+class Box:
+    """A numbered box to draw: (r0, c0, r1, c1) inclusive screen pixels."""
+
+    n: int
+    box: tuple[int, int, int, int]
+
+
+def panels_image(frames: list[np.ndarray | None], titles: list[str], boxes: list[Any], scale: int = UPSCALE):
+    """Frames side by side, upscaled with nearest neighbour, each titled, with the same numbered
+    boxes (anything with .n and .box = (r0, c0, r1, c1)) on every one."""
     from PIL import Image, ImageDraw
 
     pad, head = 12, 30
     side = 64 * scale
-    img = Image.new("RGB", (2 * side + 3 * pad, head + side + pad), (24, 24, 24))
+    img = Image.new("RGB", (len(frames) * (side + pad) + pad, head + side + pad), (24, 24, 24))
     draw = ImageDraw.Draw(img)
     font = _font(18)
-    for k, (frame, title) in enumerate(((got, left_title), (expected, right_title))):
+    for k, (frame, title) in enumerate(zip(frames, titles)):
         dx = pad + k * (side + pad)
         img.paste(frame_image(frame, scale), (dx, head))
         draw.text((dx, 6), title, fill=(255, 255, 255), font=font)
-        _draw_boxes(img, regions, scale, dx, head)
+        _draw_boxes(img, boxes, scale, dx, head)
     return img
+
+
+def comparison_image(got: np.ndarray | None, expected: np.ndarray, regions: list[Region], *, left_title: str, right_title: str, scale: int = UPSCALE):
+    """Your frame (left) and the original's (right), side by side with titles, the differing
+    regions boxed and numbered on both."""
+    return panels_image([got, expected], [left_title, right_title], regions, scale)
 
 
 def png_bytes(img) -> bytes:

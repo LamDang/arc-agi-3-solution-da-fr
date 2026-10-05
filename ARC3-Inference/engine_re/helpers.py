@@ -1,23 +1,35 @@
-"""Analysis helpers preloaded in the agent's Python kernel.
+"""The functions preloaded in the agent's Python kernel.
 
-Everything here is in the kernel's namespace: ``trace``, ``S`` (= trace.steps),
-``np``, and the functions below. ``help_helpers()`` prints this overview.
+The kernel's namespace starts with np, the fixed-block classes (Sprite, Action, View, State), S
+(the recording's steps) and these functions; everything else here is private:
+
+    read(path="engine.py", offset=None, limit=None)        the file with LINE#HASH anchors
+    edit(path="engine.py", edits=[...])                    change it at those anchors
+    undo(n=1, to=None)                                     go back to an earlier version of engine.py
+    render(state)                                          draw a State as the tests do
+    show(*frames, titles=None, boxes=None)                 look at frames as images
+    try_step(i, state=None, action=None)                   run one step of engine.py and explain it
+    auto_sprites(level, grid=None, frame=None, region=None, merge=False)   sprite code from a frame
+
+engine.py cannot be opened for writing from the kernel (engine_re.guard): edit() and undo() send
+their arguments to the harness (engine_re.kernel, engine_re.engine_files), which applies them.
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import copy
+import re
 import sys
 import types
-from collections import Counter
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 import numpy as np
 
-from engine_re import auto_sprites as _auto, diff_report, game_api, tester
-from engine_re.trace import Action, Step, Trace, new_game as _instantiate, perform
+from engine_re import auto_sprites as _auto, diff_report, game_api, hashline, tester
+from engine_re.trace import Action as _TraceAction, Step, Trace
 
 HEX = "0123456789abcdef"
 COLOR_NAMES = {
@@ -25,268 +37,94 @@ COLOR_NAMES = {
     6: "magenta", 7: "pink", 8: "red", 9: "blue", 10: "light blue", 11: "yellow",
     12: "orange", 13: "maroon", 14: "green", 15: "purple",
 }
+MAX_SHOWN = 4  # frames per show() call
 
-trace: Trace = None  # type: ignore[assignment]  # set by the kernel
+# Set by the kernel.
+trace: Trace = None  # type: ignore[assignment]
 S: list[Step] = []
 ENGINE_PATH: Path = Path("engine.py")
+IMAGES = True  # False: show() prints hex views instead of making images
+_RPC: Callable[[dict], dict] | None = None  # sends edit/undo to the harness
+_SHOWN: list[dict[str, str]] = []  # images made by show() during the current request
+
+_API = game_api.canonical()
+Sprite, Action, View, State = _API.Sprite, _API.Action, _API.View, _API.State
 
 
-def help_helpers() -> None:
-    print(
-        """Preloaded: np, trace, S (= trace.steps), ENGINE_PATH, Action, COLOR_NAMES.
-S[i]: .action (.id, .x, .y), .frames (n,64,64 int8), .last (final frame), .n_frames,
-      .state, .levels_completed, .win_levels, .available_actions
-summary()                     overview of the trace (actions, levels, game overs, animations)
-table(start=0, end=None)      one line per step: action, frames, state, level, pixels changed
-before(i)                     final frame before step i (S[i-1].last)
-show(grid, r0=0, c0=0, r1=63, c1=63)   print a region as hex digits with a ruler
-show_step(i, region=None)     print step i: action, metadata, and the diff it caused
-diff(a, b, limit=40)          describe the pixels that differ between two frames
-changes(a, b)                 list of (row, col, old, new) for differing pixels
-animation(i)                  per-frame diffs inside one multi-frame step
-components(grid, color=None, bg=None)   connected regions: color, size, bbox (r0,c0,r1,c1)
-colors(grid)                  Counter of colours
-bbox(mask)                    (r0, c0, r1, c1) of a boolean mask
-detect_grid(grid=None)        guess camera size, scale and offset from a frame (or several)
-logical(grid, geom)           downsample a screen frame to the logical grid
-screen_to_grid(x, y, geom) / grid_to_screen(gx, gy, geom)   coordinate conversion
-find_steps(pred)              indices of steps with pred(step) True
-level_starts()                level -> first step whose final frame shows it
-new_game()                    load engine.py fresh and return a game to play (for debugging)
-play(game, action_or_step)    perform an Action (or step index) on a game; returns observation
-replay(n, start_level=None)   new_game() + play the actions of the first n steps (or a level's steps)
-compare(i, obs)               diff an observation from play()/replay() against step i
-engine()                      load engine.py fresh and return it as a module (engine().make_level(0), ...)
-render(state)                 draw a State as a 64x64 frame, exactly as the harness does
-game.state                    after play()/replay() on a make_level/step engine: the current State
-check_contract()              run the contract tests on engine.py (run_tests runs them too)
-before, after = try_step(i, state=None, action=None, level=None)
-                              load engine.py fresh, replay steps 0..i-1 (or start from `state`), apply step i's
-                              action (or `action`: an id or (6, x, y)) and print what engine.py printed, what the
-                              step changed in your state (sprites as #k = state.sprites[k], vars, status) and,
-                              for the recorded action, the comparison with the recording as run_tests shows it;
-                              returns copies of your State before and after. print() in make_level/step to debug.
-                              (It rebinds the name `before`; before(i) above is S[i-1].last.)
-code = auto_sprites(level=0, grid=None, step=None, frame=None, merge=False)
-                              print code for a sprite list that redraws a level's recorded start (or step i's
-                              final frame, or a 64x64 frame) exactly: border, background, one sprite per
-                              single-colour region (merge=True: per group of touching regions), identical
-                              objects sharing a pixel constant and a tag, HUD as screen sprites. It guesses the
-                              grid (pass grid=(w, h) to override) and checks the code renders the frame.
-                              A starting point, NOT the real sprites: one colour per sprite, nothing hidden or
-                              covered, transparency unknown, layers/tags/names/collidability are placeholders,
-                              look-alike objects may differ; the steps decide."""
-    )
+# --- engine.py ------------------------------------------------------------------------------
 
 
-# --- Display ------------------------------------------------------------------
+def _is_engine(path: str | Path) -> bool:
+    return Path(path).resolve() == ENGINE_PATH.resolve()
 
 
-def _hexrow(row: Iterable[int]) -> str:
-    return "".join(HEX[v] if 0 <= v < 16 else ("." if v == -1 else "?") for v in row)
-
-
-def show(grid: np.ndarray, r0: int = 0, c0: int = 0, r1: int | None = None, c1: int | None = None) -> None:
-    """Print grid[r0:r1+1, c0:c1+1] as hex digits (colour 0-15; '.' = -1)."""
-    grid = np.asarray(grid)
-    r1 = grid.shape[0] - 1 if r1 is None else min(r1, grid.shape[0] - 1)
-    c1 = grid.shape[1] - 1 if c1 is None else min(c1, grid.shape[1] - 1)
-    cols = range(c0, c1 + 1)
-    print("     " + "".join(str(c // 10 % 10) if c % 10 == 0 else " " for c in cols))
-    print("     " + "".join(str(c % 10) for c in cols))
-    for r in range(r0, r1 + 1):
-        print(f"{r:>3}  " + _hexrow(grid[r, c0 : c1 + 1]))
-
-
-def colors(grid: np.ndarray) -> Counter:
-    return Counter(np.asarray(grid).ravel().tolist())
-
-
-def bbox(mask: np.ndarray) -> tuple[int, int, int, int] | None:
-    rows, cols = np.nonzero(mask)
-    if not len(rows):
-        return None
-    return int(rows.min()), int(cols.min()), int(rows.max()), int(cols.max())
-
-
-def changes(a: np.ndarray, b: np.ndarray) -> list[tuple[int, int, int, int]]:
-    rows, cols = np.nonzero(np.asarray(a) != np.asarray(b))
-    return [(int(r), int(c), int(a[r, c]), int(b[r, c])) for r, c in zip(rows, cols)]
-
-
-def diff(a: np.ndarray | None, b: np.ndarray | None, limit: int = 40) -> None:
-    if a is None or b is None:
-        print("(no frame to compare)")
+def read(path: str = "engine.py", offset: int | None = None, limit: int | None = None) -> None:
+    """Print a file with every line as LINE#HASH:content, from line `offset` for `limit` lines.
+    In engine.py the FIXED block is folded unless offset asks for its lines."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"{path} does not exist")
         return
-    a, b = np.asarray(a), np.asarray(b)
-    mask = a != b
-    n = int(mask.sum())
-    if not n:
-        print("identical")
+    fold = game_api.fixed_block_lines(text) if _is_engine(path) else None
+    try:
+        print(hashline.render_read(text, offset, limit, fold=fold, name=str(path)))
+    except hashline.EditError as exc:
+        print(exc)
+
+
+def edit(path: str = "engine.py", edits: Any = None) -> None:
+    """Apply anchored edits to a file (engine.py through the harness); prints what changed, a
+    syntax check and fresh anchors, or why nothing was applied."""
+    if edits is None:
+        print('edit(): give edits=[{"op": ..., ...}, ...]; see read() for the anchors.')
         return
-    trans = Counter(zip(a[mask].tolist(), b[mask].tolist())).most_common(8)
-    print(f"{n} pixels differ, bbox (r0,c0,r1,c1)={bbox(mask)}; old->new colours: " + ", ".join(f"{x}->{y} x{k}" for (x, y), k in trans))
-    if n <= limit:
-        print("  (row, col, old, new):", changes(a, b))
+    edits = _plain(edits)
+    if _is_engine(path):
+        if _RPC is None:
+            print("edit(): engine.py can only be changed through the harness, which is not connected.")
+            return
+        print(_RPC({"op": "edit", "edits": edits})["text"])
+        return
+    file = Path(path)
+    try:
+        old = file.read_text(encoding="utf-8") if file.exists() else ""
+        result = hashline.apply_edits(old, edits)
+    except hashline.EditError as exc:
+        print(exc)
+        return
+    if not result.summary:
+        print(f"{path} was not changed: " + "; ".join(result.noop))
+        return
+    file.write_text(result.text, encoding="utf-8")
+    print(f"{path}: {'; '.join(result.summary)}.")
+    print("\n".join([f"Warning: {w}" for w in result.warnings] + hashline.fresh_anchors(result.text, result.regions)))
 
 
-def before(i: int) -> np.ndarray | None:
-    return S[i - 1].last if i > 0 else None
+def _plain(value: Any) -> Any:
+    """Edits as plain JSON values (str subclasses such as auto_sprites' result become str)."""
+    if isinstance(value, dict):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    if isinstance(value, str):
+        return str(value)
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    return value
 
 
-def animation(i: int) -> None:
-    step = S[i]
-    prev = before(i)
-    for k, frame in enumerate(step.frames):
-        print(f"frame {k}: ", end="")
-        diff(prev, frame, limit=12)
-        prev = frame
+def undo(n: int = 1, to: Any = None) -> None:
+    """Put engine.py back as it was n changes ago, or to="best" (the version that matched the most
+    steps), or to=k (version k). The restore is a new version, so undo() again brings the change back."""
+    if _RPC is None:
+        print("undo(): engine.py can only be changed through the harness, which is not connected.")
+        return
+    print(_RPC({"op": "undo", "n": _plain(n), "to": _plain(to)})["text"])
 
 
-def show_step(i: int, region: tuple[int, int, int, int] | None = None) -> None:
-    step = S[i]
-    print(repr(step), "available:", step.available_actions)
-    print("change from previous final frame: ", end="")
-    diff(before(i), step.last)
-    if step.n_frames > 1:
-        print(f"{step.n_frames} frames (animation):")
-        animation(i)
-    if region is not None and step.last is not None:
-        show(step.last, *region)
-
-
-def summary() -> None:
-    acts = Counter(s.action.name for s in S)
-    print(f"game {trace.game_id}: {len(S)} steps; actions used: {dict(acts)}")
-    print("advertised available_actions:", sorted({a for s in S for a in s.available_actions}))
-    print("level starts (level -> step whose final frame first shows it):", trace.level_starts())
-    print("win_levels:", S[-1].win_levels, "| final state:", S[-1].state, "| levels completed:", S[-1].levels_completed)
-    overs = [s.index for s in S if s.state == "GAME_OVER"]
-    print(f"GAME_OVER steps ({len(overs)}):", overs[:40])
-    multi = Counter(s.n_frames for s in S)
-    print("frames per step (n_frames: count):", dict(sorted(multi.items())))
-    still = [s.index for s in S if s.index and s.last is not None and before(s.index) is not None and np.array_equal(before(s.index), s.last)]
-    print(f"steps that changed nothing ({len(still)}):", still[:40])
-
-
-def table(start: int = 0, end: int | None = None) -> None:
-    end = len(S) if end is None else min(end, len(S))
-    for s in S[start:end]:
-        prev = before(s.index)
-        changed = "-" if prev is None or s.last is None else int((prev != s.last).sum())
-        print(f"{s.index:>5}  {str(s.action):<22} frames={s.n_frames:<3} {s.state:<12} lvl={s.levels_completed} changed={changed}")
-
-
-# --- Structure ----------------------------------------------------------------
-
-
-def components(grid: np.ndarray, color: int | None = None, bg: int | None = None, diagonal: bool = False) -> list[dict[str, Any]]:
-    """Connected single-colour regions (4-connected unless diagonal=True).
-
-    color: only that colour. bg: skip that colour. Sorted by size, largest first."""
-    from scipy import ndimage
-
-    grid = np.asarray(grid)
-    structure = np.ones((3, 3), int) if diagonal else None
-    out = []
-    for c in sorted(set(np.unique(grid).tolist())):
-        if (color is not None and c != color) or (bg is not None and c == bg):
-            continue
-        labels, n = ndimage.label(grid == c, structure=structure)
-        for k in range(1, n + 1):
-            mask = labels == k
-            out.append({"color": c, "size": int(mask.sum()), "bbox": bbox(mask)})
-    return sorted(out, key=lambda d: -d["size"])
-
-
-def detect_grid(grid: np.ndarray | list[np.ndarray] | None = None, top: int = 3) -> Any:
-    """Guess the camera (logical grid width/height), scale and offset.
-
-    The engine renders a width x height grid, scales it by
-    s = min(64 // width, 64 // height) and centres it (offset = (64 - size*s) // 2),
-    filling the rest with a letterbox colour. A candidate fits when (nearly) every
-    s x s block inside the area is one colour and the border is (nearly) one colour;
-    UI drawn later in screen pixels (e.g. a budget bar) can break some blocks.
-
-    grid: one frame, or a list of frames from the SAME level (sizes can change
-    between levels). With no argument, returns {level: best guesses} using the
-    first frame of each level.
-
-    Edge cells that have the letterbox colour make the size ambiguous: candidates
-    with the same scale and a uniform border render identically, so any of them
-    reproduces the screen until something is drawn in that border."""
-    if grid is None:
-        return {lvl: detect_grid(S[i].last, top) for lvl, i in trace.level_starts().items() if S[i].last is not None}
-    frames = grid if isinstance(grid, list) else [grid]
-    frames = [np.asarray(f) for f in frames]
-    results = []
-    for h in range(5, 65):
-        for w in range(5, 65):
-            s = min(64 // w, 64 // h)
-            if s < 1:
-                continue
-            ox, oy = (64 - w * s) // 2, (64 - h * s) // 2
-            uniform = total = inner_uniform = inner_total = border_main = border_total = 0
-            outside = np.ones((64, 64), bool)
-            outside[oy : oy + h * s, ox : ox + w * s] = False
-            # Blocks touching the outer 2 screen pixels are where HUD bars usually sit.
-            ys = oy + np.arange(h) * s
-            xs = ox + np.arange(w) * s
-            inner = ((ys >= 2) & (ys + s <= 62))[:, None] & ((xs >= 2) & (xs + s <= 62))[None, :]
-            for f in frames:
-                area = f[oy : oy + h * s, ox : ox + w * s].reshape(h, s, w, s)
-                blocks = area.transpose(0, 2, 1, 3).reshape(h, w, s * s)
-                ok = (blocks == blocks[:, :, :1]).all(axis=2)
-                uniform += int(ok.sum())
-                total += h * w
-                inner_uniform += int(ok[inner].sum())
-                inner_total += int(inner.sum())
-                border = f[outside]
-                if border.size:
-                    border_main += int(np.bincount(border.astype(np.int64) % 16).max())
-                    border_total += int(border.size)
-            letterbox = round(border_main / border_total, 4) if border_total else 1.0
-            inner_score = round(inner_uniform / inner_total, 4) if inner_total else round(uniform / total, 4)
-            results.append({"width": w, "height": h, "scale": s, "x_offset": ox, "y_offset": oy,
-                            "uniform_blocks": round(uniform / total, 4), "uniform_inner_blocks": inner_score,
-                            "letterbox_uniform": letterbox})
-    # Best: uniform blocks away from the screen edge and a (nearly) single-colour
-    # border (the HUD may sit in it), then the largest scale, then the largest grid.
-    results.sort(key=lambda r: (r["uniform_inner_blocks"] >= 0.98 and r["letterbox_uniform"] >= 0.85, r["scale"],
-                                r["uniform_inner_blocks"], r["width"] * r["height"]), reverse=True)
-    return results[:top]
-
-
-def logical(grid: np.ndarray, geom: dict[str, Any]) -> np.ndarray:
-    """Downsample a 64x64 frame to the logical grid (top-left pixel of each block)."""
-    s, ox, oy = geom["scale"], geom["x_offset"], geom["y_offset"]
-    return np.asarray(grid)[oy : oy + geom["height"] * s : s, ox : ox + geom["width"] * s : s].copy()
-
-
-def screen_to_grid(x: int, y: int, geom: dict[str, Any]) -> tuple[int, int] | None:
-    gx, gy = (x - geom["x_offset"]) // geom["scale"], (y - geom["y_offset"]) // geom["scale"]
-    if 0 <= gx < geom["width"] and 0 <= gy < geom["height"] and x >= geom["x_offset"] and y >= geom["y_offset"]:
-        return gx, gy
-    return None
-
-
-def grid_to_screen(gx: int, gy: int, geom: dict[str, Any]) -> tuple[int, int]:
-    return gx * geom["scale"] + geom["x_offset"], gy * geom["scale"] + geom["y_offset"]
-
-
-def find_steps(pred: Callable[[Step], bool]) -> list[int]:
-    return [s.index for s in S if pred(s)]
-
-
-def level_starts() -> dict[int, int]:
-    return trace.level_starts()
-
-
-# --- Running your engine in this kernel ---------------------------------------
-
-
-def engine() -> types.ModuleType:
-    """Load engine.py fresh and return it as a module."""
+def _load_engine() -> types.ModuleType:
+    """engine.py loaded fresh, as a module."""
     name = "candidate_engine_dev"
     source = ENGINE_PATH.read_text(encoding="utf-8")
     module = types.ModuleType(name)
@@ -296,101 +134,94 @@ def engine() -> types.ModuleType:
     return module
 
 
+# --- Drawing and looking ----------------------------------------------------------------------
+
+
 def render(state: Any) -> np.ndarray:
-    """Draw a State as a 64x64 frame, exactly as the harness does."""
+    """Draw a State as a 64x64 frame: the same code the tests use."""
     return game_api.render(state)
 
 
-def check_contract() -> None:
-    """Run the contract tests on engine.py and print the result."""
-    source = ENGINE_PATH.read_text(encoding="utf-8")
-    meta_levels = sorted(level for level in trace.level_starts() if level < S[0].win_levels)
-    results = game_api.contract_checks(engine(), source, levels=meta_levels, available_actions=list(S[0].available_actions))
-    print(game_api.describe_contract(results))
+def _hexrow(row: Any) -> str:
+    return "".join(HEX[v] if 0 <= v < 16 else "." for v in row)
 
 
-def new_game() -> Any:
-    """Load engine.py fresh and return a game to play: a GameRunner for a make_level/step
-    engine (its .state is the current State), or an instance of an ARCBaseGame subclass."""
-    from arcengine import ARCBaseGame
-
-    module = engine()
-    if game_api.is_simple_engine(module):
-        return game_api.GameRunner(module, S[0].win_levels, S[0].available_actions)
-    name = module.__name__
-    classes = [o for o in vars(module).values() if isinstance(o, type) and issubclass(o, ARCBaseGame) and o is not ARCBaseGame and o.__module__ == name]
-    if not classes:
-        raise TypeError("engine.py defines no ARCBaseGame subclass")
-    leaves = [c for c in classes if not any(o is not c and issubclass(o, c) for o in classes)]
-    return _instantiate(leaves[-1])
-
-
-def play(game: Any, action: Action | int) -> dict[str, Any]:
-    """Perform an Action (or the action of step index i) and return the observation
-    dict: frames, state, levels_completed, win_levels, available_actions."""
-    if isinstance(action, (int, np.integer)):
-        action = S[int(action)].action
-    if isinstance(game, game_api.GameRunner):
-        return game.perform(action)
-    return perform(game, action)
-
-
-def replay(n: int | None = None, start_level: int | None = None) -> tuple[Any, list[dict[str, Any]]]:
-    """Fresh engine; play the first n steps' actions (all if None). With
-    start_level=L, call set_level(L) first and play the steps after the one that
-    entered level L (n counts from there). Returns (game, observations); the
-    observation of trace step i is observations[i] (or observations[i - first])."""
-    game = new_game()
-    steps = S
-    if start_level:
-        entry = trace.level_starts()[start_level]
-        game.set_level(start_level)
-        if isinstance(game, game_api.GameRunner):
-            game.score = start_level
-        else:
-            game._score = start_level
-        steps = S[entry + 1 :]
-    if n is not None:
-        steps = steps[:n]
-    return game, [play(game, s.action) for s in steps]
-
-
-def compare(i: int, obs: dict[str, Any]) -> None:
-    """Diff an observation (from play/replay) against trace step i."""
-    step = S[i]
-    for name in ("state", "levels_completed", "win_levels", "available_actions"):
-        if getattr(step, name) != obs[name]:
-            print(f"{name}: expected {getattr(step, name)}, got {obs[name]}")
-    if step.n_frames != len(obs["frames"]):
-        print(f"frames: real {step.n_frames}, yours {len(obs['frames'])} (only the final frame is compared)")
-    print("final frame: ", end="")
-    diff(step.last, obs["frames"][-1] if len(obs["frames"]) else None)
+def show(*frames: Any, titles: list[str] | None = None, boxes: list[tuple[int, int, int, int]] | None = None) -> None:
+    """Show 64x64 frames (or States, rendered first) side by side as one image, enlarged, titled,
+    with the boxes (x0, y0, x1, y1, screen pixels, inclusive) outlined and numbered on each. The
+    image comes in a message after this call's output. At most MAX_SHOWN frames per call. With
+    images off, prints a hex view of the boxes (or of each frame at half resolution) instead."""
+    items = list(frames[0]) if len(frames) == 1 and isinstance(frames[0], (list, tuple)) else list(frames)
+    if not items:
+        print("show(): give one or more frames, e.g. show(S[3].last, render(state))")
+        return
+    if len(items) > MAX_SHOWN:
+        print(f"show(): {len(items)} frames given; showing the first {MAX_SHOWN}.")
+        items = items[:MAX_SHOWN]
+    arrays = []
+    for k, item in enumerate(items):
+        array = render(item) if hasattr(item, "sprites") else np.asarray(item)
+        if array.shape != (64, 64):
+            print(f"show(): item {k} has shape {array.shape}, not (64, 64)")
+            return
+        arrays.append(array.astype(np.int16))
+    titles = [str(t) for t in titles] if titles else [str(k + 1) for k in range(len(arrays))]
+    titles = (titles + [str(k + 1) for k in range(len(titles), len(arrays))])[: len(arrays)]
+    drawn = []
+    for n, box in enumerate(boxes or [], 1):
+        x0, y0, x1, y1 = (int(v) for v in box)
+        drawn.append(diff_report.Box(n, (max(0, min(y0, y1)), max(0, min(x0, x1)), min(63, max(y0, y1)), min(63, max(x0, x1)))))
+    if IMAGES:
+        scale = diff_report.UPSCALE if len(arrays) <= 2 else 6
+        png = diff_report.png_bytes(diff_report.panels_image(arrays, titles, drawn, scale))
+        caption = "show(): " + " | ".join(titles) + (f"; boxes {', '.join(str(b.n) for b in drawn)}" if drawn else "")
+        _SHOWN.append({"png": base64.b64encode(png).decode("ascii"), "caption": caption})
+        print(f"[image: {len(arrays)} frame(s), {', '.join(titles)}; it follows this output]")
+        return
+    if drawn:
+        for b in drawn:
+            r0, c0, r1, c1 = b.box
+            r1, c1 = min(r1, r0 + 15), min(c1, c0 + 31)
+            print(f"box {b.n}: rows {r0}-{r1}, cols {c0}-{c1}, one hex digit per pixel; " + " | ".join(titles))
+            for r in range(r0, r1 + 1):
+                print(f"{r:>3}  " + "  ".join(_hexrow(a[r, c0 : c1 + 1]) for a in arrays))
+    else:
+        print("each frame at half resolution (every other pixel), one hex digit per pixel; " + " | ".join(titles))
+        for r in range(0, 64, 2):
+            print(f"{r:>3}  " + "  ".join(_hexrow(a[r, ::2]) for a in arrays))
 
 
-# --- Reproducing and explaining one step (the command run_tests prints) -----------------------
+def take_shown() -> list[dict[str, str]]:
+    """The images show() made since the last call (the kernel sends them to the harness)."""
+    out = list(_SHOWN)
+    _SHOWN.clear()
+    return out
+
+
+# --- Running one step and explaining it ---------------------------------------------------------
 
 _FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
 
 
-def _as_action(action: Any, i: int) -> Action:
+def _as_action(action: Any, i: int) -> _TraceAction:
     """The action to apply: step i's recorded one, or an id, (6, x, y), a dict or an Action."""
     if action is None:
         return S[i].action
-    if isinstance(action, Action):
+    if isinstance(action, _TraceAction):
         return action
     if isinstance(action, (int, np.integer)):
-        return Action(int(action))
+        return _TraceAction(int(action))
     if isinstance(action, (tuple, list)):
-        return Action(int(action[0]), *(int(v) for v in action[1:3]))
+        return _TraceAction(int(action[0]), *(int(v) for v in action[1:3]))
     if isinstance(action, dict):
-        return Action.from_json(action)
+        return _TraceAction.from_json(action)
     if hasattr(action, "id"):
-        return Action(int(action.id), getattr(action, "x", None), getattr(action, "y", None))
+        return _TraceAction(int(action.id), getattr(action, "x", None), getattr(action, "y", None))
     raise TypeError(f"action must be an action id, (6, x, y) or an Action, not {type(action).__name__}")
 
 
 def _quietly(fn: Callable[[], Any], what: str) -> Any:
-    """Run fn with your engine's prints dropped; on an error say where it happened, then raise."""
+    """Run fn with the engine's prints dropped; on an error say where it happened, then raise."""
     try:
         with contextlib.redirect_stdout(game_api.PrintCapture(0, 0)):
             return fn()
@@ -414,13 +245,13 @@ def _print_output(capture: game_api.PrintCapture, what: str = "the step") -> Non
 
 
 def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None = None) -> tuple[Any, Any]:
-    """Run step i on your engine and explain it; returns copies (before, after) of your State.
+    """Run step i on engine.py and explain it; returns copies (before, after) of your State.
 
     Loads engine.py fresh. The State before step i comes from replaying the recorded steps 0..i-1
     through the harness rules (RESET, level changes, WIN, GAME_OVER), their prints dropped; or it
     is `state` (a copy), when given. Then it applies step i's recorded action, or `action` (an id,
     (6, x, y) or an Action), and prints:
-      - what engine.py printed during the step (print() freely in make_level and step);
+      - what engine.py printed during the step;
       - what the step changed in your state: sprites moved, changed, shown, hidden, added or
         removed (#k = state.sprites[k]), state.vars and the status;
       - with the recorded action, the comparison with the recording after step i, as run_tests
@@ -431,12 +262,12 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
-            module = engine()
+            module = _load_engine()
     except Exception:
         _print_output(capture, "loading engine.py")
         raise
     if not game_api.is_simple_engine(module):
-        return _try_arcengine_step(i, action)
+        raise TypeError("engine.py must define make_level(n) and step(state, action)")
     game = game_api.GameRunner(module, S[0].win_levels, S[0].available_actions)
     recorded = action is None
     if state is not None:
@@ -503,23 +334,12 @@ def try_step(i: int, state: Any = None, action: Any = None, *, level: int | None
     return before, copy.deepcopy(after_state)
 
 
-def _try_arcengine_step(i: int, action: Any) -> tuple[None, None]:
-    """try_step for an ARCBaseGame engine: the prints and the comparison, without sprites."""
-    game = new_game()
-    for k in range(i):
-        _quietly(lambda k=k: play(game, S[k].action), f"while replaying step {k}")
-    capture = game_api.PrintCapture()
-    with contextlib.redirect_stdout(capture):
-        obs = play(game, _as_action(action, i))
-    _print_output(capture)
-    if action is None:
-        text, _ = tester.describe_step(S[i], {k: obs[k] for k in _FIELDS}, obs["frames"], tester.levels_before(trace)[i])
-        print("\n".join(text.splitlines()[1:]))
-    return None, None
+# --- Generating code --------------------------------------------------------------------------
 
 
 class GeneratedCode(str):
-    """The code auto_sprites printed (a str), with .exact, .grid, .scale and .info; its repr stays short."""
+    """The code auto_sprites made (a str, usable as edit lines), with .exact, .grid, .scale and
+    .info; its repr stays short."""
 
     exact: bool = False
     grid: tuple[int, int] = (64, 64)
@@ -527,7 +347,7 @@ class GeneratedCode(str):
     info: Any = None
 
     def __repr__(self) -> str:
-        return f"<generated code: {len(self)} characters; print() it, or write it into engine.py>"
+        return f"<generated code: {len(self.splitlines())} lines; use it as edit lines, or print() it>"
 
 
 def _level_frames(level: int, limit: int = 60) -> list[np.ndarray]:
@@ -538,78 +358,83 @@ def _level_frames(level: int, limit: int = 60) -> list[np.ndarray]:
     return frames
 
 
+def _defined_names() -> set[str]:
+    """Top-level names engine.py defines (assignments and defs), so auto_sprites does not repeat them."""
+    try:
+        text = ENGINE_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return set()
+    return set(re.findall(r"^(?:def\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\()", text, re.M))
+
+
 def auto_sprites(
     level: int = 0,
     grid: tuple[int, int] | None = None,
-    *,
-    step: int | None = None,
     frame: np.ndarray | None = None,
-    scale: int | None = None,
+    region: tuple[int, int, int, int] | None = None,
     merge: bool = False,
-    quiet: bool = False,
 ) -> GeneratedCode:
-    """Print (and return) Python code for a sprite list that redraws a recorded frame exactly: by
-    default the start of `level`; step=i: step i's final frame; frame=a 64x64 array. A starting point
-    for make_level, NOT the game's real sprites.
-
-    It guesses the grid (grid=(w, h), and scale=s if not the default fit, override it), then makes a
-    border screen sprite, a background sprite of the grid's most common colour, one sprite per
-    4-connected single-colour region (merge=True: per group of touching non-background regions,
-    multi-coloured; default off, since touching objects would fuse), sharing a pixel constant and a
-    placeholder tag among identical objects, and screen sprites for what the grid cannot draw
-    (HUD). It runs the code and says whether it renders the frame exactly."""
-
-
+    """Python code (a str, usable directly as edit lines) for sprites that draw the first frame of
+    `level` exactly, or `frame`, or only the part of it inside `region` (x0, y0, x1, y1, screen
+    pixels, inclusive). Prints what it assumed and found, whether the code renders the frame
+    exactly, and the code. It guesses the grid (grid=(w, h) overrides it), splits the frame into
+    4-connected single-colour pieces (merge=True: touching pieces of different colours become one
+    sprite, -1 elsewhere in its box), gives identical pieces one pixel constant named from its
+    content, SHAPE_<colours>_<w>x<h>_<hash> (the same name in every call), and leaves out constants
+    engine.py already defines. A starting point, NOT the game's real sprites."""
     if frame is not None:
-        source_frame, evidence = np.asarray(frame), [np.asarray(frame)]
-        what, args, prefix, function = "the frame you gave", "(frame=...)", "F_", "frame_sprites"
-    elif step is not None:
-        source_frame = S[step].last
-        evidence = [source_frame] + _level_frames(S[step].levels_completed)
-        what, args, prefix, function = f"step {step}'s final frame", f"(step={step})", f"S{step}_", f"step_{step}_sprites"
+        source_frame = np.asarray(frame)
+        evidence = [source_frame]
+        what, function = "the frame you gave", "frame_sprites"
     else:
         starts = trace.level_starts()
         if level not in starts:
             raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
         source_frame = S[starts[level]].last
         evidence = [source_frame] + _level_frames(level)
-        what = f"the recorded start of level {level} (step {starts[level]}'s final frame)"
-        args, prefix, function = f"(level={level})", f"L{level}_", f"level_{level}_sprites"
-    if source_frame is None:
-        raise ValueError("that step has no frame")
+        what, function = f"the first frame of level {level} (S[{starts[level]}].last)", f"level_{level}_sprites"
+    if source_frame is None or np.asarray(source_frame).shape != (64, 64):
+        raise ValueError("auto_sprites needs a 64x64 frame")
+    if region is not None:
+        function += "_region"
+    args = f"({'frame=...' if frame is not None else level}" + (f", region={tuple(region)}" if region is not None else "") + ")"
     if grid is None:
         guess = _auto.guess_grid(evidence)
         assumed = f"assumed {guess.width}x{guess.height} at scale {guess.scale}"
-        how = (f"guessed from {guess.frames} frame(s): {guess.note}. Conservative: a scale above 1 is taken only if every "
-               "block is one colour in all of them, yet a scale-1 game whose objects align on a coarser lattice can still fool it")
+        how = (f"guessed from {guess.frames} frame(s): {guess.note}. A scale above 1 is taken only if every block is "
+               "one colour in all of them; a scale-1 game whose objects align on a coarser lattice can still fool it")
     else:
         w, h = int(grid[0]), int(grid[1])
-        s, ox, oy = game_api.geometry((w, h), scale)
+        s, ox, oy = game_api.geometry((w, h))
         ring = np.concatenate([source_frame[0], source_frame[-1], source_frame[:, 0], source_frame[:, -1]])
-        guess = _auto.GridGuess(w, h, s, ox, oy, int(np.bincount(ring.astype(np.int64) % 16).argmax()), 1, "as given")
-        assumed, how = f"grid {w}x{h} at scale {s} (as given)", ""
-    result = _auto.sprite_code(source_frame, guess, merge=merge, prefix=prefix, function=function, source=args)
+        guess = _auto.GridGuess(w, h, s, ox, oy, int(np.bincount(np.asarray(ring, np.int64) % 16).argmax()), 1, "as given")
+        assumed, how = f"{w}x{h} at scale {s} (as given)", ""
+    defined = _defined_names()
+    result = _auto.sprite_code(source_frame, guess, merge=merge, function=function, source=args, region=region, defined=defined)
     code = GeneratedCode(result.code)
     code.exact, code.grid, code.scale, code.info = result.exact, guess.grid, guess.scale, result
-    if quiet:
-        return code
-    region = "one sprite per group of touching regions (merge=True)" if merge else "one per single-colour region; merge=True joins touching ones"
+    pieces = "one sprite per group of touching pieces (merge=True)" if merge else "one sprite per single-colour piece"
     print(f"auto_sprites{args}: {what}.")
     print(f"Grid: {assumed}, offset ({guess.x_offset}, {guess.y_offset}), border colour {guess.border} "
           f"({COLOR_NAMES.get(guess.border, '?')}); pass grid=(w, h) if that is wrong.")
     if how:
         print(f"  ({how}.)")
-    print(f"Found: background colour {result.background}, {result.objects} objects of {result.shapes} shapes ({region}), "
-          f"{result.hud} screen sprite(s) for the HUD or pixels off the grid.")
-    print(f"Renders the frame exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
-    print("Not the real sprites: one colour per sprite, nothing hidden or covered, transparency unknown, layers, tags, "
-          "names and collidability are placeholders, identical-looking objects may be different kinds. The steps decide.")
+    print(f"Found: background colour {result.background}, {result.objects} objects of {result.shapes} shapes ({pieces}), "
+          f"{result.hud} screen sprite(s) for displays or pixels off the grid.")
+    target = "the region" if region is not None else "the frame"
+    print(f"Renders {target} exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
+    if result.skipped:
+        print(f"Already in engine.py, so not repeated: {', '.join(result.skipped)}.")
+    if function in defined:
+        print(f"engine.py already defines {function}(): replace it rather than adding a second one.")
+    print("Not the real sprites: one colour per sprite, nothing hidden or covered, transparency unknown, layers, tags "
+          "and collidability are placeholders, identical-looking objects may be different kinds. The steps decide.")
     print()
-    if len(code) <= 6000:
+    if len(code) <= 4000:
         print(code)
     else:
-        print(code[:5000] + f"\n# ... {len(code) - 5000} more characters: the returned string holds all of it "
-              "(code = auto_sprites(...); print(code[5000:]))")
+        print(code[:3000] + f"\n# ... {len(code.splitlines())} lines in all: the returned string holds them (print(code) shows them)")
     return code
 
 
+__all__ = ["Sprite", "Action", "View", "State", "S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites"]

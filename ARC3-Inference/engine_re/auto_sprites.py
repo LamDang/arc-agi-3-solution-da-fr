@@ -9,7 +9,9 @@ for the level's sprite list that redraws the frame exactly with ``game_api.rende
 - one sprite per 4-connected region of one colour on the logical grid (the segmentation of
   ``inference/utils/segmentation.py``), or with ``merge=True`` per group of touching non-background
   regions (multi-coloured sprites, transparent around them); objects of identical pixels share
-  one module-level constant and one placeholder tag;
+  one module-level constant named from its content (``SHAPE_<colours>_<w>x<h>_<4 hex>``, so the
+  same shape gets the same name in every level and constants already in engine.py are not
+  written again) and a tag of the same name in lower case;
 - screen sprites, on top, for whatever the grid cannot draw: anything outside the grid (HUD)
   and pixels that break the grid's blocks.
 
@@ -31,6 +33,7 @@ colour is the border colour (so its edge cannot be seen), the largest one.
 
 from __future__ import annotations
 
+import hashlib
 from collections import Counter
 from dataclasses import dataclass
 
@@ -268,14 +271,26 @@ class SpriteCode:
     exact: bool
     differing: int
     function: str
+    skipped: list[str]  # names already defined in engine.py, so not emitted again
+
+
+HEX_PIXELS = '''def hex_pixels(*rows):
+    """Pixel rows from hex strings: one digit per pixel (colour 0-15), '.' transparent (-1)."""
+    return [[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows]
+'''
+
+
+def shape_name(rows: tuple[str, ...]) -> str:
+    """A pixel constant's name from its content: SHAPE_<colours>_<w>x<h>_<4 hex digits of its hash>,
+    the same for the same pixels in every call."""
+    colours = sorted({ch for row in rows for ch in row if ch != "."}, key=lambda ch: int(ch, 16))
+    digest = hashlib.sha1("\n".join(rows).encode()).hexdigest()[:4]
+    return f"SHAPE_{'_'.join(str(int(ch, 16)) for ch in colours)}_{len(rows[0])}x{len(rows)}_{digest}"
 
 
 def _describe_shape(rows: tuple[str, ...], count: int, screen: bool) -> str:
-    colours = sorted({ch for row in rows for ch in row if ch != "."}, key=lambda ch: int(ch, 16))
-    text = f"{len(rows[0])}x{len(rows)} colour {'/'.join(str(int(ch, 16)) for ch in colours)}"
-    if any("." in row for row in rows):
-        text += ", with transparent pixels"
-    return text + (", screen pixels" if screen else "") + f"; {count} sprite{'s' if count > 1 else ''}"
+    text = f"{count} sprite{'s' if count > 1 else ''}" + (", screen pixels" if screen else "")
+    return text + (", with transparent pixels" if any("." in row for row in rows) else "")
 
 
 def _shape_lines(name: str, rows: tuple[str, ...], comment: str) -> list[str]:
@@ -287,90 +302,123 @@ def _shape_lines(name: str, rows: tuple[str, ...], comment: str) -> list[str]:
     return [f"{name} = (  # {comment}"] + [f'    "{row}",' for row in rows] + [")"]
 
 
+def _region_mask(region: tuple[int, int, int, int] | None) -> np.ndarray:
+    mask = np.zeros((64, 64), bool)
+    if region is None:
+        mask[:] = True
+    else:
+        x0, y0, x1, y1 = (int(v) for v in region)
+        mask[max(0, y0) : min(63, y1) + 1, max(0, x0) : min(63, x1) + 1] = True
+    return mask
+
+
 def sprite_code(
-    frame: np.ndarray, guess: GridGuess, *, merge: bool = False, prefix: str = "L0_", function: str = "level_0_sprites", source: str = ""
+    frame: np.ndarray,
+    guess: GridGuess,
+    *,
+    merge: bool = False,
+    function: str = "level_0_sprites",
+    source: str = "",
+    region: tuple[int, int, int, int] | None = None,
+    defined: set[str] | None = None,
 ) -> SpriteCode:
     """Python code for a sprite list that redraws `frame` exactly on the grid `guess` (see the module
     docstring). merge: one sprite per group of touching non-background regions instead of per
-    single-colour region."""
+    single-colour region. region (x0, y0, x1, y1, screen pixels, inclusive): only the objects inside
+    it, without border and background. defined: names engine.py already defines, not emitted again."""
     frame = np.asarray(frame).astype(np.int16)
     g = guess
+    defined = set(defined or ())
+    inside = _region_mask(region)
     logical = _logical(frame, g)
     background = int(np.bincount(logical.ravel().astype(np.int64) % 16).argmax())
+    s = g.scale
+    # Cells whose whole block lies in the region.
+    cell_in = inside[g.y_offset : g.y_offset + g.height * s, g.x_offset : g.x_offset + g.width * s]
+    cell_in = cell_in.reshape(g.height, s, g.width, s).all(axis=(1, 3))
+    logical = np.where(cell_in, logical, background)
 
-    shapes: dict[tuple[str, ...], str] = {}
-    shape_order: list[tuple[str, ...]] = []
+    names: dict[tuple[str, ...], str] = {}
+    order: list[tuple[str, ...]] = []
     counts: Counter = Counter()
+    screen_shapes: set[tuple[str, ...]] = set()
 
-    def shape_name(rows: tuple[str, ...], kind: str) -> str:
-        if rows not in shapes:
-            shapes[rows] = f"{prefix}{kind}_{sum(1 for k in shape_order if shapes[k].startswith(prefix + kind))}"
-            shape_order.append(rows)
+    def name_of(rows: tuple[str, ...], screen: bool = False) -> str:
+        if rows not in names:
+            name = shape_name(rows)
+            while name in names.values():  # two different shapes with one name: keep them apart
+                name += "_2"
+            names[rows] = name
+            order.append(rows)
         counts[rows] += 1
-        return shapes[rows]
+        if screen:
+            screen_shapes.add(rows)
+        return names[rows]
 
-    objects = []
-    for mask in _components(logical, background, merge):
-        x, y, rows = _cut(logical, mask)
-        objects.append((shape_name(rows, "SHAPE"), x, y))
+    objects = [(name_of(rows), x, y) for x, y, rows in (_cut(logical, m) for m in _components(logical, background, merge))]
 
     api = game_api.canonical()
-    view = None if g.default_scale else api.View(scale=g.scale)
-    sprites = [
+    view = api.View(scale=g.scale) if not g.default_scale else None
+
+    def pixels(rows: tuple[str, ...]) -> list[list[int]]:
+        return [[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows]
+
+    base = [
         api.Sprite([[g.border] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False),
         api.Sprite([[background] * g.width for _ in range(g.height)], layer=-1, collidable=False),
     ]
-    for name, x, y in objects:
-        rows = next(r for r, n in shapes.items() if n == name)
-        sprites.append(api.Sprite([[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows], x=x, y=y))
-    state = api.State(grid=(g.width, g.height), sprites=sprites, **({"view": view} if view else {}))
-    residual = game_api.render(state).astype(np.int16) != frame
+    by_name = {n: r for r, n in names.items()}
+    drawn = base + [api.Sprite(pixels(by_name[n]), x=x, y=y) for n, x, y in objects]
+    state = api.State(grid=(g.width, g.height), sprites=drawn, **({"view": view} if view else {}))
+    residual = (game_api.render(state).astype(np.int16) != frame) & inside
     huds = []
     if residual.any():
         values = np.where(residual, frame, -1)
-        for mask in _components(values, -1, merge):
-            x, y, rows = _cut(frame, mask)
-            huds.append((shape_name(rows, "HUD"), x, y))
+        huds = [(name_of(rows, True), x, y) for x, y, rows in (_cut(frame, m) for m in _components(values, -1, merge))]
 
+    where = "" if region is None else f", region x {region[0]}-{region[2]}, y {region[1]}-{region[3]}"
     lines = [
-        f"# ---- auto_sprites{source}: grid {g.width}x{g.height} at scale {g.scale} (offset {g.x_offset}, {g.y_offset}) ----",
+        f"# ---- auto_sprites{source}: grid {g.width}x{g.height} at scale {g.scale}{where} ----",
         "# A starting point, not the game's real sprites: rename, merge and retag them, and check them against the steps.",
-        "",
-        "",
-        "def hex_pixels(*rows):",
-        '    """Pixel rows from hex strings: one digit per pixel (colour 0-15), \'.\' transparent (-1)."""',
-        '    return [[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows]',
-        "",
-        "",
     ]
-    for rows in shape_order:
-        name = shapes[rows]
-        lines += _shape_lines(name, rows, _describe_shape(rows, counts[rows], "_HUD_" in name))
+    skipped = [n for n in ["hex_pixels", *names.values()] if n in defined]
+    if "hex_pixels" not in defined:
+        lines += ["", ""] + HEX_PIXELS.rstrip("\n").split("\n")
+    constants = [r for r in order if names[r] not in defined]
+    if constants:
+        lines += ["", ""]
+        for rows in constants:
+            lines += _shape_lines(names[rows], rows, _describe_shape(rows, counts[rows], rows in screen_shapes))
     view_text = f", view=View(scale={g.scale})" if view else ""
+    what = "objects in the region" if region is not None else "sprites of the frame"
     lines += [
         "",
         "",
         f"def {function}() -> list:",
-        f'    """The sprites of the frame (grid {g.width}x{g.height}): use as State(grid=({g.width}, {g.height}), sprites={function}(){view_text})."""',
+        f'    """The {what} (grid {g.width}x{g.height}): State(grid=({g.width}, {g.height}), sprites={function}(){view_text})."""',
         "    return [",
-        f"        Sprite([[{g.border}] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name=\"border\"),",
-        f"        Sprite([[{background}] * {g.width} for _ in range({g.height})], layer=-1, collidable=False, name=\"background\"),",
     ]
+    if region is None:
+        lines += [
+            f"        Sprite([[{g.border}] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name=\"border\"),",
+            f"        Sprite([[{background}] * {g.width} for _ in range({g.height})], layer=-1, collidable=False, name=\"background\"),",
+        ]
     for name, x, y in objects:
-        tag = name[len(prefix) :].lower().replace("_", "")
-        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, tags=("{tag}",)),')
+        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, tags=("{name.lower()}",)),')
     for name, x, y in huds:
-        tag = name[len(prefix) :].lower().replace("_", "")
-        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, screen=True, layer=1, collidable=False, tags=("hud", "{tag}")),')
+        lines.append(f'        Sprite(hex_pixels(*{name}), x={x}, y={y}, screen=True, layer=1, collidable=False, tags=("hud", "{name.lower()}")),')
     lines.append("    ]")
-    code = "\n".join(lines) + "\n"
+    code = "\n".join(lines) + "\n\n\n"  # two blank lines after it, ready to insert before the next definition
 
-    # Check: run the code with the fixed interface and draw it.
+    # Check: run the code (with the constants it did not repeat) on the fixed interface and draw it.
     namespace = dict(vars(api))
+    exec(compile(HEX_PIXELS, "<auto_sprites>", "exec", dont_inherit=True), namespace)
+    namespace.update({n: r for r, n in names.items()})
     exec(compile(code, "<auto_sprites>", "exec", dont_inherit=True), namespace)
-    check = api.State(grid=(g.width, g.height), sprites=namespace[function](), **({"view": api.View(scale=g.scale)} if view else {}))
-    differing = int((game_api.render(check).astype(np.int16) != frame).sum())
+    made = namespace[function]()
+    check = api.State(grid=(g.width, g.height), sprites=(base + made) if region is not None else made, **({"view": api.View(scale=g.scale)} if view else {}))
+    differing = int(((game_api.render(check).astype(np.int16) != frame) & inside).sum())
     return SpriteCode(
-        code=code, guess=g, background=background, objects=len(objects), shapes=sum(1 for n in shapes.values() if "_SHAPE_" in n),
-        hud=len(huds), exact=differing == 0, differing=differing, function=function,
+        code=code, guess=g, background=background, objects=len(objects), shapes=len({n for n, _, _ in objects}),
+        hud=len(huds), exact=differing == 0, differing=differing, function=function, skipped=skipped,
     )
