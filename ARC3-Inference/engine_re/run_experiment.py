@@ -110,7 +110,12 @@ def main() -> int:
     parser.add_argument("--only-step", action="store_true",
                         help="Stepwise: python shows only the step to fix (step_to_fix), not the recording so far (recording, steps 0..k).")
     parser.add_argument("--condense", action="store_true",
-                        help="Context by iteration (engine_re.condense) instead of the in-place compaction by age.")
+                        help="Context by iteration (engine_re.condense) instead of the in-place compaction by age: when a "
+                             "request goes over 140K prompt tokens, the whole conversation is condensed once into the prefix "
+                             "of every request until the next time; the turns since follow it as they are.")
+    parser.add_argument("--condense-keep-turns", type=int, default=ModelConfig.condense_keep_turns,
+                        help="With --condense: the last turns of the current iteration kept whole (reasoning and failed "
+                             "commands included); the older ones lose them.")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -126,7 +131,7 @@ def main() -> int:
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
     model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
                         top_k=args.top_k, reasoning_effort=args.reasoning_effort,
-                        context="condense" if args.condense else "compact")
+                        context="condense" if args.condense else "compact", condense_keep_turns=args.condense_keep_turns)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes, args.python_quota)
 
     def work(game: str) -> None:

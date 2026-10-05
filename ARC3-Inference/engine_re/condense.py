@@ -49,9 +49,14 @@ engine changes) and the engine_versions/ folder. It returns the conversation to 
        CAPPED_RESULT_CHARS, oldest first, until it fits; as a last resort the blocks of 3 are reduced to
        the form of 2, oldest first. The result says when the cap fired.
 
-The live agent can use it in place of `_compact`: keep the full conversation in `self.messages` and
-send `condense(self.messages, records, versions_dir).messages` every turn. The same inputs give the
-same output, so a turn's prompt never depends on what earlier turns were sent.
+The agent uses it in place of `_compact` with context "condense" (`ModelConfig.context`), at the same
+moments: it keeps the full conversation in `self.messages`, and when a request went over
+`compact_prompt_tokens` it calls `condense(self.messages, records, versions_dir)` once over the whole
+conversation; that condensed view is the prefix of every request until the condenser fires again, and the
+messages added since follow it as they are (only the latest images live). Between two firings the prefix
+is byte-identical, so the provider's prompt cache keeps hitting; each firing recomputes from the full
+conversation, never from an earlier condensed view. The same inputs give the same output, so a resumed run
+recomputes the prefix from its transcript (the `condense` record marks where the condenser fired).
 
 Judgement calls (the specification left them open): a failed call whose result carries the harness's
 appended text (an automatic test report, a nudge, a dropped commit) is kept in the current iteration's
@@ -75,7 +80,7 @@ from engine_re.agent import CONTINUE, IMAGE_NOTE, IMAGE_PLACEHOLDER
 from engine_re.prompts import ENGINE_HEADER, elide_engine_listing
 
 KEEP_ITERATIONS = 3
-KEEP_TURNS = 5
+KEEP_TURNS = 10  # as _compact keeps the reasoning of the last 10 turns
 CAP_TOKENS = 140_000
 CHARS_PER_TOKEN = 4
 IMAGE_TOKENS = 1000
@@ -506,7 +511,7 @@ def _strip_turn(group: list[tuple[dict[str, Any], Note]]) -> list[tuple[dict[str
     return [(assistant, note)] + kept
 
 
-def _hide_but_latest(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def hide_but_latest(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Rule 5: only the last message with images keeps them; the others get the agent's placeholder."""
     with_images = [i for i, m in enumerate(messages) if isinstance(m.get("content"), list)
                    and any(p.get("type") == "image_url" for p in m["content"])]
@@ -545,7 +550,7 @@ def current_messages(messages: list[dict[str, Any]], notes: list[Note], it: Iter
         else:
             out.append((m, "current"))
     flush()
-    hidden = _hide_but_latest([m for m, _ in out])
+    hidden = hide_but_latest([m for m, _ in out])
     return [(m, tag) for m, (_, tag) in zip(hidden, out)]
 
 

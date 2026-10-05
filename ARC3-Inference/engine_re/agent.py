@@ -26,10 +26,13 @@ test report (with its picture) and engine.py, and sets the first task: the first
 usually step 1. That edit and test are not counted as the model's
 (engine_changes, tests_run); tests.jsonl marks the test "auto": "opening".
 
-Context (ModelConfig.context): "compact" shortens the conversation in place by age once a request went over
-compact_prompt_tokens (old tool outputs, old reasoning, long old arguments, older engine.py listings);
-"condense" keeps the full conversation and sends every request its condensed form, by iteration
-(engine_re.condense), logging a "condense" record per turn with the estimate.
+Context (ModelConfig.context): both schemes act at the same moments, after a turn whose request went over
+compact_prompt_tokens, and leave the conversation alone in between, so the prompt's prefix stays the same
+from one request to the next and the provider's prompt cache hits. "compact" shortens the conversation in
+place by age (old tool outputs, old reasoning, long old arguments, older engine.py listings; a "compact"
+record). "condense" keeps the full conversation and condenses it by iteration (engine_re.condense) into a
+view that becomes the prefix of every request until the next firing, the messages added since following it
+as they are (a "condense" record with the estimate marks each firing).
 
 Feedback the harness adds on its own: when engine.py changed during a turn and was not tested
 since, run_tests runs automatically with its defaults (a full replay, reported up to the first
@@ -65,6 +68,7 @@ the kernel keeps; a single-mode run with a fresh conversation.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -225,10 +229,13 @@ class ModelConfig:
     # OpenRouter providers to use, in order, with no fallback to others (e.g. ["z-ai"]);
     # None lets OpenRouter route each request.
     providers: list[str] | None = None
-    # How the conversation is kept within bounds: "compact" (the settings above, applied in place once a request
-    # went over compact_prompt_tokens) or "condense" (engine_re.condense: the full conversation is kept and every
-    # request is sent its condensed form, by iteration; its cap estimates tokens with condense_chars_per_token).
+    # How the conversation is kept within bounds, both applied after a request went over compact_prompt_tokens:
+    # "compact" (the settings above, applied in place) or "condense" (engine_re.condense: the full conversation is
+    # kept and condensed by iteration into the prefix of every request until the next firing; the turns since
+    # follow it as they are). The condenser keeps the reasoning and failed commands of the current iteration's last
+    # condense_keep_turns turns; its safety cap estimates tokens with condense_chars_per_token.
     context: str = "compact"
+    condense_keep_turns: int = 10
     condense_chars_per_token: float = 3.0
 
 
@@ -448,10 +455,13 @@ class EngineAgent:
         if model.context not in ("compact", "condense"):
             raise ValueError(f"ModelConfig.context must be 'compact' or 'condense', got {model.context!r}")
         self.condense = model.context == "condense"
-        # Every message the model is sent, in full. With context "condense" nothing is ever shortened in place:
-        # each request gets condense(self.messages, self.records, ...) instead.
+        # Every message the model is sent, in full. With context "condense" nothing is ever shortened in place: each
+        # request gets self._condensed (the condensed view of self.messages[:self._condensed_from], computed the last
+        # time the condenser fired; empty before) followed by the messages added since (see _context).
         self.messages: list[dict[str, Any]] = []
         self.records: list[dict[str, Any]] = []  # every transcript record of this run, in order (the condenser's input)
+        self._condensed: list[dict[str, Any]] = []
+        self._condensed_from = 0
         self.best_key: tuple[int, int] = (-1, -1)
         self.passed = False
         self.prior_minutes = 0.0
@@ -613,7 +623,7 @@ class EngineAgent:
         self.pending_shown, tests, self.pending_test = [], self.pending_test, []
         if not pictures:
             return
-        if not self.condense:  # the condenser hides the older images itself, from the full conversation
+        if not self.condense:  # condense: self.messages keeps every image; _context and the condenser hide the older ones
             self._hide_images(self.messages)
             self._log({"turn": self.result.turns, "hide_images": True})
         content: list[dict[str, Any]] = [{"type": "text", "text": IMAGE_NOTE}]
@@ -678,21 +688,40 @@ class EngineAgent:
             f.write(json.dumps(record) + "\n")
 
     def _context(self) -> list[dict[str, Any]]:
-        """The messages of the next request: the conversation as it is, or, with context "condense", its condensed
-        form (engine_re.condense), logged as a "condense" record: its estimated tokens, characters, live images,
-        messages and, when the safety cap fired, what it cut."""
+        """The messages of the next request: the conversation as it is, or, with context "condense", the condensed view
+        made the last time the condenser fired (nothing before the first firing) followed by the messages added since, as
+        they are but for their images: only the latest message with images keeps them (as _hide_images does for
+        "compact"). The view itself never changes between two firings."""
         if not self.condense:
             return self.messages
-        from engine_re.condense import condense, measure  # (condense imports this module's constants)
+        from engine_re.condense import hide_but_latest  # (condense imports this module's constants)
 
-        result = condense(self.messages, self.records, self.dir / "engine_versions",
+        return self._condensed + hide_but_latest(self.messages[self._condensed_from :])
+
+    def _condensed_view(self, messages: list[dict[str, Any]], records: list[dict[str, Any]]) -> Any:
+        """engine_re.condense over a full conversation and the transcript records logged up to that point; a copy of
+        its messages, so nothing done to the conversation later can change the view."""
+        from engine_re.condense import condense
+
+        result = condense(messages, records, self.dir / "engine_versions", keep_turns=self.model.condense_keep_turns,
                           chars_per_token=self.model.condense_chars_per_token)
+        result.messages = copy.deepcopy(result.messages)
+        return result
+
+    def _condense_now(self) -> None:
+        """Context "condense": the condenser fires (a request went over compact_prompt_tokens, where "compact" would
+        compact). The condensed view of the whole conversation so far becomes the prefix of every request until it fires
+        again; the "condense" record logs it (estimated tokens, characters, live images, messages and, when the safety cap
+        fired, what it cut) and marks the point a resumed run recomputes it at."""
+        from engine_re.condense import measure
+
+        result = self._condensed_view(self.messages, self.records)
+        self._condensed, self._condensed_from = result.messages, len(self.messages)
         chars, images = measure(result.messages)
         record = {"tokens": result.estimate, "chars": chars, "images": images, "messages": len(result.messages)}
         if result.cap:
             record["cap"] = result.cap
-        self._log({"turn": self.result.turns + 1, "condense": record})
-        return result.messages
+        self._log({"turn": self.result.turns, "condense": record})
 
     def _save_result(self) -> None:
         self.result.minutes = round(self._elapsed_minutes(), 2)
@@ -798,6 +827,7 @@ class EngineAgent:
         if not transcript.exists():
             return None
         records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
+        self._condensed, self._condensed_from = [], 0
         starts = [i for i, r in enumerate(records) if (r.get("message") or {}).get("role") == "system"]
         if not starts:
             return self._rebuild_legacy(records)
@@ -806,7 +836,9 @@ class EngineAgent:
         calls: Any = iter(())
         cells: list[dict[str, Any]] = []  # the python cells that ran, in order: {"turn", "code"}
         last_turn = None  # of the last assistant record (its cells go when its turn is left out)
-        for r in records[starts[-1] :]:
+        fired: tuple[int, int] | None = None  # the last "condense" record: (its index, the messages before it)
+        for index in range(starts[-1], len(records)):
+            r = records[index]
             if "message" in r:
                 message = dict(r["message"])
                 if isinstance(message.get("content"), list):
@@ -837,6 +869,8 @@ class EngineAgent:
                 self._hide_images(messages)
             elif "compact" in r:
                 self._compact()
+            elif "condense" in r:
+                fired = (index, len(messages))
             elif "step_start" in r:
                 focus = r["step_start"]["step"]
             elif "advance" in r:
@@ -845,6 +879,14 @@ class EngineAgent:
                 focus = r["resumed"]["step"]
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
+        if self.condense and fired is not None:
+            # The condenser is a function of the full conversation and the records up to its firing, so its last firing
+            # alone gives the view a resumed run sends, as the uninterrupted run did. (Transcripts of the earlier
+            # per-turn condenser have a "condense" record before every request: the last one is taken as a firing.)
+            index, covered = fired
+            covered = min(covered, len(messages))
+            self._condensed = self._condensed_view(messages[:covered], records[:index]).messages
+            self._condensed_from = covered
         return {"messages": messages, "focus": focus, "cells": cells}
 
     @staticmethod
@@ -869,6 +911,8 @@ class EngineAgent:
             self._log({"turn": self.result.turns, "rebased": "the conversation rebuilt from the older records, logged in full"})
             for message in self.messages:
                 self._log_message(message)
+            if state.get("condense"):
+                self._condense_now()
         self._focus_on(int(state["focus"]))
         self.passed = False
         self.tested_hash = self.engine_hash_seen = self._engine_hash()
@@ -981,9 +1025,12 @@ class EngineAgent:
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
         self.messages = messages
-        if prompt_tokens > self.model.compact_prompt_tokens and not self.condense:
+        over = prompt_tokens > self.model.compact_prompt_tokens
+        if over and not self.condense:
             self._compact()
-        return {"messages": self.messages, "focus": focus, "legacy": True, "cells": cells}
+        # With context "condense" the condenser fires once the conversation is written back (_resume_conversation),
+        # so its record follows the messages it covers.
+        return {"messages": self.messages, "focus": focus, "legacy": True, "cells": cells, "condense": over and self.condense}
 
     @staticmethod
     def _has_engine_listing(message: dict[str, Any]) -> bool:
@@ -1298,9 +1345,12 @@ class EngineAgent:
                 elif self.passed and not self.stepwise:
                     self.result.status = "passed"
                     break
-                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens and not self.condense:
-                    self._log({"turn": self.result.turns, "compact": True})
-                    self._compact()
+                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens:
+                    if self.condense:
+                        self._condense_now()
+                    else:
+                        self._log({"turn": self.result.turns, "compact": True})
+                        self._compact()
         except Exception as exc:  # noqa: BLE001  (record the failure in result.json)
             self.result.status = "error"
             self.result.error = f"{type(exc).__name__}: {exc}"

@@ -2,8 +2,18 @@
 
     uv run --no-sync python -m engine_re.condense_report --out <folder> <name>=<run dir> ... \\
         [--samples <name>:<turn> ...] [--threshold 140000]
+    uv run --no-sync python -m engine_re.condense_report --schemes --out <folder> <name>=<run dir> ... \\
+        [--threshold 140000] [--keep-turns 10]
 
-For every run and every turn t it builds the prompt the model would receive under (a) the current
+--schemes (`compare_schemes`, for transcripts with "message" records) compares the three context schemes
+turn by turn: the compaction, the earlier per-turn condenser and the threshold-triggered one the agent runs
+now (two variants of when it fires: where the compaction fired, and when its own prompt is over), the one
+the run used replayed from its records and checked against them, the others simulated. Per scheme: the
+total and maximum estimated prompt tokens (also calibrated to the run's real counts), the turns it fired
+at, the turns whose prompt does not start with the previous one, and the share of prompt tokens that
+repeat the previous prompt (what a prefix cache can serve). It writes `schemes.md` and `schemes.json`.
+
+Without --schemes, for every run and every turn t it builds the prompt the model would receive under (a) the current
 scheme and (b) the new one, measures characters, estimated tokens (4 per character, 1000 per live
 image) and live images, and compares (a)'s estimate with the prompt_tokens the provider counted. The
 output folder gets `measurements.json` (every turn), `report.md` (tables at turns 10, 25, 50, 75, 100
@@ -39,6 +49,7 @@ from engine_re.agent import (
     COMMIT_HINT,
     CONTINUE,
     IMAGE_NOTE,
+    IMAGE_PLACEHOLDER,
     NUDGE,
     READ_CHARS_IN_MESSAGES,
     TEST_IMAGE_NOTE,
@@ -47,7 +58,7 @@ from engine_re.agent import (
     _truncate,
     resume_note,
 )
-from engine_re.condense import CAP_TOKENS, RESUME_HEAD, Condensed, condense, measure
+from engine_re.condense import CAP_TOKENS, KEEP_TURNS, RESUME_HEAD, Condensed, condense, hide_but_latest, measure
 from engine_re.game_api import fixed_block_lines
 from engine_re.prompts import advance_message, episode_message, system_prompt
 from engine_re.trace import Trace
@@ -363,14 +374,353 @@ def report(analyses: list[dict[str, Any]], threshold: int) -> str:
     return "\n".join(out)
 
 
+# --- the three context schemes, turn by turn, on a run logged with "message" records ----------------
+
+
+def load_logged_run(name: str, run_dir: Path) -> Run:
+    """The full conversation of a stepwise run from its "message" records (as the agent's _rebuild_conversation reads
+    them, from the last system message), with nothing hidden or shortened; images kept by file name, not loaded."""
+    run_dir = Path(run_dir)
+    records = [json.loads(line) for line in (run_dir / "transcript.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    starts = [i for i, r in enumerate(records) if (r.get("message") or {}).get("role") == "system"]
+    if not starts:
+        raise ValueError(f"{run_dir}: no message records (an older transcript: use load_run)")
+    messages: list[dict[str, Any]] = []
+    turn_of: list[int] = []
+    prompt_tokens: dict[int, int] = {}
+    resumed_after: set[int] = set()
+    calls: Any = iter(())
+    turn = 0
+    for r in records[starts[-1] :]:
+        if "message" in r:
+            message = dict(r["message"])
+            if isinstance(message.get("content"), list):
+                message["content"] = [
+                    {"type": "image_url", "image_url": {"url": IMAGE_URL + p["path"]}} if p.get("type") == "image_file" else p
+                    for p in message["content"]
+                ]
+            messages.append(message)
+            turn_of.append(turn)
+        elif "finish_reason" in r:
+            turn = int(r["turn"])
+            prompt_tokens[turn] = int((r.get("usage") or {}).get("prompt_tokens") or 0)
+            assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
+            if r.get("reasoning"):
+                assistant["reasoning"] = r["reasoning"]
+            if r.get("tool_calls"):
+                assistant["tool_calls"] = r["tool_calls"]
+            calls = iter(r.get("tool_calls") or [])
+            messages.append(assistant)
+            turn_of.append(turn)
+        elif "tool" in r:
+            call = next(calls, None)
+            messages.append({"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]})
+            turn_of.append(turn)
+        elif "append" in r:
+            messages[-1]["content"] += r["append"]
+        elif "resumed" in r:
+            resumed_after.add(turn)
+    return Run(name, run_dir, records, messages, turn_of, prompt_tokens, resumed_after)
+
+
+def load_any(name: str, run_dir: Path) -> Run:
+    """load_logged_run for a transcript with "message" records, else load_run (the older format)."""
+    with (Path(run_dir) / "transcript.jsonl").open(encoding="utf-8") as f:
+        logged = any('"message": {"role": "system"' in line for line in f)
+    return load_logged_run(name, run_dir) if logged else load_run(name, run_dir)
+
+
+def _with_placeholders(message: dict[str, Any]) -> dict[str, Any]:
+    content = message.get("content")
+    if not isinstance(content, list):
+        return message
+    return {**message, "content": [{"type": "text", "text": IMAGE_PLACEHOLDER} if p.get("type") == "image_url" else p for p in content]}
+
+
+class Tracker:
+    """The prompts one scheme sends, turn by turn: their estimated tokens (stats()), how much of each one repeats the
+    previous one message for message (what a prefix cache can reuse, estimated), and whether the previous prompt was
+    rewritten other than by hiding images (the old images of the agent's _hide_images and of condense's latest-only rule)."""
+
+    def __init__(self) -> None:
+        self.rows: dict[int, dict[str, Any]] = {}
+        self.fired: list[int] = []  # the turns after which the scheme rewrote the conversation
+        self._previous: list[str] | None = None
+        self._previous_plain: list[str] | None = None
+
+    def add(self, turn: int, view: list[dict[str, Any]]) -> int:
+        exact = [json.dumps(m, sort_keys=True) for m in view]
+        plain = [json.dumps(_with_placeholders(m), sort_keys=True) for m in view]
+        sizes = [stats([m])["tokens"] for m in view]
+        row: dict[str, Any] = {"tokens": sum(sizes), "images": measure(view)[1], "messages": len(view), "reused": 0, "rewritten": False}
+        if self._previous is not None:
+            k = 0
+            while k < min(len(exact), len(self._previous)) and exact[k] == self._previous[k]:
+                k += 1
+            row["reused"] = sum(sizes[:k])
+            row["rewritten"] = plain[: len(self._previous_plain)] != self._previous_plain
+        self._previous, self._previous_plain = exact, plain
+        self.rows[turn] = row
+        return row["tokens"]
+
+
+def _has_tools(run: Run, turn: int) -> bool:
+    """Whether the turn's answer called tools (the agent compacts, or condenses, only after such a turn)."""
+    group = run.group(turn)
+    return bool(group and group[0]["role"] == "assistant" and group[0].get("tool_calls"))
+
+
+def _records_before_turn(run: Run, turn: int) -> list[dict[str, Any]]:
+    """The records logged before turn `turn` was asked (all of them past the last turn)."""
+    index = next((i for i, r in enumerate(run.records) if "finish_reason" in r and int(r["turn"]) == turn), len(run.records))
+    return run.records[:index]
+
+
+def logged_compaction(run: Run) -> Tracker:
+    """The prompts of a "compact" run exactly as sent: its message records replayed with the hide_images and compact
+    records where they were logged (the agent's _rebuild_conversation, snapshot before every turn)."""
+    tracker = Tracker()
+    starts = [i for i, r in enumerate(run.records) if (r.get("message") or {}).get("role") == "system"]
+    state: list[dict[str, Any]] = []
+    calls: Any = iter(())
+    config = ModelConfig()
+    fired: list[int] = []
+    turn = 0
+    for r in run.records[starts[-1] :]:
+        if "message" in r:
+            message = copy.deepcopy(r["message"])
+            if isinstance(message.get("content"), list):
+                message["content"] = [
+                    {"type": "image_url", "image_url": {"url": IMAGE_URL + p["path"]}} if p.get("type") == "image_file" else p
+                    for p in message["content"]
+                ]
+            state.append(message)
+        elif "finish_reason" in r:
+            turn = int(r["turn"])
+            tracker.add(turn, state)
+            assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
+            if r.get("reasoning"):
+                assistant["reasoning"] = r["reasoning"]
+            if r.get("tool_calls"):
+                assistant["tool_calls"] = copy.deepcopy(r["tool_calls"])
+            calls = iter(r.get("tool_calls") or [])
+            state.append(assistant)
+        elif "tool" in r:
+            call = next(calls, None)
+            state.append({"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]})
+        elif "append" in r:
+            state[-1]["content"] += r["append"]
+        elif "hide_images" in r:
+            hide_images(state)
+        elif "compact" in r:
+            compact(state, config)
+            fired.append(turn)
+    tracker.fired = fired
+    return tracker
+
+
+def simulated_compaction(run: Run, config: ModelConfig, over: Any) -> Tracker:
+    """`_compact` replayed on the full conversation: images hidden when a newer image message comes, and the conversation
+    compacted in place after every turn with tools for which over(turn, estimated tokens of the prompt it was sent)."""
+    tracker = Tracker()
+    state: list[dict[str, Any]] = []
+    fired: list[int] = []
+    _append_live(state, run.group(0))
+    for turn in range(1, run.turns + 1):
+        tokens = tracker.add(turn, state)
+        _append_live(state, run.group(turn))
+        if _has_tools(run, turn) and over(turn, tokens):
+            compact(state, config)
+            fired.append(turn)
+    tracker.fired = fired
+    return tracker
+
+
+def per_turn_condense(run: Run, keep_turns: int, chars_per_token: float) -> tuple[Tracker, list[dict[str, Any]]]:
+    """The earlier per-turn mode: every request is condense() of the full conversation as it stands, with the records
+    logged until then. Also returns, per turn, the record the agent would have logged (to check against a logged run)."""
+    tracker = Tracker()
+    logged: list[dict[str, Any]] = []
+    for turn in range(1, run.turns + 1):
+        result = condense(run.before(turn), _records_before_turn(run, turn), run.versions_dir, keep_turns=keep_turns,
+                          chars_per_token=chars_per_token)
+        tracker.add(turn, result.messages)
+        chars, images = measure(result.messages)
+        logged.append({"tokens": result.estimate, "chars": chars, "images": images, "messages": len(result.messages)})
+    tracker.fired = list(range(1, run.turns + 1))
+    return tracker, logged
+
+
+def threshold_condense(run: Run, over: Any, keep_turns: int, chars_per_token: float) -> Tracker:
+    """The agent's "condense" context: the full conversation until the condenser fires; after every turn with tools for
+    which over(turn, estimated tokens of the prompt it was sent), condense() of the whole conversation so far becomes the
+    prefix of every request, the messages since following it with only their latest images live (EngineAgent._context)."""
+    tracker = Tracker()
+    prefix: list[dict[str, Any]] = []
+    covered = 0
+    fired: list[int] = []
+    for turn in range(1, run.turns + 1):
+        tokens = tracker.add(turn, prefix + hide_but_latest(run.before(turn)[covered:]))
+        if _has_tools(run, turn) and over(turn, tokens):
+            conversation = run.before(turn + 1)
+            prefix = condense(conversation, _records_before_turn(run, turn + 1), run.versions_dir, keep_turns=keep_turns,
+                              chars_per_token=chars_per_token).messages
+            covered = len(conversation)
+            fired.append(turn)
+    tracker.fired = fired
+    return tracker
+
+
+def _summary(tracker: Tracker, ratio: float, real: dict[int, int] | None = None) -> dict[str, Any]:
+    rows = tracker.rows
+    total = sum(r["tokens"] for r in rows.values())
+    out = {
+        "total": total, "max": max(r["tokens"] for r in rows.values()),
+        "total_calibrated": int(total * ratio), "max_calibrated": int(max(r["tokens"] for r in rows.values()) * ratio),
+        "fired": len(tracker.fired), "fired_turns": tracker.fired,
+        "rewritten": sum(r["rewritten"] for r in rows.values()),
+        "reused_share": sum(r["reused"] for r in rows.values()) / total if total else 0.0,
+        "not_reused_calibrated": int(sum(r["tokens"] - r["reused"] for r in rows.values()) * ratio),
+    }
+    if real:
+        out["real_total"], out["real_max"] = sum(real.values()), max(real.values())
+    return out
+
+
+def compare_schemes(run: Run, threshold: int, keep_turns: int, chars_per_token: float = 3.0, old_keep_turns: int = 5
+                    ) -> dict[str, Any]:
+    """The run under the three schemes, the one it ran with (logged) and the two others (simulated):
+
+    compaction       `_compact` after every request over `threshold` prompt tokens: as logged for a "compact" run (its
+                     records replayed exactly); for a "condense" run, simulated, firing when the estimate of its own
+                     prompt (calibrated to the run) is over the threshold.
+    per-turn         condense() before every request (keep_turns=`old_keep_turns`): what the earlier "condense" context
+                     did; for such a run, checked against its logged "condense" records.
+    threshold        the "condense" context now (keep_turns=`keep_turns`), in two variants of when it fires:
+                     "as compaction": after the turns at which the compaction above fired (the same WHEN; for a
+                     "compact" run that is where the logged prompt_tokens were over the threshold), and "on its own
+                     prompt": when the estimate of the prompt it sent itself, calibrated to the run, is over it (what
+                     the live agent would do, since it sends shorter prompts than the compaction).
+
+    'calibrated' multiplies an estimate by the run's median ratio of the provider's prompt_tokens to the estimate of the
+    prompts it was actually sent."""
+    config = ModelConfig(compact_prompt_tokens=threshold)
+    logged_condense = any("condense" in r for r in run.records)
+    if logged_condense:
+        per_turn, records = per_turn_condense(run, old_keep_turns, chars_per_token)
+        reference = per_turn
+        logged = [r["condense"] for r in run.records if "condense" in r]
+        check = {"condense_records_match": records == logged, "condense_records": len(logged)}
+    else:
+        reference = logged_compaction(run)
+        check = {}
+    ratios = [run.prompt_tokens[t] / row["tokens"] for t, row in reference.rows.items() if run.prompt_tokens.get(t) and row["tokens"]]
+    ratio = statistics.median(ratios)
+    if logged_condense:
+        compaction = simulated_compaction(run, config, lambda t, tokens: tokens * ratio > threshold)
+    else:
+        compaction = reference
+        per_turn, _ = per_turn_condense(run, old_keep_turns, chars_per_token)
+        simulated = simulated_compaction(run, config, lambda t, tokens: run.prompt_tokens.get(t, 0) > threshold)
+        check = {"compaction_simulation_matches_log": simulated.rows == compaction.rows}
+    compaction_fired = set(compaction.fired)
+    same_when = threshold_condense(run, lambda t, tokens: t in compaction_fired, keep_turns, chars_per_token)
+    own = threshold_condense(run, lambda t, tokens: tokens * ratio > threshold, keep_turns, chars_per_token)
+    full = Tracker()
+    for turn in range(1, run.turns + 1):
+        full.add(turn, hide_but_latest(run.before(turn)))
+    real = {t: v for t, v in run.prompt_tokens.items() if v}
+    return {
+        "name": run.name, "dir": str(run.dir), "turns": run.turns, "logged": "per-turn" if logged_condense else "compaction",
+        "ratio": ratio, "threshold": threshold, "keep_turns": keep_turns, "old_keep_turns": old_keep_turns, "check": check,
+        "real": {"total": sum(real.values()), "max": max(real.values()),
+                 "cached_share": sum(int(((r.get("usage") or {}).get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
+                                     for r in run.records if "finish_reason" in r) / sum(real.values())},
+        "schemes": {
+            "uncondensed": _summary(full, ratio),
+            "compaction": _summary(compaction, ratio, None if logged_condense else real),
+            "per-turn": _summary(per_turn, ratio, real if logged_condense else None),
+            "threshold, as compaction": _summary(same_when, ratio),
+            "threshold, on its own prompt": _summary(own, ratio),
+        },
+        "per_turn": {name: tracker.rows for name, tracker in
+                     (("compaction", compaction), ("per-turn", per_turn), ("threshold, as compaction", same_when),
+                      ("threshold, on its own prompt", own))},
+    }
+
+
+def schemes_report(results: list[dict[str, Any]]) -> str:
+    out = ["# Context schemes: compaction, per-turn condense, threshold condense", ""]
+    out.append(
+        "Per run, the prompt every scheme would send at every turn, rebuilt from the transcript. Tokens are estimates: "
+        "4 characters per token and 1,000 per live image ('est.'), and that estimate times the run's median ratio of the "
+        "provider's prompt_tokens to the estimate of the prompts it was really sent ('cal.'). 'fired' counts the turns after "
+        "which the scheme rewrote the conversation (the per-turn condenser: every turn). 'rewritten' counts the turns whose "
+        "prompt does not start with the previous turn's prompt, image placeholders aside (hiding the previous turn's "
+        "images is common to all schemes). 'reused' is the share of the estimated prompt tokens that repeat the previous "
+        "prompt message for message: an estimate of what a prefix cache can serve; 'not reused' the rest (cal.), the "
+        "tokens a prefix cache cannot serve."
+    )
+    out.append("")
+    for res in results:
+        thr = res["threshold"]
+        out.append(f"## {res['name']} ({res['turns']} turns; logged with the {res['logged']} scheme)")
+        out.append("")
+        out.append(f"`{res['dir']}`. Calibration: {res['ratio']:.3f} real tokens per estimated token. The provider counted "
+                   f"{res['real']['total']:,} prompt tokens in all (max {res['real']['max']:,}), "
+                   f"{res['real']['cached_share']:.0%} of them cached.")
+        out.append("")
+        out.append("| scheme | total est. | total cal. | max est. | max cal. | fired | rewritten | reused | not reused cal. |")
+        out.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+        labels = {
+            "uncondensed": "nothing (the full conversation, latest images only)",
+            "compaction": "old compaction (`_compact`)" + (", as logged" if res["logged"] == "compaction" else
+                                                          ", simulated: fires when its own prompt is over (cal.)"),
+            "per-turn": f"per-turn condense (keep {res['old_keep_turns']} turns)" + (", as logged" if res["logged"] == "per-turn" else ", simulated"),
+            "threshold, as compaction": f"threshold condense (keep {res['keep_turns']}), fires where compaction fired"
+                                        + (" (logged prompt_tokens > " + f"{thr:,})" if res["logged"] == "compaction" else
+                                           " (est. of the uncondensed, compacted prompt, cal. > " + f"{thr:,})"),
+            "threshold, on its own prompt": f"threshold condense (keep {res['keep_turns']}), fires when its own prompt is over (cal. > {thr:,})",
+        }
+        for key, label in labels.items():
+            s = res["schemes"][key]
+            fired = "-" if key == "uncondensed" else str(s["fired"])
+            rewritten = "-" if key == "uncondensed" else str(s["rewritten"])
+            out.append(f"| {label} | {s['total']:,} | {s['total_calibrated']:,} | {s['max']:,} | {s['max_calibrated']:,} | "
+                       f"{fired} | {rewritten} | {s['reused_share']:.0%} | {s['not_reused_calibrated']:,} |")
+        out.append("")
+        for key in ("compaction", "threshold, as compaction", "threshold, on its own prompt"):
+            turns = res["schemes"][key]["fired_turns"]
+            out.append(f"- {key}: fired after turn(s) {turns or 'none'}.")
+        if res["check"]:
+            out.append(f"- checks: {res['check']}.")
+        out.append("")
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("runs", nargs="+", help="<name>=<run dir>")
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--samples", nargs="*", default=[], help="<name>:<turn>: write both full prompts as text")
     parser.add_argument("--threshold", type=int, default=CAP_TOKENS)
+    parser.add_argument("--schemes", action="store_true",
+                        help="Compare the three context schemes (compaction, per-turn condense, threshold condense) instead: "
+                             "schemes.md and schemes.json.")
+    parser.add_argument("--keep-turns", type=int, default=KEEP_TURNS, help="--schemes: keep_turns of the threshold condenser.")
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
+    if args.schemes:
+        results = []
+        for spec in args.runs:
+            name, _, folder = spec.partition("=")
+            res = compare_schemes(load_any(name, Path(folder)), args.threshold, args.keep_turns)
+            results.append(res)
+            print(f"{name}: " + "; ".join(f"{k} total {v['total']:,} fired {v['fired']} rewritten {v['rewritten']}"
+                                          for k, v in res["schemes"].items()) + f"; checks {res['check']}", file=sys.stderr)
+        (args.out / "schemes.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
+        (args.out / "schemes.md").write_text(schemes_report(results), encoding="utf-8")
+        return 0
     config = ModelConfig(compact_prompt_tokens=args.threshold)
     analyses = []
     samples = [s.split(":") for s in args.samples]

@@ -317,27 +317,44 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   `result.json` `opening`) but not counted as the model's `engine_changes` or
   `tests_run`. `run_experiment --no-opening` leaves the template as it is and
   asks the model to do that round.
-- **Context: two schemes** (`agent.py`, `condense.py`). By default
-  (`ModelConfig.context = "compact"`) the conversation is shortened in place
-  by age once a request went over 140K prompt tokens: old tool outputs to 200
-  characters, all but the last 10 turns' reasoning to their last 1,200
-  characters, long old tool-call arguments, and every engine.py listing but
-  the latest (`compact` and `hide_images` records mark where). With
-  `run_experiment --condense` (`context = "condense"`; `config.json`
-  `condense`, `result.json` `context`) the agent keeps the full conversation
-  and sends each request its condensed form, by iteration
-  (`engine_re/condense.py`): finished iterations older than the last three
-  become their failing-step message, the net diff of engine.py and the commit;
-  the last three keep every successful tool call with its result; the current
-  iteration keeps its real messages, with the reasoning and the failed
-  commands stripped from the turns older than the last five and only its
-  latest images live; a safety cap (an estimate at `condense_chars_per_token`,
-  3 by default) cuts old results, then reduces blocks. One `condense` record
-  per turn logs the estimate (tokens, chars, images, messages, what the cap
-  cut). Nothing is shortened in place, so the transcript rebuilds the full
-  conversation and a resumed run condenses exactly as an uninterrupted one
-  would. `engine_re/condense_report.py` compares the two schemes on finished
-  runs, turn by turn.
+- **Context: two schemes** (`agent.py`, `condense.py`). Both act at the
+  same moments: after a turn whose request went over 140K prompt tokens
+  (`compact_prompt_tokens`); in between nothing sent before is rewritten
+  (but for the previous images, below), so the prompt's prefix stays the same
+  from one request to the next and the provider's prompt cache hits. By
+  default (`ModelConfig.context = "compact"`) the conversation is shortened in
+  place by age: old tool outputs to 200 characters, all but the last 10
+  turns' reasoning to their last 1,200 characters, long old tool-call
+  arguments, and every engine.py listing but the latest (`compact` and
+  `hide_images` records mark where). With `run_experiment --condense`
+  (`context = "condense"`; `config.json` `condense`, `result.json` `context`)
+  the agent keeps the full conversation and, when the threshold is crossed,
+  condenses all of it once, by iteration (`engine_re/condense.py`): finished
+  iterations older than the last three become their failing-step message, the
+  net diff of engine.py and the commit; the last three keep every successful
+  tool call with its result; the current iteration keeps its real messages,
+  with the reasoning and the failed commands stripped from the turns older
+  than the last ten (`--condense-keep-turns`, `ModelConfig.condense_keep_turns`)
+  and only its latest images live; a safety cap (an estimate at
+  `condense_chars_per_token`, 3 by default, against 140K) cuts old results,
+  then reduces blocks. That condensed view is the prefix of every request until
+  the condenser fires again; the messages added since follow it as they are,
+  with only the latest message with images keeping them (the view's own latest
+  images stay too, so the view does not change). Each firing condenses the full
+  conversation again, never an earlier view, and logs one `condense` record
+  (estimated tokens, characters, live images, messages, what the cap cut).
+  Nothing is shortened in place, so the transcript rebuilds the full
+  conversation, and a resumed run condenses it again at its last `condense`
+  record (the conversation and the records up to it), so it sends the prefix
+  the uninterrupted run would have sent. The two runs made with the earlier
+  per-turn condenser (a `condense` record before every request) resume with
+  their last record taken as a firing, not as they ran. Note that the cap is
+  not below the trigger: a condensed view near the cap is still over 140K real
+  tokens, and the condenser then fires after every turn, as `_compact` does
+  in the same case. `engine_re/condense_report.py` compares the schemes on
+  finished runs, turn by turn (`--schemes`: compaction, the per-turn condenser
+  and the threshold one, with the prompt tokens, the firings and the share of
+  each prompt that repeats the previous one).
 - **Feedback the harness adds** (`agent.py`).
   The model's reasoning is sent back with its turns, as the main harness does
   on OpenRouter; compaction trims old tool outputs and all but the last 10
@@ -379,7 +396,8 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   logs everything the model is sent: system and user messages as sent (images
   by their saved PNG), assistant turns, tool outputs, the text the harness
   adds to an output (`append`) and the points where old images are hidden
-  (`hide_images`) and old turns shortened (`compact`). The kernel restarts
+  (`hide_images`), old turns shortened (`compact`) and the condenser fired
+  (`condense`). The kernel restarts
   empty, so the harness re-runs every python cell of that conversation (the
   `python` calls, and the built-ins called as tools) in order in the kernel's
   replay mode, and a note says the run resumed, that the kernel re-ran the N
