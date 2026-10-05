@@ -1,0 +1,6 @@
+outs:
+- md5: 57ece80c9d8e7541edcf3b0d16783b2e.dir
+  size: 1891516
+  nfiles: 40
+  hash: md5
+  path: qwen38flash-v7-medium-lp85
