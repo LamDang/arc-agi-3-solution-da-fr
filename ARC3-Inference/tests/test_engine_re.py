@@ -860,3 +860,62 @@ def test_prompt_and_tools_follow_the_image_setting() -> None:
     text_only = next(t for t in tools(False) if t["function"]["name"] == "run_tests")["function"]
     assert "image" not in text_only["description"]
     assert "image" not in system_prompt(images=False).lower() and "image" in system_prompt(images=True)
+    assert "auto_sprites" in system_prompt()
+
+
+# --- auto_sprites ----------------------------------------------------------------------------
+
+LEVEL_STARTS = Path(__file__).with_name("fixtures") / "engine_re_level_starts.npz"
+
+
+def test_auto_sprites_redraws_every_reference_level_start_exactly() -> None:
+    from engine_re.auto_sprites import guess_grid, sprite_code
+
+    with np.load(LEVEL_STARTS) as data:
+        frames, grids, names = data["frames"], data["grids"], data["names"]
+    assert len(frames) == 34
+    right = 0
+    for frame, (w, h, s), name in zip(frames, grids, names):
+        guess = guess_grid(frame)
+        right += (guess.width, guess.height, guess.scale) == (w, h, s)
+        assert guess.scale <= s, f"{name}: guessed scale {guess.scale}, the real one is {s}"
+        code = sprite_code(frame, guess)
+        assert code.exact, f"{name}: {code.differing} pixels differ"
+    assert right >= 33  # sp80 level 5 draws its grid's outer cells in the border colour
+
+
+def test_guess_grid_takes_a_coarse_scale_only_with_evidence() -> None:
+    from engine_re.auto_sprites import guess_grid
+
+    rng = np.random.default_rng(0)
+    cells = rng.integers(6, 12, size=(10, 20))  # a 20x10 grid at scale 3, centred, on a border of 5
+    frame = np.full((64, 64), 5, np.int8)
+    frame[17:47, 2:62] = np.repeat(np.repeat(cells, 3, axis=0), 3, axis=1)
+    g = guess_grid(frame)
+    assert (g.width, g.height, g.scale, g.x_offset, g.y_offset, g.border) == (20, 10, 3, 2, 17, 5)
+    detail = frame.copy()
+    detail[30, 30] = 0 if detail[30, 30] != 0 else 1  # one pixel off the 3x3 blocks: not a scale-3 grid
+    assert guess_grid(detail).scale == 1
+    moved = np.roll(frame, 1, axis=1)  # another frame of the "same level" breaking the blocks
+    assert guess_grid([frame, moved]).scale == 1
+
+
+def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) -> None:
+    tiny_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        out = kernel.execute("code = auto_sprites(0)")
+        assert "Traceback" not in out, out
+        assert "assumed 8x8 at scale 8" in out and "Renders the frame exactly: yes" in out
+        assert "def level_0_sprites() -> list:" in out and "Not the real sprites" in out
+        check = (
+            "ns = dict(vars(game_api.canonical())); exec(code, ns)\n"
+            "st = ns['State'](grid=(8, 8), sprites=ns['level_0_sprites']())\n"
+            "print(bool((render(st) == S[0].last).all()), code.exact, auto_sprites(step=3, quiet=True).grid)"
+        )
+        assert kernel.execute(check).strip() == "True True (8, 8)"
+        assert kernel.execute("auto_sprites(frame=S[2].last, grid=(16, 16), quiet=True).exact").strip() == "True"
+    finally:
+        kernel.stop()

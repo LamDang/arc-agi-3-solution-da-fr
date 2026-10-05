@@ -67,9 +67,11 @@ every contract test passing. The session ends as soon as that happens.
    show_step(i) / animation(i) for what each action changed. Work out the logical grid size and scale, the border and
    background colours, the objects, and the HUD drawn in screen pixels.
 2. Make step 0 (the RESET) match exactly first: grid size, border and background sprites, the level's objects, the
-   HUD. A reliable way to get a layout pixel-exact: downsample the level's first frame to the logical grid
-   (logical(frame, geom)), keep everything that never changes as one background sprite, and make separate sprites only
-   for the things that move, change or get clicked. render(state) draws a State exactly as the harness does.
+   HUD. auto_sprites(level) prints sprite code generated from the level's first frame that redraws it pixel-exactly,
+   with similar objects grouped: a starting point, not the truth. It sees one colour per object, nothing hidden or
+   covered, and guesses the grid size, layers, tags and collidability; a pixel-exact start frame does not make the
+   sprites right, the steps decide. Rename and merge its sprites into the game's real objects. render(state) draws a
+   State exactly as the harness does.
 3. Model the game the way the real one is built: one tagged sprite per object (walls, pieces, buttons, goals), hidden
    values in state.vars (budget, counters, what is selected), and the HUD as screen sprites that step() updates. Use
    the built-in try_move, collisions, sprite_at and sprites_at rather than writing your own geometry.

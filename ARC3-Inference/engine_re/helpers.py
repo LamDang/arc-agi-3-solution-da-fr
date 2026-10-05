@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterable
 
 import numpy as np
 
-from engine_re import diff_report, game_api, tester
+from engine_re import auto_sprites as _auto, diff_report, game_api, tester
 from engine_re.trace import Action, Step, Trace, new_game as _instantiate, perform
 
 HEX = "0123456789abcdef"
@@ -66,7 +66,16 @@ before, after = try_step(i, state=None, action=None, level=None)
                               step changed in your state (sprites as #k = state.sprites[k], vars, status) and,
                               for the recorded action, the comparison with the recording as run_tests shows it;
                               returns copies of your State before and after. print() in make_level/step to debug.
-                              (It rebinds the name `before`; before(i) above is S[i-1].last.)"""
+                              (It rebinds the name `before`; before(i) above is S[i-1].last.)
+code = auto_sprites(level=0, grid=None, step=None, frame=None, merge=False)
+                              print code for a sprite list that redraws a level's recorded start (or step i's
+                              final frame, or a 64x64 frame) exactly: border, background, one sprite per
+                              single-colour region (merge=True: per group of touching regions), identical
+                              objects sharing a pixel constant and a tag, HUD as screen sprites. It guesses the
+                              grid (pass grid=(w, h) to override) and checks the code renders the frame.
+                              A starting point, NOT the real sprites: one colour per sprite, nothing hidden or
+                              covered, transparency unknown, layers/tags/names/collidability are placeholders,
+                              look-alike objects may differ; the steps decide."""
     )
 
 
@@ -507,3 +516,100 @@ def _try_arcengine_step(i: int, action: Any) -> tuple[None, None]:
         text, _ = tester.describe_step(S[i], {k: obs[k] for k in _FIELDS}, obs["frames"], tester.levels_before(trace)[i])
         print("\n".join(text.splitlines()[1:]))
     return None, None
+
+
+class GeneratedCode(str):
+    """The code auto_sprites printed (a str), with .exact, .grid, .scale and .info; its repr stays short."""
+
+    exact: bool = False
+    grid: tuple[int, int] = (64, 64)
+    scale: int = 1
+    info: Any = None
+
+    def __repr__(self) -> str:
+        return f"<generated code: {len(self)} characters; print() it, or write it into engine.py>"
+
+
+def _level_frames(level: int, limit: int = 60) -> list[np.ndarray]:
+    """Final frames of the recorded steps that show level `level` (at most `limit`, evenly spaced)."""
+    frames = [s.last for s in S if s.levels_completed == level and s.last is not None and s.state != "WIN"]
+    if len(frames) > limit:
+        frames = [frames[round(k * (len(frames) - 1) / (limit - 1))] for k in range(limit)]
+    return frames
+
+
+def auto_sprites(
+    level: int = 0,
+    grid: tuple[int, int] | None = None,
+    *,
+    step: int | None = None,
+    frame: np.ndarray | None = None,
+    scale: int | None = None,
+    merge: bool = False,
+    quiet: bool = False,
+) -> GeneratedCode:
+    """Print (and return) Python code for a sprite list that redraws a recorded frame exactly: by
+    default the start of `level`; step=i: step i's final frame; frame=a 64x64 array. A starting point
+    for make_level, NOT the game's real sprites.
+
+    It guesses the grid (grid=(w, h), and scale=s if not the default fit, override it), then makes a
+    border screen sprite, a background sprite of the grid's most common colour, one sprite per
+    4-connected single-colour region (merge=True: per group of touching non-background regions,
+    multi-coloured; default off, since touching objects would fuse), sharing a pixel constant and a
+    placeholder tag among identical objects, and screen sprites for what the grid cannot draw
+    (HUD). It runs the code and says whether it renders the frame exactly."""
+
+
+    if frame is not None:
+        source_frame, evidence = np.asarray(frame), [np.asarray(frame)]
+        what, args, prefix, function = "the frame you gave", "(frame=...)", "F_", "frame_sprites"
+    elif step is not None:
+        source_frame = S[step].last
+        evidence = [source_frame] + _level_frames(S[step].levels_completed)
+        what, args, prefix, function = f"step {step}'s final frame", f"(step={step})", f"S{step}_", f"step_{step}_sprites"
+    else:
+        starts = trace.level_starts()
+        if level not in starts:
+            raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
+        source_frame = S[starts[level]].last
+        evidence = [source_frame] + _level_frames(level)
+        what = f"the recorded start of level {level} (step {starts[level]}'s final frame)"
+        args, prefix, function = f"(level={level})", f"L{level}_", f"level_{level}_sprites"
+    if source_frame is None:
+        raise ValueError("that step has no frame")
+    if grid is None:
+        guess = _auto.guess_grid(evidence)
+        assumed = f"assumed {guess.width}x{guess.height} at scale {guess.scale}"
+        how = (f"guessed from {guess.frames} frame(s): {guess.note}. Conservative: a scale above 1 is taken only if every "
+               "block is one colour in all of them, yet a scale-1 game whose objects align on a coarser lattice can still fool it")
+    else:
+        w, h = int(grid[0]), int(grid[1])
+        s, ox, oy = game_api.geometry((w, h), scale)
+        ring = np.concatenate([source_frame[0], source_frame[-1], source_frame[:, 0], source_frame[:, -1]])
+        guess = _auto.GridGuess(w, h, s, ox, oy, int(np.bincount(ring.astype(np.int64) % 16).argmax()), 1, "as given")
+        assumed, how = f"grid {w}x{h} at scale {s} (as given)", ""
+    result = _auto.sprite_code(source_frame, guess, merge=merge, prefix=prefix, function=function, source=args)
+    code = GeneratedCode(result.code)
+    code.exact, code.grid, code.scale, code.info = result.exact, guess.grid, guess.scale, result
+    if quiet:
+        return code
+    region = "one sprite per group of touching regions (merge=True)" if merge else "one per single-colour region; merge=True joins touching ones"
+    print(f"auto_sprites{args}: {what}.")
+    print(f"Grid: {assumed}, offset ({guess.x_offset}, {guess.y_offset}), border colour {guess.border} "
+          f"({COLOR_NAMES.get(guess.border, '?')}); pass grid=(w, h) if that is wrong.")
+    if how:
+        print(f"  ({how}.)")
+    print(f"Found: background colour {result.background}, {result.objects} objects of {result.shapes} shapes ({region}), "
+          f"{result.hud} screen sprite(s) for the HUD or pixels off the grid.")
+    print(f"Renders the frame exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
+    print("Not the real sprites: one colour per sprite, nothing hidden or covered, transparency unknown, layers, tags, "
+          "names and collidability are placeholders, identical-looking objects may be different kinds. The steps decide.")
+    print()
+    if len(code) <= 6000:
+        print(code)
+    else:
+        print(code[:5000] + f"\n# ... {len(code) - 5000} more characters: the returned string holds all of it "
+              "(code = auto_sprites(...); print(code[5000:]))")
+    return code
+
+
