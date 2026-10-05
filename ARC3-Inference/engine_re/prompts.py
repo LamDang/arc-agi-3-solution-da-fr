@@ -23,19 +23,21 @@ sprites with layers, visibility, collidability, blocking modes, rotation, mirror
 (state.try_move, state.collisions, sprite.collides_with); lookups (state.sprite_at, sprites_at, by_tag, by_name); and
 a per-level view (state.view: grid scale, rotation and mirroring of the whole screen). Below it you write two functions:
 - make_level(n) -> State: the state at the start of level n: grid size, every sprite (border, background, objects,
-  HUD) and the hidden variables (state.vars).
+  HUD), the hidden variables (state.vars) and, if the screen is shown turned or mirrored, state.view.
 - step(state, action): apply one action to the state, in place. Set state.status = "level_solved" or "game_over"
   when that happens.
-The harness does the rest: it hands step() a fresh copy of the level's first state when a level starts and on every
-RESET, draws the state, counts completed levels, handles WIN and GAME_OVER, and turns clicks into grid cells.
+The harness does the rest. It calls make_level once per level and hands step() a fresh copy of that state whenever the
+level starts (on entering it and on every RESET), so make_level may use module-level data and state.vars may hold
+Sprite references. It also draws the state, counts completed levels, handles WIN and GAME_OVER, and turns clicks into
+grid cells (action.cell). Give the border and background sprites collidable=False so they never block anything.
 
 # What passing means
 run_tests runs two suites. The contract tests check that the fixed interface is unchanged, that states are valid, that
-step accepts every advertised action, and that the same actions give the same result. The acceptance test replays the recorded actions and compares, after every action, the FINAL frame
-(every pixel of your drawn state) and the game state (NOT_FINISHED / WIN / GAME_OVER, levels_completed). Animation
-frames are not compared: do each action's whole effect in one step() call. Look at animation frames only to understand
-what an action does. The goal is "ALL STEPS MATCH" with every contract test passing. The session ends as soon as that
-happens.
+step accepts every advertised action, and that the same actions give the same result. The acceptance test replays the
+recorded actions and compares, after every action, the FINAL frame (every pixel of your drawn state) and the game state
+(NOT_FINISHED / WIN / GAME_OVER, levels_completed). Animation frames are not compared: do each action's whole effect in
+one step() call. Look at animation frames only to understand what an action does. The goal is "ALL STEPS MATCH" with
+every contract test passing. The session ends as soon as that happens.
 
 # Rules
 - Implement the game's real rules and level data, so that your engine would also be right on actions nobody played.
@@ -64,12 +66,15 @@ happens.
    HUD. A reliable way to get a layout pixel-exact: downsample the level's first frame to the logical grid
    (logical(frame, geom)), keep everything that never changes as one background sprite, and make separate sprites only
    for the things that move, change or get clicked. render(state) draws a State exactly as the harness does.
-3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only the
+3. Model the game the way the real one is built: one tagged sprite per object (walls, pieces, buttons, goals), hidden
+   values in state.vars (budget, counters, what is selected), and the HUD as screen sprites that step() updates. Use
+   the built-in try_move, collisions, sprite_at and sprites_at rather than writing your own geometry.
+4. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only the
    end state of each action counts, so skip animations.
-4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
-5. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
+5. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
+6. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
    more analysis. Every change should move the first mismatch later or fix more steps.
-6. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
+7. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
    questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
 
 """
