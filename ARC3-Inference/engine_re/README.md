@@ -201,7 +201,12 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     changes, the engine's sprites drawn in each region before and after the
     step (a second, short sandboxed run collects them), state fields and vars,
     the end of what the engine printed during the step (prints are captured per
-    step and capped), and the `replay_step` command that reproduces it. A failing
+    step and capped), and, in one line, the `replay_step` command that
+    reproduces it ("Reproduce: before, after = replay_step(N)"; `replay_step`
+    itself prints one line when the frame equals the recorded one). Every
+    report carries a failure `signature` (the first failing step, the exact
+    count, the error, the contract results and the first failure's differing
+    regions; `tests.jsonl` keeps it). A failing
     contract test does not hide the replay. The counts kept (`tests.jsonl`,
     best engine, pass) always come from the whole replay; the text is what
     stops. The automatic test uses `failures=1`.
@@ -269,7 +274,11 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   on OpenRouter; compaction trims old tool outputs and all but the last 10
   turns' reasoning once the prompt passes 140K tokens. When a turn changes
   `engine.py` without testing it, `run_tests()` runs automatically with its
-  defaults and its report is appended to the turn's output. Images (on by
+  defaults and its report is appended to the turn's output; when that report
+  fails the same way as the last test (the same `signature`), one line says so
+  ("tested automatically: the same result as the last test (step N fails the
+  same way: ...)") with the commit hint, and `tests.jsonl` and the transcript
+  keep the full report. Images (on by
   default, `--no-images` for text-only models): after the turn's tool messages
   (which stay strings) one user message carries the turn's pictures: what
   `show_frames()` made, then the latest test's picture (the engine's final frame and

@@ -73,6 +73,7 @@ from engine_re import diff_report, hashline
 from inference.agent.tool_agent import _env_float, _env_int, _post_with_retries
 from engine_re.engine_files import best_key
 from engine_re.game_api import fixed_block_lines
+from engine_re.helpers import FUNCTIONS as BUILTIN_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.prompts import advance_message, episode_message, first_user_message, resume_user_message, system_prompt, tools
 from engine_re.skeleton import render_skeleton
@@ -92,6 +93,10 @@ NUDGE = (
 # harness runs run_tests() with its defaults (full replay, reported up to the
 # first failure) and appends the report to the turn's last output.
 AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\n{report}"
+# The automatic test found the same failure as the last test (tester.TestReport.signature): one line instead of the report.
+AUTO_TEST_SAME = "\n\n[harness] engine.py changed, tested automatically: the same result as the last test ({brief})."
+# A python built-in function (helpers.FUNCTIONS) the model called as if it were a tool: run as python.
+BUILTIN_AS_TOOL = "[harness] {name} is a python function, not a tool; this call ran as python: {call}\n"
 REPORT_CHARS = 9000  # a test report in a tool output
 AUTO_TEST_CHARS = 3500
 # Stepwise: appended to a test (run_tests or the automatic one) that shows steps 0..k pass.
@@ -216,6 +221,22 @@ def _truncate(text: str, limit: int = TOOL_OUTPUT_CHARS) -> str:
         return text
     head, tail = limit * 2 // 3, limit // 3
     return f"{text[:head]}\n...[{len(text) - head - tail} characters truncated]...\n{text[-tail:]}"
+
+
+def builtin_call_code(name: str, args: Any) -> str:
+    """`name(**args)` as python code, for a built-in function the model called as a tool: a string
+    argument that parses as JSON (an `edits` list given as text, a number as "240") is parsed first."""
+    parts = []
+    for key, value in (args.items() if isinstance(args, dict) else []):
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                parsed = value
+            if not isinstance(parsed, str):
+                value = parsed
+        parts.append(f"{key}={value!r}")
+    return f"{name}({', '.join(parts)})"
 
 
 def _elide_arguments(arguments: str) -> str:
@@ -379,6 +400,7 @@ class EngineAgent:
         self.started = time.time()
         self.turns_since_test = 0
         self.tested_hash: str | None = None
+        self.last_signature: str | None = None  # of the last full test's failure (tester.TestReport.signature)
         self.python_since_change = 0
         self.engine_hash_seen: str | None = None
         # The turn's pictures, sent after its tool messages: (caption, saved PNG path, PNG bytes).
@@ -442,6 +464,7 @@ class EngineAgent:
         full = level is None
         if full:
             self.tested_hash = tested_hash
+            self.last_signature = report.signature
         if auto not in ("opening", "episode", "advance"):  # the harness's own tests are not the model's
             self.result.tests_run += 1
         # "from_level" keeps its earlier meaning for older readers of tests.jsonl, the level the engine
@@ -568,6 +591,9 @@ class EngineAgent:
             args = json.loads(arguments) if arguments.strip() else {}
         except json.JSONDecodeError as exc:
             return f"Error: tool arguments are not valid JSON ({exc}). Send a JSON object."
+        if name in BUILTIN_FUNCTIONS:  # a python function called as a tool: run it as python
+            call = builtin_call_code(name, args)
+            return BUILTIN_AS_TOOL.format(name=name, call=call) + self._tool_python(call)
         if name not in ("python", "run_tests", "commit_engine"):
             return f"Error: unknown tool {name!r}. The tools are python, run_tests and commit_engine."
         handler = getattr(self, f"_tool_{name}")
@@ -633,6 +659,7 @@ class EngineAgent:
                 if entry.get("auto") not in ("opening", "episode", "advance"):
                     self.result.tests_run += 1
                 if entry.get("level") is None and entry.get("from_level") in (None, 0):
+                    self.last_signature = entry.get("signature")
                     if best_key(entry) > self.best_key:
                         self.best_key = best_key(entry)
                         self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
@@ -1105,19 +1132,28 @@ class EngineAgent:
                 self.turns_since_test += 1
                 for call in assistant["tool_calls"]:
                     name = call["function"]["name"]
-                    self.result.tool_calls[name] = self.result.tool_calls.get(name, 0) + 1
+                    counted = "python" if name in BUILTIN_FUNCTIONS else name  # a built-in called as a tool runs as python
+                    self.result.tool_calls[counted] = self.result.tool_calls.get(counted, 0) + 1
                     t0 = time.time()
                     output = self._dispatch(name, call["function"]["arguments"])
                     self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
-                    self._log({"turn": self.result.turns, "tool": name, "id": call["id"], "seconds": round(time.time() - t0, 2), "output": output})
+                    record = {"turn": self.result.turns, "tool": counted, "id": call["id"], "seconds": round(time.time() - t0, 2), "output": output}
+                    if counted != name:
+                        record["called_as"] = name
+                    self._log(record)
                 changed = self.tested_hash is not None and self._engine_hash() != self.tested_hash
                 if changed and self.commit is not None and self.commit["engine_sha"] != self._engine_hash():
                     self.commit = None  # engine.py changed after the commit in the same turn
                     self._add_to_last(COMMIT_DROPPED)
                 if changed and (self.stepwise or not self.passed):
+                    previous = self.last_signature
                     tested = self._run_tests(None, 1, auto=True)
                     report = tested if isinstance(tested, str) else tested.text
-                    self._add_to_last(AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS)) + self._commit_hint(tested))
+                    if not isinstance(tested, str) and not tested.passed and tested.signature == previous:
+                        note = AUTO_TEST_SAME.format(brief=tested.brief())  # the full report is in tests.jsonl and the log
+                    else:
+                        note = AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS))
+                    self._add_to_last(note + self._commit_hint(tested))
                     self.result.auto_tests += 1
                     self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})
                 elif self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:

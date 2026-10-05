@@ -47,6 +47,9 @@ COLOR_NAMES = {
     12: "orange", 13: "maroon", 14: "green", 15: "purple",
 }
 MAX_SHOWN = 4  # frames per show_frames() call
+# The built-in functions, as the kernel preloads them (the model may call one as a tool by mistake: the
+# harness then runs it as python).
+FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "summarize_levels")
 
 # Set by the kernel (load_trace).
 trace: Trace = None  # type: ignore[assignment]
@@ -491,11 +494,15 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
         print(f"not compared with the recording: the action is not step {i}'s recorded one ({steps[i].action})")
     elif i < len(steps):
         fields = {k: obs[k] for k in _FIELDS}
+        note = " (from the state you gave)" if state is not None else ""
+        frames = obs["frames"]
+        if all(fields[k] == getattr(steps[i], k) for k in _FIELDS) and len(frames) and np.array_equal(frames[-1], steps[i].last):
+            print(f"your frame matches the recording after step {i}{note}")
+            return before, copy.deepcopy(after_state)
         text, _ = tester.describe_step(
             steps[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
             show_vars=False,
         )
-        note = " (from the state you gave)" if state is not None else ""
         print(f"compared with the recording after step {i}{note} (expected = the original, got = yours):")
         print("\n".join(text.splitlines()[1:]))
     return before, copy.deepcopy(after_state)

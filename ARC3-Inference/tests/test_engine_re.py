@@ -419,6 +419,71 @@ def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: 
     assert any("[harness] engine.py changed" in m.get("content", "") for m in agent.messages if m["role"] == "tool")
 
 
+def test_builtin_functions_called_as_tools_run_as_python(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import Budget, EngineAgent, ModelConfig, builtin_call_code
+
+    assert builtin_call_code("read_file", {"offset": 240, "limit": 110}) == "read_file(offset=240, limit=110)"
+    assert builtin_call_code("edit_file", {"edits": '[{"op": "append", "lines": ["x"]}]'}) == "edit_file(edits=[{'op': 'append', 'lines': ['x']}])"
+    assert builtin_call_code("show_frames", {"titles": "[not json"}) == "show_frames(titles='[not json')"
+    assert builtin_call_code("read_file", {"path": "engine.py", "offset": "240"}) == "read_file(path='engine.py', offset=240)"
+    tiny_trace.save(tmp_path / "trace")
+    edits = json.dumps([{"op": "replace_text", "oldText": "# ==== YOUR GAME ====", "newText": "# ==== YOUR GAME ==== (changed)"}])
+    model = _ScriptedModel(
+        [
+            [("read_file", {"offset": 1, "limit": 2})],
+            [("edit_file", {"edits": edits}), ("nonsense", {})],  # edits as a JSON string
+            [("python", {"code": "print(open('engine.py').read().count('(changed)'))"})],
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), opening=False, client=model)
+    result = agent.run()
+    outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    note = "[harness] read_file is a python function, not a tool; this call ran as python: read_file(offset=1, limit=2)\n"
+    lines = outputs[0].splitlines()
+    assert outputs[0].startswith(note) and lines[1].startswith("1#") and lines[2].startswith("2#") and "[Showing lines 1-2 of" in lines[-1]
+    assert outputs[1].startswith("[harness] edit_file is a python function, not a tool; this call ran as python: edit_file(edits=[{'op': 'replace_text'")
+    assert "engine.py: replaced line" in outputs[1] and result.engine_changes == 1
+    assert outputs[2].startswith("Error: unknown tool 'nonsense'. The tools are python, run_tests and commit_engine.\n\n[harness] engine.py changed")
+    assert outputs[3].startswith("1\n")
+    assert result.tool_calls == {"python": 3, "nonsense": 1}  # counted as python calls
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert [(r["tool"], r.get("called_as")) for r in records if "tool" in r] == [
+        ("python", "read_file"), ("python", "edit_file"), ("nonsense", None), ("python", None),
+    ]
+
+
+def test_the_automatic_test_repeats_the_same_failure_in_one_line(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    comment = "edit_file(edits=[{'op': 'append', 'lines': ['# a comment']}])"
+    model = _ScriptedModel(
+        [
+            [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))})],  # step 1 fails: the full report
+            [("python", {"code": comment})],  # the same failure: one line
+            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "3"))})],  # another failure: the report
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), opening=False, client=model)
+    result = agent.run()
+    assert result.auto_tests == 3
+    outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert "[harness] engine.py changed, so it was tested automatically" in outputs[0] and "--- Step 1: ACTION2" in outputs[0]
+    assert "--- Step 1" not in outputs[1]
+    assert ("[harness] engine.py changed, tested automatically: the same result as the last test (step 1 fails the same way: "
+            "final frame: ") in outputs[1]
+    assert "[harness] engine.py changed, so it was tested automatically" in outputs[2] and "--- Step 1: ACTION2" in outputs[2]
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    logged = [r["auto_test"] for r in records if "auto_test" in r]
+    assert len(logged) == 3 and all("--- Step 1: ACTION2" in text for text in logged)  # the log keeps the full reports
+    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
+    assert tests[0]["signature"] == tests[1]["signature"] != tests[2]["signature"] and len(tests[0]["signature"]) == 12
+
+
 def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
@@ -514,10 +579,9 @@ def two_level_trace() -> Trace:
 
 
 def _repro_commands(text: str) -> str:
-    """The python lines the report prints under "Reproduce in python:", as they would be pasted."""
-    lines = text.splitlines()
-    start = lines.index("  Reproduce in python:")
-    return "\n".join(line[4:] for line in lines[start + 1 :] if line.startswith("    "))
+    """The python command the report prints after "Reproduce:", as it would be pasted."""
+    line = next(line for line in text.splitlines() if line.startswith("  Reproduce: "))
+    return line[len("  Reproduce: ") :].split("   #")[0]
 
 
 def test_the_report_stops_at_the_first_failure_by_default(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -533,7 +597,7 @@ def test_the_report_stops_at_the_first_failure_by_default(tmp_path: Path, tiny_t
     assert "step 1 is the first failure; 1 step passes before it (step 0)." in stop.text
     assert "--- Step 1: ACTION2" in stop.text and "--- Step 2" not in stop.text and "    step 2 " not in stop.text
     assert "All mismatching steps" not in stop.text and "Per level" not in stop.text
-    assert "Reproduce in python:" in stop.text
+    assert "  Reproduce: before, after = replay_step(1)" in stop.text.splitlines()
     assert "The report stops after 1 failing step; later steps are not reported (run_tests(failures=n) lists up to 10)." in stop.text
     assert replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path).text == stop.text
     # failures=None (the final test) reports everything, as before.
@@ -552,7 +616,7 @@ def test_further_failures_get_one_line_each(tmp_path: Path, tiny_trace: Trace) -
     for k, line in zip(failing[1:3], lines[head + 1 : head + 3]):
         assert line.startswith(f"    step {k} ACTION"), line
         assert "px differ in" in line and "[1] rows" in line and ("yours: #" in line or "no sprite of yours" in line), line
-    assert lines.index("  Reproduce in python:") < head  # the command belongs to the first failure
+    assert lines.index("  Reproduce: before, after = replay_step(1)") < head  # the command belongs to the first failure
     last = lines[head + 3]
     assert last == "  No other step fails." if len(failing) == 3 else last.startswith("  The report stops after 3 failing steps")
     everything = replay_test(engine, tiny_trace, failures=99, scratch_root=tmp_path)  # clamped to 10
@@ -714,7 +778,7 @@ def test_printed_command_reproduces_the_failure_in_the_kernel(tmp_path: Path, ti
     report = replay_test(engine, tiny_trace, failures=1, scratch_root=tmp_path)
     assert "your engine printed during this step:\n      action 2 player at 1 1" in report.text
     command = _repro_commands(report.text)
-    assert command.startswith("before, after = replay_step(1)\n# replays steps 0-0")
+    assert command == "before, after = replay_step(1)"
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
         out = kernel.execute(command)  # exactly as printed
@@ -730,6 +794,9 @@ def test_printed_command_reproduces_the_failure_in_the_kernel(tmp_path: Path, ti
         out = kernel.execute("b, a = replay_step(2, state=after); print(a.sprites[2].y)")
         assert "on your engine from the state you gave" in out and "(from the state you gave)" in out
         assert out.strip().endswith("5")  # y=3 after step 1, and this engine moves down by 2
+        out = kernel.execute("b, a = replay_step(0)")  # step 0 matches: one line, no comparison
+        assert "what the step changed in your state:" in out and out.strip().endswith("your frame matches the recording after step 0")
+        assert "compared with the recording" not in out
     finally:
         kernel.stop()
 

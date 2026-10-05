@@ -717,7 +717,7 @@ The test report:
 
 {report.strip()}
 
-Fix step {k} the same way, keeping steps 0-{k - 1} passing, and call commit_engine(message) when they pass."""
+Fix step {k}, keeping steps 0-{k - 1} passing; commit_engine(message) when the tests pass."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:

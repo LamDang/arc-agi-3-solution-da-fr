@@ -47,6 +47,7 @@ carries a picture of both final frames with the regions boxed
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -111,11 +112,27 @@ class TestReport:
     passing_prefix: int = 0  # steps that pass before the first failure (0 when a level's start frame differs)
     detail_steps: list[int] = field(default_factory=list)  # steps explained in the text (a level start: its entry step)
     images: list[TestImage] = field(default_factory=list)
+    signature: str = ""  # of the failure: the same first failing step, counts and differing regions give the same one
 
     @property
     def passed(self) -> bool:
         contract_ok = self.contract_total is None or self.contract_passed == self.contract_total
         return self.exact == self.total and self.error is None and contract_ok
+
+    def brief(self) -> str:
+        """The failure in one line, e.g. "step 7 fails the same way: final frame: 12 px differ in 2 region(s)"."""
+        if self.passed:
+            return "every test passes"
+        detail = ""
+        for line in self.text.splitlines():
+            if line.startswith(("    final frame:", "    recorded fields differ", "    your engine raised")):
+                detail = line.strip()
+                break
+        if self.first_fail is not None:
+            return f"step {self.first_fail} fails the same way" + (f": {detail}" if detail else "")
+        if self.error is not None:
+            return "the same error: " + (self.error.strip().splitlines() or [""])[-1][:160]
+        return "the contract tests fail the same way"
 
     def summary(self) -> dict[str, Any]:
         out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text", "images")}
@@ -124,6 +141,13 @@ class TestReport:
 
 
 # --- Running the candidate ----------------------------------------------------
+
+
+def failure_signature(first_fail: int | None, exact: int, error: str | None, contract: list, regions: list) -> str:
+    """A short hash of what a report says fails: the first failing step, the exact count, the error,
+    the contract results and the first explained step's differing regions."""
+    key = [first_fail, exact, error, [c.get("ok") for c in contract or []], [list(r) for r in regions]]
+    return hashlib.sha1(json.dumps(key, default=str).encode("utf-8")).hexdigest()[:12]
 
 
 def trace_meta(trace: Trace) -> dict[str, Any]:
@@ -407,23 +431,11 @@ def level_span(trace: Trace, level: int) -> tuple[int, int, int]:
     return entry, first, stop
 
 
-def repro_lines(step: int, level: int | None, action: str, start: bool = False) -> list[str]:
-    """The python command that reproduces a failing step in the analysis kernel."""
+def repro_line(step: int, level: int | None, note: str = "") -> str:
+    """The python command that reproduces a failing step in the analysis kernel (one line; the
+    # Objects reference says what replay_step does)."""
     lv = f", level={level}" if level else ""
-    if start:
-        what = f"makes your level {level} start (make_level({level})) and compares it with step {step}'s final frame"
-    elif level:
-        what = f"starts your engine at level {level}, replays the level's steps before {step}, applies step {step}'s {action}"
-    elif step:
-        what = f"replays steps 0-{step - 1} on a fresh engine.py, applies step {step}'s {action}"
-    else:
-        what = "loads engine.py fresh and applies step 0's RESET (before is None)"
-    return [
-        "  Reproduce in python:",
-        f"    before, after = replay_step({step}{lv})",
-        f"    # {what}; prints what your engine printed, what changed in your state and this comparison; "
-        "returns copies of your State before and after",
-    ]
+    return f"  Reproduce: before, after = replay_step({step}{lv}){note}"
 
 
 def replay_test(
@@ -639,6 +651,7 @@ def replay_test(
 
     report_images: list[TestImage] = []
     detail_steps: list[int] = []
+    first_regions: list[tuple[int, int, int, int]] = []  # the differing regions of the first explained step
     for target in targets:
         if target == "start":
             assert entry is not None and start_frame is not None
@@ -648,6 +661,8 @@ def replay_test(
                 trace[entry].last, start_frame, None, inspected.get("start"), crops=crops, images=images
             )
             lines += frame_lines + printed_lines(printed("start"), "make_level")
+            if not first_regions:
+                first_regions = [r.core for r in regions]
             if images and regions:
                 lvl = level if level is not None else from_level
                 img = diff_report.comparison_image(
@@ -667,6 +682,8 @@ def replay_test(
             states=inspected.get(str(k)), crops=crops, images=images, printed=printed(str(k)),
         )
         lines.append(text)
+        if not first_regions:
+            first_regions = [r.core for r in regions]
         if step.index in inspected.get("nondeterministic", []):
             lines.append("    (warning: a second run of your engine gave a different frame here; it is not deterministic)")
         if images and regions and frames is not None and len(frames):
@@ -681,16 +698,13 @@ def replay_test(
         target = targets[0]
         lvl = level if level is not None else from_level
         if target == "start":
-            lines += repro_lines(entry, lvl, "", start=True)
+            lines.append(repro_line(entry, lvl))
         else:
             step = steps[int(target)]
-            lines += repro_lines(step.index, lvl if start_level is not None else None, str(step.action))
+            lines.append(repro_line(step.index, lvl if start_level is not None else None))
     elif error is not None and not targets and result.get("interface") == "simple":
         lvl = level if level is not None else from_level
-        first_index = steps[0].index if steps else 0
-        lines.append(
-            f"  Reproduce in python: before, after = replay_step({first_index}{f', level={lvl}' if lvl else ''})   # shows the error"
-        )
+        lines.append(repro_line(steps[0].index if steps else 0, lvl, "   # shows the error"))
     if limited and targets:
         if compact:
             lines.append(f"  Further failures ({len(compact)}), one line each:")
@@ -728,6 +742,7 @@ def replay_test(
         level=level,
         failures=failures,
         passing_prefix=passing_prefix,
+        signature=failure_signature(first_fail, exact, error, contract, first_regions),
         detail_steps=detail_steps,
         images=report_images,
     )
