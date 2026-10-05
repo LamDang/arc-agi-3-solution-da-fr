@@ -41,6 +41,11 @@ engines and gzipped transcripts are in [results/](results/).
   - **Failures:** lp85 and ls20 analysed for 91-105 minutes before their first
     engine, and vc33 quit at 46 minutes over a one-pixel timer-bar error. See
     [v4](#v4-the-make_levelstep-interface-resultsv4-simple).
+- **Neither did the v5 tools and prompts.** Four trials on lp85 added
+  in-python `read`/`edit`/`undo`, `auto_sprites`, image failure reports and a
+  worked example of the test-edit loop. In 126 turns the agent ran one test
+  and changed `engine.py` zero times. In trial 4 it quoted the instruction to
+  test early and put it off. See [v5](#v5-trials-on-lp85-50-turns).
 
 ## Setup
 
@@ -351,22 +356,29 @@ how the agent works changes.
   was observed with the simplest general rule, start from `auto_sprites(0)`,
   pass the steps in order, and reuse sprite kinds across levels. Details are in
   [README.md](README.md).
-- **Trial 2 adds:** a prompt section naming the built-in functions, a kernel
-  that refuses code which redefines one, a first message that ends with the
-  first move (`auto_sprites(0)` into `make_level`, then `run_tests`), and a
-  retry for answers the provider ends with `finish_reason: error`.
 
-**Setup.** lp85 only, the game where v4 ran 164 turns without writing to
-`engine.py`. Same model and limits except 50 turns, one session each, images on.
-Trial 1 was stopped by hand at turn 34 to fix what it showed. Trial 2 runs the
-fixed harness; the figures below are a snapshot of it while it runs.
+**Four trials.** lp85 only, the game where v4 ran 164 turns without writing to
+`engine.py`. Same model and limits except 50 turns, one session each, images
+on. Each trial changed the prompt after the one before. Their results and
+gzipped transcripts (full reasoning and tool outputs) are in
+[results/v5-trials/](results/v5-trials/).
+
+
+| trial | commit | what it adds | how it ended |
+| --- | --- | --- | --- |
+| 1 | `fc0f08c` | the v5 harness above | stopped by hand at turn 34 |
+| 2 | `7db527b` | a prompt section naming the built-in functions; a kernel that refuses code which redefines one; a first message ending with the first move (`auto_sprites(0)` into `make_level`, then `run_tests`); a retry for answers the provider ends with `finish_reason: error` | stopped by hand at turn 38 |
+| 3 | `d10e41b` | a worked example in the system prompt: the first turns of a session on a made-up game (`run_tests`, `auto_sprites(0)`, `edit()` into `make_level`, `try_step` on the first failure, a fix in `step()`, the next failure) | stopped by hand at turn 4, to change the example's order |
+| 4 | `a655c2a` | the same example, with every round as `read()`, `run_tests`, `edit()`, `run_tests` | reached the 50-turn limit |
 
 **All tokens.**
 
 | session | status | turns | minutes | requests | prompt tokens | of which cached | output tokens | of which reasoning | largest prompt | tests | cost |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | v5 trial 1 | stopped by hand | 34 | 13 | 34 | 1,925,585 | 1,761,536 (91%) | 63,258 | 57,604 (91%) | 114,130 | 1 | $0.076 |
-| v5 trial 2 | running (snapshot) | 33 | 25 | 33 | 2,614,716 | 2,281,728 (87%) | 120,252 | 114,207 (95%) | 141,188 | 0 | $0.143 |
+| v5 trial 2 | stopped by hand | 38 | 29 | 38 | 3,049,459 | 2,697,728 (88%) | 136,407 | 129,532 (95%) | 141,188 | 0 | $0.160 |
+| v5 trial 3 | stopped by hand | 4 | 2 | 4 | 52,673 | 26,368 (50%) | 8,529 | 7,890 (93%) | 17,953 | 0 | $0.008 |
+| v5 trial 4 | turn limit | 50 | 29 | 50 | 4,010,189 | 3,761,664 (94%) | 120,086 | 108,812 (91%) | 140,893 | 0 | $0.154 |
 
 The same sessions at equal turn counts, against v2 and v4 on lp85:
 
@@ -375,13 +387,11 @@ The same sessions at equal turn counts, against v2 and v4 on lp85:
 | v2 | 10 | 4 | 225,070 | 81% | 14,275 | 13,255 | $0.016 |
 | v2 | 20 | 6 | 760,503 | 92% | 20,767 | 18,425 | $0.030 |
 | v2 | 30 | 12 | 1,502,180 | 94% | 42,529 | 38,703 | $0.056 |
-| v2 | 34 | 14 | 1,898,973 | 94% | 50,857 | 46,372 | $0.068 |
 | v2 | 40 | 17 | 2,610,819 | 95% | 65,111 | 59,892 | $0.090 |
 | v2 | 50 | 25 | 3,604,741 | 93% | 97,799 | 90,403 | $0.135 |
 | v4 | 10 | 2 | 192,994 | 80% | 9,200 | 8,387 | $0.013 |
 | v4 | 20 | 10 | 846,064 | 89% | 40,915 | 38,139 | $0.045 |
 | v4 | 30 | 14 | 1,882,238 | 93% | 59,719 | 55,207 | $0.075 |
-| v4 | 34 | 20 | 2,376,193 | 90% | 87,491 | 80,831 | $0.110 |
 | v4 | 40 | 22 | 2,907,624 | 92% | 94,672 | 86,599 | $0.124 |
 | v4 | 50 | 31 | 4,139,997 | 93% | 129,388 | 118,186 | $0.165 |
 | v5 trial 1 | 10 | 3 | 187,125 | 78% | 10,058 | 8,687 | $0.013 |
@@ -391,7 +401,13 @@ The same sessions at equal turn counts, against v2 and v4 on lp85:
 | v5 trial 2 | 10 | 4 | 269,346 | 83% | 17,558 | 15,555 | $0.019 |
 | v5 trial 2 | 20 | 15 | 1,060,308 | 89% | 66,398 | 62,739 | $0.064 |
 | v5 trial 2 | 30 | 24 | 2,324,375 | 88% | 117,368 | 111,866 | $0.129 |
-| v5 trial 2 | 33 | 25 | 2,614,716 | 87% | 120,252 | 114,207 | $0.143 |
+| v5 trial 2 | 38 | 29 | 3,049,459 | 88% | 136,407 | 129,532 | $0.160 |
+| v5 trial 3 | 4 | 2 | 52,673 | 50% | 8,529 | 7,890 | $0.008 |
+| v5 trial 4 | 10 | 4 | 294,379 | 82% | 16,773 | 15,123 | $0.020 |
+| v5 trial 4 | 20 | 10 | 1,005,662 | 91% | 40,737 | 37,262 | $0.047 |
+| v5 trial 4 | 30 | 15 | 2,116,700 | 94% | 60,884 | 55,332 | $0.079 |
+| v5 trial 4 | 40 | 21 | 3,051,232 | 93% | 84,446 | 75,449 | $0.116 |
+| v5 trial 4 | 50 | 29 | 4,010,189 | 94% | 120,086 | 108,812 | $0.154 |
 
 <details><summary>Every turn of trial 1</summary>
 
@@ -472,7 +488,70 @@ The same sessions at equal turn counts, against v2 and v4 on lp85:
 | 31 | 24.4 | 141,188 | 137,472 | 1,022 | 897 |
 | 32 | 24.8 | 73,744 | 17,664 | 1,409 | 1,111 |
 | 33 | 24.9 | 75,409 | 73,728 | 453 | 333 |
-| **33 turns** | 24.9 | 2,614,716 | 2,281,728 | 120,252 | 114,207 |
+| 34 | 26.5 | 78,013 | 75,264 | 7,093 | 6,960 |
+| 35 | 26.9 | 85,644 | 77,824 | 1,482 | 1,301 |
+| 36 | 27.6 | 87,362 | 85,504 | 2,712 | 2,670 |
+| 37 | 28.1 | 90,296 | 87,296 | 2,374 | 2,220 |
+| 38 | 28.7 | 93,428 | 90,112 | 2,494 | 2,174 |
+| **38 turns** | 28.7 | 3,049,459 | 2,697,728 | 136,407 | 129,532 |
+
+</details>
+
+<details><summary>Every turn of trial 4</summary>
+
+| turn | minute | prompt tokens | cached | output tokens | reasoning |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 0.1 | 10,403 | 3,584 | 208 | 57 |
+| 2 | 0.2 | 11,116 | 10,240 | 272 | 79 |
+| 3 | 0.4 | 15,554 | 11,008 | 979 | 885 |
+| 4 | 1.1 | 24,161 | 15,360 | 2,204 | 1,958 |
+| 5 | 1.2 | 26,885 | 24,064 | 281 | 160 |
+| 6 | 2.1 | 30,210 | 26,880 | 3,799 | 3,708 |
+| 7 | 2.5 | 36,866 | 30,208 | 1,513 | 1,124 |
+| 8 | 3.3 | 40,037 | 36,864 | 3,580 | 3,483 |
+| 9 | 3.9 | 44,239 | 39,936 | 2,857 | 2,788 |
+| 10 | 4.2 | 54,908 | 44,032 | 1,080 | 881 |
+| 11 | 4.3 | 56,369 | 54,784 | 169 | 89 |
+| 12 | 4.6 | 57,410 | 56,320 | 1,117 | 948 |
+| 13 | 5.8 | 59,221 | 57,344 | 4,594 | 4,244 |
+| 14 | 7.4 | 65,078 | 59,136 | 6,754 | 6,594 |
+| 15 | 7.5 | 72,034 | 65,024 | 240 | 121 |
+| 16 | 7.6 | 73,144 | 71,936 | 437 | 258 |
+| 17 | 8.2 | 74,279 | 72,960 | 3,223 | 2,944 |
+| 18 | 8.6 | 81,635 | 74,240 | 1,488 | 1,282 |
+| 19 | 9.3 | 83,695 | 81,408 | 2,856 | 2,671 |
+| 20 | 10.0 | 88,418 | 83,456 | 3,086 | 2,988 |
+| 21 | 10.4 | 92,996 | 88,320 | 1,451 | 1,300 |
+| 22 | 11.2 | 96,032 | 92,928 | 3,506 | 3,389 |
+| 23 | 12.0 | 101,003 | 96,000 | 2,896 | 2,724 |
+| 24 | 12.9 | 107,289 | 100,864 | 4,145 | 3,943 |
+| 25 | 13.1 | 112,383 | 107,264 | 935 | 695 |
+| 26 | 13.4 | 113,460 | 112,128 | 1,227 | 765 |
+| 27 | 14.3 | 117,618 | 113,408 | 3,635 | 3,552 |
+| 28 | 14.5 | 121,646 | 117,504 | 429 | 177 |
+| 29 | 14.6 | 123,418 | 121,600 | 400 | 248 |
+| 30 | 14.9 | 125,193 | 123,392 | 1,523 | 1,277 |
+| 31 | 15.1 | 126,911 | 125,184 | 855 | 545 |
+| 32 | 15.6 | 130,091 | 126,720 | 1,827 | 1,625 |
+| 33 | 17.1 | 133,669 | 130,048 | 6,846 | 6,656 |
+| 34 | 18.2 | 140,893 | 133,632 | 4,905 | 4,557 |
+| 35 | 18.6 | 59,387 | 10,496 | 1,075 | 989 |
+| 36 | 19.9 | 60,843 | 59,136 | 5,203 | 4,591 |
+| 37 | 20.1 | 68,077 | 60,672 | 678 | 150 |
+| 38 | 20.2 | 69,850 | 67,840 | 659 | 309 |
+| 39 | 20.6 | 71,191 | 69,632 | 1,301 | 581 |
+| 40 | 20.7 | 73,620 | 71,168 | 213 | 114 |
+| 41 | 20.8 | 73,862 | 73,472 | 547 | 165 |
+| 42 | 21.3 | 75,231 | 73,728 | 1,923 | 1,418 |
+| 43 | 22.1 | 78,766 | 75,008 | 3,057 | 2,898 |
+| 44 | 22.9 | 87,550 | 78,592 | 3,618 | 3,374 |
+| 45 | 25.0 | 93,881 | 87,296 | 8,463 | 8,368 |
+| 46 | 25.3 | 103,261 | 93,696 | 1,317 | 1,090 |
+| 47 | 25.4 | 108,387 | 103,168 | 432 | 196 |
+| 48 | 26.2 | 109,310 | 108,288 | 3,238 | 3,139 |
+| 49 | 26.9 | 112,828 | 109,056 | 2,709 | 2,602 |
+| 50 | 29.1 | 115,881 | 112,640 | 10,336 | 10,113 |
+| **50 turns** | 29.1 | 4,010,189 | 3,761,664 | 120,086 | 108,812 |
 
 </details>
 
@@ -489,13 +568,13 @@ The same sessions at equal turn counts, against v2 and v4 on lp85:
     were counted as turns.
   - **Where the analysis went.** Level 0's ring rule at turn 11, then the first
     frames of levels 1-7, then the budget bar over every level.
-- **Trial 2 (snapshot at turn 30, 24 minutes).**
+- **Trial 2 (38 turns, 29 minutes).**
   - **A good start.** Turn 1 was `auto_sprites(0)`: it printed sprite code that
     redraws level 0's first frame exactly. At turn 3 it tried to define `show`,
     the kernel refused to run it, and at turn 4 it renamed its function.
   - **Then the same habit.** It analysed level 0 on turns 2-11, then moved to
     the first frames of every level, level 1's rings, level 2's rings and
-    level 3, and by turn 30 had not called `edit()` or `run_tests` once. The
+    level 3, and in 38 turns never called `edit()` or `run_tests`. The
     `auto_sprites` code from turn 1 was never put into `engine.py`.
   - **Twice the tokens.** At turn 30 it had written 117,368 output
     tokens, against 59,719 for v4 and 54,763 for trial 1 at the same turn. Four
@@ -505,17 +584,50 @@ The same sessions at equal turn counts, against v2 and v4 on lp85:
   - **A cache miss at turn 23.** The prompt reached 141,095 tokens at turn 22,
     the harness cut old tool outputs, and the next request (107,055 tokens)
     had only 9,984 of them cached.
+- **Trial 3 (4 turns).** It began with "Let me start by exploring the
+  recording", not with the example's first call, and was printing frame
+  differences by turn 4. Stopped there to put `read()` first in the example.
+- **Trial 4 (50 turns, 29 minutes).**
+  - **No test, no edit, no `auto_sprites`.** All 52 tool calls were python
+    analysis; `engine.py` ended as it started and the final replay matched 0 of
+    120 steps.
+  - **Why `read()` did not start it.** The first message already contains
+    `engine.py` with its anchors (276 lines, 216 of them the fixed block), and
+    the example's one-line pointer comes after it. At turn 1 the agent noted
+    the file was "already shown" and dropped the sequence with that step.
+  - **It read the rules and deferred them.** After the harness's reminder at
+    turn 30 (30 turns without a test), turn 31's reasoning: "But the
+    instructions say to run tests early. Let me do a quick auto_sprites for
+    level 0 and run tests to establish the baseline, then continue analysis.
+    Let me be efficient: do the analysis of all levels first (a few tool
+    calls), then write the engine, then test."
+  - **What it worked out.** Most of the game, by hand: the rings of blocks
+    that each arrow turns by one place, arrow colour as direction, the bracket
+    targets, the time bar (5 pixels a click in level 0, 1 afterwards, refilled
+    on a new level) and the level markers. It wrote six frame parsers on the
+    way (turns 7, 13, 26, 34, 37 and 39), each a partial `auto_sprites`, and
+    repeatedly miscounted columns in printed frames.
+  - **Tokens.** 120,086 output tokens, 7% fewer than v4 at 50 turns; the
+    longest turn (50) wrote 10,336.
 
-**So far.** The new tools work: the image went through the provider, the
+**Conclusion.** The new tools work: the image went through the provider, the
 reserved-name rule fired and the agent recovered in one turn, and
-`auto_sprites` drew the first frame exactly. The prompt change did not change
-the habit: in both trials the agent analysed every level before writing, and in
-trial 2 it did so with more thinking per turn.
+`auto_sprites` drew the first frame exactly. No prompt change moved the agent
+off its habit of analysing every level before writing: not the rules, not the
+first message, not a worked example in two orders, not the harness's reminder.
+Turn 31 of trial 4 shows it reads the instructions and chooses to put them
+off, so the order has to come from the harness, not the prompt.
 
-Candidates, not tried yet: start `engine.py` with level 0 already in place
-(the harness runs `auto_sprites(0)` and applies it, so the first report is about
-step 1), and show the agent only the levels the tests have reached, plus the
-next one.
+Next, not tried yet:
+- **The harness plays the opening.** It runs the tests, writes
+  `auto_sprites(0)` into `make_level` and tests again; the first message shows
+  that edit, the agent's part of `engine.py` (the fixed block folded) and the
+  first failing step with its images.
+- **A short analysis quota.** The python tool pauses after a few calls (5-8)
+  that leave `engine.py` unchanged and resumes on the next edit. The harness
+  supports this already (`--python-quota N`); these trials ran without it.
+- **Only the levels reached.** Show the agent the levels the tests have
+  reached, plus the next one.
 <!-- v5-trials:end -->
 
 ## Caveats
@@ -550,6 +662,6 @@ uv run --no-sync python -m engine_re.run_experiment --run-dir runs/20261004_1355
 uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine best --rollouts 8 --length 40
 ```
 
-These commands run the current harness (v5, not yet evaluated). To rerun an earlier configuration exactly, check out its commit first: `41df359` for v4, or `cd76c9d` for v2 and v3, adding `--python-quota 30` for v3. Before running a generated
+These commands run the current harness (v5; its lp85 trials used `--games lp85 --max-turns 50`, each at the commit given in the [v5 section](#v5-trials-on-lp85-50-turns)). To rerun an earlier configuration exactly, check out its commit first: `41df359` for v4, or `cd76c9d` for v2 and v3, adding `--python-quota 30` for v3. Before running a generated
 engine yourself, copy `results/<config>/<game>/engine_best.py` into a game
 directory.

@@ -1,0 +1,37 @@
+{
+  "game": "lp85",
+  "model": "qwen/qwen3.8-flash",
+  "status": "running",
+  "turns": 4,
+  "minutes": 1.7,
+  "usage": {
+    "requests": 4,
+    "prompt_tokens": 52673,
+    "completion_tokens": 8529,
+    "reasoning_tokens": 7890,
+    "cached_tokens": 26368,
+    "cost_usd": 0.008376268,
+    "max_prompt_tokens": 17953
+  },
+  "tool_calls": {
+    "python": 6
+  },
+  "tests_run": 0,
+  "first_pass_turn": null,
+  "best": null,
+  "final": null,
+  "finish_summary": null,
+  "finish_calls": 0,
+  "error": null,
+  "trace_steps": 120,
+  "resumes": 0,
+  "nudges": 0,
+  "auto_tests": 0,
+  "python_paused": 0,
+  "engine_changes": 0,
+  "match": "final",
+  "interface": "simple",
+  "images": true,
+  "image_messages": 1,
+  "provider_errors": 0
+}
