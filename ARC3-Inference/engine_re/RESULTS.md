@@ -33,6 +33,14 @@ engines and gzipped transcripts are in [results/](results/).
     turn, testing `engine.py` automatically whenever it changes, and a
     reminder after 30 turns without a test.
   - The model called `run_tests` itself in only 2 of 69 tests.
+- **A simpler engine interface (v4) did not fix how the agent works.** With
+  `make_level`/`step` on fixed sprite classes, and only each action's final
+  frame compared:
+  - **Passes:** ft09 passed in 22 minutes for $0.14, the fastest and cheapest
+    pass of any configuration, and sp80 passed too.
+  - **Failures:** lp85 and ls20 analysed for 91-105 minutes before their first
+    engine, and vc33 quit at 46 minutes over a one-pixel timer-bar error. See
+    [v4](#v4-the-make_levelstep-interface-resultsv4-simple).
 
 ## Setup
 
@@ -186,6 +194,7 @@ same five games (all in `results/`):
 | [pilot B](results/pilot-b-nudges) | + a reminder after 30 turns without a test (archived traces from here on) | no test in about 59 min per game ($1.02); interrupted once and resumed |
 | [v2 main](results/v2-main) | + reasoning sent back each turn, an automatic test when `engine.py` changes, `notes.md` | **3/5 pass**, $3.09 |
 | [v3](results/v3-python-quota) | v2 + Python pauses after 30 calls without an engine change | 2/5 pass (ft09, sp80), $3.43 |
+| [v4](results/v4-simple) | v2's feedback, but a new interface: `make_level`/`step` on fixed sprite classes, the harness draws and runs the levels, only each action's final frame is compared, 5 contract tests | 2/5 pass (ft09, sp80), $2.77 |
 
 - **Reasoning.** Sending the reasoning back mattered. The provider reads it
   (358 vs 2,159 prompt tokens with a 1.8K-token reasoning block), and without
@@ -201,6 +210,121 @@ same five games (all in `results/`):
   tool-call arguments with an `elided` key. The ls20 agent copied that shape
   and some of its calls failed. The fix keeps each tool's own keys; it came
   after the runs above.
+
+## v4: the make_level/step interface (`results/v4-simple`)
+
+**What changed from v2.**
+- **The engine:** `engine.py` is no longer a subclass of the real games'
+  base class. It starts with a fixed block: `Sprite`, `Action`, `View` and
+  `State` classes with layers, visibility, collision modes, transforms,
+  `try_move` and `sprite_at`, plus the drawing rules. Below it the agent
+  writes two functions:
+  - `make_level(n)`, the state at the start of a level;
+  - `step(state, action)`, which applies one action.
+- **The harness** draws the state, runs the levels, RESET, WIN and GAME_OVER,
+  and turns clicks into grid cells.
+- **Pass criterion:** every action's final frame and the game state must match.
+  Animation frames are no longer compared. 5 contract tests run before the
+  replay.
+- **Unchanged:** the model, the recording, the budgets and v2's feedback
+  (reasoning sent back, automatic tests, a reminder every 30 turns). The prompt
+  was rewritten for the new interface.
+- **The interface can express all five games.** Before the run, five reference
+  engines written in it by Claude subagents (not committed) reproduced every
+  recorded step and 100% of held-out play.
+
+| game | status | recorded steps exact | held-out (v2) | first tested engine: turn, minute (v2) | turns | minutes | output tokens | cost |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| ft09 | **passed** | 101/101 | 86% (85%) | 62, 21 (82, 36) | 64 | 22 | 87,930 | $0.14 |
+| sp80 | **passed** | 112/112 | 74% (91%) | 69, 51 (83, 60) | 114 | 85 | 352,426 | $0.47 |
+| vc33 | gave up | 5/332 | 5% (42%) | 79, 29 (151, 70) | 123 | 46 | 183,905 | $0.33 |
+| lp85 | time limit | 0/120, crashes on load | 0% (54%) | 167, 105 (139, 75) | 194 | 115 | 470,502 | $0.82 |
+| ls20 | time limit | 0/867, crashes on load | 0% (3%) | 182, 91 (98, 41) | 229 | 115 | 459,012 | $1.01 |
+| **total** | 2/5 | | | | 724 | 383 | 1,553,775 | $2.77 |
+
+**What happened.** The transcripts can be read turn by turn in
+[`results/v4_transcripts/v4-agent-transcripts.html`](results/v4_transcripts/v4-agent-transcripts.html),
+annotated for ls20, lp85 and vc33.
+- **ft09 and sp80 passed.**
+  - ft09 passed two turns after its first test: two crashes, then 101/101.
+  - sp80 went from 60/112 at turn 70 to 112/112 at turn 114.
+- **vc33 quit with 69 minutes left, over one pixel.**
+  - **What it got right:** levels 0 and 1 played correctly.
+  - **What failed:** the timer bar on row 0 was one pixel off on almost every
+    step. The real bar is `round(64 × remaining / budget)`, with budgets of 50,
+    75 and 200 clicks.
+  - **How close it was:** the agent measured the drain rates exactly (1.28,
+    0.85 and 0.32 px per click), but tried only `floor`. It concluded the bar
+    was a wall clock.
+  - **Why it stopped:** at turn 109 it reasoned "even if I implement
+    everything, the bar blocks matching. So extra work yields ~0". It then
+    called `finish` twice, saying its context was "nearly exhausted (~5k
+    left)".
+- **lp85 and ls20 analysed until the time limit.**
+  - **Python only:** they used nothing but python until turns 164 and 182, and
+    ignored 5 and 6 reminders.
+  - **One big generator, never finished:** both planned a single script that
+    would write every level's data and logic at once.
+    - lp85's only test crashed: `make_level` reads a `LEVELS` table that was
+      never written.
+    - ls20's first engine imports a module that does not exist. Its last one
+      runs but matches 0/867, and it had edited the fixed block.
+  - **ls20 had the answer:** by turn 177 it had essentially found the
+    key-shape rules (a 90-degree turn, and a fixed cycle of 6 shapes). It kept
+    doubting them after an arithmetic slip in its reasoning.
+- **They think their context is running out.**
+  - ls20 says so at turns 151, 160 and 220; vc33 at turns 74, 115 and 123.
+  - In fact the harness compacts old tool outputs once a prompt passes 140K
+    tokens, so their context never ran out. Their prompts peaked at 143K-190K
+    tokens.
+  - The belief makes them put off writing ("let me write it all in one go") or
+    stop.
+- **26 tests in total (v2: 69).** All but one were the harness's automatic
+  tests.
+
+**Held-out play.** Each cause below was confirmed by patching a copy of the
+candidate engine and replaying `evaluate.py`'s rollouts. Details are in
+[results/analysis/v4-ft09.md](results/analysis/v4-ft09.md) and
+[results/analysis/v4-sp80.md](results/analysis/v4-sp80.md).
+- **ft09 (86%): one cause, the same as in v2.** The three example pictures on
+  level 0 are clickable tiles in the candidate.
+  - The recording never clicked them; at turn 38 the agent decided, without
+    evidence, that they count.
+  - Making them unclickable gives 1920/1920.
+- **sp80 (74%): three rules differ.** With all three fixed: 644/644, and the
+  recording still passes.
+  - **Side walls (28% of the gap, new in v4):** invisible walls stop boards
+    one column short of the screen edge. The agent misread two blocked "up"
+    moves as blocked "left" moves.
+  - **Failed-spill counter (2%):** the 5th failed spill ends the game. The
+    recording showed this twice; the agent proposed the rule, then dropped it
+    because it misread a GAME_OVER as a no-op.
+  - **Re-selection (70%):** after a failed spill the agent re-selects the
+    highest bar the paint touched. The real game takes the platform nearest the
+    origin. The recording cannot tell these rules apart.
+- **The same kind of failure as v2:** a rule fitted to the recorded events
+  instead of the general one.
+
+**What v4 shows.**
+- **The interface is not the obstacle.** It expresses every game, and ft09
+  passed faster than ever.
+- **The failures come from how the agent works:**
+  - no early tests, so no feedback;
+  - a one-pixel display error that fails every step, so no reward for fixing
+    the rest;
+  - a `finish` tool that lets the agent leave.
+- **Next (v5, in progress):**
+  - **Tools:** only `python`, `run_tests` and `finish`.
+    - `finish` runs the tests and ends the session only when all pass.
+    - `read`/`edit`/`undo` run inside python, address lines by anchors, and
+      cannot change the fixed block.
+  - **Failure report:** `run_tests` stops at the first failure and shows both
+    frames as images, with the differing regions boxed. It also lists the
+    agent's sprites in each region, what `step()` printed, and a one-line
+    reproduction (`try_step`).
+  - **Generated code:** `auto_sprites` writes sprite code for a level layout,
+    and `show` displays frames as images.
+  - **Prompt:** goal, setup, drawing rules, tests and tools.
 
 ## Caveats
 
@@ -234,6 +358,6 @@ uv run --no-sync python -m engine_re.run_experiment --run-dir runs/20261004_1355
 uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine best --rollouts 8 --length 40
 ```
 
-Add `--python-quota 30` for the v3 configuration. Before running a generated
+These commands now run the v4 configuration. To rerun v2 or v3 exactly, check out commit `cd76c9d` (before the v4 changes) and run the same commands, adding `--python-quota 30` for v3. Before running a generated
 engine yourself, copy `results/<config>/<game>/engine_best.py` into a game
 directory.

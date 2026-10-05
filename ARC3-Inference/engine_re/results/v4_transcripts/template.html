@@ -1,0 +1,440 @@
+<title>v4 Agent Transcripts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reading console. Game tabs, a turn-by-turn event strip, then a key-moments index beside the turn log. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --sunk: #eef1f5;
+  --fg: #19202b;
+  --muted: #5a6475;
+  --line: #d9dee6;
+  --accent: #1e6fd9;
+  --note-bg: #fff4e6;
+  --note-fg: #7a3b00;
+  --harness-bg: #eef6ff;
+  --harness-fg: #10345f;
+  /* ARC palette, used for event kinds */
+  --arc-grey: #8a93a3;
+  --arc-blue: #1e93ff;
+  --arc-green: #3fae2a;
+  --arc-red: #e5372d;
+  --arc-yellow: #f2c400;
+  --arc-purple: #a356d6;
+  --arc-orange: #ff851b;
+  --font-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.1rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+    --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+    --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c; --arc-yellow: #ffdc00;
+    --arc-purple: #b77ae6; --arc-orange: #ff9a45;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+  --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+  --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c; --arc-yellow: #ffdc00;
+  --arc-purple: #b77ae6; --arc-orange: #ff9a45;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--step-0); line-height: 1.55; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 64px; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: var(--step-3); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 600; }
+.lede { color: var(--muted); max-width: 72ch; margin: 6px 0 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 8px 14px; display: grid; gap: 2px; text-align: left; }
+.tab b { font-family: var(--font-display); font-size: var(--step-1); }
+.tab span { font-size: var(--step--1); color: var(--muted); }
+.tab[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tab:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-size: var(--step-0); }
+.verdict { max-width: 80ch; margin: 0; }
+.strip-box { display: grid; gap: 6px; }
+.strip { display: flex; align-items: flex-end; height: 46px; gap: 1px; background: var(--sunk); border-radius: 6px; padding: 4px; overflow: hidden; }
+.strip button { flex: 1 1 0; min-width: 0; border: 0; padding: 0; cursor: pointer; border-radius: 1px; background: var(--arc-grey); height: 30%; opacity: 0.55; }
+.strip button.k-edit { background: var(--arc-blue); height: 60%; opacity: 1; }
+.strip button.k-nudge { background: var(--arc-yellow); height: 75%; opacity: 1; }
+.strip button.k-test-ok { background: var(--arc-green); height: 100%; opacity: 1; }
+.strip button.k-test-bad { background: var(--arc-red); height: 100%; opacity: 1; }
+.strip button.k-finish { background: var(--arc-purple); height: 100%; opacity: 1; }
+.strip button.noted { box-shadow: inset 0 3px 0 var(--arc-orange); }
+.axis { display: flex; justify-content: space-between; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--step--1); color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.cols { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } .index { position: static !important; max-height: none !important; } }
+.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: auto; display: grid; gap: 4px; align-content: start; padding-right: 4px; }
+.index h3 { font-size: var(--step-0); font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 6px 0 4px; }
+.moment { font: inherit; text-align: left; border: 0; background: none; color: var(--fg); cursor: pointer; padding: 6px 8px; border-radius: 6px; display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 6px; font-size: var(--step--1); line-height: 1.4; }
+.moment:hover { background: var(--sunk); }
+.moment .tn { font-family: var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.moment .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.log { display: grid; gap: 14px; min-width: 0; }
+.wrap > *, .log > *, .turn > *, .block > *, .cols > * { min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; }
+.controls input[type="search"] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.controls label { display: inline-flex; gap: 6px; align-items: center; font-size: var(--step--1); color: var(--muted); cursor: pointer; }
+.count { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.given { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.given summary { cursor: pointer; font-weight: 700; }
+.turn { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; min-width: 0; scroll-margin-top: 80px; }
+.turn.flash { box-shadow: 0 0 0 2px var(--accent); }
+.thead { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.thead h3 { font-size: var(--step-1); font-family: var(--font-display); }
+.thead .meta { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip { font-size: 0.75rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--sunk); color: var(--fg); letter-spacing: 0.02em; }
+.chip.c-python::before, .chip.c-edit::before, .chip.c-test::before, .chip.c-nudge::before, .chip.c-finish::before, .chip.c-bad::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.chip.c-python::before { background: var(--arc-grey); }
+.chip.c-edit::before { background: var(--arc-blue); }
+.chip.c-test::before { background: var(--arc-green); }
+.chip.c-bad::before { background: var(--arc-red); }
+.chip.c-nudge::before { background: var(--arc-yellow); }
+.chip.c-finish::before { background: var(--arc-purple); }
+.note { background: var(--note-bg); color: var(--note-fg); border-radius: 6px; padding: 8px 10px; font-size: var(--step--1); }
+.note b { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; margin-right: 6px; }
+.reason { color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.content { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.lbl { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; }
+.block { display: grid; gap: 4px; min-width: 0; }
+pre.code { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; background: var(--sunk); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre; tab-size: 4; }
+pre.out { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre; }
+.harness { background: var(--harness-bg); color: var(--harness-fg); border-radius: 6px; padding: 8px 10px; }
+.harness pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 0.76rem; white-space: pre; overflow-x: auto; }
+.more { font: inherit; font-size: var(--step--1); border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; justify-self: start; }
+mark { background: var(--arc-yellow); color: #19202b; border-radius: 2px; }
+.loading { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .turn.flash { transition: box-shadow 0.3s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>v4 Agent Transcripts</h1>
+    <p class="lede">The three sessions that failed in the v4 run (5 Oct 2026): qwen3.8-flash reverse-engineering ARC-AGI-3 game engines with the make_level/step interface. Every turn: the end of the model's reasoning (its decision), the code it ran, what came back, and what the harness added. Orange notes are my annotations.</p>
+  </header>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <section id="game" aria-live="polite"><p class="loading">Unpacking transcripts…</p></section>
+</div>
+
+<script type="application/octet-stream" id="data">__DATA__</script>
+<script>
+const NOTES = {
+  ls20: {
+    1: "Starts exploring: the maze, the player (a 5x5 orange-over-blue block), the budget bar at the bottom and the key icon box bottom-left.",
+    20: "Finds that stepping on a small white/grey object changes the key icon. The core mechanic is found early.",
+    40: "Tracks the player and the budget bar through level 1 by hand-written finders.",
+    62: "Starts hunting a rule for how the key icon's shape changes. This goes on for over 100 turns.",
+    90: "Studies the pushers (17-frame animations).",
+    121: "\"OK, time to write code.\" It does not.",
+    151: "\"I'm running low on context. Let me now write the engine with what I have and iterate using run_tests.\" It does not. The harness compacts old outputs; context was not running out.",
+    160: "\"I'm running low on context. Let me now WRITE THE ENGINE\". Still more analysis.",
+    170: "\"Given time constraints, let me now write engine.py with what I have\". Still more analysis.",
+    177: "Its own D4 fit shows every type-A change is a 90-degree rotation (the real rule), yet it keeps doubting it after an arithmetic slip at turn 175.",
+    178: "Stores the type-B shape transitions as a table. In the real game this is a fixed cycle of 6 shapes, which its table already is.",
+    182: "First engine, at 91 min: it imports `.leveldata`, a module that does not exist, so it crashes on load.",
+    199: "Decides to generate the whole file from python, fixed block included.",
+    206: "The generated file has a syntax error (missing separator between two tables).",
+    211: "First engine that runs: 0/867. It also edited the fixed block (contract 4/5).",
+    220: "\"I'm nearly out of context. Let me write the engine now ... and iterate via run_tests\". No further test before the time limit.",
+    229: "Time limit (115 min)."
+  },
+  lp85: {
+    1: "Starts exploring the recording.",
+    10: "Reads the HUD: a budget bar in screen column 0 and level ticks in row 1.",
+    30: "Understands the core mechanic: a click on an arrow rotates cell colours along a ring.",
+    32: "\"Let me record my findings and start building the engine.\" Writes notes.md, but not the engine.",
+    42: "Lists five candidate rules and tests them in code at once.",
+    61: "Starts inferring each arrow's cell permutation from before/after frames, for all 8 levels.",
+    90: "Neighbouring cells of the same colour make the inference ambiguous.",
+    103: "Has the budgets per level. \"Now let me write the engine generator script.\" It does not.",
+    121: "Mixes up which steps clicked which arrow (corrected at turn 131).",
+    160: "\"Let me write the simulation/verification in Python first (not engine.py) ... then emit engine.py.\"",
+    164: "First edit to engine.py, at about 104 min.",
+    167: "write_engine: make_level reads LEVELS, which the generator never produced. Its only test crashes at step 0.",
+    194: "\"Let me now write the generator script that produces engine.py. I'll do it in one go.\" Time limit (115 min)."
+  },
+  vc33: {
+    1: "Starts exploring the recording.",
+    19: "Checks whether the frame has a border: a 32x32 grid at scale 2 fills the whole screen.",
+    74: "\"I'm running low on context. Let me write the engine now with L0 modeled and L1-L6 static\". Builds it in python as engine_new.py.",
+    79: "Copies engine_new.py over engine.py. First automatic test: 3/332. Levels 0-1 play right, but the row-0 timer bar is off by a pixel on almost every step.",
+    96: "\"L0 logic perfect!\" The only difference left on level 0 is the bar.",
+    105: "\"Too complex for the remaining budget. Let me finalize.\" This is at 41 of 115 minutes.",
+    109: "\"Even if I implement everything, the bar blocks matching. So extra work yields ~0.\" The bar is round(64 x remaining / budget); it measured the rates (1.28, 0.85, 0.32 px per click) but only tried floor.",
+    115: "First finish: \"my context is essentially exhausted\". The harness replies that not every step matches and asks it to continue.",
+    116: "Tries level 2 for a few turns.",
+    123: "Second finish: \"my context is nearly exhausted (~5k left)\". The session ends at 46 min, with 69 minutes of budget unused."
+  }
+};
+
+const LABEL = { budget_time: "time limit", finished: "gave up", passed: "passed", budget_turns: "turn limit" };
+let DATA = null, current = null;
+
+async function unpack() {
+  const b64 = document.getElementById("data").textContent.trim();
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return JSON.parse(await new Response(stream).text());
+}
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) e.append(kid);
+  return e;
+}
+
+function argsOf(call) {
+  try { return JSON.parse(call.args || "{}"); } catch { return { raw: call.args }; }
+}
+
+function testInfo(turn) {
+  if (!turn.tests) return null;
+  const t = turn.tests[turn.tests.length - 1];
+  const bad = !!t.error || t.exact === 0;
+  return { bad, text: `${t.auto ? "auto test" : "run_tests"}: ${t.exact}/${t.total}` + (t.error ? ` · ${t.error}` : ""), t };
+}
+
+function kindOf(turn) {
+  const names = turn.calls.map((c) => c.name);
+  const ti = testInfo(turn);
+  if (names.includes("finish")) return "finish";
+  if (ti) return ti.bad ? "test-bad" : "test-ok";
+  if (names.some((n) => n === "write_engine" || n === "edit_engine")) return "edit";
+  if (turn.harness.some((h) => h.kind === "nudge")) return "nudge";
+  return "python";
+}
+
+function collapsible(text, cls, maxLines) {
+  const lines = text.split("\n");
+  const pre = el("pre", { class: cls });
+  const box = el("div", { class: "block" }, pre);
+  if (lines.length <= maxLines) { pre.textContent = text; return box; }
+  pre.textContent = lines.slice(0, maxLines).join("\n");
+  const btn = el("button", { class: "more", type: "button", text: `Show all ${lines.length} lines` });
+  btn.addEventListener("click", () => {
+    const open = btn.dataset.open === "1";
+    pre.textContent = open ? lines.slice(0, maxLines).join("\n") : text;
+    btn.textContent = open ? `Show all ${lines.length} lines` : "Show less";
+    btn.dataset.open = open ? "0" : "1";
+  });
+  box.append(btn);
+  return box;
+}
+
+function renderTurn(game, turn, opts) {
+  const ti = testInfo(turn);
+  const note = NOTES[game][turn.t];
+  const head = el("div", { class: "thead" },
+    el("h3", { text: `Turn ${turn.t}` }),
+    el("span", { class: "meta", text: `${(turn.min ?? 0).toFixed(1)} min · prompt ${Math.round((turn.tok[0] || 0) / 1000)}K tok · reasoning ${turn.reasoning.length.toLocaleString()} chars` }));
+  for (const c of turn.calls) {
+    const cls = c.name === "python" ? "c-python" : c.name === "finish" ? "c-finish" : c.name === "run_tests" ? "c-test" : "c-edit";
+    head.append(el("span", { class: `chip ${cls}`, text: c.name }));
+  }
+  if (ti) head.append(el("span", { class: `chip ${ti.bad ? "c-bad" : "c-test"}`, text: ti.text.length > 70 ? ti.text.slice(0, 70) + "…" : ti.text }));
+  if (turn.harness.some((h) => h.kind === "nudge")) head.append(el("span", { class: "chip c-nudge", text: "reminder" }));
+
+  const card = el("article", { class: "turn", id: `${game}-t${turn.t}` }, head);
+  if (note) card.append(el("div", { class: "note" }, el("b", { text: "Note" }), note));
+
+  if (opts.reasoning && turn.reasoning) {
+    const tail = turn.reasoning.length > 700 ? "…" + turn.reasoning.slice(-700) : turn.reasoning;
+    const p = el("p", { class: "reason", text: tail });
+    const box = el("div", { class: "block" }, el("span", { class: "lbl", text: "Reasoning (end)" }), p);
+    if (turn.reasoning.length > 700) {
+      const btn = el("button", { class: "more", type: "button", text: "Show the full reasoning" });
+      btn.addEventListener("click", () => {
+        const open = btn.dataset.open === "1";
+        p.textContent = open ? tail : turn.reasoning;
+        btn.textContent = open ? "Show the full reasoning" : "Show only the end";
+        btn.dataset.open = open ? "0" : "1";
+      });
+      box.append(btn);
+    }
+    card.append(box);
+  }
+  if (turn.content && turn.content.trim()) {
+    card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: "Message" }), el("p", { class: "content", text: turn.content.trim() })));
+  }
+  turn.calls.forEach((c, i) => {
+    const a = argsOf(c);
+    if (opts.code) {
+      let body;
+      if (c.name === "python") body = a.code ?? a.raw ?? "";
+      else if (c.name === "write_engine") body = a.content ?? "";
+      else if (c.name === "edit_engine") body = `--- old_str\n${a.old_str ?? ""}\n+++ new_str\n${a.new_str ?? ""}`;
+      else if (c.name === "finish") body = a.summary ?? "";
+      else body = JSON.stringify(a, null, 2);
+      card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: `Call: ${c.name}` }), collapsible(body, "code", 18)));
+    }
+    if (opts.outputs && turn.outputs[i] != null) {
+      card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: "Output" }), collapsible(turn.outputs[i], "out", 14)));
+    }
+  });
+  for (const h of turn.harness) {
+    const lines = h.text.split("\n");
+    const pre = el("pre", { text: lines.slice(0, 40).join("\n") + (lines.length > 40 ? "\n…" : "") });
+    card.append(el("div", { class: "harness" }, el("span", { class: "lbl", text: h.kind === "auto" ? "Harness: automatic test" : "Harness: reminder" }), pre));
+  }
+  return card;
+}
+
+function matches(turn, q) {
+  if (!q) return true;
+  const hay = [turn.reasoning, turn.content, ...turn.calls.map((c) => c.args), ...turn.outputs, ...turn.harness.map((h) => h.text)].join("\n").toLowerCase();
+  return hay.includes(q);
+}
+
+function remember(key, value) { try { localStorage.setItem(key, value); } catch {} }
+function recall(key) { try { return localStorage.getItem(key); } catch { return null; } }
+
+function jumpTo(game, t) {
+  const node = document.getElementById(`${game}-t${t}`);
+  if (!node) return false;
+  node.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  node.classList.add("flash");
+  setTimeout(() => node.classList.remove("flash"), 1400);
+  return true;
+}
+
+function showGame(game, focusTurn) {
+  current = game;
+  remember("v4-transcripts-game", game);
+  for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.game === game ? "true" : "false");
+  const g = DATA.games[game];
+  const m = g.meta;
+  const root = document.getElementById("game");
+  root.replaceChildren();
+
+  const stats = el("div", { class: "stats" });
+  for (const [k, v] of [["result", `${LABEL[m.status] || m.status}`], ["best", `${m.best}/${m.steps} steps`], ["turns", m.turns], ["minutes", Math.round(m.minutes)],
+    ["tests", m.tests], ["output tokens", `${Math.round(m.out / 1000)}K`], ["cost", `$${m.cost.toFixed(2)}`]]) {
+    stats.append(el("span", {}, `${k} `, el("b", { text: String(v) })));
+  }
+  root.append(el("div", { class: "block" }, el("h2", { text: game }), stats));
+  if (m.finish) root.append(el("p", { class: "verdict" }, el("b", { text: "Its finish summary: " }), m.finish.length > 600 ? m.finish.slice(0, 600) + "…" : m.finish));
+
+  // Event strip: one bar per turn.
+  const strip = el("div", { class: "strip", role: "list", "aria-label": "Turns, coloured by what happened" });
+  for (const turn of g.turns) {
+    const k = kindOf(turn);
+    const b = el("button", { type: "button", class: `k-${k}${NOTES[game][turn.t] ? " noted" : ""}`, title: `Turn ${turn.t} (${(turn.min ?? 0).toFixed(0)} min): ${k.replace("-", " ")}`, "aria-label": `Turn ${turn.t}` });
+    b.addEventListener("click", () => jumpOrReveal(game, turn.t));
+    strip.append(b);
+  }
+  const last = g.turns[g.turns.length - 1];
+  const axis = el("div", { class: "axis" }, el("span", { text: "turn 1 · 0 min" }), el("span", { text: `turn ${last.t} · ${Math.round(last.min)} min` }));
+  const legend = el("div", { class: "legend" });
+  for (const [c, t] of [["--arc-grey", "python only"], ["--arc-blue", "engine edited"], ["--arc-green", "test, some steps match"], ["--arc-red", "test crashed or 0 steps"], ["--arc-yellow", "harness reminder"], ["--arc-purple", "finish"], ["--arc-orange", "annotated (top edge)"]]) {
+    const i = el("i"); i.style.background = `var(${c})`; legend.append(el("span", {}, i, t));
+  }
+  root.append(el("div", { class: "strip-box" }, strip, axis, legend));
+
+  // What the agent was given.
+  const given = el("details", { class: "given" }, el("summary", { text: "What the agent was given: system prompt and first message" }),
+    el("div", { class: "block" }, el("span", { class: "lbl", text: "System prompt" }), collapsible(DATA.system, "out", 30)),
+    el("div", { class: "block" }, el("span", { class: "lbl", text: "First message" }), collapsible(g.first, "out", 30)));
+
+  // Key moments: annotations, tests, reminders, finish.
+  const index = el("aside", { class: "index", "aria-label": "Key moments" }, el("h3", { text: "Key moments" }));
+  const moments = [];
+  for (const turn of g.turns) {
+    const note = NOTES[game][turn.t];
+    const ti = testInfo(turn);
+    const k = kindOf(turn);
+    if (note) moments.push([turn.t, "--arc-orange", note.length > 110 ? note.slice(0, 110) + "…" : note]);
+    if (ti) moments.push([turn.t, ti.bad ? "--arc-red" : "--arc-green", ti.text]);
+    if (turn.harness.some((h) => h.kind === "nudge")) moments.push([turn.t, "--arc-yellow", "Reminder: write engine.py and run the tests"]);
+    if (k === "finish") moments.push([turn.t, "--arc-purple", "finish"]);
+  }
+  for (const [t, c, text] of moments) {
+    const dot = el("span", { class: "dot" }); dot.style.background = `var(${c})`;
+    const b = el("button", { class: "moment", type: "button" }, el("span", { class: "tn", text: `t${t}` }), el("span", {}, dot, text));
+    b.addEventListener("click", () => jumpOrReveal(game, t));
+    index.append(b);
+  }
+
+  // Controls and the log.
+  const q = el("input", { type: "search", id: "q", placeholder: "Search reasoning, code and outputs", "aria-label": "Search the transcript" });
+  const mk = (id, label, checked) => {
+    const box = el("input", { type: "checkbox", id }); box.checked = checked;
+    return [box, el("label", { for: id }, box, label)];
+  };
+  const [cbR, lR] = mk("show-reasoning", "Reasoning", true);
+  const [cbC, lC] = mk("show-code", "Code", true);
+  const [cbO, lO] = mk("show-outputs", "Outputs", false);
+  const [cbK, lK] = mk("only-key", "Only key moments", false);
+  const count = el("span", { class: "count" });
+  const controls = el("div", { class: "controls" }, q, lR, lC, lO, lK, count);
+  const list = el("div", { class: "log" });
+  const log = el("div", { class: "log" }, controls, given, list);
+
+  function draw() {
+    const query = q.value.trim().toLowerCase();
+    const opts = { reasoning: cbR.checked, code: cbC.checked, outputs: cbO.checked };
+    list.replaceChildren();
+    let n = 0;
+    for (const turn of g.turns) {
+      if (cbK.checked && !(NOTES[game][turn.t] || turn.tests || turn.harness.length || kindOf(turn) !== "python")) continue;
+      if (!matches(turn, query)) continue;
+      list.append(renderTurn(game, turn, opts));
+      n++;
+    }
+    count.textContent = `${n} of ${g.turns.length} turns`;
+  }
+  let timer = null;
+  q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(draw, 200); });
+  for (const cb of [cbR, cbC, cbO, cbK]) cb.addEventListener("change", draw);
+  draw();
+  root.append(el("div", { class: "cols" }, index, log));
+
+  window.jumpOrReveal = (gm, t) => {
+    if (!jumpTo(gm, t)) { q.value = ""; cbK.checked = false; draw(); jumpTo(gm, t); }
+  };
+  if (focusTurn) setTimeout(() => jumpOrReveal(game, focusTurn), 50);
+}
+function jumpOrReveal(game, t) { window.jumpOrReveal(game, t); }
+
+(async () => {
+  try {
+    DATA = await unpack();
+  } catch (err) {
+    document.getElementById("game").replaceChildren(el("p", { class: "loading", text: "This browser could not unpack the transcripts (it needs gzip DecompressionStream support)." }));
+    return;
+  }
+  const tabs = document.getElementById("tabs");
+  for (const [game, g] of Object.entries(DATA.games)) {
+    const m = g.meta;
+    const b = el("button", { class: "tab", type: "button", role: "tab", "data-game": game },
+      el("b", { text: game }), el("span", { text: `${LABEL[m.status] || m.status} · best ${m.best}/${m.steps} · ${m.turns} turns` }));
+    b.addEventListener("click", () => showGame(game));
+    tabs.append(b);
+  }
+  const hash = location.hash.slice(1);
+  const hm = hash.match(/^([a-z0-9]+)-t(\d+)$/);
+  if (hm && DATA.games[hm[1]]) showGame(hm[1], Number(hm[2]));
+  else if (DATA.games[hash]) showGame(hash);
+  else showGame(DATA.games[recall("v4-transcripts-game")] ? recall("v4-transcripts-game") : Object.keys(DATA.games)[0]);
+})();
+</script>
