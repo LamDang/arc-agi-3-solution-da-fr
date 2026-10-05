@@ -1,6 +1,6 @@
 """Print a condensed view of an agent session.
 
-    uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game> [--chars 300] [--from-turn N]
+    uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game> [--chars 300] [--from-turn N] [--diffs]
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--chars", type=int, default=300)
     parser.add_argument("--from-turn", type=int, default=0)
     parser.add_argument("--reasoning", action="store_true", help="Also show the model's reasoning.")
+    parser.add_argument("--diffs", action="store_true", help="Also show the diff of every change to engine.py.")
     args = parser.parse_args()
 
     for line in (args.game_dir / "transcript.jsonl").read_text(encoding="utf-8").splitlines():
@@ -37,7 +38,17 @@ def main() -> int:
             print(f"    [harness auto-test] {_one_line(record['auto_test'], args.chars)}")
             continue
         if "images" in record:
-            print(f"    [harness images] {', '.join(record['images'])}")
+            print(f"    [harness images sent] {', '.join(record['images'])}")
+            continue
+        if "show_images" in record:
+            print(f"    [show()] {', '.join(record['show_images'])}")
+            continue
+        if "engine_change" in record:
+            change = record["engine_change"]
+            where = f" (lines {change['lines']})" if change.get("lines") else ""
+            print(f"    [engine.py v{change['version']}] {change['op']}: {change['summary']}{where}")
+            if args.diffs and change.get("diff"):
+                print("\n".join("        " + line for line in change["diff"].splitlines()))
             continue
         usage = record.get("usage") or {}
         print(

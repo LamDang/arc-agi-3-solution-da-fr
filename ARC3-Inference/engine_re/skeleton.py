@@ -38,7 +38,8 @@ How it is tested (run_tests):
 - acceptance test: the recorded actions are replayed; after each one, your final frame and the game
   state must equal the recording. Animation frames are not compared.
 
-Keep this file self-contained: no file reads, all level data written in it.
+Keep this file self-contained: no file reads, all level data written in it. print() in make_level
+and step to debug: the test report and try_step show what a step printed.
 """
 
 __FIXED__

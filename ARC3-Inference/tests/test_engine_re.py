@@ -384,21 +384,37 @@ class _ScriptedModel:
         }
 
 
+def _tail(source: str) -> str:
+    """Everything after the FIXED block of an engine source."""
+    from engine_re.game_api import END_MARKER
+
+    return source[source.index(END_MARKER) + len(END_MARKER) :]
+
+
+def _rewrite_call(game_code: str, actions: tuple[int, ...] = (1, 2, 3, 4), game: str = "tiny") -> str:
+    """Kernel code that turns the starting engine.py into one with `game_code` below the FIXED block,
+    through edit(), as the model would (python cannot write engine.py)."""
+    from engine_re.skeleton import render_skeleton
+
+    old = _tail(render_skeleton(game, list(actions)))
+    new = _tail(_engine_source(game_code))
+    return f"edit(edits=[{{'op': 'replace_text', 'oldText': {old!r}, 'newText': {new!r}}}])"
+
+
 def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
-    exact = TINY_GAME.replace("DOWN", "1")
     model = _ScriptedModel(
         [
             [("python", {"code": "x = 1"})],
-            [("python", {"code": f"open('engine.py', 'w').write({exact!r})"})],
+            [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],
         ]
     )
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model)
     result = agent.run()
-    # The second turn rewrote engine.py without calling run_tests: the harness tested it, and it passes.
-    assert result.auto_tests == 1
+    # The second turn changed engine.py without calling run_tests: the harness tested it, and it passes.
+    assert result.auto_tests == 1 and result.engine_changes == 1
     assert result.status == "passed"
     assert any("[harness] engine.py changed" in m.get("content", "") for m in agent.messages if m["role"] == "tool")
 
@@ -407,12 +423,13 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
+    change = "edit(edits=[{'op': 'replace_text', 'oldText': '# ==== YOUR GAME ====', 'newText': '# ==== YOUR GAME ==== (changed)'}])"
     model = _ScriptedModel(
         [
             [("python", {"code": "1"})],
             [("python", {"code": "2"})],
             [("python", {"code": "3"})],  # over the quota: paused
-            [("edit_engine", {"old_str": "# ==== YOUR GAME ====", "new_str": "# ==== YOUR GAME ==== (changed)"})],
+            [("python", {"code": change})],  # a call that changes engine.py still runs
             [("python", {"code": "4"})],  # engine changed: runs again
         ]
     )
@@ -421,7 +438,8 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
     outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
     assert outputs[0].strip() == "1" and outputs[1].strip() == "2"
     assert outputs[2].startswith("[harness] Python is paused")
-    assert outputs[4].strip() == "4"
+    assert outputs[3].startswith("engine.py: replaced line")
+    assert outputs[4].startswith("4")
     assert agent.result.python_paused == 1
 
 
@@ -769,10 +787,10 @@ def test_agent_sends_the_latest_test_images_after_the_tool_messages(tmp_path: Pa
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
-    wrong = _engine_source(SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
     model = _ScriptedModel(
         [
-            [("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})],  # tested automatically
+            [("python", {"code": wrong})],  # tested automatically
             [("run_tests", {})],
             [("run_tests", {"level": 0, "stop_on_fail": False})],
         ]
@@ -800,8 +818,8 @@ def test_agent_without_images_keeps_a_text_diff(tmp_path: Path, tiny_trace: Trac
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
-    wrong = _engine_source(SIMPLE_TINY_GAME.replace("DOWN", "2"))
-    model = _ScriptedModel([[("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})]])
+    wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    model = _ScriptedModel([[("python", {"code": wrong})]])
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=model, images=False)
     agent.run()
     assert not _image_messages(agent) and not (tmp_path / "images").exists()
@@ -816,10 +834,10 @@ def test_agent_level_tests_are_kept_apart_from_full_replays(tmp_path: Path, two_
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     two_level_trace.save(tmp_path / "trace")
-    wrong = _engine_source(SIMPLE_TWO.replace("WALL1", "11"))
+    wrong = _rewrite_call(SIMPLE_TWO.replace("WALL1", "11"), game="two")
     model = _ScriptedModel(
         [
-            [("python", {"code": f"open('engine.py', 'w').write({wrong!r})"})],
+            [("python", {"code": wrong})],
             [("run_tests", {"level": 1})],
             [("run_tests", {"from_level": 1, "stop_on_fail": "false"})],  # the earlier name still works
         ]
@@ -851,16 +869,37 @@ def test_compaction_handles_image_messages(tmp_path: Path, tiny_trace: Trace) ->
     assert agent.messages[2]["content"][1] == picture and "elided" in agent.messages[1]["content"]
 
 
-def test_prompt_and_tools_follow_the_image_setting() -> None:
+def test_the_tools_are_python_run_tests_and_finish() -> None:
     from engine_re.prompts import TOOLS, system_prompt, tools
 
-    run_tests = next(t for t in TOOLS if t["function"]["name"] == "run_tests")["function"]
-    assert set(run_tests["parameters"]["properties"]) == {"level", "stop_on_fail", "details"}
-    assert "image" in run_tests["description"]
-    text_only = next(t for t in tools(False) if t["function"]["name"] == "run_tests")["function"]
-    assert "image" not in text_only["description"]
-    assert "image" not in system_prompt(images=False).lower() and "image" in system_prompt(images=True)
-    assert "auto_sprites" in system_prompt()
+    assert [t["function"]["name"] for t in TOOLS] == ["python", "run_tests", "finish"]
+    assert [t["function"]["name"] for t in tools(False)] == ["python", "run_tests", "finish"]
+    run_tests = TOOLS[1]["function"]
+    assert set(run_tests["parameters"]["properties"]) == {"level", "stop_on_fail"}
+    python = TOOLS[0]["function"]["description"]
+    for name in ("read(", "edit(", "undo(", "render(", "show(", "try_step(", "auto_sprites(", "S[i].last"):
+        assert name in python
+    assert "as images" in python and "images are off" in tools(False)[0]["function"]["description"]
+    assert "image" not in system_prompt(images=False).lower() and "as images" in system_prompt(images=True)
+    for term in ("camera", "letterbox", "letter_box", "ARCBaseGame", "arcengine", "library"):
+        assert term not in system_prompt() and term not in python
+
+
+def test_the_fixed_block_comment_matches_the_prompt() -> None:
+    from engine_re.game_api import FIXED_INTERFACE, same_interface
+    from engine_re.prompts import system_prompt
+
+    for term in ("camera", "letterbox", "ARCBaseGame", "library"):
+        assert term not in FIXED_INTERFACE
+    comment = " ".join(line.lstrip("# ").strip() for line in FIXED_INTERFACE.splitlines() if line.startswith("#"))
+    prompt = " ".join(system_prompt().split())
+    for phrase in ("lowest layer first, sprites on the same layer in list order (later on top)",
+                   "covers screen pixels x in [ox + gx*s, ox + gx*s + s), y in [oy + gy*s, oy + gy*s + s)",
+                   "or min(64 // w, 64 // h) when that is None", "Turn the finished frame clockwise by state.view.rotation"):
+        assert phrase in " ".join(comment.split()) and phrase in prompt
+    # An engine whose block differs only in comments (an earlier run's) still has the same interface.
+    old = FIXED_INTERFACE.replace("# The harness runs this module:", "# An older comment.")
+    assert same_interface(old) and not same_interface(FIXED_INTERFACE.replace("layer: int = 0", "layer: int = 1"))
 
 
 # --- auto_sprites ----------------------------------------------------------------------------
@@ -910,12 +949,241 @@ def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) ->
         assert "Traceback" not in out, out
         assert "assumed 8x8 at scale 8" in out and "Renders the frame exactly: yes" in out
         assert "def level_0_sprites() -> list:" in out and "Not the real sprites" in out
+        assert 'SHAPE_9_1x1_' in out and "def hex_pixels" in out
         check = (
-            "ns = dict(vars(game_api.canonical())); exec(code, ns)\n"
-            "st = ns['State'](grid=(8, 8), sprites=ns['level_0_sprites']())\n"
-            "print(bool((render(st) == S[0].last).all()), code.exact, auto_sprites(step=3, quiet=True).grid)"
+            "ns = {'Sprite': Sprite, 'State': State, 'View': View}; exec(code, ns)\n"
+            "st = State(grid=(8, 8), sprites=ns['level_0_sprites']())\n"
+            "print(bool((render(st) == S[0].last).all()), code.exact, auto_sprites(frame=S[3].last).grid)"
         )
-        assert kernel.execute(check).strip() == "True True (8, 8)"
-        assert kernel.execute("auto_sprites(frame=S[2].last, grid=(16, 16), quiet=True).exact").strip() == "True"
+        assert kernel.execute(check).strip().endswith("True True (8, 8)")
+        out = kernel.execute("c = auto_sprites(frame=S[2].last, grid=(16, 16), region=(8, 8, 23, 31)); print(c.exact)")
+        assert "Renders the region exactly: yes" in out and "def frame_sprites_region()" in out and "border" not in out.split("def frame_sprites_region")[1]
     finally:
         kernel.stop()
+
+
+# --- read / edit / undo, the tools, finish and show ---------------------------------------------
+
+
+def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
+    from engine_re import hashline
+
+    text = "".join(f"line {k}\n" for k in range(1, 21))
+    lines, _ = hashline.split_lines(text)
+    shown = hashline.render_read(text)
+    assert shown.splitlines()[0] == f"{hashline.anchor(lines, 1)}:line 1".rjust(len(shown.splitlines()[0]))
+    assert all(len(a.split("#")[1].split(":")[0]) == 2 for a in shown.splitlines())
+    assert all(c in hashline.NIBBLES for line in shown.splitlines() for c in line.split("#")[1][:2])
+    before = {n: hashline.anchor(lines, n) for n in range(1, 21)}
+    edited = hashline.apply_edits(text, [{"op": "replace", "pos": before[10], "lines": ["LINE 10"]}]).text
+    after_lines, _ = hashline.split_lines(edited)
+    after = {n: hashline.anchor(after_lines, n) for n in range(1, 21)}
+    # Only the edited line and its neighbours get new hashes; distant anchors stay valid.
+    assert [n for n in before if before[n] != after[n]] == [9, 10, 11] or {9, 10, 11} >= {n for n in before if before[n] != after[n]}
+    assert all(before[n] == after[n] for n in (1, 5, 8, 12, 20))
+    with pytest.raises(hashline.EditError, match=r"\[E_STALE_ANCHOR\] 1 stale anchor: " + before[10]):
+        hashline.apply_edits(edited, [{"op": "replace", "pos": before[10], "lines": ["x"]}])
+    # A ":content" suffix is cross-checked: the right hash with the wrong content is stale too.
+    with pytest.raises(hashline.EditError, match="E_STALE_ANCHOR"):
+        hashline.apply_edits(text, [{"op": "replace", "pos": before[3] + ":line 4", "lines": ["x"]}])
+    assert hashline.apply_edits(text, [{"op": "replace", "pos": before[3] + ":line 3", "lines": ["x"]}]).text.count("x\n") == 1
+    # Paging: read() says where to continue.
+    assert "Use offset=16 to continue." in hashline.render_read(text, offset=11, limit=5)
+
+
+def test_every_edit_op() -> None:
+    from engine_re import hashline
+
+    text = "a\nb\nc\nd\ne\n"
+    lines, _ = hashline.split_lines(text)
+    A = {n: hashline.anchor(lines, n) for n in range(1, 6)}
+
+    def run(*edits):
+        return hashline.apply_edits(text, list(edits)).text
+
+    assert run({"op": "replace", "pos": A[2], "lines": ["B"]}) == "a\nB\nc\nd\ne\n"
+    assert run({"op": "replace", "pos": A[2], "end": A[4], "lines": "X\nY\n"}) == "a\nX\nY\ne\n"  # lines as one string
+    assert run({"op": "replace", "pos": A[2], "end": A[3], "lines": []}) == "a\nd\ne\n"
+    assert run({"op": "append", "pos": A[1], "lines": ["a2"]}) == "a\na2\nb\nc\nd\ne\n"
+    assert run({"op": "append", "lines": "f\ng"}) == "a\nb\nc\nd\ne\nf\ng\n"
+    assert run({"op": "prepend", "pos": A[5], "lines": ["d2"]}) == "a\nb\nc\nd\nd2\ne\n"
+    assert run({"op": "prepend", "lines": ["start"]}) == "start\na\nb\nc\nd\ne\n"
+    assert run({"op": "replace_text", "oldText": "c\nd", "newText": "C\nD"}) == "a\nb\nC\nD\ne\n"
+    # Several edits validated against one snapshot, applied together.
+    assert run({"op": "replace", "pos": A[1], "lines": ["A"]}, {"op": "replace", "pos": A[4], "lines": ["D"]}) == "A\nb\nc\nD\ne\n"
+    for bad, code in (
+        ([{"op": "replace", "pos": A[2], "lines": []}, {"op": "replace", "pos": A[3], "lines": []}], "E_EDIT_CONFLICT"),
+        ([{"op": "replace", "pos": A[2], "lines": ["x"]}, {"op": "append", "pos": A[2], "lines": ["y"]}], "E_EDIT_CONFLICT"),
+        ([{"op": "replace_text", "oldText": "zzz", "newText": "y"}], "E_NO_MATCH"),
+        ([{"op": "append", "pos": A[2], "lines": []}], "E_BAD_OP"),
+        ([{"op": "replace", "pos": "2", "lines": ["x"]}], "E_BAD_REF"),
+        ([{"op": "replace", "pos": A[1], "lines": [f"{A[1]}:a"]}], "E_INVALID_PATCH"),
+        ([{"op": "move", "pos": A[1]}], "E_BAD_OP"),
+    ):
+        with pytest.raises(hashline.EditError, match=code):
+            hashline.apply_edits(text, bad)
+    assert hashline.apply_edits(text, [{"op": "replace", "pos": A[1], "lines": ["a"]}]).noop
+
+
+def test_edits_inside_the_fixed_block_are_rejected(tmp_path: Path) -> None:
+    from engine_re import hashline
+    from engine_re.engine_files import EngineEditor
+    from engine_re.game_api import fixed_block_lines
+    from engine_re.skeleton import render_skeleton
+
+    engine = tmp_path / "workspace" / "engine.py"
+    engine.parent.mkdir()
+    source = render_skeleton("tiny", [1, 2, 3, 4])
+    engine.write_text(source)
+    first, last = fixed_block_lines(source)
+    lines, _ = hashline.split_lines(source)
+    editor = EngineEditor(engine, tmp_path / "engine_versions", tmp_path)
+    for edit in (
+        {"op": "replace", "pos": hashline.anchor(lines, first + 40), "lines": ["# mine"]},
+        {"op": "append", "pos": hashline.anchor(lines, first), "lines": ["# mine"]},
+        {"op": "replace_text", "oldText": "    layer: int = 0", "newText": "    layer: int = 1"},
+    ):
+        reply = editor.handle({"op": "edit", "edits": [edit]})
+        assert not reply["ok"] and "[E_FIXED_BLOCK]" in reply["text"]
+    assert engine.read_text() == source
+    below = editor.handle({"op": "edit", "edits": [{"op": "append", "pos": hashline.anchor(lines, last), "lines": ["", "X = 1"]}]})
+    assert below["ok"] and "Syntax OK" in below["text"] and "X = 1" in engine.read_text()
+
+
+def test_python_cannot_write_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
+    tiny_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    engine = workspace / "engine.py"
+    engine.write_text("ORIGINAL = 1\n")
+    (workspace / "other.py").write_text("x = 1\n")
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        for code in (
+            "open('engine.py', 'w').write('x')",
+            "open('engine.py', 'a').write('x')",
+            "open('engine.py', 'r+').write('x')",
+            "import os; os.open('engine.py', os.O_WRONLY)",
+            "import os; os.replace('other.py', 'engine.py')",
+            "import os; os.remove('engine.py')",
+            "import os; os.link('engine.py', 'hard.py')",
+            "import os; os.symlink('engine.py', 'soft.py'); open('soft.py', 'w').write('x')",
+            "import shutil; shutil.copyfile('other.py', 'engine.py')",
+            "import os; os.rename('.', '../moved')",
+            "import pathlib; pathlib.Path('engine.py').write_text('x')",
+        ):
+            out = kernel.execute(code)
+            assert "PermissionError: sandbox" in out, (code, out)
+        assert engine.read_text() == "ORIGINAL = 1\n"
+        assert kernel.execute("print(open('engine.py').read().strip())").strip() == "ORIGINAL = 1"  # reading is fine
+        assert kernel.execute("import shutil; shutil.copyfile('engine.py', 'copy.py'); print('ok')").strip() == "ok"
+        out = kernel.execute("edit(edits=[{'op': 'replace_text', 'oldText': 'ORIGINAL = 1', 'newText': 'CHANGED = 2'}])")
+        assert "engine.py: replaced line 1 with 1 line. Syntax OK. (version 2" in out
+        assert engine.read_text() == "CHANGED = 2\n"
+        assert "engine_versions" not in kernel.execute("import os; print(os.listdir('.'))")
+        assert "sandbox: listing" in kernel.execute("import os; os.listdir('../engine_versions')")
+    finally:
+        kernel.stop()
+
+
+def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
+    import json
+
+    from engine_re import hashline
+    from engine_re.engine_files import EngineEditor, sha256
+
+    engine = tmp_path / "workspace" / "engine.py"
+    engine.parent.mkdir()
+    engine.write_text("A = 1\n")
+    log: list[dict] = []
+    editor = EngineEditor(engine, tmp_path / "engine_versions", tmp_path, log=log.append)
+
+    def edit(old: str, new: str) -> str:
+        return editor.handle({"op": "edit", "edits": [{"op": "replace_text", "oldText": old, "newText": new}]})["text"]
+
+    edit("A = 1", "A = 2")  # v2 (v1 is the start)
+    edit("A = 2", "A = 3")  # v3
+    (tmp_path / "engine_best.py").write_text("A = 2\n")
+    tested = {"engine_sha": sha256("A = 2\n"), "level": None, "from_level": None, "exact": 7, "total": 9, "first_fail": 4, "passed": False}
+    (tmp_path / "tests.jsonl").write_text(json.dumps(tested) + "\n")
+    out = editor.undo()
+    assert engine.read_text() == "A = 2\n" and "Restored version 2" in out and "saved as version 4" in out
+    assert "tested: 7/9 steps match, first mismatch at step 4" in out and "read() again" in out
+    editor.undo()  # undo the undo: back to A = 3
+    assert engine.read_text() == "A = 3\n" and [v["version"] for v in editor.versions()] == [1, 2, 3, 4, 5]
+    out = editor.undo(3)  # the state 3 changes ago: version 2
+    assert engine.read_text() == "A = 2\n" and "Restored version 2" in out and "saved as version 6" in out
+    editor.undo(to=1)
+    assert engine.read_text() == "A = 1\n"
+    out = editor.undo(to="best")
+    assert engine.read_text() == "A = 2\n" and "Restored the best tested version (v6), tested: 7/9 steps match" in out
+    assert [r["engine_change"]["op"] for r in log] == ["edit", "edit", "undo", "undo", "undo", "undo", "undo"]
+    assert log[0]["engine_change"]["diff"].splitlines()[-2:] == ["-A = 1", "+A = 2"]
+    assert not editor.handle({"op": "undo", "n": 99})["ok"]
+    assert hashline  # (anchors change with every version: undo says to read again)
+
+
+def test_finish_runs_the_tests_and_ends_only_when_they_pass(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    model = _ScriptedModel(
+        [
+            [("finish", {"summary": "nothing yet"})],  # fails: the session goes on
+            [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "1"))}), ("finish", {"summary": "moves"})],
+            [("python", {"code": "1"})],  # never reached
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model)
+    result = agent.run()
+    tool_outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
+    assert tool_outputs[0].startswith("Not finished: the tests still fail, so the session goes on.")
+    assert "--- Step 0: RESET" in tool_outputs[0]
+    assert tool_outputs[-1] == "Every test passes. Session finished."
+    assert result.status == "passed" and result.turns == 2 and result.finish_calls == 2 and result.finish_summary == "moves"
+    assert result.tests_run == 2 and result.auto_tests == 0
+
+
+def test_show_images_join_the_turns_image_message(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
+    from engine_re.agent import IMAGE_PLACEHOLDER, Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    model = _ScriptedModel(
+        [
+            [("python", {"code": "show(S[0].last, S[1].last, titles=['a', 'b'], boxes=[(8, 8, 15, 15)])"}), ("run_tests", {})],
+            [("python", {"code": "show(S[2].last)"})],
+        ]
+    )
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=model)
+    agent.run()
+    images = _image_messages(agent)
+    assert len(images) == 2
+    first, second = images[0][1]["content"], images[1][1]["content"]
+    captions = [p["text"] for p in first if p["type"] == "text"]
+    assert captions[1] == "show(): a | b; boxes 1" and any("From the latest run_tests report" in c for c in captions)
+    assert captions.count(IMAGE_PLACEHOLDER) >= 2
+    assert all(p["type"] == "text" for p in first)  # stripped once the next turn's images came
+    assert sum(p["type"] == "image_url" for p in second) == 1
+    assert "[image: 2 frame(s), a, b; it follows this output]" in agent.messages[3]["content"]
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert [r["show_images"] for r in records if "show_images" in r] == [["images/turn001_show1.png"], ["images/turn002_show1.png"]]
+    assert (tmp_path / "images" / "turn001_show1.png").read_bytes().startswith(b"\x89PNG")
+
+
+def test_first_message_shows_engine_py_with_anchors(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re import hashline
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=0), client=_ScriptedModel([]))
+    agent.run()
+    opening = agent.messages[1]["content"]
+    lines, _ = hashline.split_lines((tmp_path / "workspace" / "engine.py").read_text())
+    assert "- 8 steps; S[0] is the RESET that starts the game." in opening
+    assert "Advertised actions: [1, 2, 3, 4]; win_levels: 1" in opening
+    assert f"{hashline.anchor(lines, 1)}:" in opening and f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in opening
+    assert "class Sprite:" in opening  # the FIXED block is shown in full here
+    assert opening.rstrip().endswith("Run run_tests to see where to start.")
+    assert agent.messages[0]["content"].startswith("# Goal")

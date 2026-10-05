@@ -1,177 +1,216 @@
-"""System prompt, first user message and tool schemas for the reverse-engineering agent."""
+"""System prompt, first user message and tool schemas for the reverse-engineering agent.
+
+The agent has three tools: python (a kernel with the recording, read/edit/undo for engine.py and
+helpers to run and look at it), run_tests and finish. ``images`` says whether test reports and
+show() come with pictures; the texts follow it.
+"""
 
 from __future__ import annotations
 
 import copy
 from collections import Counter
-from pathlib import Path
 
 from engine_re.trace import Trace
 
-API_NOTES = (Path(__file__).with_name("api_notes.md")).read_text(encoding="utf-8")
-GAME_NOTES = (Path(__file__).with_name("game_notes.md")).read_text(encoding="utf-8")
+_SYSTEM = """# Goal
+You are given a recording of someone playing a game: every action they took and every frame the game
+returned. Write engine.py, a Python model of that game, so that replaying the recorded actions through it
+gives the same result after every action. Model the game's actual rules: the engine is also checked
+afterwards on action sequences nobody recorded.
 
-INTERFACES = ("simple", "arcengine")
+# Setup
+- The game shows a 64x64 screen of colours 0-15 and is played in levels, in order. Actions: 0 RESET,
+  1 up, 2 down, 3 left, 4 right, 5 interact, 6 click at a screen pixel (x, y), 7 undo. This game
+  advertises a fixed subset of them (given in the first message).
+- engine.py already exists. Its top part is a FIXED block that you must not change: the Sprite, Action,
+  View and State classes and the rules for drawing a State. Below it you write two functions:
+  - make_level(n) -> State: the state at the start of level n (0-based): grid size, every sprite
+    (border, background, objects, score or budget displays) and hidden values in state.vars.
+  - step(state, action): apply one action to the state, in place. Set state.status = "level_solved"
+    or "game_over" when that happens.
+- The harness runs your engine. It calls make_level(n) once per level and hands step() a fresh copy of
+  that state whenever the level starts (on entering it and after every RESET); RESET never reaches step().
+  After step(), "level_solved" starts the next level (WIN after the last one) and "game_over" ends the
+  game (then only RESET is accepted). It turns clicks into grid cells and draws the state.
 
-_SIMPLE_PROMPT = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
-You have every action that was played and every frame the real engine returned. Your job is to write a Python module,
-engine.py, that reproduces the game: replaying the recorded actions through it must give the recorded results.
+# Drawing (what the harness does; render(state) in python does the same)
+1. Start from a 64x64 screen filled with colour 5.
+2. Draw every visible sprite: lowest layer first, sprites on the same layer in list order (later on top).
+   Pixels -1 (transparent) and -2 (invisible but solid) are not drawn. Each sprite is drawn as
+   sprite.render(): its pixels rotated clockwise by .rotation, then flipped (.mirror_ud, .mirror_lr),
+   then scaled by .scale.
+   - Grid sprites (screen=False) sit on the logical grid (w, h) = state.grid. The grid is scaled by
+     s = state.view.scale, or min(64 // w, 64 // h) when that is None, and centred: grid cell (gx, gy)
+     covers screen pixels x in [ox + gx*s, ox + gx*s + s), y in [oy + gy*s, oy + gy*s + s), with
+     ox = (64 - w*s) // 2 and oy = (64 - h*s) // 2. Anything outside the grid is cut off.
+   - Screen sprites (screen=True) sit directly on screen pixels, unscaled (for displays in the border).
+3. Turn the finished frame clockwise by state.view.rotation, then flip it if state.view.mirror_ud
+   (top-bottom) and state.view.mirror_lr (left-right).
+Clicks: action.x, action.y is the clicked screen pixel; action.cell is the grid cell (gx, gy) under it
+once step 3 is undone, or None outside the grid. Coordinates: x is the column, y the row, (0, 0) top-left.
 
-# What you write
-engine.py starts with a FIXED INTERFACE block: the Sprite, Action and State classes and the rules for how a State is
-drawn. Do not edit that block. It already provides what every game shares, with the same rules as the real games:
-sprites with layers, visibility, collidability, blocking modes, rotation, mirroring and scale; collisions
-(state.try_move, state.collisions, sprite.collides_with); lookups (state.sprite_at, sprites_at, by_tag, by_name); and
-a per-level view (state.view: grid scale, rotation and mirroring of the whole screen). Below it you write two functions:
-- make_level(n) -> State: the state at the start of level n: grid size, every sprite (border, background, objects,
-  HUD), the hidden variables (state.vars) and, if the screen is shown turned or mirrored, state.view.
-- step(state, action): apply one action to the state, in place. Set state.status = "level_solved" or "game_over"
-  when that happens.
-The harness does the rest. It calls make_level once per level and hands step() a fresh copy of that state whenever the
-level starts (on entering it and on every RESET), so make_level may use module-level data and state.vars may hold
-Sprite references. It also draws the state, counts completed levels, handles WIN and GAME_OVER, and turns clicks into
-grid cells (action.cell). Give the border and background sprites collidable=False so they never block anything.
+# Tests (run_tests; finish runs them too)
+- Contract: the fixed block is unchanged; make_level(n) returns a valid State for every recorded level;
+  step() accepts every advertised action; the same actions always give the same result.
+- Acceptance: the recorded actions are replayed. After every action, your final frame (every pixel) and
+  the game status (NOT_FINISHED / WIN / GAME_OVER, levels completed) must equal the recording. When the
+  real game animated an action, only its last frame is compared.
+- The report stops at the first failure. For it, you get: __REPORT_IMAGES__; for each region, the colours
+  and your sprites there; what your step() printed; and the python command that reproduces the step.
 
-# What passing means
-run_tests runs two suites. The contract tests check that the fixed interface is unchanged, that states are valid, that
-step accepts every advertised action, and that the same actions give the same result. The acceptance test replays the
-recorded actions and compares, after every action, the FINAL frame (every pixel of your drawn state) and the game state
-(NOT_FINISHED / WIN / GAME_OVER, levels_completed). Animation frames are not compared: do each action's whole effect in
-one step() call. Look at animation frames only to understand what an action does. The goal is "ALL STEPS MATCH" with
-every contract test passing. The session ends as soon as that happens.
-
-# Rules
-- Implement the game's real rules and level data, so that your engine would also be right on actions nobody played.
-  Do not hard-code recorded frames, per-step outputs or anything keyed to the step number or the action history:
-  your engine will later be tested against the real game on new action sequences.
-- engine.py must be self-contained: standard library and numpy only, no file reads. Put level data in the file as
-  Python literals. Generate those literals with the python tool from the recorded frames rather than typing pixels by
-  hand; the python tool may write engine.py (or parts of it) directly.
-- The original game source code is not available anywhere you can reach; do not look for it.
-
-# Tools
-- python: a persistent Python kernel. The recording is loaded as `trace` / `S` (S[i] is step i) with analysis helpers;
-  call help_helpers() to list them. It can also run your engine for debugging (engine, render, new_game, play, replay,
-  compare, check_contract, try_step).
-- view_engine, write_engine, edit_engine: read and change engine.py.
-- run_tests: the contract tests, then the acceptance test. By default it stops at the first failure and explains it:
-  the regions of the final frame that differ (numbered__IMAGES_TOOL__), the colours, your sprites there (#12 means
-  state.sprites[12]) before and after the step, what engine.py printed during the step, and a try_step(i) command that
-  reproduces it in the kernel. level=L tests only level L (your engine starts at make_level(L)), so you can work on a
-  later level before earlier ones pass; stop_on_fail=false lists every failing step.
-- print() in make_level and step is captured per step: run_tests shows the failing step's output, try_step shows it too.
-- finish: stop, when every step matches or you are truly stuck.
-
-# How to work
-1. Look before you write: summary(), detect_grid(), show() the first frame of each level, components(), and
-   show_step(i) / animation(i) for what each action changed. Work out the logical grid size and scale, the border and
-   background colours, the objects, and the HUD drawn in screen pixels.
-2. Make step 0 (the RESET) match exactly first: grid size, border and background sprites, the level's objects, the
-   HUD. auto_sprites(level) prints sprite code generated from the level's first frame that redraws it pixel-exactly,
-   with similar objects grouped: a starting point, not the truth. It sees one colour per object, nothing hidden or
-   covered, and guesses the grid size, layers, tags and collidability; a pixel-exact start frame does not make the
-   sprites right, the steps decide. Rename and merge its sprites into the game's real objects. render(state) draws a
-   State exactly as the harness does.
-3. Model the game the way the real one is built: one tagged sprite per object (walls, pieces, buttons, goals), hidden
-   values in state.vars (budget, counters, what is selected), and the HUD as screen sprites that step() updates. Use
-   the built-in try_move, collisions, sprite_at and sprites_at rather than writing your own geometry.
-4. Then fix the first failing step each time: read the report__IMAGES_STEP__, run the try_step command it prints to see
-   your state before and after the step and what changed, implement the rule, re-test. Only the end state of each
-   action counts, so skip animations.
-5. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
-6. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
-   more analysis. Every change should move the first mismatch later or fix more steps.
-7. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
-   questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
-
+# Direction
+Run the tests, see what breaks, find out why from the recording, fix it, and test again. Fix the cause,
+not the symptom: write the rule that explains every step where it applies, not a patch for the current
+mismatch. Never hard-code recorded frames or anything keyed to the step number. Print whatever helps
+you debug inside step(); the test report and try_step show it.
 """
 
-_INTRO = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
-You have every action that was played and every frame the real engine returned. Your job is to write a Python module,
-engine.py, that reproduces the real engine: replaying the recorded actions through a fresh instance of your engine
-must return the recorded observations at every step.
-"""
-
-_PASSING = {
-    "final": """
-# What passing means
-run_tests replays the recorded actions through a fresh instance of your engine and compares, after every action: the
-FINAL frame (every pixel of the last frame the action returned), the state (NOT_FINISHED / WIN / GAME_OVER),
-levels_completed, win_levels and available_actions. Animation frames and the number of frames are NOT compared: the
-real game sometimes animates an action over several frames, but your engine only needs its end result, so do each
-action's whole effect in one step() call and then call complete_action(). Look at animation frames only to understand
-what an action does. The goal is "ALL STEPS MATCH". The session ends as soon as that happens.
-""",
-    "all": """
-# What passing means
-run_tests replays the recorded actions through a fresh instance of your engine and compares, at every step: the number
-of frames, every pixel of every frame, the state (NOT_FINISHED / WIN / GAME_OVER), levels_completed, win_levels and
-available_actions. The goal is "ALL STEPS MATCH". The session ends as soon as that happens.
-""",
+_REPORT_IMAGES = {
+    True: "your frame and the recorded frame as images with the differing regions boxed and numbered",
+    False: "the regions where your frame differs from the recorded one, numbered, with their pixels",
 }
 
-_RULES_AND_TOOLS = """
-# Rules
-- Implement the game's real rules and level data, so that your engine would also be right on actions nobody played.
-  Do not hard-code recorded frames, per-step outputs or anything keyed to the step number or the action history:
-  your engine will later be tested against the real engine on new action sequences.
-- engine.py must be self-contained: standard library, numpy and arcengine only, no file reads. Put level data in the
-  file as Python literals. Generate those literals with the python tool from the recorded frames rather than typing
-  pixels by hand; the python tool may write engine.py (or parts of it) directly.
-- The original game source code is not available anywhere you can reach; do not look for it.
+_PYTHON = """Run Python in a persistent kernel: variables and imports survive between calls. Prints what your code
+prints plus the value of the last expression. Long output is cut, so print compact summaries or small
+crops, never whole frames. Preloaded:
 
-# Tools
-- python: a persistent Python kernel. The recording is loaded as `trace` / `S` (S[i] is step i) with analysis helpers;
-  call help_helpers() to list them. It can also run your engine for debugging (new_game, play, replay, compare).
-- view_engine, write_engine, edit_engine: read and change engine.py.
-- run_tests: replay and report where your engine deviates (by default up to the first failure), with the differing
-  regions of the final frame. level=L tests only level L (your engine starts at set_level(L)), so you can work on a
-  later level before earlier ones pass; stop_on_fail=false lists every failing step.
-- finish: stop, when every step matches or you are truly stuck.
+The recording
+- np (numpy), and the fixed-block classes Sprite, Action, View, State.
+- S: the recording, a list of steps. S[i] is step i; S[0] is the RESET that starts the game.
+  - S[i].action: an Action. .id is 0 (RESET) to 7; for a click (6), .x and .y are the screen pixel.
+  - S[i].frames: numpy int8 array, shape (n, 64, 64): every frame the game returned for this action,
+    in order; n > 1 when the action was animated. Index a frame as frame[y, x] (row, column).
+  - S[i].last: S[i].frames[-1], the frame after the action: the one the tests compare. The frame
+    before step i is S[i-1].last.
+  - S[i].state: "NOT_FINISHED", "WIN" or "GAME_OVER" after the action.
+  - S[i].levels_completed: levels completed after the action; step i is played in level
+    S[i-1].levels_completed.
+  - S[i].win_levels, S[i].available_actions.
 
-# How to work
-1. Look before you write: summary(), detect_grid(), show() the first frame of each level, components(), and
-   show_step(i) / animation(i) for what each action changed. Work out the logical grid size and scale, the background
-   and letterbox colours, the objects (sprites), and the HUD drawn in screen pixels.
-2. Make step 0 (the RESET) match exactly first: camera size and colours, the level 1 layout, the HUD. A reliable way
-   to get a layout pixel-exact: downsample the level's first frame to the logical grid (logical(frame, geom)), keep
-   everything that never changes as one background sprite, and make separate sprites only for the things that move,
-   change or get clicked.
-__STEP3__4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
-5. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
-   more analysis. Every change should move the first mismatch later or fix more steps.
-6. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
-   questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
+engine.py (python cannot open it for writing; edit() is the only way to change it)
+- read(path="engine.py", offset=None, limit=None): print the file, every line as LINE#HASH:content.
+  Those anchors are how edit() addresses lines. offset: first line (1-based); limit: number of lines.
+  Long output is cut; it says which offset to continue from. The FIXED block is folded unless offset
+  asks for its lines.
+- edit(path="engine.py", edits=[...]): change the file at LINE#HASH anchors from the latest read() or
+  edit() output. All edits in one call are checked against the same version of the file and applied
+  together. Each edit is one of:
+    {"op": "replace", "pos": "12#MQ", "end": "15#VR", "lines": [...]}  replace line pos (or pos..end)
+    {"op": "append", "pos": "12#MQ", "lines": [...]}   insert after pos (no pos: at the end)
+    {"op": "prepend", "pos": "12#MQ", "lines": [...]}  insert before pos (no pos: at the start)
+    {"op": "replace_text", "oldText": "...", "newText": "..."}  replace one exact, unique text
+  lines is the new content (a list of lines, or one string), with its indentation; [] deletes. It can
+  come straight from your code, e.g. lines=auto_sprites(0) or lines=f"RINGS = {rings!r}", so generated
+  data is never retyped. Edits in one call must not overlap or touch adjacent lines. A stale anchor (the
+  file changed since your read) is rejected: read again. Edits inside the FIXED block are rejected.
+  Prints what changed, a syntax check, and fresh anchors around the change.
+- undo(n=1, to=None): put engine.py back as it was n changes ago, or to="best": the version that
+  matched the most steps so far (to=k: version k). Every change (each edit() call, and undo itself) is
+  kept as a numbered version, so nothing is lost: undo() right after an undo() brings the undone change
+  back. Prints the recent versions (what changed, and the test result of each version that was tested),
+  what this undo restored, and a reminder to read() again for fresh anchors.
 
-"""
+Running your engine
+- render(state) -> np.ndarray (64, 64): draws a State exactly as the tests do (the Drawing rules), with
+  the same code. Use it to try things on the drawing: change a sprite or state.view and render again.
+__SHOW__
+- try_step(i, state=None, action=None) -> (before, after): loads engine.py fresh, gives your State
+  just before recorded step i (or `state`), applies S[i].action (or `action`: an id, or (6, x, y) for a
+  click), prints what your step() printed, what changed in your state (sprites by index #k and name,
+  vars), and the regions where your frame differs from S[i].last with your sprites in each. Returns
+  copies of both states. try_step(i, level=L) starts at level L as run_tests(level=L) does.
 
-_STEP3 = {
-    "final": """3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only
-   the end state of each action counts, so skip animations.
-""",
-    "all": """3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Count frames:
-   every call to step() before complete_action() renders one frame, and entering a new level adds one more.
-""",
+Generating code
+- auto_sprites(level, grid=None, frame=None, region=None, merge=False) -> str: Python code for sprites
+  that draw the first frame of `level` exactly (or a given frame, or a region (x0, y0, x1, y1) of it):
+  the frame split into same-colour connected pieces (merge=True: touching pieces of different colours
+  become one sprite), identical pieces sharing one pixel list whose name comes from its content, so the
+  same shape gets the same name in every call; pixel lists already defined in engine.py are not repeated.
+  It prints whether the code draws the frame exactly. A starting point only: real objects often have
+  several colours, anything hidden or covered is missing, transparency is unknown, layers, tags and
+  collidability are guesses, and the grid size is guessed unless you pass grid=(w, h)."""
+
+_SHOW = {
+    True: """- show(*frames, titles=None, boxes=None): look at frames as images. Each item is a 64x64 frame (e.g.
+  S[i].last, render(state)) or a State (rendered first). They are shown side by side, enlarged, in a
+  message right after this call's output (at most 4 per call). boxes: [(x0, y0, x1, y1), ...] in screen
+  pixels, outlined on every image. Older images are later replaced by a placeholder to save context.""",
+    False: """- show(*frames, titles=None, boxes=None): look at frames (images are off, so it prints hex digits). Each
+  item is a 64x64 frame (e.g. S[i].last, render(state)) or a State (rendered first), at most 4 per call.
+  boxes: [(x0, y0, x1, y1), ...] in screen pixels: it prints the boxed pixels of every frame side by
+  side; without boxes, every frame at half resolution.""",
 }
+
+_RUN_TESTS = """Run the contract tests and the acceptance test. level=L tests only level L, starting from
+make_level(L). stop_on_fail=False reports every mismatch instead of stopping at the first."""
+
+_FINISH = """Ask to end the session. Runs the tests first: if anything fails you get the report and the session
+goes on; it ends only when every test passes. summary: what the engine implements."""
 
 
 def system_prompt(match: str = "final", interface: str = "simple", images: bool = True) -> str:
-    """The system prompt for an engine interface ("simple": make_level/step; "arcengine": an ARCBaseGame
-    subclass) and a matching rule ("final": last frame + state per step; "all": every frame, arcengine only).
-    images: whether test reports come with pictures of the failing step's frames."""
-    if interface == "simple":
-        if match != "final":
-            raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-        text = _SIMPLE_PROMPT.replace("__IMAGES_TOOL__", "; also boxed in an image of your frame next to the original's" if images else "")
-        text = text.replace("__IMAGES_STEP__", " and its image" if images else "")
-        return text + GAME_NOTES
-    if interface != "arcengine":
-        raise ValueError(f"interface must be one of {INTERFACES}")
-    body = _RULES_AND_TOOLS.replace("__STEP3__", _STEP3[match])
-    return _INTRO + _PASSING[match] + body + API_NOTES
+    """The system prompt. Only the make_level/step interface scored on final frames is offered."""
+    if interface != "simple":
+        raise ValueError("the agent offers only the simple interface (make_level/step)")
+    if match != "final":
+        raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
+    return _SYSTEM.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images])
 
 
-SYSTEM_PROMPT = system_prompt("final")
+SYSTEM_PROMPT = system_prompt()
+
+
+def _python_description(images: bool) -> str:
+    return _PYTHON.replace("__SHOW__", _SHOW[images])
+
+
+def tools(images: bool = True) -> list[dict]:
+    """The tool schemas: python, run_tests and finish."""
+    return copy.deepcopy(
+        [
+            {
+                "type": "function",
+                "function": {
+                    "name": "python",
+                    "description": _python_description(images),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"code": {"type": "string", "description": "Python code to run."}},
+                        "required": ["code"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_tests",
+                    "description": _RUN_TESTS,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "level": {"type": "integer", "description": "Test only this level, starting from make_level(level). Omit for every level."},
+                            "stop_on_fail": {"type": "boolean", "description": "true (default): stop at the first failure. false: report every mismatch."},
+                        },
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "finish",
+                    "description": _FINISH,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"summary": {"type": "string", "description": "What the engine implements."}},
+                        "required": ["summary"],
+                    },
+                },
+            },
+        ]
+    )
+
+
+TOOLS = tools(True)
 
 
 def describe_trace(trace: Trace) -> str:
@@ -181,179 +220,42 @@ def describe_trace(trace: Trace) -> str:
     overs = sum(s.state == "GAME_OVER" for s in steps)
     starts = trace.level_starts()
     return (
-        f"- {len(steps)} steps (step 0 is the RESET that starts the game); actions: {dict(acts)}\n"
-        f"- available_actions advertised: {steps[0].available_actions}; win_levels: {steps[0].win_levels}\n"
-        f"- levels reached: {sorted(starts)} (level -> first step whose final frame shows it: {starts}); "
-        f"final state {steps[-1].state} with {steps[-1].levels_completed} level(s) completed\n"
-        f"- steps ending in GAME_OVER: {overs}; frames per step (count: steps): {dict(sorted(frames.items()))}"
+        f"- {len(steps)} steps; S[0] is the RESET that starts the game. Actions played: {dict(acts)}\n"
+        f"- Advertised actions: {steps[0].available_actions}; win_levels: {steps[0].win_levels}\n"
+        f"- Levels reached (level: the first step whose frame shows it): {starts}; the recording ends "
+        f"{steps[-1].state} with {steps[-1].levels_completed} level(s) completed\n"
+        f"- Steps ending in GAME_OVER: {overs}; frames per step (frames: steps): {dict(sorted(frames.items()))}"
     )
 
 
-def first_user_message(game: str, trace: Trace, skeleton: str, interface: str = "simple") -> str:
-    intro = (
-        "engine.py currently holds this starting module (the fixed interface and empty make_level and step; "
-        "it runs but matches nothing yet):"
-        if interface == "simple"
-        else "engine.py currently holds this skeleton (the structure every real game follows; it runs but matches nothing yet):"
-    )
-    return f"""Game: {game}. Reproduce its engine in engine.py.
+def first_user_message(game: str, trace: Trace, engine_read: str) -> str:
+    """The opening message: the recording's facts and engine.py as read() shows it (with anchors)."""
+    return f"""Game: {game}. Write engine.py for it.
 
 The recording:
 {describe_trace(trace)}
 
-{intro}
+engine.py now, as read() shows it (LINE#HASH anchors for edit()):
 
-```python
-{skeleton}
-```
+{engine_read}
 
-Start by exploring the recording with the python tool."""
+Run run_tests to see where to start."""
 
 
-def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_lines: int, notes: str = "") -> str:
+def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:
     notes_part = f"\nWhat that session left behind:\n\n{notes}\n" if notes else ""
-    return f"""Game: {game}. Reproduce its engine in engine.py.
+    return f"""Game: {game}. Write engine.py for it.
 
 The recording:
 {describe_trace(trace)}
 
 This continues an earlier session on this game ({turns} turns) that was interrupted. Its conversation is gone and the
-python kernel was restarted (its variables are gone), but engine.py ({engine_lines} lines) holds the work so far.
+python kernel was restarted (its variables are gone), but engine.py and its versions (undo) are kept.
 {notes_part}
-The current test result of engine.py:
+The current test report of engine.py:
 
 {test_report}
 
-Read engine.py with view_engine, then continue."""
+engine.py now, as read() shows it:
 
-
-_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "python",
-            "description": (
-                "Run Python in a persistent kernel (variables survive between calls). The value of a final expression "
-                "is printed. Preloaded: np, trace, S, and helpers (help_helpers() lists them). Output is truncated "
-                "when long, so print regions and summaries. Can read the trace and write files in the workspace "
-                "(including engine.py)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"code": {"type": "string", "description": "Python code to run."}},
-                "required": ["code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "view_engine",
-            "description": "Show engine.py with line numbers (optionally a line range).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "start_line": {"type": "integer", "description": "First line (1-based)."},
-                    "end_line": {"type": "integer", "description": "Last line (inclusive)."},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_engine",
-            "description": "Replace the whole of engine.py with new content.",
-            "parameters": {
-                "type": "object",
-                "properties": {"content": {"type": "string", "description": "The complete new engine.py."}},
-                "required": ["content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_engine",
-            "description": (
-                "Replace an exact snippet of engine.py with new text. old_str must occur exactly once "
-                "(include surrounding lines to make it unique) unless replace_all is true."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "old_str": {"type": "string", "description": "Exact text to replace."},
-                    "new_str": {"type": "string", "description": "Replacement text."},
-                    "replace_all": {"type": "boolean", "description": "Replace every occurrence."},
-                },
-                "required": ["old_str", "new_str"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_tests",
-            "description": "__RUN_TESTS__",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "level": {
-                        "type": "integer",
-                        "description": (
-                            "Test only level L: your engine starts at level L (make_level(L)), its drawing is compared "
-                            "with the level's recorded start, then it plays that level's recorded steps. Omit for the "
-                            "full replay from step 0."
-                        ),
-                    },
-                    "stop_on_fail": {
-                        "type": "boolean",
-                        "description": (
-                            "true (default): the report stops at the first failing test, explained in detail. false: "
-                            "report everything: per-level counts, several failing steps explained, and the list of all "
-                            "failing steps."
-                        ),
-                    },
-                    "details": {
-                        "type": "integer",
-                        "description": "With stop_on_fail=false: how many failing steps to explain in detail (default 2, max 6).",
-                    },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "finish",
-            "description": "End the session. Use when every step matches, or when you cannot make further progress.",
-            "parameters": {
-                "type": "object",
-                "properties": {"summary": {"type": "string", "description": "What the engine implements and what is still wrong."}},
-                "required": ["summary"],
-            },
-        },
-    },
-]
-
-_RUN_TESTS = (
-    "Test engine.py: the contract tests (for a make_level/step engine), then the acceptance test, which replays the "
-    "recorded actions and compares each step's final frame and state with the recording. By default the report stops "
-    "at the first failure: which steps match, then the failing step explained: the regions of the final frame that "
-    "differ, numbered{images}, the colours (expected->got), your sprites in each region before and after the step "
-    "(#12 is state.sprites[12]), what engine.py printed during the step, and a try_step command that reproduces it "
-    "in the python kernel."
-)
-
-
-def tools(images: bool = True) -> list[dict]:
-    """The tool schemas; images: whether run_tests reports come with pictures of the frames."""
-    note = " and boxed in an image of your frame next to the original's" if images else ""
-    out = copy.deepcopy(_TOOLS)
-    for tool in out:
-        if tool["function"]["name"] == "run_tests":
-            tool["function"]["description"] = _RUN_TESTS.format(images=note)
-    return out
-
-
-TOOLS = tools(True)
+{engine_read}"""

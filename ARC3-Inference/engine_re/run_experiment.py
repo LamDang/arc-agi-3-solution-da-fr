@@ -79,21 +79,9 @@ def main() -> int:
     )
     parser.add_argument("--max-steps", type=int, default=None, help="Use only the first N steps of each trace.")
     parser.add_argument(
-        "--match",
-        choices=["final", "all"],
-        default="final",
-        help="What a step must match: final = last frame + state (default); all = every animation frame too.",
-    )
-    parser.add_argument(
-        "--interface",
-        choices=["simple", "arcengine"],
-        default="simple",
-        help="simple = make_level/step on fixed Sprite/State classes (default); arcengine = an ARCBaseGame subclass.",
-    )
-    parser.add_argument(
         "--no-images",
         action="store_true",
-        help="Text-only feedback: do not send pictures of the failing step's frames (for models without image input).",
+        help="Text-only feedback: test reports and show() print hex digits instead of sending pictures.",
     )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
@@ -116,7 +104,7 @@ def main() -> int:
             print(f"[{game}] already finished; skipping", flush=True)
             return
         agent = EngineAgent(
-            game, game_dirs[game], model, budget, match=args.match, interface=args.interface, images=not args.no_images
+            game, game_dirs[game], model, budget, images=not args.no_images
         )
         result = agent.run()
         final = result.final or {}
