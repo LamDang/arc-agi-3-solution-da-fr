@@ -171,6 +171,18 @@ def test_contract_catches_an_edited_interface(tmp_path: Path, tiny_trace: Trace)
     assert "FAILED the FIXED INTERFACE block is unchanged" in report.text
 
 
+def test_determinism_check_accepts_sprites_in_vars() -> None:
+    from engine_re.game_api import _canonical_vars, canonical
+
+    api = canonical()
+
+    def state():
+        a, b = api.Sprite([[1]], name="a"), api.Sprite([[2]], name="b")
+        return api.State(grid=(4, 4), sprites=[a, b], vars={"pairs": {a: (a, b)}, "held": [b], "n": 3})
+
+    assert _canonical_vars(state()) == _canonical_vars(state())
+
+
 def test_reset_restores_the_first_state_of_the_level(tmp_path: Path) -> None:
     # Moving, then RESET, then moving again must start from the original position, even though
     # make_level returns a module-level sprite that step() moves.

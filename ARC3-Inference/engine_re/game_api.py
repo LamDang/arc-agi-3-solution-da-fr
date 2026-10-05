@@ -481,9 +481,10 @@ def _canonical_vars(state: Any) -> Any:
 
     def conv(value: Any) -> Any:
         if isinstance(value, dict):
-            return {k: conv(v) for k, v in value.items()}
+            return {conv(k): conv(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
-            return [conv(v) for v in value]
+            converted = [conv(v) for v in value]
+            return tuple(converted) if isinstance(value, tuple) else converted
         if id(value) in index:
             return ("sprite", index[id(value)])
         return value
