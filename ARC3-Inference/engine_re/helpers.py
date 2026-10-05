@@ -10,6 +10,7 @@ The kernel's namespace starts with np, the fixed-block classes (Sprite, Action, 
     show(*frames, titles=None, boxes=None)                 look at frames as images
     try_step(i, state=None, action=None)                   run one step of engine.py and explain it
     auto_sprites(level, grid=None, frame=None, region=None, merge=False)   sprite code from a frame
+    summarize_levels()                                     each level's first frame, steps and end
 
 engine.py cannot be opened for writing from the kernel (engine_re.guard): edit() and undo() send
 their arguments to the harness (engine_re.kernel, engine_re.engine_files), which applies them.
@@ -196,6 +197,65 @@ def take_shown() -> list[dict[str, str]]:
     out = list(_SHOWN)
     _SHOWN.clear()
     return out
+
+
+# --- The recording, level by level ----------------------------------------------------------------
+
+_MOVE_NAMES = {0: "RESET", 1: "up", 2: "down", 3: "left", 4: "right", 5: "interact", 6: "click", 7: "undo"}
+
+
+def _steps_list(steps: list[int], limit: int = 6) -> str:
+    if not steps:
+        return "-"
+    shown = ", ".join(str(i) for i in steps[:limit])
+    return shown + (f", ... ({len(steps)})" if len(steps) > limit else "")
+
+
+def _levels_text(recording: Trace) -> str:
+    """One row per level the recording plays: where its first frame is, the steps played in it, the
+    actions, the animated steps, RESETs and game overs, and how it ended."""
+    steps = recording.steps
+    win = steps[0].win_levels
+    played: dict[int, list[int]] = {0: []}
+    for i in range(1, len(steps)):
+        played.setdefault(steps[i - 1].levels_completed, []).append(i)
+    starts = recording.level_starts()
+    rows = [("level", "first frame", "steps played", "actions", "animated", "RESET", "GAME_OVER", "how it ended")]
+    for level in sorted(played):
+        indices = played[level]
+        moves: dict[str, int] = {}
+        for i in indices:
+            name = _MOVE_NAMES.get(steps[i].action.id, str(steps[i].action))
+            moves[name] = moves.get(name, 0) + 1
+        solved = [i for i in indices if steps[i].levels_completed > level]
+        if solved:
+            ended = f"solved at step {solved[0]}" + (" (WIN)" if steps[solved[0]].state == "WIN" else "")
+        else:
+            ended = f"not solved: the recording ends ({steps[-1].state})"
+        rows.append((
+            str(level),
+            f"S[{starts.get(level, 0)}].last",
+            f"{indices[0]}-{indices[-1]} ({len(indices)})" if indices else "none",
+            ", ".join(f"{name} x{n}" for name, n in moves.items()) or "-",
+            _steps_list([i for i in indices if steps[i].n_frames > 1]),
+            _steps_list([i for i in indices if steps[i].action.id == 0]),
+            _steps_list([i for i in indices if steps[i].state == "GAME_OVER"]),
+            ended,
+        ))
+    widths = [max(len(row[k]) for row in rows) for k in range(len(rows[0]))]
+    table = ["  ".join(cell.ljust(w) for cell, w in zip(row, widths)).rstrip() for row in rows]
+    head = (f"The recording: {len(steps)} steps (S[0] is the RESET that starts the game), {len(played)} of the game's "
+            f"{win} levels played; after step {len(steps) - 1} it is {steps[-1].state} with "
+            f"{steps[-1].levels_completed} level(s) completed.")
+    note = ("A level's first frame is the last frame of the step that solved the level before (S[0].last for level 0). "
+            "\"animated\": steps that returned more than one frame; the tests compare only the last one.")
+    return "\n".join([head] + table + [note])
+
+
+def summarize_levels() -> None:
+    """Print one row per level of the recording: its first frame, the steps played in it, their
+    actions, animated steps, RESETs and game overs, and how the level ended."""
+    print(_levels_text(trace))
 
 
 # --- Running one step and explaining it ---------------------------------------------------------
@@ -459,4 +519,4 @@ def auto_sprites(
     return code
 
 
-__all__ = ["Sprite", "Action", "View", "State", "S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites"]
+__all__ = ["Sprite", "Action", "View", "State", "S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels"]

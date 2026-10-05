@@ -53,7 +53,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   score engines written as an `arcengine` game class (the earlier runs).
 - **Tools** (`agent.py`, `prompts.py`): exactly three.
   - `python(code)`: a persistent kernel. Its namespace holds `np`, the
-    fixed-block classes, `S` (the recording's steps) and seven functions
+    fixed-block classes, `S` (the recording's steps) and eight functions
     (`helpers.py`); nothing else is preloaded:
     - `read(path="engine.py", offset=None, limit=None)` prints the file as
       `LINE#HASH:content` lines (`hashline.py`). The hash is 2 characters from
@@ -115,6 +115,9 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       and every one of their 1,529 recorded frames on its own), runs the code
       and prints whether it renders the frame exactly. A starting point, not
       the real sprites.
+    - `summarize_levels()` prints one row per level the recording plays: its
+      first frame (`S[k].last`), the steps played in it and their actions,
+      animated steps, RESETs and game overs, and the step that solved it.
 
     engine.py cannot be written from the kernel any other way: the sandbox
     denies opening it for writing and every operation that could replace it
@@ -145,9 +148,22 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `finish(summary)` always runs the tests (`failures=1`). When
     everything passes the session ends; otherwise it returns the report (with
     its picture) and the session goes on.
-- **Feedback the harness adds** (`agent.py`). The first message gives the
-  recording's facts and engine.py as `read()` shows it (anchors included, the
-  FIXED block unfolded), and ends by pointing to the first move: `auto_sprites(0)` into `make_level` with `edit()`, then `run_tests`.
+- **The opening** (`agent.py`). Before the first turn of a new session the
+  harness plays the first round itself: in the kernel, `auto_sprites(0)` makes
+  sprite code for level 0's first frame and one `edit()` puts it above
+  `make_level`, which then returns `level_0_sprites()` (for every level, until
+  the model adds more); then it runs the tests. The first message gives the
+  recording in one sentence (steps, levels, how it ends, the actions the game
+  accepts; `summarize_levels()` has the per-level detail), what `auto_sprites`
+  printed (not its code), the test report with its picture, engine.py as
+  `read()` shows it (FIXED block folded), and the first task: make the first
+  failing step pass (usually step 1, the first action of level 0), then the
+  next one, in recorded order. The harness's edit and test are logged
+  (`"by": "harness"` in the transcript, `"auto": "opening"` in `tests.jsonl`,
+  `result.json` `opening`) but not counted as the model's `engine_changes` or
+  `tests_run`. `run_experiment --no-opening` leaves the template as it is and
+  asks the model to do that round.
+- **Feedback the harness adds** (`agent.py`).
   The model's reasoning is sent back with its turns, as the main harness does
   on OpenRouter; compaction trims old tool outputs and all but the last 10
   turns' reasoning once the prompt passes 140K tokens. When a turn changes
@@ -236,7 +252,7 @@ edit or undo with its line range and diff, and one per `show()` with its image
 paths; `show_transcript --diffs` prints the diffs), `tests.jsonl`,
 `result.json` (status, turns, tokens, cost, best and final test, finish calls,
 engine changes), `images/` (the pictures sent to the model,
-`turn<N>_step<S>[_auto].png` and `turn<N>_show<K>.png`) and
+`turn<N>_step<S>[_auto|_opening].png` and `turn<N>_show<K>.png`) and
 `evaluation_<engine>.json`. In `tests.jsonl` a full replay has `"level": null`
 and `total` equal to the trace length; a one-level test has its `level`, and
 `from_level` (the level the engine started at) as before; `first_fail` is the

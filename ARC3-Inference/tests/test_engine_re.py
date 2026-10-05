@@ -411,7 +411,7 @@ def test_agent_tests_a_changed_engine_automatically(tmp_path: Path, tiny_trace: 
             [("python", {"code": _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],
         ]
     )
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), opening=False, client=model)
     result = agent.run()
     # The second turn changed engine.py without calling run_tests: the harness tested it, and it passes.
     assert result.auto_tests == 1 and result.engine_changes == 1
@@ -433,7 +433,7 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
             [("python", {"code": "4"})],  # engine changed: runs again
         ]
     )
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5, python_quota=2), client=model)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5, python_quota=2), opening=False, client=model)
     agent.run()
     outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
     assert outputs[0].strip() == "1" and outputs[1].strip() == "2"
@@ -816,7 +816,7 @@ def test_agent_sends_the_latest_test_images_after_the_tool_messages(tmp_path: Pa
             [("run_tests", {"level": 0, "failures": 3})],
         ]
     )
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), opening=False, client=model)
     agent.run()
     images = _image_messages(agent)
     assert len(images) == 3 and agent.result.image_messages == 3
@@ -842,7 +842,7 @@ def test_agent_without_images_keeps_a_text_diff(tmp_path: Path, tiny_trace: Trac
     tiny_trace.save(tmp_path / "trace")
     wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
     model = _ScriptedModel([[("python", {"code": wrong})]])
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=model, images=False)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), opening=False, client=model, images=False)
     agent.run()
     assert not _image_messages(agent) and not (tmp_path / "images").exists()
     auto = agent.messages[-1]["content"]
@@ -864,7 +864,7 @@ def test_agent_level_tests_are_kept_apart_from_full_replays(tmp_path: Path, two_
             [("run_tests", {"level": "1", "failures": 30})],  # clamped to 10
         ]
     )
-    agent = EngineAgent("two", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
+    agent = EngineAgent("two", tmp_path, ModelConfig(), Budget(max_turns=3), opening=False, client=model)
     agent.run()
     tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
     assert [(t["level"], t["from_level"], t["failures"], t["total"]) for t in tests] == [
@@ -880,7 +880,7 @@ def test_compaction_handles_image_messages(tmp_path: Path, tiny_trace: Trace) ->
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(keep_recent_tool_outputs=1), Budget(), client=_ScriptedModel([]))
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(keep_recent_tool_outputs=1), Budget(), opening=False, client=_ScriptedModel([]))
     picture = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
     agent.messages = [
         {"role": "system", "content": "s"},
@@ -1233,7 +1233,7 @@ def test_finish_runs_the_tests_and_ends_only_when_they_pass(tmp_path: Path, tiny
             [("python", {"code": "1"})],  # never reached
         ]
     )
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), opening=False, client=model)
     result = agent.run()
     tool_outputs = [m["content"] for m in agent.messages if m["role"] == "tool"]
     assert tool_outputs[0].startswith("Not finished: the tests still fail, so the session goes on.")
@@ -1255,7 +1255,7 @@ def test_show_images_join_the_turns_image_message(tmp_path: Path, tiny_trace: Tr
             [("python", {"code": "show(S[2].last)"})],
         ]
     )
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=model)
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), opening=False, client=model)
     agent.run()
     images = _image_messages(agent)
     assert len(images) == 2
@@ -1271,21 +1271,84 @@ def test_show_images_join_the_turns_image_message(tmp_path: Path, tiny_trace: Tr
     assert (tmp_path / "images" / "turn001_show1.png").read_bytes().startswith(b"\x89PNG")
 
 
-def test_first_message_shows_engine_py_with_anchors(tmp_path: Path, tiny_trace: Trace) -> None:
+def _message_text(message: dict) -> str:
+    content = message["content"]
+    return content if isinstance(content, str) else "\n".join(p["text"] for p in content if p["type"] == "text")
+
+
+def test_the_harness_plays_the_first_round(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
     from engine_re import hashline
     from engine_re.agent import Budget, EngineAgent, ModelConfig
 
     tiny_trace.save(tmp_path / "trace")
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=0), client=_ScriptedModel([]))
+    result = agent.run()
+    engine = (tmp_path / "workspace" / "engine.py").read_text()
+    # auto_sprites(0)'s code sits above make_level, which returns its sprites.
+    assert engine.index("def level_0_sprites()") < engine.index("def make_level(")
+    assert "    return State(grid=(8, 8), sprites=level_0_sprites())" in engine
+    # Level 0's first frame is drawn, so the first failure is the first action.
+    assert result.opening == {"exact": True, "first_fail": 1, "passing_prefix": 1}
+    # The harness's edit and test are not the model's.
+    assert result.engine_changes == 0 and result.tests_run == 0
+    tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
+    assert [t["auto"] for t in tests] == ["opening"] and tests[0]["first_fail"] == 1
+    records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
+    assert [r["by"] for r in records if "engine_change" in r] == ["harness"]
+    # The first message: the recording in one sentence, what was done, the report, engine.py and the task.
+    content = agent.messages[1]["content"]
+    text = _message_text(agent.messages[1])
+    assert "The recording: 8 steps over 1 level(s)" in text and "summarize_levels()" in text
+    assert "Levels reached" not in text and "frames per step" not in text
+    assert "Before your first turn the harness did the first round" in text
+    assert "Renders the frame exactly: yes." in text and "def shape_pixels" not in text.split("TEST RESULT")[0]
+    assert "step 1 is the first failure; 1 step passes before it (step 0)" in text
+    assert "the FIXED block, folded" in text and "class Sprite:" not in text
+    lines, _ = hashline.split_lines(engine)
+    assert f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in text
+    assert content[0]["text"].rstrip().split("\n")[-1].startswith("Your first task: make step 1 pass, the first action of level 0.")
+    assert any(p["type"] == "image_url" for p in content)
+    assert (tmp_path / "images" / "turn000_step1_opening.png").exists()
+
+
+def test_first_message_without_the_opening(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+    from engine_re.skeleton import render_skeleton
+
+    tiny_trace.save(tmp_path / "trace")
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=0), opening=False, client=_ScriptedModel([]))
     agent.run()
     opening = agent.messages[1]["content"]
-    lines, _ = hashline.split_lines((tmp_path / "workspace" / "engine.py").read_text())
-    assert "- 8 steps; S[0] is the RESET that starts the game." in opening
-    assert "Advertised actions: [1, 2, 3, 4]; win_levels: 1" in opening
-    assert f"{hashline.anchor(lines, 1)}:" in opening and f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in opening
-    assert "class Sprite:" in opening  # the FIXED block is shown in full here
-    assert opening.rstrip().endswith("then run_tests again.") and "auto_sprites(0)" in opening.splitlines()[-2]
+    assert (tmp_path / "workspace" / "engine.py").read_text() == render_skeleton("tiny", [1, 2, 3, 4])
+    assert "The actions this game accepts: 1 (up), 2 (down), 3 (left), 4 (right)." in opening
+    assert "the FIXED block, folded" in opening and "class Sprite:" not in opening
+    assert "Your first task: put auto_sprites(0)'s code into make_level with edit()" in opening
     assert agent.messages[0]["content"].startswith("# Goal")
+    assert not agent.result.opening
+
+
+def test_the_opening_does_not_count_as_the_models_work_after_a_resume(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.agent import Budget, EngineAgent, ModelConfig
+
+    tiny_trace.save(tmp_path / "trace")
+    EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=_ScriptedModel([[("python", {"code": "1"})]])).run()
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=_ScriptedModel([[("python", {"code": "2"})]]))
+    result = agent.run()
+    assert result.resumes == 1 and result.engine_changes == 0 and result.tests_run == 0
+    assert "This continues an earlier session" in _message_text(agent.messages[1])
+
+
+def test_summarize_levels_lists_each_level(two_level_trace: Trace) -> None:
+    from engine_re import helpers
+    from engine_re.kernel import PRELOADED
+
+    rows = helpers._levels_text(two_level_trace).splitlines()
+    assert rows[0].startswith("The recording: 9 steps") and "2 of the game's 2 levels played" in rows[0]
+    assert rows[2].split() == ["0", "S[0].last", "1-3", "(3)", "right", "x3", "3", "-", "-", "solved", "at", "step", "3"]
+    assert rows[3].startswith("1      S[3].last    4-8 (5)") and rows[3].rstrip().endswith("not solved: the recording ends (NOT_FINISHED)")
+    assert "RESET x1" in rows[3] and "summarize_levels" in PRELOADED
 
 
 def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -1294,8 +1357,8 @@ def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, 
 
     tiny_trace.save(tmp_path / "trace")
     wrong = _rewrite_call(SIMPLE_TINY_GAME.replace("DOWN", "2"))
-    EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), client=_ScriptedModel([[("python", {"code": wrong})]])).run()
-    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), client=_ScriptedModel([[("python", {"code": "undo()"})]]))
+    EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=1), opening=False, client=_ScriptedModel([[("python", {"code": wrong})]])).run()
+    agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=2), opening=False, client=_ScriptedModel([[("python", {"code": "undo()"})]]))
     agent.run()
     opening = agent.messages[1]["content"]
     assert "This continues an earlier session on this game (1 turns)" in opening and "--- Step " in opening
@@ -1331,7 +1394,7 @@ def test_kernel_rejects_code_that_rebinds_a_builtin():
 
 def test_system_prompt_names_every_builtin_function():
     from engine_re.kernel import RESERVED
-    from engine_re.prompts import first_user_message, system_prompt
+    from engine_re.prompts import system_prompt
 
     for images in (True, False):
         prompt = system_prompt(images=images)

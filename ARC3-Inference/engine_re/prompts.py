@@ -8,8 +8,6 @@ show() come with pictures; the texts follow it.
 from __future__ import annotations
 
 import copy
-from collections import Counter
-
 from engine_re.tester import MAX_FAILURES
 from engine_re.trace import Trace
 
@@ -73,6 +71,7 @@ description has the details). They are not separate tools.
 - try_step(i): your State before and after recorded step i, what your step() printed, and where your
   frame differs from the recording.
 - auto_sprites(level): sprite code that draws the first frame of a level exactly, ready for edit().
+- summarize_levels(): each level's first frame, the steps played in it and how it ended.
 They come with S (the recording), np and the classes Sprite, Action, View, State. All these names are
 reserved: code that defines or assigns any of them is rejected before it runs.
 
@@ -80,12 +79,12 @@ reserved: code that defines or assigns any of them is rejected before it runs.
 The recording shows only part of what the game can do, so its real rules cannot always be known from
 it. Your job is to reproduce what was observed, with the simplest general mechanism that explains it:
 one rule that covers many steps rather than special cases, and nothing the recording gives no evidence for.
-Work through the recording in order:
-1. Start with the first frame of level 0: auto_sprites(0) gives sprite code that draws it exactly. Put it
-   into make_level with edit() and run run_tests.
-2. Then make the steps pass one at a time, in the order they were played. run_tests shows the first step
-   that fails: find the simplest, most logical mechanism that makes it pass while every earlier step
-   still passes, then test again.
+Work through the recording in order, one step at a time:
+1. Before your first turn the harness puts auto_sprites(0)'s code into make_level, so that level 0's first
+   frame is drawn, and runs the tests; the first message shows what they report. Start with the first
+   step that fails there: usually step 1, the first action of level 0.
+2. Make that step pass with the simplest, most logical mechanism, while every earlier step still passes;
+   then take the next failing step. Work on the step in front of you, not on later steps or levels.
 3. When a step contradicts a rule you wrote, replace the rule with the simplest one that explains all
    the steps so far, instead of adding a special case.
 4. All levels are the same game. Keep one set of sprite kinds for the whole game (pixels, tags,
@@ -98,40 +97,29 @@ Never hard-code recorded frames or anything keyed to the step number. Print what
 inside step(); the test report and try_step show it.
 
 # Example: how a session goes
-A made-up game where a blue piece moves on a grid; your game will differ. Every round is the same four
-moves: read the code, run the tests, edit the code, run the tests again. The reports are shortened.
+A made-up game where a blue piece moves on a grid; your game will differ. The reports are shortened.
+Before turn 1 the harness put auto_sprites(0)'s code into make_level and ran the tests; the first message
+showed: step 1 (ACTION4) is the first failure; 1 step passes before it.
+     [1] your #3 "shape_9_2x2_a1b2" at x=4; the recording shows it one cell to the right.
+From there every round is the same: read the code, look at the failing step, edit, run the tests.
 
 Turn 1, python:
-    read()                          # engine.py with its LINE#HASH anchors
-  -> 247#KW:def make_level(n: int) -> State:  ...  251#PR:    return State(  ...  261#KB:    )
-Turn 2, run_tests()
-  -> step 0 is the first failure; no step passes before it. No sprite of yours draws here.
-Turn 3, python (the first edit uses auto_sprites):
-    code = auto_sprites(0)          # sprite code that draws level 0's first frame exactly
-    edit(edits=[{"op": "prepend", "pos": "247#KW", "lines": code},
-                {"op": "replace", "pos": "251#PR", "end": "261#KB",
-                 "lines": f"    return State(grid={code.grid}, sprites=level_0_sprites())"}])
-  -> engine.py: inserted 37 lines; replaced lines 251-261 with 1 line. Syntax OK.
-Turn 4, run_tests()
-  -> step 1 (ACTION4) is the first failure; 1 step passes before it.
-     [1] your #3 "shape_9_2x2_a1b2" at x=4; the recording shows it one cell to the right.
-Turn 5, python:
-    read(offset=290, limit=15)      # the lines of step()
+    read(offset=330, limit=15)      # the lines of step()
     before, after = try_step(1)     # what your step() did at step 1
   -> no sprite changed: step() is still empty.
-Turn 6, run_tests()                 # where you stand before changing anything
-  -> step 1 (ACTION4) is still the first failure.
-Turn 7, python: edit() step() so that ACTION4 moves the blue piece one cell right with
-  state.try_move(piece, 1, 0).
-Turn 8, run_tests()
+Turn 2, python: edit() step() so that ACTION4 moves the blue piece one cell right with
+  state.try_move(piece, 1, 0); then run_tests() in the same turn.
+  -> engine.py: replaced lines 335-336 with 4 lines. Syntax OK.
   -> steps 0-6 pass; step 7 (ACTION4) is the first failure: the piece should not have moved.
      [1] your #3 at x=9; in the recording it stays at x=8, next to a grey block.
-Turn 9, python: read() make_level's sprite list. Turn 10, python: edit() the grey blocks' kind to be
-  collidable (they are walls). Turn 11, run_tests() -> steps 0-15 pass; step 16 is the first failure ...
-And so on, always read, run the tests, edit, run the tests: take the first failing step, find the simplest
-rule that explains it and every step before it, change the code, test again. When the tests reach level 1,
-call auto_sprites(1) and add level 1 to make_level, reusing level 0's sprite kinds. Do not study later
-levels before the steps in front of you pass: the recording will still be there when you get to them.
+Turn 3, python: read() make_level's sprite list; try_step(7).
+Turn 4, python: edit() the grey blocks' kind to be collidable (they are walls); then run_tests().
+  -> steps 0-15 pass; step 16 is the first failure ...
+And so on: take the first failing step, find the simplest rule that explains it and every step before it,
+change the code, test again. (When engine.py changed in a turn and you did not run the tests, the harness
+runs them at the end of the turn.) When the tests reach level 1, call auto_sprites(1) and add level 1 to
+make_level, reusing level 0's sprite kinds. Do not study later levels before the steps in front of you
+pass: the recording will still be there when you get to them.
 """
 
 # The show() line of the built-in functions section.
@@ -162,6 +150,8 @@ The recording
   - S[i].levels_completed: levels completed after the action; step i is played in level
     S[i-1].levels_completed.
   - S[i].win_levels, S[i].available_actions.
+- summarize_levels(): print one row per level: its first frame (S[k].last), the steps played in it and
+  their actions, the animated steps, RESETs and game overs, and the step that solved it.
 
 engine.py (change it by calling edit() or undo() in your python code; writing the file any other way,
 such as open('engine.py', 'w'), is blocked)
@@ -307,42 +297,72 @@ def tools(images: bool = True) -> list[dict]:
 TOOLS = tools(True)
 
 
-def describe_trace(trace: Trace) -> str:
+_ACTION_WORDS = {0: "RESET", 1: "up", 2: "down", 3: "left", 4: "right", 5: "interact", 6: "click", 7: "undo"}
+
+
+def recording_summary(trace: Trace) -> str:
+    """The recording in one sentence; summarize_levels() in python has the levels."""
     steps = trace.steps
-    acts = Counter(str(s.action) if s.action.id != 6 else "ACTION6 (click)" for s in steps)
-    frames = Counter(s.n_frames for s in steps)
-    overs = sum(s.state == "GAME_OVER" for s in steps)
-    starts = trace.level_starts()
+    played = len({0} | {steps[i - 1].levels_completed for i in range(1, len(steps))})
+    actions = ", ".join(f"{a} ({_ACTION_WORDS.get(a, a)})" for a in steps[0].available_actions)
     return (
-        f"- {len(steps)} steps; S[0] is the RESET that starts the game. Actions played: {dict(acts)}\n"
-        f"- Advertised actions: {steps[0].available_actions}; win_levels: {steps[0].win_levels}\n"
-        f"- Levels reached (level: the first step whose frame shows it): {starts}; the recording ends "
-        f"{steps[-1].state} with {steps[-1].levels_completed} level(s) completed\n"
-        f"- Steps ending in GAME_OVER: {overs}; frames per step (frames: steps): {dict(sorted(frames.items()))}"
+        f"{len(steps)} steps over {played} level(s) (S[0] is the RESET that starts the game); it ends {steps[-1].state} "
+        f"with {steps[-1].levels_completed} of {steps[0].win_levels} levels completed. The actions this game accepts: "
+        f"{actions}. summarize_levels() in python lists each level: its first frame, the steps played in it and how it "
+        "ended."
     )
 
 
-def first_user_message(game: str, trace: Trace, engine_read: str) -> str:
-    """The opening message: the recording's facts and engine.py as read() shows it (with anchors)."""
-    return f"""Game: {game}. Write engine.py for it.
+def _first_task(first_fail: int | None) -> str:
+    if first_fail is None:
+        return "Every test passes already: call finish."
+    if first_fail == 0:
+        what = "step 0 pass, level 0's first frame (make_level(0) does not draw it exactly yet), then step 1"
+    elif first_fail == 1:
+        what = "step 1 pass, the first action of level 0"
+    else:
+        what = f"step {first_fail} pass, the first step that fails"
+    return (
+        f"Your first task: make {what}. Work on that step only: read the code it runs, look at the step with "
+        f"try_step({first_fail}), edit, run the tests. Then go on to the next failing step, one step at a time, in "
+        "the order they were played, and add a level with auto_sprites(n) when the tests reach it."
+    )
 
-The recording:
-{describe_trace(trace)}
 
-engine.py now, as read() shows it (LINE#HASH anchors for edit()):
+def first_user_message(game: str, trace: Trace, engine_read: str, opening: dict | None = None) -> str:
+    """The opening message: the recording in one sentence, what the harness did before the first turn
+    (auto_sprites(0) put into make_level, then run_tests: `opening` holds "sprites", the summary
+    auto_sprites printed, "report", the test report, and "first_fail"), engine.py as read() shows it,
+    and the first task. Without `opening` the model is asked to do that first round itself."""
+    head = f"Game: {game}. Write engine.py for it.\n\nThe recording: {recording_summary(trace)}\n"
+    shown = f"engine.py now, as read() shows it (the FIXED block folded):\n\n{engine_read}"
+    if opening is None:
+        return f"""{head}
+{shown}
 
-{engine_read}
+Your first task: put auto_sprites(0)'s code into make_level with edit(), so that level 0's first frame is drawn,
+and run the tests. Then make the first failing step pass, then the next one, one step at a time, in the order
+they were played."""
+    sprites = "\n".join("   " + line if line else "" for line in opening["sprites"].strip().splitlines())
+    return f"""{head}
+Before your first turn the harness did the first round:
+1. auto_sprites(0) wrote sprites that draw level 0's first frame, and make_level now returns them (for every
+   level, for now). What it printed:
+{sprites}
+2. run_tests() then reported:
 
-Start as in the example of the system prompt: read(), run_tests, then edit() with auto_sprites(0) to put
-level 0 into make_level, then run_tests again."""
+{opening["report"].strip()}
+
+{shown}
+
+{_first_task(opening.get("first_fail"))}"""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:
     notes_part = f"\nWhat that session left behind:\n\n{notes}\n" if notes else ""
     return f"""Game: {game}. Write engine.py for it.
 
-The recording:
-{describe_trace(trace)}
+The recording: {recording_summary(trace)}
 
 This continues an earlier session on this game ({turns} turns) that was interrupted. Its conversation is gone and the
 python kernel was restarted (its variables are gone), but engine.py and its versions (undo) are kept.

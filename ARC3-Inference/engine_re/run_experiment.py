@@ -83,6 +83,11 @@ def main() -> int:
         action="store_true",
         help="Text-only feedback: test reports and show() print hex digits instead of sending pictures.",
     )
+    parser.add_argument(
+        "--no-opening",
+        action="store_true",
+        help="Do not play the first round for the model (auto_sprites(0) into make_level, then the tests).",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -104,7 +109,7 @@ def main() -> int:
             print(f"[{game}] already finished; skipping", flush=True)
             return
         agent = EngineAgent(
-            game, game_dirs[game], model, budget, images=not args.no_images
+            game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening
         )
         result = agent.run()
         final = result.final or {}

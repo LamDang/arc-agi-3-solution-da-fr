@@ -16,6 +16,13 @@ it cannot write engine.py except through edit() and undo(), which the harness ap
 and finish. finish runs the tests: the session ends when every test passes (by finish, run_tests
 or the automatic test) or when a budget (turns, output tokens, cost, wall time) runs out.
 
+The opening: before the first turn of a new session the harness plays the first round itself. In the
+kernel, auto_sprites(0) makes sprite code for level 0's first frame and one edit() puts it above
+make_level, which then returns level_0_sprites(); then it runs the tests. The first message shows
+what auto_sprites printed, the test report (with its picture) and engine.py, and sets the first task:
+the first failing step, usually step 1. That edit and test are not counted as the model's
+(engine_changes, tests_run); tests.jsonl marks the test "auto": "opening".
+
 Feedback the harness adds on its own: when engine.py changed during a turn and was not tested
 since, run_tests runs automatically with its defaults (a full replay, reported up to the first
 failure) and its report is appended to the turn's last tool output; after every TEST_NUDGE_TURNS
@@ -83,7 +90,26 @@ PYTHON_PAUSED = (
     "calls that change it with edit() or undo() run; then python resumes. run_tests shows which step and pixels "
     "to fix next."
 )
-READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in a resume message (the first message shows all of it)
+READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in the first message (FIXED block folded)
+# The opening, run in the kernel: auto_sprites(0) (its summary printed, not its code), then one edit that
+# puts the code above make_level and makes make_level return level_0_sprites(). Filled in by
+# EngineAgent._opening_code with the anchors of the starting engine.py.
+OPENING_SPLIT = "----- harness: edit -----"
+OPENING_CODE = '''\
+import contextlib as _harness_contextlib, io as _harness_io
+_harness_out = _harness_io.StringIO()
+with _harness_contextlib.redirect_stdout(_harness_out):
+    _harness_code = auto_sprites(0)
+print(_harness_out.getvalue().split("\\n\\n")[0])
+print({split!r})
+edit(edits=[
+    {{"op": "prepend", "pos": {head!r}, "lines": _harness_code.rstrip("\\n").splitlines() + ["", ""]}},
+    {{"op": "replace", "pos": {start!r}, "end": {end!r}, "lines": [
+        "    # For now every level starts as level 0: add level n (auto_sprites(n)) when the tests reach it.",
+        f"    return State(grid={{_harness_code.grid}}, sprites=level_0_sprites())"]}},
+])
+del _harness_contextlib, _harness_io, _harness_out, _harness_code
+'''
 
 
 @dataclass
@@ -238,6 +264,7 @@ class AgentResult:
     images: bool = True
     image_messages: int = 0
     provider_errors: int = 0  # answers that failed at the provider and were asked again
+    opening: dict = field(default_factory=dict)  # the harness's first round: exact, first_fail, or error
 
 
 class EngineAgent:
@@ -251,6 +278,7 @@ class EngineAgent:
         match: str = "final",
         interface: str = "simple",
         images: bool = True,
+        opening: bool = True,
     ):
         if interface != "simple":
             raise ValueError("the agent writes make_level/step engines only (interface='simple')")
@@ -258,6 +286,8 @@ class EngineAgent:
         self.match = match
         self.interface = interface
         self.images = images
+        self.opening = opening
+        self._in_opening = False
         self.dir = Path(game_dir).resolve()
         self.trace_dir = self.dir / "trace"
         self.workspace = self.dir / "workspace"
@@ -333,7 +363,8 @@ class EngineAgent:
         full = level is None
         if full:
             self.tested_hash = tested_hash
-        self.result.tests_run += 1
+        if auto != "opening":
+            self.result.tests_run += 1
         # "from_level" keeps its earlier meaning for older readers of tests.jsonl, the level the engine
         # started at (null: a fresh engine). A full replay has "level" null and "total" = the trace length.
         # "engine_sha" ties the result to a version of engine.py (undo shows it).
@@ -394,7 +425,8 @@ class EngineAgent:
             return
         self.pending_test = []
         for image in report.images[:MAX_TEST_IMAGES]:
-            path = self._save_png(image.png, f"turn{self.result.turns:03d}_step{image.step}" + ("_auto" if auto else ""))
+            suffix = "_opening" if auto == "opening" else "_auto" if auto else ""
+            path = self._save_png(image.png, f"turn{self.result.turns:03d}_step{image.step}{suffix}")
             self.pending_test.append((image.caption, path, image.png))
 
     def _attach_images(self) -> None:
@@ -428,8 +460,12 @@ class EngineAgent:
     # --- engine.py -------------------------------------------------------------
 
     def _log_engine_change(self, record: dict[str, Any]) -> None:
-        """Called by the harness side of edit()/undo() for every change to engine.py."""
-        self.result.engine_changes += 1
+        """Called by the harness side of edit()/undo() for every change to engine.py. The opening's
+        change is logged as the harness's and not counted."""
+        if self._in_opening:
+            record = {**record, "by": "harness"}
+        else:
+            self.result.engine_changes += 1
         self._log({"turn": self.result.turns, **record})
 
     def _read_engine(self, fold: bool, max_chars: int) -> str:
@@ -481,14 +517,15 @@ class EngineAgent:
                     thoughts.append((record["turn"], text.strip()))
             elif "tool" in record:
                 self.result.tool_calls[record["tool"]] = self.result.tool_calls.get(record["tool"], 0) + 1
-            elif "engine_change" in record:
+            elif "engine_change" in record and record.get("by") != "harness":
                 self.result.engine_changes += 1
             self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
         tests = self.dir / "tests.jsonl"
         if tests.exists():
             for line in tests.read_text(encoding="utf-8").splitlines():
                 entry = json.loads(line)
-                self.result.tests_run += 1
+                if entry.get("auto") != "opening":
+                    self.result.tests_run += 1
                 if entry.get("level") is None and entry.get("from_level") in (None, 0):
                     if best_key(entry) > self.best_key:
                         self.best_key = best_key(entry)
@@ -538,6 +575,71 @@ class EngineAgent:
             return "budget_time"
         return None
 
+    # --- the opening --------------------------------------------------------------
+
+    def _opening_code(self) -> str | None:
+        """OPENING_CODE with the anchors of make_level and its return State(...) block, or None when
+        engine.py does not have the starting template's make_level."""
+        lines, _ = hashline.split_lines(self.engine_path.read_text(encoding="utf-8"))
+        try:
+            head = next(i for i, line in enumerate(lines, 1) if line.startswith("def make_level("))
+            start = next(i for i in range(head, len(lines) + 1) if lines[i - 1] == "    return State(")
+            end = next(i for i in range(start, len(lines) + 1) if lines[i - 1] == "    )")
+        except StopIteration:
+            return None
+        return OPENING_CODE.format(
+            head=hashline.anchor(lines, head), start=hashline.anchor(lines, start), end=hashline.anchor(lines, end),
+            split=OPENING_SPLIT,
+        )
+
+    def _open(self) -> dict[str, Any] | None:
+        """Play the first round before the first turn: auto_sprites(0) into make_level, then the tests.
+        Returns what the first message shows ("sprites", "report", "first_fail"), or None when it could
+        not be done (engine.py is then as it was)."""
+        code = self._opening_code()
+        if code is None:
+            self.result.opening = {"error": "engine.py has no template make_level to fill"}
+            return None
+        self._in_opening = True
+        try:
+            output = self.kernel.execute(code)
+            sprites, _, edited = output.partition(OPENING_SPLIT)
+            edited = edited.strip()
+            if not edited.startswith("engine.py: ") or "Syntax OK" not in edited:
+                if edited.startswith("engine.py: "):  # applied but broken: back to the template
+                    self.kernel.editor.undo(1)
+                self.result.opening = {"error": output[-1500:]}
+                self._log({"turn": 0, "opening_error": output})
+                return None
+            report = self._run_tests(None, 1, auto="opening")
+        finally:
+            self._in_opening = False
+        if isinstance(report, str):
+            self.result.opening = {"error": report}
+            self._log({"turn": 0, "opening_error": report})
+            return None
+        summary = report.summary()
+        first_fail = None if report.passed else summary.get("first_fail")
+        self.result.opening = {
+            "exact": "exactly: yes" in sprites, "first_fail": first_fail, "passing_prefix": summary.get("passing_prefix"),
+        }
+        self._log({"turn": 0, "opening": {"sprites": sprites.strip(), "edit": edited, "report": report.text}})
+        return {"sprites": sprites, "report": _truncate(report.text, REPORT_CHARS), "first_fail": first_fail}
+
+    def _opening_content(self, text: str) -> str | list[dict[str, Any]]:
+        """The first message: its text, then the opening test's pictures (when images are on)."""
+        pictures, self.pending_test = (self.pending_test if self.images else []), []
+        if not pictures:
+            return text
+        content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+        for caption, _, png in pictures:
+            content.append({"type": "text", "text": TEST_IMAGE_NOTE + " " + caption})
+            content.append({"type": "image_url", "image_url": {"url": diff_report.data_url(png)}})
+        self.result.image_messages += 1
+        self._log({"turn": 0, "images": [str(path.relative_to(self.dir)) for _, path, _ in pictures],
+                   "captions": [caption for caption, _, _ in pictures]})
+        return content
+
     def setup(self) -> None:
         self.workspace.mkdir(parents=True, exist_ok=True)
         if not self.engine_path.exists():
@@ -554,7 +656,10 @@ class EngineAgent:
                 self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), self.prior_notes,
             )
         else:
-            opening = first_user_message(self.game, self.trace, self._read_engine(fold=False, max_chars=10**7))
+            done = self._open() if self.opening else None
+            opening = self._opening_content(
+                first_user_message(self.game, self.trace, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), done)
+            )
         system = system_prompt(self.match, self.interface, self.images)
         if self.budget.python_quota is not None:
             system += (

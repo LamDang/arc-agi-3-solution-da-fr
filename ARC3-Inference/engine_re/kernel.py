@@ -41,7 +41,7 @@ from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
 # What the namespace of the model's code starts with (besides np and the fixed-block classes).
-PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
+PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites", "summarize_levels")
 # Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
 
