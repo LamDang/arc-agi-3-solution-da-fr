@@ -1336,8 +1336,8 @@ def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
     lines, _ = hashline.split_lines(text)
     shown = hashline.render_read(text)
     assert shown.splitlines()[0].strip() == f"{hashline.anchor(lines, 1)}:line 1"
-    assert all(len(a.split("#")[1].split(":")[0]) == 2 for a in shown.splitlines())
-    assert all(c in hashline.NIBBLES for line in shown.splitlines() for c in line.split("#")[1][:2])
+    assert all(len(a.split("#")[1].split(":")[0]) == 3 for a in shown.splitlines())
+    assert all(c in hashline.NIBBLES for line in shown.splitlines() for c in line.split("#")[1][:3])
     before = {n: hashline.anchor(lines, n) for n in range(1, 21)}
     edited = hashline.apply_edits(text, [{"op": "replace", "pos": before[10], "lines": ["LINE 10"]}]).text
     after_lines, _ = hashline.split_lines(edited)
@@ -1346,12 +1346,23 @@ def test_anchors_are_stable_and_stale_ones_are_rejected() -> None:
     changed = {n for n in before if before[n] != after[n]}
     assert 10 in changed and changed <= {9, 10, 11}
     assert hashline.split_lines(text)[0] == lines and hashline.anchor(lines, 5) == before[5]  # same input, same anchor
-    with pytest.raises(hashline.EditError, match=r"\[E_STALE_ANCHOR\] 1 stale anchor: " + before[10]):
+    # A stale anchor: the error shows the lines there now, with fresh anchors, and nothing is applied.
+    with pytest.raises(hashline.EditError, match=r"\[E_STALE_ANCHOR\] " + before[10] + " is stale") as info:
         hashline.apply_edits(edited, [{"op": "replace", "pos": before[10], "lines": ["x"]}])
+    assert "No edit was applied (1 of 1 failed" in str(info.value) and "Lines 9-11 now:" in str(info.value)
+    assert all(f"{after[n]}:{line}" in str(info.value) for n, line in ((9, "line 9"), (10, "LINE 10"), (11, "line 11")))
     # A ":content" suffix is cross-checked: the right hash with the wrong content is stale too.
     with pytest.raises(hashline.EditError, match="E_STALE_ANCHOR"):
         hashline.apply_edits(text, [{"op": "replace", "pos": before[3] + ":line 4", "lines": ["x"]}])
     assert hashline.apply_edits(text, [{"op": "replace", "pos": before[3] + ":line 3", "lines": ["x"]}]).text.count("x\n") == 1
+    # A stale hash whose content still matches the line is accepted, with a warning; a 2-character
+    # anchor (the end of the hash) is accepted too.
+    result = hashline.apply_edits(text, [{"op": "replace", "pos": "3#ZZZ:line 3", "lines": ["x"]}])
+    assert result.text.count("x\n") == 1 and "stale but its content matched" in result.warnings[0]
+    short = "3#" + before[3].split("#")[1][-2:]
+    assert hashline.apply_edits(text, [{"op": "replace", "pos": short, "lines": ["x"]}]).text.count("x\n") == 1
+    with pytest.raises(hashline.EditError, match="E_STALE_ANCHOR"):
+        hashline.apply_edits(text, [{"op": "replace", "pos": "3#ZZZ:line 7", "lines": ["x"]}])
     # Paging: read() says where to continue.
     assert "Use offset=16 to continue." in hashline.render_read(text, offset=11, limit=5)
 
@@ -1376,18 +1387,94 @@ def test_every_edit_op() -> None:
     assert run({"op": "replace_text", "oldText": "c\nd", "newText": "C\nD"}) == "a\nb\nC\nD\ne\n"
     # Several edits validated against one snapshot, applied together.
     assert run({"op": "replace", "pos": A[1], "lines": ["A"]}, {"op": "replace", "pos": A[4], "lines": ["D"]}) == "A\nb\nc\nD\ne\n"
+    # Edits on adjacent lines, and an insert touching a replaced range, are merged in order.
+    assert run({"op": "replace", "pos": A[2], "lines": []}, {"op": "replace", "pos": A[3], "lines": []}) == "a\nd\ne\n"
+    assert run({"op": "replace", "pos": A[2], "lines": ["x"]}, {"op": "append", "pos": A[2], "lines": ["y"]}) == "a\nx\ny\nc\nd\ne\n"
+    assert run({"op": "append", "pos": A[3], "lines": ["y"]}, {"op": "replace", "pos": A[2], "end": A[3], "lines": ["X"]}) == "a\nX\ny\nd\ne\n"
+    assert run({"op": "prepend", "pos": A[3], "lines": ["y"]}, {"op": "replace", "pos": A[3], "lines": ["C"]}) == "a\nb\ny\nC\nd\ne\n"
+    assert run({"op": "append", "pos": A[1], "lines": ["1"]}, {"op": "append", "pos": A[1], "lines": ["2"]}) == "a\n1\n2\nb\nc\nd\ne\n"
     for bad, code in (
-        ([{"op": "replace", "pos": A[2], "lines": []}, {"op": "replace", "pos": A[3], "lines": []}], "E_EDIT_CONFLICT"),
-        ([{"op": "replace", "pos": A[2], "lines": ["x"]}, {"op": "append", "pos": A[2], "lines": ["y"]}], "E_EDIT_CONFLICT"),
+        ([{"op": "replace", "pos": A[2], "end": A[3], "lines": ["x"]}, {"op": "replace", "pos": A[3], "lines": ["y"]}], "E_EDIT_CONFLICT"),
+        ([{"op": "replace", "pos": A[2], "end": A[4], "lines": ["x"]}, {"op": "append", "pos": A[3], "lines": ["y"]}], "E_EDIT_CONFLICT"),
         ([{"op": "replace_text", "oldText": "zzz", "newText": "y"}], "E_NO_MATCH"),
         ([{"op": "append", "pos": A[2], "lines": []}], "E_BAD_OP"),
         ([{"op": "replace", "pos": "2", "lines": ["x"]}], "E_BAD_REF"),
         ([{"op": "replace", "pos": A[1], "lines": [f"{A[1]}:a"]}], "E_INVALID_PATCH"),
         ([{"op": "move", "pos": A[1]}], "E_BAD_OP"),
+        ([{"op": "replace_def", "name": "a-b", "lines": ["x"]}], "E_BAD_OP"),
     ):
         with pytest.raises(hashline.EditError, match=code):
             hashline.apply_edits(text, bad)
     assert hashline.apply_edits(text, [{"op": "replace", "pos": A[1], "lines": ["a"]}]).noop
+
+
+CODE = "import os\n\nX = 1\n\n\n@deco\ndef f(a):\n    return a\n\n\nclass G:\n    def m(self):\n        return 1\n\n    def n(self):\n        return 2\n"
+
+
+def test_edits_are_lenient_and_applied_one_by_one() -> None:
+    from engine_re import hashline
+
+    lines, _ = hashline.split_lines(CODE)
+    A = {n: hashline.anchor(lines, n) for n in range(1, len(lines) + 1)}
+    # replace_text: an exact match first; else whole lines matched ignoring whitespace, newText as given.
+    result = hashline.apply_edits(CODE, [{"op": "replace_text", "oldText": "def f(a):\n  return   a  ", "newText": "def f(a):\n    return a + 1"}])
+    assert result.text.splitlines()[6:8] == ["def f(a):", "    return a + 1"] and "matched ignoring whitespace" in result.warnings[0]
+    result = hashline.apply_edits(CODE, [{"op": "replace_text", "oldText": "\n    return a\n", "newText": "\n    return -a\n"}])
+    assert result.text.splitlines()[7] == "    return -a" and result.text.count("\n") == CODE.count("\n")
+    # No match: the error suggests lines like the first significant line given, with anchors.
+    with pytest.raises(hashline.EditError) as info:
+        hashline.apply_edits(CODE, [{"op": "replace_text", "oldText": "def f(b):\n    return b", "newText": "x"}])
+    assert "[E_NO_MATCH]" in str(info.value) and f"{A[7]}:def f(a):" in str(info.value)
+    with pytest.raises(hashline.EditError, match="E_MULTI_MATCH"):
+        hashline.apply_edits(CODE, [{"op": "replace_text", "oldText": "return", "newText": "x"}])
+    # Partial application: the valid edit is applied, the stale one reported with the lines there now.
+    result = hashline.apply_edits(CODE, [{"op": "replace", "pos": "3#ZZZ", "lines": ["X = 2"]}, {"op": "append", "pos": A[1], "lines": ["import re"]}])
+    assert result.summary == ["inserted 1 line after line 1"] and result.total == 2 and len(result.failed) == 1
+    new_lines, _ = hashline.split_lines(result.text)
+    assert result.failed[0].startswith("Edit 0 (replace 3#ZZZ) not applied: [E_STALE_ANCHOR] 3#ZZZ is stale")
+    assert f"{hashline.anchor(new_lines, 4)}:X = 1\n" in result.failed[0]  # line 3 is line 4 after the insert
+    # A true overlap refuses both edits, showing both; the rest is applied.
+    result = hashline.apply_edits(CODE, [
+        {"op": "replace", "pos": A[7], "end": A[8], "lines": ["def f(a):", "    return 0"]},
+        {"op": "replace", "pos": A[8], "lines": ["    return 1"]},
+        {"op": "replace", "pos": A[3], "lines": ["X = 3"]},
+    ])
+    assert result.summary == ["replaced line 3 with 1 line"] and len(result.failed) == 2
+    assert all("[E_EDIT_CONFLICT] edits 0 (replace " in f and "and 1 (replace " in f and "both change line 8" in f for f in result.failed)
+    # A line beyond the end.
+    result = hashline.apply_edits(CODE, [{"op": "replace", "pos": "99#ZZZ", "lines": ["x"]}, {"op": "replace", "pos": A[3], "lines": ["X = 3"]}])
+    assert result.failed[0].startswith("Edit 0 (replace 99#ZZZ) not applied: [E_RANGE_OOB] line 99 does not exist (the file has 16 lines)")
+
+
+def test_replace_def_replaces_a_whole_definition() -> None:
+    from engine_re import hashline
+
+    def run(name: str, *new: str, protected=None) -> hashline.EditResult:
+        return hashline.apply_edits(CODE, [{"op": "replace_def", "name": name, "lines": list(new)}], protected=protected)
+
+    result = run("f", "def f(a):", "    return -a")
+    assert result.summary == ["replaced lines 6-8 with 2 lines"] and "@deco" not in result.text  # decorators included
+    assert run("X", "X = 5").text.splitlines()[2] == "X = 5"
+    result = run("G.n", "    def n(self):", "        return 22")
+    assert result.summary == ["replaced lines 15-16 with 2 lines"] and result.text.endswith("        return 22\n")
+    assert run("G", "class G:", "    pass").text.endswith("class G:\n    pass\n")
+    result = run("h", "def h():", "    pass")
+    assert result.text.endswith("        return 2\n\ndef h():\n    pass\n") and result.warnings == ["Edit 0: h was not defined; added at the end."]
+    result = run("G.z", "    def z(self):", "        pass")
+    assert result.text.endswith("        return 2\n    def z(self):\n        pass\n") and "added at the end of class G" in result.warnings[0]
+    with pytest.raises(hashline.EditError, match=r"\[E_NO_DEF\] class Q is not defined"):
+        run("Q.z", "x")
+    with pytest.raises(hashline.EditError, match=r"\[E_FIXED_BLOCK\]"):
+        run("X", "X = 5", protected=(1, 4))
+    with pytest.raises(hashline.EditError, match=r"\[E_NO_DEF\] the file does not parse \(line 1"):
+        hashline.apply_edits("def (:\n", [{"op": "replace_def", "name": "f", "lines": ["x"]}])
+    # Fresh anchors show a changed region whole up to 60 lines, with one line of context.
+    big = [f"    x{k} = {k}" for k in range(59)]
+    result = run("f", "def f():", *big)
+    anchors = hashline.fresh_anchors(result.text, result.regions)
+    assert len(anchors) == 62 and anchors[0].endswith(":") and anchors[-1].endswith(":") and not any("more new lines" in a for a in anchors)
+    result = run("f", "def f():", *big, "    return 1")
+    assert any("more new lines" in a for a in hashline.fresh_anchors(result.text, result.regions))
 
 
 def test_edits_inside_the_fixed_block_are_rejected(tmp_path: Path) -> None:

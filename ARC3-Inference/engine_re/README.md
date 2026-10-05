@@ -80,22 +80,33 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       changed piece by piece (None for step 0). The kernel starts as fast as
       before: nothing is segmented until it is read.
     - `read_file(path="engine.py", offset=None, limit=None)` prints the file as
-      `LINE#HASH:content` lines (`hashline.py`). The hash is 2 characters from
+      `LINE#HASH:content` lines (`hashline.py`). The hash is 3 characters from
       `ZPMQVRWSNKTXJBYH` over the previous, current and next line (trailing
       whitespace and `\r` removed; xxh32 when installed, else crc32), so an
-      anchor goes stale when its line or a neighbour changes. Without `offset`
-      the FIXED block is folded; long output says where to continue.
+      anchor goes stale when its line or a neighbour changes (anchors with 2
+      to 4 characters are parsed; a shorter one is the end of the hash). Without
+      `offset` the FIXED block is folded; long output says where to continue.
     - `edit_file(path="engine.py", edits=[...])` applies `replace` (`pos`, optional
       `end`), `append` / `prepend` (optional `pos`; none = end / start of the
-      file) and `replace_text` (`oldText`, `newText`; one exact unique match).
-      `lines` is a list or one string. All edits of a call are checked against
-      one snapshot and applied bottom-up. Rejected, with nothing applied: edits
-      that overlap or touch adjacent lines, stale anchors (`[E_STALE_ANCHOR]`,
-      listing the lines that now hold the content when an anchor carries a
-      `:content` suffix), a `:content` suffix that does not match its line, and
-      any edit of the FIXED block (`[E_FIXED_BLOCK]`). The answer: what
-      changed, a syntax check, and fresh anchors around each change (at most
-      about 12 lines; the first and last lines of a long insert).
+      file), `replace_text` (`oldText`, `newText`: one exact match, else whole
+      lines that match ignoring whitespace, with `newText` used as given and a
+      warning) and `replace_def` (`name`, `lines`: the whole top-level `def`,
+      `class` or `NAME = ...` found with `ast`, decorators included; `"Game.step"`
+      for a method; a name not defined is added at the end of the file, or of
+      the class, with a warning). `lines` is a list or one string. All edits of
+      a call are checked against one snapshot; the valid ones are applied
+      bottom-up and the others reported one by one, after "applied N of M
+      edits", each with the lines as they are now (one line of context, fresh
+      anchors) and the lines that hold the content it gave: a stale anchor
+      (`[E_STALE_ANCHOR]`; one whose `:content` suffix still matches its line is
+      accepted), a line that does not exist, a text with no match (up to 6
+      lines like its first significant line) or several, an edit of the FIXED
+      block (`[E_FIXED_BLOCK]`), and two edits that change the same line
+      (`[E_EDIT_CONFLICT]`, both refused; edits on adjacent lines are merged in
+      order). Only a malformed request (`[E_BAD_OP]`, a bad anchor string,
+      `read_file()` output given as lines) applies nothing. The answer: what
+      changed, a syntax check, and fresh anchors around each change (the whole
+      region when it has at most 60 lines; else its first and last lines).
     - `undo_edit(n=1, to=None)` restores the engine.py of `n` changes ago (`to=k`:
       version k; `to="best"`: `engine_best.py`, and it says by which rule).
       Every change, a restore

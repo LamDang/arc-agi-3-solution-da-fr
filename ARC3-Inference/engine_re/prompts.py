@@ -306,19 +306,25 @@ read_file(path="engine.py", offset=None, limit=None) -> None  prints the file, e
     LINE#HASH:content; those anchors are how edit_file addresses lines. offset: the first line (1-based);
     limit: the number of lines. Long output is cut; it says which offset to continue from. The FIXED
     block is folded unless offset asks for its lines.
-edit_file(path="engine.py", edits=[...]) -> None  changes the file at LINE#HASH anchors from the latest
-    read_file() or edit_file() output. engine.py changes only through edit_file() and undo_edit();
-    writing it any other way, such as open('engine.py', 'w'), is blocked. All edits of one call are
-    checked against the same version of the file and applied together. Each edit is one of:
-      {"op": "replace", "pos": "12#MQ", "end": "15#VR", "lines": [...]}  replace line pos (or pos..end)
-      {"op": "append", "pos": "12#MQ", "lines": [...]}   insert after pos (no pos: at the end)
-      {"op": "prepend", "pos": "12#MQ", "lines": [...]}  insert before pos (no pos: at the start)
-      {"op": "replace_text", "oldText": "...", "newText": "..."}  replace one exact, unique text
-    lines is the new content (a list of lines, or one string), with its indentation; [] deletes. It can
-    come straight from your code, e.g. lines=pieces.code() (a frame's Pieces) or lines=f"RINGS = {rings!r}",
-    so generated data is never retyped. Edits in one call must not overlap or touch adjacent lines. A stale anchor (the
-    file changed since you read it) is rejected: read_file() again. Edits inside the FIXED block are
-    rejected. Prints what changed, a syntax check, and fresh anchors around the change.
+edit_file(path="engine.py", edits=[...]) -> None  changes the file. engine.py changes only through
+    edit_file() and undo_edit(); writing it any other way, such as open('engine.py', 'w'), is blocked.
+    Each edit is one of:
+      {"op": "replace_def", "name": "step", "lines": [...]}  replace the whole top-level def, class or
+          NAME = ... called name (a method as "Game.step"); a name not defined yet is added at the end
+      {"op": "replace_text", "oldText": "...", "newText": "..."}  replace one unique text: an exact
+          match, else whole lines matching ignoring whitespace (newText is used as given)
+      {"op": "replace", "pos": "12#MQV", "end": "15#VRS", "lines": [...]}  replace line pos (or pos..end)
+      {"op": "append", "pos": "12#MQV", "lines": [...]}   insert after pos (no pos: at the end)
+      {"op": "prepend", "pos": "12#MQV", "lines": [...]}  insert before pos (no pos: at the start)
+    pos and end are LINE#HASH anchors from the latest read_file() or edit_file() output. lines is the
+    new content (a list of lines, or one string), with its indentation; [] deletes. To put data into
+    engine.py, generate the text with repr() or pprint.pformat(), e.g. lines=f"RINGS = {rings!r}" or
+    lines=pieces.code() (a frame's Pieces); never build source text by hand, string by string. All
+    edits of one call are checked against the same version of the file: those that are valid are applied
+    (edits on adjacent lines are merged, in order; two that change the same line are both refused),
+    and each one that fails (a stale anchor, no match, the FIXED block) is reported with the lines as
+    they are now. Prints what changed, a syntax check, and fresh anchors around each change (the whole
+    region up to 60 lines).
 undo_edit(n=1, to=None) -> None  puts engine.py back as it was n changes ago; to="best": the version that
     passed the most steps before its first failure so far; to=k: version k. Every change (each edit_file()
     call, and undo_edit itself) is kept as a numbered version, so nothing is lost: undo_edit() right after

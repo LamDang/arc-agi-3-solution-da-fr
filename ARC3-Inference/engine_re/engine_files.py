@@ -164,11 +164,13 @@ class EngineEditor:
         result = hashline.apply_edits(old, edits, protected=fixed_block_lines(old))
         notes = [f"Warning: {w}" for w in result.warnings] + [f"No change: {n}" for n in result.noop]
         if not result.summary:
-            return "engine.py was not changed.\n" + "\n".join(notes)
+            return "engine.py was not changed.\n" + "\n".join(result.failed + notes)
         where = ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in result.regions if b >= a) or "deletions only"
         summary = "; ".join(result.summary)
         version = self._write(old, result.text, "edit", summary, where)
-        out = [f"engine.py: {summary}. {syntax_check(result.text)}. (version {version}; undo_edit() reverts it)"] + notes
+        applied = f"applied {result.total - len(result.failed)} of {result.total} edits: " if result.failed else ""
+        out = [f"engine.py: {applied}{summary}. {syntax_check(result.text)}. (version {version}; undo_edit() reverts it)"]
+        out += result.failed + notes
         anchors = hashline.fresh_anchors(result.text, result.regions)
         if anchors:
             out += ["Fresh anchors around the change:"] + anchors

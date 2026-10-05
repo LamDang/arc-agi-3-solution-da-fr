@@ -105,11 +105,12 @@ def edit_file(path: str = "engine.py", edits: Any = None) -> None:
         print(exc)
         return
     if not result.summary:
-        print(f"{path} was not changed: " + "; ".join(result.noop))
+        print(f"{path} was not changed: " + "; ".join(result.failed + result.noop))
         return
     file.write_text(result.text, encoding="utf-8")
-    print(f"{path}: {'; '.join(result.summary)}.")
-    print("\n".join([f"Warning: {w}" for w in result.warnings] + hashline.fresh_anchors(result.text, result.regions)))
+    applied = f"applied {result.total - len(result.failed)} of {result.total} edits: " if result.failed else ""
+    print(f"{path}: {applied}{'; '.join(result.summary)}.")
+    print("\n".join(result.failed + [f"Warning: {w}" for w in result.warnings] + hashline.fresh_anchors(result.text, result.regions)))
 
 
 def _plain(value: Any) -> Any:
