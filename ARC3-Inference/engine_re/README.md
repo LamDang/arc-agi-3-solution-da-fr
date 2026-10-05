@@ -264,6 +264,12 @@ uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game
 uv run --no-sync python -m engine_re.tester ENGINE.py TRACE_DIR --failures 1 [--level L] [--images DIR]
 ```
 
+OpenRouter requests use the main harness's retry (`inference.agent.tool_agent._post_with_retries`):
+rate limits (HTTP 429), gateway errors and failed connections wait and retry without limit
+(`ARC3_HTTP_RETRIES`, default -1 here as in `params.yaml`; `ARC3_HTTP_RETRY_BASE_SECONDS` and
+`ARC3_HTTP_RETRY_MAX_SECONDS` set the waits). Answers the provider ends with `finish_reason: error`, and
+reads that stall, are asked again up to 20 times.
+
 `run_experiment --no-images` gives text-only feedback (test reports and `show()` print hex
 digits), for models without image input.
 

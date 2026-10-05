@@ -63,6 +63,7 @@ from typing import Any
 import requests
 
 from engine_re import diff_report, hashline
+from inference.agent.tool_agent import _env_float, _env_int, _post_with_retries
 from engine_re.engine_files import best_key
 from engine_re.game_api import fixed_block_lines
 from engine_re.kernel import KernelClient
@@ -93,9 +94,11 @@ TEST_IMAGE_NOTE = (
 )
 IMAGE_PLACEHOLDER = "[image omitted; the latest images come later]"
 MAX_IMAGES_PER_MESSAGE = 6
-# OpenRouter requests: tries per request; the waits double from 2 s to 60 s, about 17 minutes in all, which
-# outlasts an upstream rate limit (HTTP 429) that ended a run after 10 tries.
-RETRIES = 20
+# OpenRouter answers that fail at the provider (finish_reason "error", or a read that stalls) are asked
+# again this many times. Rate limits, gateway errors and connection failures are retried apart, by the
+# main harness's _post_with_retries: without limit by default, as its OpenRouter config does
+# (ARC3_HTTP_RETRIES=-1 in params.yaml; ARC3_HTTP_RETRY_BASE_SECONDS / _MAX_SECONDS set the waits).
+PROVIDER_ERROR_RETRIES = 20
 MAX_TEST_IMAGES = 3
 PYTHON_PAUSED = (
     "[harness] Python is paused: {n} python calls since engine.py last changed. Until engine.py changes, only python "
@@ -204,7 +207,7 @@ class OpenRouterClient:
         if not self.api_key:
             raise RuntimeError("set OPENROUTER_API_KEY")
         self.session = requests.Session()
-        self.provider_errors: list[str] = []  # answers that came back with finish_reason "error", retried
+        self.provider_errors: list[str] = []  # answers that failed at the provider (or stalled), asked again
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
         payload = {
@@ -220,37 +223,36 @@ class OpenRouterClient:
         }
         if self.config.providers:
             payload["provider"] = {"order": list(self.config.providers), "allow_fallbacks": False}
-        delay = 2.0
-        for attempt in range(RETRIES):
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        error = ""
+        for attempt in range(PROVIDER_ERROR_RETRIES):
             try:
-                resp = self.session.post(
-                    OPENROUTER_URL,
-                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                    json=payload,
-                    timeout=900,
+                # HTTP 429 and gateway errors, and connections that fail, wait and retry in place, as in the
+                # main harness (with no limit unless ARC3_HTTP_RETRIES says otherwise).
+                resp = _post_with_retries(
+                    lambda: self.session.post(OPENROUTER_URL, headers=headers, json=payload, timeout=900),
+                    retries=_env_int("ARC3_HTTP_RETRIES", -1),
+                    base_seconds=_env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
+                    max_seconds=_env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
+                    sleep=lambda seconds: time.sleep(seconds),
                 )
-            except requests.RequestException as exc:
+            except requests.RequestException as exc:  # a read that stalled: ask again
                 error = f"{type(exc).__name__}: {exc}"
+                self.provider_errors.append(error)
             else:
-                if resp.status_code == 200:
-                    data = resp.json()
-                    choices = data.get("choices") or []
-                    if choices and choices[0].get("finish_reason") != "error":
-                        return data
-                    # The provider failed mid-answer (finish_reason "error"): ask again rather than
-                    # hand the model an empty turn.
-                    detail = (choices[0].get("error") if choices else None) or data.get("error") or data
-                    error = f"{'provider error' if choices else 'no choices'}: {json.dumps(detail)[:500]}"
-                    self.provider_errors.append(error)
-                elif resp.status_code in (408, 429) or resp.status_code >= 500:
-                    error = f"HTTP {resp.status_code}: {resp.text[:300]}"
-                else:
+                if resp.status_code != 200:  # not retryable, or ARC3_HTTP_RETRIES ran out
                     raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:1000]}")
-            if attempt == RETRIES - 1:
-                raise RuntimeError(f"OpenRouter request failed after retries: {error}")
-            time.sleep(delay + random.random())
-            delay = min(delay * 2, 60)
-        raise AssertionError("unreachable")
+                data = resp.json()
+                choices = data.get("choices") or []
+                if choices and choices[0].get("finish_reason") != "error":
+                    return data
+                # The provider failed mid-answer (finish_reason "error"): ask again rather than
+                # hand the model an empty turn.
+                detail = (choices[0].get("error") if choices else None) or data.get("error") or data
+                error = f"{'provider error' if choices else 'no choices'}: {json.dumps(detail)[:500]}"
+                self.provider_errors.append(error)
+            time.sleep(min(60.0, 2.0 * 2 ** attempt) + random.random())
+        raise RuntimeError(f"OpenRouter request failed {PROVIDER_ERROR_RETRIES} times at the provider: {error}")
 
 
 

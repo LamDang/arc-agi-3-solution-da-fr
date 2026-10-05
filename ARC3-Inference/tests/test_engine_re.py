@@ -1576,3 +1576,27 @@ def test_the_step_prompts_name_every_builtin():
             assert all(name in section for name in reserved), (history, [n for n in reserved if n not in section])
             python = tools(images, "step", history)[0]["function"]["description"]
             assert ("S[" in python) == history and ("summarize_levels" in python) == history and "step.after" in python
+
+
+def test_openrouter_client_waits_out_rate_limits(monkeypatch):
+    from engine_re import agent as agent_mod
+
+    class Resp:
+        def __init__(self, status, data=None):
+            self.status_code, self.data, self.headers, self.text = status, data, {}, ""
+
+        def json(self):
+            return self.data
+
+    ok = {"choices": [{"finish_reason": "stop", "message": {"content": "ok"}}], "usage": {}}
+    answers = [Resp(429)] * 40 + [Resp(503), Resp(200, ok)]
+    waits = []
+    client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(), api_key="test")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: answers.pop(0))
+    monkeypatch.setattr(agent_mod.time, "sleep", waits.append)
+    monkeypatch.delenv("ARC3_HTTP_RETRIES", raising=False)
+    assert client.chat([], [])["choices"][0]["message"]["content"] == "ok"
+    assert len(waits) == 41 and not client.provider_errors  # 41 retries, no limit, none counted as a provider error
+    answers[:] = [Resp(400)]
+    with pytest.raises(RuntimeError, match="OpenRouter HTTP 400"):
+        client.chat([], [])
