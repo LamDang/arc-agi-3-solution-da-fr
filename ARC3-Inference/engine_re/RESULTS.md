@@ -665,3 +665,13 @@ uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine bes
 These commands run the current harness (v5; its lp85 trials used `--games lp85 --max-turns 50`, each at the commit given in the [v5 section](#v5-trials-on-lp85-50-turns)). To rerun an earlier configuration exactly, check out its commit first: `41df359` for v4, or `cd76c9d` for v2 and v3, adding `--python-quota 30` for v3. Before running a generated
 engine yourself, copy `results/<config>/<game>/engine_best.py` into a game
 directory.
+
+## Later experiments (v6-v9)
+
+The stepwise harness (v6), sampling and reasoning effort (v7), frame pieces
+and a parsimony prompt (v8), two context condensers and the HUD-bar tolerance
+(v9) were tried on lp85 alone, one sample each. Each series, its commits,
+commands, results and every run's DVC pointer are in
+[exp/README.md](../exp/README.md). Headline: with the v9 tolerance of one
+HUD-bar pixel at the frame border, the agent went from 20 to 65 of 120 lp85
+steps (v6c and v8: 20; v9: 65, for $0.36).
