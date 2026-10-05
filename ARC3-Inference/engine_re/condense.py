@@ -13,8 +13,11 @@ reasoning of all but the 10 most recent turns to its last 1200, and long old too
     turn            one assistant message with its tool results and the image message that follows.
     failed command  a tool call whose result is an error of the call itself: a Traceback; a result
                     starting with "Error" (unknown tool, bad arguments, the reserved-name refusal) or
-                    "Not committed"; an edit that applied nothing ([E_...]). A run_tests or
-                    replay_step whose report shows failing steps is NOT a failed command.
+                    "Not committed"; an edit that applied nothing ([E_...] errors and no "engine.py: "
+                    line; an edit that applied some of its edits is not failed). A run_tests or
+                    replay_step whose report shows failing steps is NOT a failed command. A python
+                    built-in called as a tool ran as python (the "[harness] ... ran as python" prefix is
+                    part of its result) and is judged by what it printed.
     net change      the unified diff (2 context lines) between engine.py at the iteration's start (the
                     latest engine_change before its first turn) and at its commit (the latest change up
                     to the commit turn), from engine_versions/; capped at DIFF_LINES, then
@@ -26,13 +29,15 @@ engine changes) and the engine_versions/ folder. It returns the conversation to 
 
     1. the system prompt unchanged;
     2. finished iterations older than the last KEEP_ITERATIONS: one user message each: the failing-step
-       message's text (no images; an engine.py listing elided), a note, the net diff and the commit
-       message (or that the harness moved on when the tests passed);
+       message's text (no images; its engine.py listing elided with prompts.elide_engine_listing), a
+       note, the net diff and the commit message (or that the harness moved on when the tests passed);
     3. the last KEEP_ITERATIONS finished iterations: one user message each (a content list): the
        failing-step message in full with its images (the engine.py listing elided unless it is the most
-       recent message that has one), a note, then turn by turn every tool call that is not a failed
-       command with its result (the automatic test's text included; per-turn images dropped), edits as
-       one-liners (the diff covers them), then the net diff, the commit message and the harness's reply;
+       recent message that has one: every next-step message lists engine.py, so in practice only the
+       current iteration's message keeps its listing), a note, then turn by turn every tool call that is
+       not a failed command with its result (the automatic test's text included; per-turn images
+       dropped), edits as one-liners (the diff covers them), then the net diff, the commit message and
+       the harness's reply;
     4. the current iteration: its failing-step message as is; the turns older than the last KEEP_TURNS
        as real assistant and tool messages with the reasoning removed and the failed commands removed
        (the call and its result; an assistant turn with no call left keeps its text, or goes with its
@@ -67,6 +72,7 @@ from pathlib import Path
 from typing import Any
 
 from engine_re.agent import CONTINUE, IMAGE_NOTE, IMAGE_PLACEHOLDER
+from engine_re.prompts import ENGINE_HEADER, elide_engine_listing
 
 KEEP_ITERATIONS = 3
 KEEP_TURNS = 5
@@ -75,8 +81,6 @@ CHARS_PER_TOKEN = 4
 IMAGE_TOKENS = 1000
 DIFF_LINES = 200
 CAPPED_RESULT_CHARS = 600
-LISTING_HEAD = "\n\nengine.py now, as read_file() shows it"
-LISTING_ELIDED = "[engine.py as it was then: elided]"
 RESUME_HEAD = "[harness] The run was interrupted here and has now resumed"
 HARNESS_APPEND = "\n\n[harness] "
 OLD_RECORD = (
@@ -151,7 +155,7 @@ def failed_command(output: str) -> bool:
         own.startswith("Error")
         or own.startswith("Not committed")
         or "Traceback (most recent call last)" in own
-        or "[E_" in own
+        or ("[E_" in own and "engine.py: " not in own)
     )
 
 
@@ -340,14 +344,6 @@ def iteration_diff(it: Iteration, records: list[dict[str, Any]], versions_dir: P
 # --- the condensed blocks of finished iterations -------------------------------------------------
 
 
-def _elide_listing(text: str) -> str:
-    i = text.find(LISTING_HEAD)
-    j = text.find("\n\nFix step", i) if i >= 0 else -1
-    if i < 0 or j < 0:
-        return text
-    return text[:i] + "\n\n" + LISTING_ELIDED + text[j:]
-
-
 def _call_arguments(call: dict[str, Any] | None) -> tuple[str, str]:
     """A tool call's name and what to show of its arguments: python's code, commit_engine's message, else the JSON."""
     if not call:
@@ -367,8 +363,12 @@ def _call_arguments(call: dict[str, Any] | None) -> tuple[str, str]:
 
 
 def _verdict(appended: str) -> str:
-    """The automatic test's verdict in the harness's appended text (the acceptance line), when there is one."""
+    """The automatic test's verdict in the harness's appended text: the acceptance line, or the one-liner that
+    says the failure is the same as the last test's (agent.AUTO_TEST_SAME)."""
     m = re.search(r"Acceptance test \(the recording replayed in order\): (.*)", appended)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"tested automatically: (the same result as the last test \(.*\))\.", appended)
     if m:
         return m.group(1).strip()
     m = re.search(r"Contract tests: (.*)", appended)
@@ -449,7 +449,7 @@ def old_block(messages: list[dict[str, Any]], notes: list[Note], it: Iteration, 
               versions_dir: Path) -> dict[str, Any]:
     """Rule 2: the failing-step text, the net diff and the commit, as one user message."""
     a, b = _span(it)
-    text = _elide_listing(message_text(messages[it.start]))
+    text = elide_engine_listing(message_text(messages[it.start]))
     record = OLD_RECORD.format(k=it.step if it.step is not None else "?", a=a, b=b)
     body = "\n\n".join([text, record, iteration_diff(it, records, versions_dir), _commit_text(messages, notes, it)])
     return {"role": "user", "content": body}
@@ -462,7 +462,7 @@ def recent_block(messages: list[dict[str, Any]], notes: list[Note], it: Iteratio
     start = messages[it.start]
     text = message_text(start)
     if not keep_listing:
-        text = _elide_listing(text)
+        text = elide_engine_listing(text)
     content: list[dict[str, Any]] = [{"type": "text", "text": text}]
     if isinstance(start.get("content"), list):
         first_text = True
@@ -597,7 +597,7 @@ def condense(
     finished, current = its[:-1], its[-1]
     old = finished[: len(finished) - keep_iterations] if keep_iterations else finished
     recent = finished[len(old):]
-    listing_at = max((it.start for it in its if LISTING_HEAD in message_text(messages[it.start])), default=-1)
+    listing_at = max((it.start for it in its if ENGINE_HEADER in message_text(messages[it.start])), default=-1)
     tagged: list[tuple[dict[str, Any], str]] = [(m, "system") for m, n in zip(messages, notes) if n.kind == "system"]
     for it in old:
         tagged.append((old_block(messages, notes, it, records, versions_dir), "old"))

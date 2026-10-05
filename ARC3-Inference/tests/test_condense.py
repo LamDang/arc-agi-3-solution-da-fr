@@ -9,7 +9,6 @@ from pathlib import Path
 from engine_re.agent import CONTINUE, IMAGE_PLACEHOLDER, Budget, EngineAgent, ModelConfig
 from engine_re.condense import (
     FAILED_KEPT,
-    LISTING_ELIDED,
     NO_COMMIT_MESSAGE,
     annotate,
     condense,
@@ -19,6 +18,7 @@ from engine_re.condense import (
     message_text,
     net_diff,
 )
+from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, KERNEL_KEEPS, KERNEL_KEEPS_NOTHING
 from engine_re.trace import Trace
 import test_engine_re as base
 from test_engine_re import SIMPLE_TINY_GAME, _RecordingModel, _rewrite_now, _ScriptedModel
@@ -38,7 +38,7 @@ DOWN_ONCE = _engine("(0, 0)", '(0, 1 if state.vars["player"].y == 1 else 0)', "(
 DOWN = _engine("(0, 0)", "(0, 1)", "(0, 0)", "(0, 0)")  # step 3 fails
 DOWN_RIGHT = _engine("(0, 0)", "(0, 1)", "(0, 0)", "(1, 0)")  # step 4 fails
 NO_LEFT = _engine("(0, -1)", "(0, 1)", "(0, 0)", "(1, 0)")  # step 7 fails
-BAD_LEFT = _engine("(0, -1)", "(0, 1)", "(-2, 0)", "(1, 0)")  # step 7 still fails
+BAD_LEFT = _engine("(0, -1)", "(0, 1)", "(1, 0)", "(1, 0)")  # step 7 still fails, differently (not the same failure)
 
 
 class _ThinkingModel(_RecordingModel):
@@ -60,7 +60,7 @@ SCRIPT = [
     [("python", {"code": "edit_file(edits=[{'op': 'replace_text', 'oldText': 'nope-nope', 'newText': 'x'}])"})],  # turn 4: [E_NO_MATCH]
     [("python", {"code": "print('probe2')"}), ("python", {"code": _rewrite_now(DOWN)})],  # turn 5
     [("commit_engine", {"message": "down always"})],  # turn 6: on to step 3
-    [("read_file", {})],  # turn 7: unknown tool
+    [("no_such_tool", {})],  # turn 7: unknown tool (a python built-in called as a tool would run as python)
     [("python", {"code": "print('probe3')"}), ("python", {"code": _rewrite_now(DOWN_RIGHT)})],  # turn 8
     [("commit_engine", {"message": "right too"})],  # turn 9: on to step 4
     [("commit_engine", {"message": "too early"})],  # turn 10: not committed
@@ -103,6 +103,10 @@ def _without_placeholders(message: dict) -> str:
     return "\n".join(line for line in _texts(message).split("\n") if line != IMAGE_PLACEHOLDER)
 
 
+def _names_dropped(message: dict) -> str:
+    return "\n".join(line for line in _texts(message).split("\n") if not line.startswith(KERNEL_KEEPS) and line != KERNEL_KEEPS_NOTHING)
+
+
 def _images(message: dict) -> int:
     content = message["content"]
     return sum(p.get("type") == "image_url" for p in content) if isinstance(content, list) else 0
@@ -133,7 +137,7 @@ def test_condense_on_a_scripted_run(tmp_path: Path, tiny_trace: Trace) -> None:
     # The oldest iteration (step 0, turns 1-3): text + the net diff + the commit; its listing elided, no images, no calls.
     oldest = out[1]
     assert isinstance(oldest["content"], str) and oldest["content"].startswith("Fix the breaking test: step 0.")
-    assert LISTING_ELIDED in oldest["content"] and "engine.py now, as read_file() shows it" not in oldest["content"]
+    assert ENGINE_ELIDED in oldest["content"] and ENGINE_HEADER not in oldest["content"]
     assert "[harness] Condensed record of the turns that fixed step 0 (turns 1-3): the net change to engine.py and the commit" in oldest["content"]
     assert "Net change to engine.py (version 1 -> 2):" in oldest["content"]
     assert "+    moves = {1: (0, 0), 2: (0, 1 if state.vars[\"player\"].y == 1 else 0), 3: (0, 0), 4: (0, 0)}" in oldest["content"]
@@ -149,6 +153,7 @@ def test_condense_on_a_scripted_run(tmp_path: Path, tiny_trace: Trace) -> None:
         assert isinstance(block["content"], list) and _images(block) == 1
         text = _texts(block)
         assert text.startswith("Commit accepted:") and f"Step {step}:" in text
+        assert ENGINE_ELIDED in text and ENGINE_HEADER not in text  # every next-step message lists engine.py: elided here
         assert f"[harness] Condensed record of the turns that fixed step {step} (turns {a}-{b}): reasoning and failed commands dropped" in text
         assert f"turn {a + 1}, python:\nprint('{probe}')\n->\n{probe}\n" in text
         assert f"turn {a + 1}: edit_file (replaced line 292 with 1 line) -> tested automatically: ALL STEPS MATCH." in text
@@ -162,6 +167,7 @@ def test_condense_on_a_scripted_run(tmp_path: Path, tiny_trace: Trace) -> None:
     # The current iteration (step 7, turns 13-19): its message as is, turns 13-14 stripped, 15-19 untouched.
     current = out[5]
     assert _texts(current).startswith("Commit accepted: steps 0-4 pass.") and "Step 7:" in _texts(current)
+    assert ENGINE_HEADER in _texts(current) and ENGINE_ELIDED not in _texts(current)  # the latest listing stays
     assistants = [m for m in out[5:] if m["role"] == "assistant"]
     assert len(assistants) == 7
     assert "reasoning" not in assistants[0] and "reasoning" not in assistants[1]
@@ -213,15 +219,17 @@ def test_a_legacy_transcript_condenses_the_same(tmp_path: Path, tiny_trace: Trac
     log.write_text("".join(json.dumps(r) + "\n" for r in records if not any(k in r for k in new_kinds)))
     run = load_run("tiny", tmp_path)
     assert run.turns == 19 and len(run.messages) == len(full)
-    assert [(m["role"], _texts(m), _images(m)) for m in run.messages] == [(m["role"], _texts(m), _images(m)) for m in full]
+    # The same but for the kernel-names line of the next-step messages, which the older records do not keep.
+    assert [(m["role"], _names_dropped(m), _images(m)) for m in run.messages] == [(m["role"], _names_dropped(m), _images(m)) for m in full]
+    assert sum(ENGINE_HEADER in _texts(m) for m in run.messages) == 5
     condensed = new_scheme(run)
     assert [(m["role"], _texts(m)) for m in condensed[19].messages] == [
         (m["role"], _texts(m)) for m in condense(run.before(19), run.records, run.versions_dir).messages
     ]
     # (a) replays the live scheme: the prompt of the last turn is what the model was sent (images hidden the same way).
     prompts = current_scheme(run, ModelConfig())
-    sent = [(m["role"], _texts(m), _images(m)) for m in live[: len(prompts[19])]]
-    assert [(m["role"], _texts(m), _images(m)) for m in prompts[19]] == sent
+    sent = [(m["role"], _names_dropped(m), _images(m)) for m in live[: len(prompts[19])]]
+    assert [(m["role"], _names_dropped(m), _images(m)) for m in prompts[19]] == sent
 
 
 def test_failed_commands() -> None:
@@ -233,11 +241,27 @@ def test_failed_commands() -> None:
         "Error: nothing was run. This code would replace the harness's built-in edit_file.",
         "Not committed: steps 0-4 do not all pass yet, so nothing moves on. The report:\n\n" + report,
         "[E_STALE_ANCHOR] 2 stale anchors: 12#MQ, 14#ZZ. engine.py changed since.",
+        "engine.py was not changed.\n[E_NO_MATCH] Edit 1: replace_text found no exact match.",
+        "[harness] edit_file is a python function, not a tool; this call ran as python: edit_file(edits=[])\n"
+        "engine.py was not changed.\n[E_BAD_OP] edits must be a non-empty list.",
     ):
         assert failed_command(output), output
+    # An edit that applied some of its edits is not a failed command (the lenient edit tool reports the rest).
+    assert not failed_command("engine.py: applied 1 of 2 edits: replaced line 3 with 1 line. Syntax OK. (version 4)\n[E_NO_MATCH] Edit 2: no match.")
     # The harness's appended text does not count: an automatic test that shows a crash is not the call's error.
     appended = "ok\n\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\nTraceback (most recent call last): boom"
     assert not failed_command(appended)
+
+
+def test_edit_one_liners_carry_the_automatic_tests_verdict() -> None:
+    from engine_re.condense import Note, _edit_line
+
+    note = Note(turn=14, iteration=4, kind="tool", edits=[{"op": "edit", "summary": "replaced line 292 with 1 line"}])
+    same = "engine.py: replaced line 292 with 1 line. Syntax OK.\n\n[harness] engine.py changed, tested automatically: the same result as the last test (step 7 fails the same way: final frame: 2 px differ in 1 region(s))."
+    assert _edit_line(note, same) == "turn 14: edit_file (replaced line 292 with 1 line) -> tested automatically: the same result as the last test (step 7 fails the same way: final frame: 2 px differ in 1 region(s))"
+    report = "engine.py: replaced line 292 with 1 line. Syntax OK.\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\nTEST RESULT\n  Contract tests: 5/5 pass.\n  Acceptance test (the recording replayed in order): ALL STEPS MATCH.\n\nSteps 0-7 pass."
+    assert _edit_line(note, report) == "turn 14: edit_file (replaced line 292 with 1 line) -> tested automatically: ALL STEPS MATCH."
+    assert _edit_line(note, "engine.py: replaced line 292 with 1 line. Syntax OK.") == "turn 14: edit_file (replaced line 292 with 1 line)"
 
 
 def test_net_diff_is_capped_and_names_the_defs_beyond() -> None:

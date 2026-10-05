@@ -11,8 +11,10 @@ and the maximum, totals, the safety cap, calibration) and, for each sample, the 
 (`<name>_t<turn>_current.txt`, `<name>_t<turn>_new.txt`; images shown as "[image: caption]").
 
 The full conversation is rebuilt from transcript.jsonl in the older format (no "message" records), as
-the agent's `_rebuild_legacy` does, but across the whole run, resumes included, and with nothing
-shortened; images are kept by file name, not loaded. (a) replays what happened live: `_compact` after
+the agent's `_rebuild_legacy` does (the harness's messages as the current prompts write them: every
+next-step message lists engine.py as it was then; a kernel-names line and the one-line "same result"
+automatic test cannot be recovered from the old records), but across the whole run, resumes included,
+and with nothing shortened; images are kept by file name, not loaded. (a) replays what happened live: `_compact` after
 every turn whose prompt_tokens exceeded the threshold, images hidden when a newer image message comes,
 and at a resume the conversation rebuilt afresh (shortened only if the last turn's prompt was over the
 threshold, as the agent of those runs did) followed by the resume note.
@@ -39,18 +41,24 @@ from engine_re.agent import (
     IMAGE_NOTE,
     NUDGE,
     READ_CHARS_IN_MESSAGES,
-    RESUME_NOTE,
     TEST_IMAGE_NOTE,
     EngineAgent,
     ModelConfig,
     _truncate,
+    resume_note,
 )
-from engine_re.condense import CAP_TOKENS, Condensed, condense, measure
+from engine_re.condense import CAP_TOKENS, RESUME_HEAD, Condensed, condense, measure
 from engine_re.game_api import fixed_block_lines
 from engine_re.prompts import advance_message, episode_message, system_prompt
 from engine_re.trace import Trace
 
 IMAGE_URL = "image:"  # an image part's url: the PNG's path in the run folder (the bytes are not needed)
+# The resume note of runs from before the kernel replay (no "replay" record before the "resumed" one), as it was sent.
+LEGACY_RESUME_NOTE = (
+    "[harness] The run was interrupted here and has now resumed, in this same conversation. The python kernel restarted, "
+    "so its variables and the functions you defined in it are gone: define again what you need. engine.py, its versions "
+    "(undo_edit) and everything above are kept."
+)
 
 
 @dataclass
@@ -120,6 +128,12 @@ def load_run(name: str, run_dir: Path) -> Run:
     focus, turn = k, 0
     last_tool: dict[str, Any] | None = None
     calls: Any = iter(())
+    replay: dict[str, Any] | None = None
+
+    def engine_listing() -> str:  # engine.py as it was at this point of the transcript
+        file = run_dir / "engine_versions" / f"v{version or 1:04d}.py"
+        text = (file if file.exists() else run_dir / "workspace" / "engine.py").read_text(encoding="utf-8")
+        return hashline.render_read(text, max_chars=READ_CHARS_IN_MESSAGES, fold=fixed_block_lines(text))
 
     def with_text(message: dict[str, Any]) -> list[dict[str, Any]]:
         content = message["content"]
@@ -165,13 +179,18 @@ def load_run(name: str, run_dir: Path) -> Run:
                 messages[-1]["content"] = with_text(messages[-1]) + pictures(r, None, True)
             else:
                 add({"role": "user", "content": pictures(r, IMAGE_NOTE, True)})
+        elif isinstance(r.get("engine_change"), dict) and r["engine_change"].get("version"):
+            version = r["engine_change"]["version"]
         elif "advance" in r:
             a = r["advance"]
             focus = a["next"]
-            add({"role": "user", "content": advance_message(trace, a["fixed"], a["next"], a["report"], True)})
+            add({"role": "user", "content": advance_message(trace, a["fixed"], a["next"], a["report"], True, engine_listing())})
+        elif "replay" in r:
+            replay = r["replay"]
         elif "resumed" in r:
             resumed_after.add(turn)
-            add({"role": "user", "content": RESUME_NOTE})
+            add({"role": "user", "content": resume_note(replay, "") if replay is not None else LEGACY_RESUME_NOTE})
+            replay = None
     return Run(name, run_dir, records, messages, turn_of, prompt_tokens, resumed_after)
 
 
@@ -183,7 +202,8 @@ def hide_images(messages: list[dict[str, Any]]) -> None:
 
 
 def compact(messages: list[dict[str, Any]], config: ModelConfig) -> None:
-    EngineAgent._compact(types.SimpleNamespace(messages=messages, model=config))  # type: ignore[arg-type]
+    shim = types.SimpleNamespace(messages=messages, model=config, _has_engine_listing=EngineAgent._has_engine_listing)
+    EngineAgent._compact(shim)  # type: ignore[arg-type]
 
 
 def _append_live(state: list[dict[str, Any]], group: list[dict[str, Any]]) -> None:
@@ -202,7 +222,7 @@ def current_scheme(run: Run, config: ModelConfig) -> dict[int, list[dict[str, An
     for turn in range(1, run.turns + 1):
         prompts[turn] = copy.deepcopy(state)
         group = run.group(turn)
-        resume = [m for m in group if m["role"] == "user" and (m.get("content") or "") == RESUME_NOTE]
+        resume = [m for m in group if m["role"] == "user" and str(m.get("content") or "").startswith(RESUME_HEAD)]
         _append_live(state, [m for m in group if m not in resume])
         if run.prompt_tokens.get(turn, 0) > config.compact_prompt_tokens:
             compact(state, config)
