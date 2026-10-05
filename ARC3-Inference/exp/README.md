@@ -16,6 +16,11 @@ later series and an index of every run that played lp85.
 | [v8-condense-per-turn.md](v8-condense-per-turn.md) | v8c, v6cc | Does condensing the conversation before every request save tokens? |
 | [v9-bar-tolerance.md](v9-bar-tolerance.md) | v9, v9c, v9t | Does tolerating one HUD-bar pixel unblock level 2? With the threshold condenser, with a thinking budget? |
 
+RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
+page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
+the real ones, and [real_engines_brief.md](real_engines_brief.md), the real
+games' mechanics.
+
 ## Conventions
 
 - **Code in git.** Each run names the commit of the harness it ran (the
@@ -55,6 +60,23 @@ later series and an index of every run that played lp85.
   engines of the five games written in the fixed interface before v4 (see
   RESULTS.md, v4), from which `tests/fixtures/make_engine_re_level_starts.py`
   builds its fixture.
+- **The v2 to v5 artifacts formerly in git.** RESULTS.md's run artifacts used
+  to be committed under `engine_re/results/`; they are now archived in DVC like
+  the runs, one pointer each in `runs/engine-re/`. Each holds copies of files
+  of a full run directory in the index below (checked identical file by file;
+  the transcripts are gzipped), or a page built from one; the full run
+  directory is the one to work from.
+
+  | DVC directory (`runs/engine-re/`) | contents | taken from |
+  | --- | --- | --- |
+  | `results-pilot-a-no-feedback` | `config.json`, each game's `result.json` | `qwen38flash-20261004` |
+  | `results-pilot-b-nudges` | `config.json`, each game's `result.json` | `qwen38flash-run20261004_135539` |
+  | `results-v2-main` | `config.json`, `summary.md`/`.json`, `evaluation_best.md`; per game `engine_best.py`, `engine_final.py` (= `workspace/engine.py`), `result.json`, `tests.jsonl`, `final_test.txt`, `evaluation_best.json`, `transcript.jsonl.gz`, and `notes.md` (= `workspace/notes.md`) where the agent kept one | `qwen38flash-v2-run20261004_135539` |
+  | `results-v3-python-quota` | as v2 | `qwen38flash-v3quota-run20261004_135539` |
+  | `results-v4-simple` | as v2 | `qwen38flash-v4-simple-run20261004_135539` |
+  | `results-v5-trials` | `lp85-trial1` to `lp85-trial4`: `result.json`, `transcript.jsonl.gz` (trial 1 also `tests.jsonl`) | `qwen38flash-v5-lp85-50turns`, `qwen38flash-v5b-lp85-50turns`, `qwen38flash-v5c-lp85-50turns`, `qwen38flash-v5d-lp85-50turns` |
+  | `results-v4-transcripts` | `v4-agent-transcripts.html`, the v4 ls20, lp85 and vc33 sessions turn by turn | built by `engine_re/tools/v4_transcripts/build.py` from the v4 run |
+  | `results-ls20-trace-html` | `ls20_trace.html`, where the v2 ls20 engine diverges | built by `engine_re/tools/ls20_trace/build.py` from the v2 run |
 
 ## How to read the numbers
 
@@ -100,9 +122,9 @@ directories hold all five games. Pilot A replayed another recording
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | [pilot A](../engine_re/RESULTS.md#harness-iterations) | pilot A (prompt only) | - | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | stopped | 59 | - / - | 50.2 | $0.158 | 3.20M | 97% | 198,829 | 188,420 | - | `qwen38flash-20261004` |
 | [pilot B](../engine_re/RESULTS.md#harness-iterations) | pilot B (+ test reminder) | - | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | stopped | 75 | - / - | 59.7 | $0.197 | 4.01M | 96% | 237,980 | 226,383 | - | `qwen38flash-run20261004_135539` |
-| [v2](../engine_re/RESULTS.md#main-results-resultsv2-main) | v2 (main) | `cd76c9d` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | passed | 151 | 120 / 120 | 78.0 | $0.469 | 15.08M | 95% | 279,880 | 250,359 | - | `qwen38flash-v2-run20261004_135539` |
+| [v2](../engine_re/RESULTS.md#main-results-results-v2-main) | v2 (main) | `cd76c9d` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | passed | 151 | 120 / 120 | 78.0 | $0.469 | 15.08M | 95% | 279,880 | 250,359 | - | `qwen38flash-v2-run20261004_135539` |
 | [v3](../engine_re/RESULTS.md#harness-iterations) | v3 (python quota) | `cd76c9d` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--python-quota 30` `--max-turns 300` | time limit | 246 | 0 / 0 | 116.7 | $0.908 | 30.56M | 95% | 436,095 | 359,360 | - | `qwen38flash-v3quota-run20261004_135539` |
-| [v4](../engine_re/RESULTS.md#v4-the-make_levelstep-interface-resultsv4-simple) | v4 (make_level/step) | `41df359` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | time limit | 194 | 0 / 0 | 115.0 | $0.818 | 22.96M | 93% | 470,502 | 402,185 | - | `qwen38flash-v4-simple-run20261004_135539` |
+| [v4](../engine_re/RESULTS.md#v4-the-make_levelstep-interface-results-v4-simple) | v4 (make_level/step) | `41df359` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300` | time limit | 194 | 0 / 0 | 115.0 | $0.818 | 22.96M | 93% | 470,502 | 402,185 | - | `qwen38flash-v4-simple-run20261004_135539` |
 | [v5 trial 1](../engine_re/RESULTS.md#v5-trials-on-lp85-50-turns) | v5 | `fc0f08c` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 50` | stopped | 34 | 0 / - | 12.5 | $0.076 | 1.93M | 91% | 63,258 | 57,604 | - | `qwen38flash-v5-lp85-50turns` |
 | [v5 trial 2](../engine_re/RESULTS.md#v5-trials-on-lp85-50-turns) | v5 | `7db527b` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 50` | stopped | 38 | - / - | 28.7 | $0.160 | 3.05M | 88% | 136,407 | 129,532 | - | `qwen38flash-v5b-lp85-50turns` |
 | [v5 trial 3](../engine_re/RESULTS.md#v5-trials-on-lp85-50-turns) | v5 | `d10e41b` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 50` | stopped | 4 | - / - | 1.7 | $0.008 | 0.05M | 50% | 8,529 | 7,890 | - | `qwen38flash-v5c-lp85-50turns` |

@@ -1,6 +1,0 @@
-TEST RESULT (full replay: a fresh engine plays steps 0-111)
-  Contract tests: 5/5 pass.
-  Acceptance test (replay of the recording):
-  112/112 steps match (final frame and state; animation frames are not compared).
-  ALL STEPS MATCH.
-  Per level (by levels_completed before the step): level 0 (steps 0-44): 45/45; level 1 (steps 45-111): 67/67

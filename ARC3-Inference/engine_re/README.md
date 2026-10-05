@@ -497,3 +497,10 @@ version's result. The experiment directory holds `summary.md` and
 `evaluation_<engine>.md`.
 
 Tests: `uv run --no-sync pytest tests/test_engine_re.py`.
+
+Run outputs are not kept in git: each run directory, and the per-version
+artifacts RESULTS.md cites (`runs/engine-re/results-*`), is archived in DVC
+(see [exp/README.md](../exp/README.md#conventions)). The two trace-viewer pages
+are built from a pulled run by `tools/ls20_trace/build.py` and
+`tools/v4_transcripts/build.py`; their docstrings give the inputs, the output
+directory and the commit to run them at.

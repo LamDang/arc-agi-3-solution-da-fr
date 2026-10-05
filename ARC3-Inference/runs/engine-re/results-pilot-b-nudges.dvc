@@ -1,0 +1,6 @@
+outs:
+- md5: e274a7e8952fa16a6973f31755e9c381.dir
+  size: 3453
+  nfiles: 6
+  hash: md5
+  path: results-pilot-b-nudges

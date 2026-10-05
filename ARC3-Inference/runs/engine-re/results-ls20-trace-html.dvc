@@ -1,0 +1,6 @@
+outs:
+- md5: 8ff94b240a0d6d77149cbb256c8bbf00.dir
+  size: 685957
+  nfiles: 1
+  hash: md5
+  path: results-ls20-trace-html

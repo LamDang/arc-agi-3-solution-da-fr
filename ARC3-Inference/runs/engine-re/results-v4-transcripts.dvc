@@ -1,0 +1,6 @@
+outs:
+- md5: a46323e4d3b1908227363a4d18efd6d1.dir
+  size: 1407638
+  nfiles: 1
+  hash: md5
+  path: results-v4-transcripts

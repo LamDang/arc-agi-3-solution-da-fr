@@ -3,8 +3,16 @@
 An agent built on `qwen/qwen3.8-flash` (OpenRouter) was given every action and
 observation of a recorded run and asked to write an engine module, with the
 same interface as the real games, that reproduces the recording exactly. The
-harness is described in [README.md](README.md). Raw results, the generated
-engines and gzipped transcripts are in [results/](results/).
+harness is described in [README.md](README.md). The run artifacts cited
+below (the generated engines, gzipped transcripts, `result.json`/`config.json`
+and the generated trace viewers) are archived in DVC, one directory each under
+`runs/engine-re/`: `results-pilot-a-no-feedback`, `results-pilot-b-nudges`,
+`results-v2-main`, `results-v3-python-quota`, `results-v4-simple`,
+`results-v4-transcripts`, `results-v5-trials` and `results-ls20-trace-html`.
+Get one from `ARC3-Inference/` with `dvc pull runs/engine-re/<name>.dvc` (the
+anonymous login is in [exp/README.md](../exp/README.md#conventions)); the
+links to them below work once it is pulled. The per-game analyses are in
+[exp/analysis/](../exp/analysis/).
 
 ## Summary
 
@@ -40,7 +48,7 @@ engines and gzipped transcripts are in [results/](results/).
     pass of any configuration, and sp80 passed too.
   - **Failures:** lp85 and ls20 analysed for 91-105 minutes before their first
     engine, and vc33 quit at 46 minutes over a one-pixel timer-bar error. See
-    [v4](#v4-the-make_levelstep-interface-resultsv4-simple).
+    [v4](#v4-the-make_levelstep-interface-results-v4-simple).
 - **Neither did the v5 tools and prompts.** Four trials on lp85 added
   in-python `read`/`edit`/`undo`, `auto_sprites`, image failure reports and a
   worked example of the test-edit loop. In 126 turns the agent ran one test
@@ -76,7 +84,7 @@ animation frame.
 from step 0 and returns, at every step, the same frames (count and pixels),
 state, levels completed, win levels and available actions.
 
-## Main results (`results/v2-main`)
+## Main results (`results-v2-main`)
 
 | game | status | recorded steps exact | turns | minutes | output tokens | reasoning tokens | prompt tokens | cached | cost |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -90,7 +98,7 @@ state, levels completed, win levels and available actions.
 Sessions stop at the first full pass, so for the passing games these figures
 are the cost of getting there.
 
-**Generalisation** (`results/v2-main/evaluation_best.md`). For each level
+**Generalisation** (`runs/engine-re/results-v2-main/evaluation_best.md`). For each level
 the recording reached, both engines replay the recording up to that level's
 first step. They then play the same 8 random sequences of 40 actions (keys from
 the advertised actions, clicks aimed mostly at objects, occasional RESETs), and
@@ -111,11 +119,11 @@ already-diverged state.
 ## How the generated engines compare with the real ones
 
 Each analysis was checked by running both engines side by side; details and
-line references are in [results/analysis/](results/analysis/). The real
+line references are in [exp/analysis/](../exp/analysis/). The real
 mechanics are summarised in
-[results/real_engines_brief.md](results/real_engines_brief.md).
+[exp/real_engines_brief.md](../exp/real_engines_brief.md).
 
-- **ft09: correct rules** ([analysis](results/analysis/ft09.md)).
+- **ft09: correct rules** ([analysis](../exp/analysis/ft09.md)).
   - **Structure:** a data-driven model of boards, clickable tiles and hint
     cells, with level data exactly matching the real sprites.
   - **Rules recovered correctly:**
@@ -130,7 +138,7 @@ mechanics are summarised in
       recording;
     - three example pictures on level 0 treated as playable boards.
   - **How close it is:** a 20-line fix makes it match 100% of held-out play.
-- **sp80: right physics, fitted heuristics** ([analysis](results/analysis/sp80.md)).
+- **sp80: right physics, fitted heuristics** ([analysis](../exp/analysis/sp80.md)).
   - **What is right:**
     - the spill simulation, frame for frame (all 108 platform placements on
       level 0);
@@ -141,7 +149,7 @@ mechanics are summarised in
     missed rules are the 5th failed spill being fatal, and re-selecting the
     piece nearest the origin after a failed spill.
   - **Levels 2-5:** invented.
-- **lp85: a lookup table that passes** ([analysis](results/analysis/lp85.md)).
+- **lp85: a lookup table that passes** ([analysis](../exp/analysis/lp85.md)).
   - **How it works:** each recorded click pixel maps to a colour permutation
     fitted to that click's recorded effect. There is no model of rings or
     buttons, and a click one pixel off a recorded one does nothing.
@@ -150,14 +158,14 @@ mechanics are summarised in
     recording never clicked.
   - **Why it still passes:** it reproduces all 120 steps because the table was
     built from them.
-- **vc33: per-level special cases, levels 0-2 only** ([analysis](results/analysis/vc33.md)).
+- **vc33: per-level special cases, levels 0-2 only** ([analysis](../exp/analysis/vc33.md)).
   - **What is right:** the pumping between containers, the budget, the HUD and
     the win check, which match random play on levels 0-2.
   - **What is missing even there:** the overflow limit and GAME_OVER, which
     random play rarely reaches.
   - **Levels 3-6:** placeholders. Gates and the 43-frame swap animation were
     described in its notes but never coded.
-- **ls20: far off** ([analysis](results/analysis/ls20.md); interactive trace viewer: [`results/ls20_trace/ls20_trace.html`](results/ls20_trace/ls20_trace.html), built by `results/ls20_trace/build.py`).
+- **ls20: far off** ([analysis](../exp/analysis/ls20.md); interactive trace viewer: [`runs/engine-re/results-ls20-trace-html/ls20_trace.html`](../runs/engine-re/results-ls20-trace-html/ls20_trace.html), built by [`engine_re/tools/ls20_trace/build.py`](tools/ls20_trace/build.py)).
   - **What is right:** the maze layout and plain moves.
   - **What is wrong:**
     - a key rotation that is actually a reflection;
@@ -191,15 +199,15 @@ built into its data tables, not into reads of the recording.
 ## Harness iterations
 
 The feedback mechanisms were added one at a time, after pilot sessions on the
-same five games (all in `results/`):
+same five games (each run's artifacts are in the DVC directory its link names):
 
 | configuration | what changed | result |
 | --- | --- | --- |
-| [pilot A](results/pilot-a-no-feedback) | prompt only; reasoning not sent back; traces from a shorter new run | no test and no engine in 50 min per game (1.0M output tokens, $0.79) |
-| [pilot B](results/pilot-b-nudges) | + a reminder after 30 turns without a test (archived traces from here on) | no test in about 59 min per game ($1.02); interrupted once and resumed |
-| [v2 main](results/v2-main) | + reasoning sent back each turn, an automatic test when `engine.py` changes, `notes.md` | **3/5 pass**, $3.09 |
-| [v3](results/v3-python-quota) | v2 + Python pauses after 30 calls without an engine change | 2/5 pass (ft09, sp80), $3.43 |
-| [v4](results/v4-simple) | v2's feedback, but a new interface: `make_level`/`step` on fixed sprite classes, the harness draws and runs the levels, only each action's final frame is compared, 5 contract tests | 2/5 pass (ft09, sp80), $2.77 |
+| [pilot A](../runs/engine-re/results-pilot-a-no-feedback) | prompt only; reasoning not sent back; traces from a shorter new run | no test and no engine in 50 min per game (1.0M output tokens, $0.79) |
+| [pilot B](../runs/engine-re/results-pilot-b-nudges) | + a reminder after 30 turns without a test (archived traces from here on) | no test in about 59 min per game ($1.02); interrupted once and resumed |
+| [v2 main](../runs/engine-re/results-v2-main) | + reasoning sent back each turn, an automatic test when `engine.py` changes, `notes.md` | **3/5 pass**, $3.09 |
+| [v3](../runs/engine-re/results-v3-python-quota) | v2 + Python pauses after 30 calls without an engine change | 2/5 pass (ft09, sp80), $3.43 |
+| [v4](../runs/engine-re/results-v4-simple) | v2's feedback, but a new interface: `make_level`/`step` on fixed sprite classes, the harness draws and runs the levels, only each action's final frame is compared, 5 contract tests | 2/5 pass (ft09, sp80), $2.77 |
 
 - **Reasoning.** Sending the reasoning back mattered. The provider reads it
   (358 vs 2,159 prompt tokens with a 1.8K-token reasoning block), and without
@@ -216,7 +224,7 @@ same five games (all in `results/`):
   and some of its calls failed. The fix keeps each tool's own keys; it came
   after the runs above.
 
-## v4: the make_level/step interface (`results/v4-simple`)
+## v4: the make_level/step interface (`results-v4-simple`)
 
 **What changed from v2.**
 - **The engine:** `engine.py` is no longer a subclass of the real games'
@@ -264,7 +272,8 @@ with the turn count; 93% of them were served from the provider's cache.
 <!-- v4-tokens:end -->
 
 **What happened.** The transcripts can be read turn by turn in
-[`results/v4_transcripts/v4-agent-transcripts.html`](results/v4_transcripts/v4-agent-transcripts.html),
+[`runs/engine-re/results-v4-transcripts/v4-agent-transcripts.html`](../runs/engine-re/results-v4-transcripts/v4-agent-transcripts.html)
+(built by [`engine_re/tools/v4_transcripts/build.py`](tools/v4_transcripts/build.py)),
 annotated for ls20, lp85 and vc33.
 - **ft09 and sp80 passed.**
   - ft09 passed two turns after its first test: two crashes, then 101/101.
@@ -305,8 +314,8 @@ annotated for ls20, lp85 and vc33.
 
 **Held-out play.** Each cause below was confirmed by patching a copy of the
 candidate engine and replaying `evaluate.py`'s rollouts. Details are in
-[results/analysis/v4-ft09.md](results/analysis/v4-ft09.md) and
-[results/analysis/v4-sp80.md](results/analysis/v4-sp80.md).
+[exp/analysis/v4-ft09.md](../exp/analysis/v4-ft09.md) and
+[exp/analysis/v4-sp80.md](../exp/analysis/v4-sp80.md).
 - **ft09 (86%): one cause, the same as in v2.** The three example pictures on
   level 0 are clickable tiles in the candidate.
   - The recording never clicked them; at turn 38 the agent decided, without
@@ -361,7 +370,7 @@ how the agent works changes.
 `engine.py`. Same model and limits except 50 turns, one session each, images
 on. Each trial changed the prompt after the one before. Their results and
 gzipped transcripts (full reasoning and tool outputs) are in
-[results/v5-trials/](results/v5-trials/).
+[runs/engine-re/results-v5-trials/](../runs/engine-re/results-v5-trials/).
 
 
 | trial | commit | what it adds | how it ended |
@@ -663,8 +672,9 @@ uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine bes
 ```
 
 These commands run the current harness (v5; its lp85 trials used `--games lp85 --max-turns 50`, each at the commit given in the [v5 section](#v5-trials-on-lp85-50-turns)). To rerun an earlier configuration exactly, check out its commit first: `41df359` for v4, or `cd76c9d` for v2 and v3, adding `--python-quota 30` for v3. Before running a generated
-engine yourself, copy `results/<config>/<game>/engine_best.py` into a game
-directory.
+engine yourself, pull its run (for example
+`dvc pull runs/engine-re/results-v2-main.dvc`) and copy
+`runs/engine-re/results-<config>/<game>/engine_best.py` into a game directory.
 
 ## Later experiments (v6-v9)
 
