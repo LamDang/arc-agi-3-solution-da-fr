@@ -1,4 +1,4 @@
-"""The play-and-model agent (engine_re.play_agent) on a tiny two-level game, with a scripted model."""
+"""The play-and-model agent (engine_re.play_agent) on tiny games, with a scripted model."""
 from __future__ import annotations
 
 import json
@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from engine_re.agent import Budget, ModelConfig
-from engine_re.live_game import LiveGame
+from engine_re.live_game import LiveGame, benchmark_json
 from engine_re.play_agent import PlayAgent
+from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, PLAN_CLOSING, elide_engine_listing
 from engine_re.trace import Action, parse_move
 
 # Two levels of 8x8; RIGHT x3 solves each level (player.x >= 4); LEFT at x == 1 loses the game.
@@ -70,15 +71,65 @@ def step(state, action):
     if player.x >= 4:
         state.status = "level_solved"
 """
+RIGHT_ENGINE = ENGINE.replace("DOWN", "1")
+WRONG_DOWN = ENGINE.replace("DOWN", "-1")  # DOWN moves up: blocked by the wall at y=0 in level 0
+
+# A click game (sp80 advertises keys and clicks): SPACE does nothing; a click on the target cell solves the level.
+CLICK_GAME = '''
+from arcengine import ARCBaseGame, Camera, GameAction, Level, Sprite
+
+
+class Clik(ARCBaseGame):
+    def __init__(self, seed: int = 0) -> None:
+        levels = [
+            Level(sprites=[Sprite([[9]], name="target", x=2, y=2), Sprite([[4]], name="mark", x=5, y=5)], grid_size=(8, 8)),
+            Level(sprites=[Sprite([[9]], name="target", x=6, y=1)], grid_size=(8, 8)),
+        ]
+        super().__init__(game_id="clik", levels=levels, camera=Camera(0, 0, 8, 8, 0, 3), available_actions=[5, 6])
+
+    def step(self) -> None:
+        if self.action.id == GameAction.ACTION6:
+            cell = self.camera.display_to_grid(self.action.data.get("x", 0), self.action.data.get("y", 0))
+            target = self.current_level.get_sprites_by_name("target")[0]
+            if cell is not None and tuple(cell) == (target.x, target.y):
+                self.next_level()
+        self.complete_action()
+'''
+
+CLICK_ENGINE = """
+TARGETS = {0: (2, 2), 1: (6, 1)}
+
+
+def make_level(n):
+    tx, ty = TARGETS[n]
+    sprites = [
+        Sprite([[3] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name="border"),
+        Sprite([[0] * 8 for _ in range(8)], layer=-1, collidable=False, name="background"),
+        Sprite([[9]], x=tx, y=ty, name="target"),
+    ]
+    if n == 0:
+        sprites.append(Sprite([[4]], x=5, y=5, name="mark"))
+    return State(grid=(8, 8), sprites=sprites)
+
+
+def step(state, action):
+    if action.id == 6 and action.cell == TARGETS[state.level]:
+        state.status = "level_solved"
+"""
+
+
+def _write_game(root: Path, name: str, code: str, baseline: list[int]) -> None:
+    folder = root / name / "0000"
+    folder.mkdir(parents=True)
+    (folder / f"{name}.py").write_text(code, encoding="utf-8")
+    (folder / "metadata.json").write_text(json.dumps({"game_id": f"{name}-0000", "baseline_actions": baseline}), encoding="utf-8")
 
 
 @pytest.fixture()
 def environments(tmp_path: Path) -> Path:
     root = tmp_path / "env"
-    folder = root / "twol" / "0000"
-    folder.mkdir(parents=True)
-    (folder / "twol.py").write_text(GAME, encoding="utf-8")
-    (folder / "metadata.json").write_text(json.dumps({"game_id": "twol-0000", "baseline_actions": [3, 3]}), encoding="utf-8")
+    _write_game(root, "twol", GAME, [3, 3])
+    _write_game(root, "clik", CLICK_GAME, [2, 1])
     return root
 
 
@@ -105,12 +156,20 @@ class _ScriptedModel:
         }
 
 
-def _install(engine_code: str) -> tuple[str, dict]:
-    """A python call that puts `engine_code`'s LAYOUT, make_level and step into engine.py through edit_file()
-    (the opening has already put level 0's sprite code into make_level, so the defs are replaced by name)."""
+def _install(engine_code: str, names: tuple[str, ...] = ("LAYOUT", "make_level", "step")) -> tuple[str, dict]:
+    """A python call that puts `engine_code`'s top-level definitions into engine.py through edit_file() (the opening
+    has already put level 0's sprite code into make_level, so the defs are replaced by name)."""
     parts = engine_code.split("\n\n\n")
-    edits = [{"op": "replace_def", "name": name, "lines": part.strip("\n")} for name, part in zip(("LAYOUT", "make_level", "step"), parts)]
+    edits = [{"op": "replace_def", "name": name, "lines": part.strip("\n")} for name, part in zip(names, parts)]
     return ("python", {"code": f"edit_file(edits={edits!r})"})
+
+
+def _edit(old: str, new: str) -> tuple[str, dict]:
+    return ("python", {"code": f"edit_file(edits=[{{'op': 'replace_text', 'oldText': {old!r}, 'newText': {new!r}}}])"})
+
+
+NOTHING = ("python", {"code": "x = 1"})
+MOVES = "    moves = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}"  # step()'s line in RIGHT_ENGINE
 
 
 def _texts(agent: PlayAgent, role: str = "user") -> list[str]:
@@ -123,12 +182,27 @@ def _texts(agent: PlayAgent, role: str = "user") -> list[str]:
     return out
 
 
-def _agent(tmp_path: Path, environments: Path, model: _ScriptedModel, turns: int = 8, **kw) -> PlayAgent:
-    return PlayAgent("twol", tmp_path / "run", ModelConfig(), Budget(max_turns=turns), environments, client=model,
-                     images=False, batch_size=4, **kw)
+def _records(tmp_path: Path) -> list[dict]:
+    return [json.loads(line) for line in (tmp_path / "run" / "transcript.jsonl").read_text().splitlines()]
+
+
+def _agent(tmp_path: Path, environments: Path, model: _ScriptedModel, turns: int = 8, game: str = "twol", **kw) -> PlayAgent:
+    kw.setdefault("images", False)
+    kw.setdefault("batch_size", 4)
+    return PlayAgent(game, tmp_path / "run", ModelConfig(), Budget(max_turns=turns), environments, client=model, **kw)
+
+
+def _start(engine: str = RIGHT_ENGINE, **install) -> list[list[tuple[str, dict]]]:
+    """The first two turns: install the engine (tested automatically), then commit it."""
+    return [[_install(engine, **install)], [("commit_engine", {"message": "the rules"})]]
+
+
+# --- the live game, its score and records -------------------------------------------------------
 
 
 def test_live_game_scores_like_taaf(environments: Path) -> None:
+    from taaf.game import GameRun
+
     game = LiveGame("twol", environments)
     game.start()
     for move in ("RIGHT", "RIGHT", "RIGHT", "RIGHT", "RIGHT", "DOWN", "RIGHT"):
@@ -137,15 +211,45 @@ def test_live_game_scores_like_taaf(environments: Path) -> None:
     assert game.actions_per_level() == [3, 4]
     # level 0: (3/3)^2 * 100 = 100, weight 1; level 1: (3/4)^2 * 100 = 56.25, weight 2 -> (100 + 112.5) / 3
     assert game.score() == pytest.approx((100 + 2 * 56.25) / 3)
-    assert [e["type"] for e in game.events()][:2] == ["initial", "action"] and game.events()[-1]["run_complete"]
+    events = game.events()
+    assert [e["type"] for e in events][:2] == ["initial", "action"] and events[-1]["run_complete"]
+    assert [e["level"] for e in events] == [1, 1, 1, 2, 2, 2, 2, 2]  # the level shown after each step, 1-based
+    # TAAF's own formula and counts on the record written for it
+    run = GameRun.from_json_dict(game.game_run(state="won"))
+    assert run._compute_final_score() == pytest.approx(game.score()) and run.actions_per_level == [3, 4]
+    assert len(run.history) == sum(run.actions_per_level) == game.actions
+
+
+def test_live_game_counts_a_game_over_and_its_reset_in_the_level(environments: Path) -> None:
+    game = LiveGame("twol", environments)
+    game.start()
+    for move in ("LEFT", "RESET", "RIGHT", "RIGHT", "RIGHT"):
+        game.perform(parse_move(move))
+    assert [s.state for s in game.trace.steps][1:3] == ["GAME_OVER", "NOT_FINISHED"]
+    assert game.actions_per_level() == [5, 0] and game.score() == pytest.approx((3 / 5) ** 2 * 100 / 3)
+    no_baseline = LiveGame("twol", environments)
+    no_baseline.metadata.pop("baseline_actions")
+    no_baseline.start()
+    assert no_baseline.score() is None and no_baseline.game_run()["final_score"] == 0.0  # as TAAF: 0 without baselines
+
+
+def test_parse_move_forms() -> None:
+    assert parse_move("UP") == Action(1) and parse_move("reset") == Action(0) and parse_move("ACTION5") == Action(5)
+    assert parse_move({"click": [12, 40]}) == Action(6, 12, 40) == parse_move("MOUSE(row=40, col=12)") == parse_move("click(12, 40)")
+    assert parse_move({"action": "MOUSE", "row": 40, "col": 12}) == Action(6, 12, 40) == parse_move([6, 12, 40])
+    with pytest.raises(ValueError):
+        parse_move("fly")
+
+
+# --- the loop -------------------------------------------------------------------------------------
 
 
 def test_a_right_engine_wins_the_game_in_the_baseline_actions(tmp_path: Path, environments: Path) -> None:
-    model = _ScriptedModel([
-        [_install(ENGINE.replace("DOWN", "1"))],  # the harness tests it automatically: step 0 passes
-        [("commit_engine", {"message": "the player moves; a level is solved at x >= 4"})],
+    from engine_re.trace import trace_from_run
+
+    model = _ScriptedModel(_start() + [
         [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT", "RIGHT"], "note": "reach x=4"})],  # stops after level 0 is solved
-        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "and again"})],
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT", "RIGHT"], "note": "and again"})],  # WIN at the third
     ])
     agent = _agent(tmp_path, environments, model)
     result = agent.run()
@@ -153,31 +257,40 @@ def test_a_right_engine_wins_the_game_in_the_baseline_actions(tmp_path: Path, en
     assert result.actions == 6 and result.levels_completed == 2 and result.score == pytest.approx(100.0)
     assert result.batches == 2 and result.moves_sent == 6 and result.mismatches == 0
     assert result.batch_log[0]["sent"] == 3 and result.batch_log[0]["mismatch"] is None
+    assert result.batch_log[1]["sent"] == 3 and len(result.batch_log[1]["moves"]) == 4  # WIN inside the batch: the 4th not sent
     users = _texts(agent)
-    assert users[0].startswith("Plan the next moves. Steps 0-0 pass")
+    assert users[0].startswith("Plan the next moves. Steps 0-0 pass") and "The game has just started" in users[0]
+    assert "The game accepts: UP, DOWN, LEFT, RIGHT, RESET" in users[0]
     assert any("Commit accepted" in u for u in users)
-    assert any("level 0 solved, so the batch stopped there (1 move(s) not sent)" in u for u in users)
+    assert any("level 0 solved, and your make_level(1) drew the new level's start as the game did, so the batch stopped there "
+               "(1 move(s) not sent)" in u for u in users)
     tool_outputs = _texts(agent, "tool")
     assert any(o.startswith("Sent 3 of 4 move(s) (steps 1-3):") and "#3 RIGHT: matches your prediction (level 0 solved)" in o for o in tool_outputs)
     assert any("The game is won." in o for o in tool_outputs)
+    assert result.final["passed"] and result.committed_sha and (tmp_path / "run" / "engine_committed.py").exists()
     # the records the viewer and scoring read
-    assert (tmp_path / "run" / "artifacts" / "twol-0000_p0_viewer_data_events.jsonl").exists()
+    events = tmp_path / "run" / "artifacts" / "twol-0000_p0_events.jsonl"
+    assert events.exists()
+    trace, mismatches = trace_from_run(tmp_path / "run", "twol", environments)
+    assert mismatches == [] and len(trace) == len(agent.live.trace) == 7
     run = agent.game_run()
     assert run["state"] == "won" and run["actions_per_level"] == [3, 3] and run["final_score"] == pytest.approx(100.0)
-    assert len(run["history"]) == 6
+    assert len(run["history"]) == 6 and sum(h["generated_tokens"] for h in run["history"]) + run["final_generated_tokens"] == 20
+    # every record carries the phase it was logged in
+    records = _records(tmp_path)
+    assert all(r.get("phase") in ("plan", "fit") for r in records)
+    assert sum("plan" in r for r in records) == 3  # the opening, after the commit, after level 0
 
 
 def test_a_wrong_prediction_opens_a_fit_round_and_blocks_moves_until_fixed(tmp_path: Path, environments: Path) -> None:
-    model = _ScriptedModel([
-        [_install(ENGINE.replace("DOWN", "-1"))],  # DOWN moves up: blocked by the wall at y=0 in level 0
-        [("commit_engine", {"message": "moves"})],
+    model = _ScriptedModel(_start(WRONG_DOWN) + [
         [("commit_moves", {"actions": ["DOWN", "RIGHT"], "note": "down then right"})],  # step 1 differs; RIGHT not sent
         [("commit_moves", {"actions": ["RIGHT"], "note": "try anyway"})],  # refused: the tests fail
-        [("python", {"code": "edit_file(edits=[{'op': 'replace_text', 'oldText': '2: (0, -1)', 'newText': '2: (0, 1)'}])"})],
+        [_edit("2: (0, -1)", "2: (0, 1)")],
         [("commit_engine", {"message": "DOWN moves down"})],
         [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "solve level 0"})],
     ])
-    agent = _agent(tmp_path, environments, model)
+    agent = _agent(tmp_path, environments, model, turns=7)
     result = agent.run()
     assert result.status == "budget_turns"
     assert result.mismatches == 1 and result.refused_batches == 1 and result.batches == 2
@@ -188,17 +301,19 @@ def test_a_wrong_prediction_opens_a_fit_round_and_blocks_moves_until_fixed(tmp_p
     tool_outputs = _texts(agent, "tool")
     assert any(o.startswith("Not sent: your engine does not reproduce the game so far (steps 0-1)") for o in tool_outputs)
     assert any("#1 DOWN: differs from your prediction: the final frame differs" in o for o in tool_outputs)
+    assert "after the commit you plan the next moves" in tool_outputs[4]  # the fit round's commit hint
+    assert len(result.fit_rounds) == 1
     assert result.fit_rounds[0]["step"] == 1 and result.fit_rounds[0]["end_turn"] == 6 and result.fit_rounds[0]["commits"] == 1
+    assert result.fit_rounds[0]["accepted"] and result.fit_rounds[0]["turns"] == 3
+    assert result.batch_log[0]["diff"] == "the final frame differs"
     assert result.levels_completed == 1 and result.actions == 4
-    # a transcript line per move and per batch
-    records = [json.loads(line) for line in (tmp_path / "run" / "transcript.jsonl").read_text().splitlines()]
+    assert result.phase_turns == {"plan": 4, "fit": 3}
+    records = _records(tmp_path)
     assert sum("move" in r for r in records) == 4 and sum("batch" in r for r in records) == 2
 
 
 def test_bad_batches_are_refused_before_anything_is_sent(tmp_path: Path, environments: Path) -> None:
-    model = _ScriptedModel([
-        [_install(ENGINE.replace("DOWN", "1"))],
-        [("commit_engine", {"message": "ok"})],
+    model = _ScriptedModel(_start() + [
         [("commit_moves", {"actions": ["RIGHT"] * 5, "note": "too many"})],
         [("commit_moves", {"actions": ["SPACE"], "note": "not advertised"})],
         [("commit_moves", {"actions": [{"click": [70, 2]}], "note": "off screen"})],
@@ -218,10 +333,8 @@ def test_bad_batches_are_refused_before_anything_is_sent(tmp_path: Path, environ
     assert result.actions == 1 and result.refused_batches == 6
 
 
-def test_a_game_over_is_followed_by_the_harness_reset(tmp_path: Path, environments: Path) -> None:
-    model = _ScriptedModel([
-        [_install(ENGINE.replace("DOWN", "1"))],
-        [("commit_engine", {"message": "ok"})],
+def test_a_predicted_game_over_is_followed_by_the_harness_reset(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [
         [("commit_moves", {"actions": ["LEFT", "RIGHT"], "note": "LEFT at x=1 loses"})],
         [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "solve level 0"})],
     ])
@@ -234,21 +347,487 @@ def test_a_game_over_is_followed_by_the_harness_reset(tmp_path: Path, environmen
     assert result.actions_per_level == [5, 0]
 
 
-def test_a_resumed_run_continues_the_game_and_the_conversation(tmp_path: Path, environments: Path) -> None:
-    first = _ScriptedModel([
-        [_install(ENGINE.replace("DOWN", "1"))],
-        [("commit_engine", {"message": "ok"})],
-        [("commit_moves", {"actions": ["RIGHT"], "note": "one step"})],
+def test_an_unpredicted_game_over_is_fitted_then_reset(tmp_path: Path, environments: Path) -> None:
+    no_loss = RIGHT_ENGINE.replace('    if action.id == 3 and player.x == 1:\n        state.status = "game_over"\n        return\n', "")
+    model = _ScriptedModel(_start(no_loss) + [
+        [("commit_moves", {"actions": ["LEFT", "RIGHT"], "note": "probe LEFT"})],  # the game is lost; the engine says not
+        [_install(RIGHT_ENGINE)],
+        [("commit_engine", {"message": "LEFT at x=1 loses"})],
     ])
-    agent = _agent(tmp_path, environments, first, turns=3)
+    agent = _agent(tmp_path, environments, model, turns=5)
+    result = agent.run()
+    users = _texts(agent)
+    fit = next(u for u in users if u.startswith("Fix the engine: step 1"))
+    assert "outcome: the game says 'GAME_OVER', your engine 'NOT_FINISHED'" in fit
+    assert "After it the game is over; the harness will RESET the level once your engine reproduces it." in fit
+    assert "The game was over, so the harness sent a RESET (step 2, an action): the level restarted as your engine predicted." in users[-1]
+    assert result.auto_resets == 1 and result.mismatches == 1 and [s.action.id for s in agent.live.trace.steps] == [0, 3, 0]
+
+
+def test_no_auto_reset_leaves_the_reset_to_the_model(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["LEFT"], "note": "lose"})],
+        [("commit_moves", {"actions": ["RIGHT"], "note": "refused: the game is over"})],
+        [("commit_moves", {"actions": ["RESET", "RIGHT"], "note": "restart"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5, auto_reset=False)
+    result = agent.run()
+    assert "The game is over: only RESET is accepted now." in _texts(agent)[-2]
+    assert any(o.startswith("Not sent: the game is over, so only RESET is accepted now.") for o in _texts(agent, "tool"))
+    assert result.auto_resets == 0 and [s.action.id for s in agent.live.trace.steps] == [0, 3, 0, 4]
+
+
+def test_a_commit_and_a_batch_in_one_turn(tmp_path: Path, environments: Path) -> None:
+    """commit_engine then commit_moves: the commit is the batch's (one advance with its message, no implicit one); a
+    batch then commit_engine after a difference: the fit round is recorded and closed by the commit."""
+    model = _ScriptedModel([
+        [_install(WRONG_DOWN)],
+        [("commit_engine", {"message": "explicit"}), ("commit_moves", {"actions": ["RIGHT"], "note": "go"})],
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"}), _edit("2: (0, -1)", "2: (0, 1)"),
+         ("commit_engine", {"message": "DOWN moves down"})],
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "solve"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=4)
+    result = agent.run()
+    messages = [a["message"] for a in result.advances]
+    assert messages == ["explicit", "DOWN moves down"] and not any(a.get("implicit") for a in result.advances)
+    assert result.mismatches == 1 and len(result.fit_rounds) == 1 and result.fit_rounds[0]["accepted"]
+    users = _texts(agent)
+    assert sum(u.startswith("Plan the next moves") for u in users) == 4 and not any(u.startswith("Fix the engine") for u in users)
+    assert "Your last batch: 1 move(s) sent, all as your engine predicted." in users[1]
+    assert ("Your last batch: 1 move(s) sent; step 2 (DOWN) differed from your engine's prediction (the final frame differs). "
+            "Commit accepted: your engine now reproduces steps 0-2.") in users[2]
+    assert result.levels_completed == 1 and result.actions == 4
+
+
+def test_a_batch_then_an_edit_in_one_turn(tmp_path: Path, environments: Path) -> None:
+    """The batch was sent with the committed engine; engine.py edited after it in the same turn is tested
+    automatically, and the next message says where it stands."""
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["RIGHT"], "note": "one"}), _edit(MOVES, MOVES.replace("4: (1, 0)", "4: (2, 0)"))],  # matched, then broken
+        [("commit_moves", {"actions": ["RIGHT"], "note": "refused"})],
+        [("python", {"code": "undo_edit()"}), ("commit_moves", {"actions": ["DOWN"], "note": "probe"}),
+         _edit(MOVES, MOVES.replace("2: (0, 1)", "2: (0, 2)"))],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5)
+    agent.run()
+    users = _texts(agent)
+    plan = users[2]
+    assert plan.startswith("Plan the next moves. Steps 0-1 pass with your engine as committed.")
+    assert "engine.py has changed since your last commit and does not reproduce every step played" in plan
+    tools = _texts(agent, "tool")
+    assert tools[2].startswith("Sent 1 of 1 move(s)") and "[harness] engine.py changed, so it was tested automatically" in tools[3]
+    assert tools[4].startswith("Not sent: your engine does not reproduce the game so far")
+    # after undo_edit() the DOWN batch is sent with the committed engine and matches; the edit after it is reported
+    assert any("#2 DOWN: matches your prediction" in t for t in tools)
+    assert "engine.py has changed since your last commit and does not reproduce every step played" in users[-1]
+
+
+def test_a_commit_that_passes_up_to_its_step_but_fails_a_later_one(tmp_path: Path, environments: Path) -> None:
+    broken = _edit("moves = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}", "moves = {1: (0, -1), 2: (0, -1), 3: (-1, 0), 4: (2, 0)}")
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["DOWN", "RIGHT", "RIGHT"], "note": "three"})],
+        [broken],
+        [("commit_moves", {"actions": ["RIGHT"], "note": "refused: step 1 fails"})],  # a fit round on step 1
+        [_edit("2: (0, -1)", "2: (0, 1)")],
+        [("commit_engine", {"message": "DOWN fixed"})],  # steps 0-1 pass, step 2 does not
+        [_edit("4: (2, 0)", "4: (1, 0)")],
+        [("commit_engine", {"message": "RIGHT fixed"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=9)
+    result = agent.run()
+    users = _texts(agent)
+    advance = next(u for u in users if u.startswith("Commit accepted: steps 0-1 pass."))
+    assert "The next step, 2, fails." in advance and "Fix step 2" in advance
+    assert [(r["step"], r["end"]) for r in result.fit_rounds] == [(1, "accepted"), (2, "accepted")]
+    assert [(a["fixed"], a["next"]) for a in result.advances if not a.get("implicit")] == [(0, None), (1, 2), (2, None)]
+    assert users[-1].startswith("Plan the next moves. Steps 0-3 pass")
+
+
+def test_engine_errors_during_the_prediction(tmp_path: Path, environments: Path) -> None:
+    # (an engine that raised on level 0 would fail the contract tests, which play level 0, and send nothing)
+    raising = RIGHT_ENGINE.replace("    moves = {", "    if action.id == 1 and state.level == 1:\n        raise ValueError('UP is not modelled')\n    moves = {")
+    model = _ScriptedModel(_start(raising) + [[("commit_moves", {"actions": ["RIGHT"] * 3, "note": "level 0"})],
+                                              [("commit_moves", {"actions": ["UP", "RIGHT"], "note": "probe UP"})]])
+    agent = _agent(tmp_path, environments, model, turns=4)
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    assert "#4 UP: differs from your prediction: your engine raised an error (ValueError: UP is not modelled)" in tools[-1]
+    assert result.mismatches == 1 and result.actions == 4  # the move was still sent; RIGHT was not
+    assert _texts(agent)[-1].startswith("Fix the engine: step 4 did not go as your engine predicted.")
+
+
+def test_a_hud_pixel_difference_matches_with_its_warning(tmp_path: Path, environments: Path) -> None:
+    pixel = RIGHT_ENGINE.replace(
+        "    if player.x >= 4:", "    if action.id == 1:\n        state.add(Sprite([[7]], x=63, y=0, screen=True, layer=5))\n    if player.x >= 4:")
+    model = _ScriptedModel(_start(pixel) + [[("commit_moves", {"actions": ["UP", "RIGHT"], "note": "UP is blocked"})]])
+    agent = _agent(tmp_path, environments, model, turns=3)
+    result = agent.run()
+    out = _texts(agent, "tool")[-1]
+    assert "#1 UP: matches your prediction (1 px differs at the frame border" in out and "tolerated as HUD-bar rounding" in out
+    assert result.mismatches == 0 and result.actions == 2
+
+
+def test_a_click_game(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(CLICK_ENGINE, names=("TARGETS", "make_level", "step")) + [
+        [("commit_moves", {"actions": ["UP"], "note": "not accepted"})],
+        [("commit_moves", {"actions": ["SPACE", {"click": [40, 40]}, "MOUSE(row=20, col=20)", {"click": [50, 10]}],
+                           "note": "space, a miss, the target"})],
+        [("commit_moves", {"actions": [{"click": [50, 10]}], "note": "level 1's target at cell (6, 1)"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5, game="clik")
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    assert tools[2].startswith('Not sent: this game does not accept UP. It accepts: RESET, SPACE, clicks {"click": [x, y]}.')
+    assert "#3 MOUSE(row=20, col=20): matches your prediction (level 0 solved)" in tools[3]
+    assert 'clicks {"click": [x, y]} (x the column, y the row, screen pixels 0-63)' in _texts(agent)[0]
+    assert result.status == "won" and result.actions == 4 and result.actions_per_level == [3, 1]
+    assert [s.action for s in agent.live.trace.steps][1:] == [Action(5), Action(6, 40, 40), Action(6, 20, 20), Action(6, 50, 10)]
+
+
+def test_the_action_budget_cuts_a_batch_and_ends_the_run_cleanly(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "DOWN"], "note": "three, one cut"})],
+        [("python", {"code": "x = 1"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=6, max_actions=2)
+    result = agent.run()
+    assert result.status == "budget_actions" and result.actions == 2
+    assert "The last 1 move(s) of the batch were cut: the run allows 2 actions in all." in _texts(agent, "tool")[-1]
+    saved = json.loads((tmp_path / "run" / "result.json").read_text())
+    assert saved["status"] == "budget_actions" and saved["actions"] == 2 and saved["final"]["passed"]
+    assert (tmp_path / "run" / "artifacts" / "twol-0000_p0_events.jsonl").exists()
+    assert len(agent.game_run()["history"]) == 2
+
+
+def test_the_action_budget_mid_fit_round(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [[("commit_moves", {"actions": ["DOWN"], "note": "probe"})], [NOTHING]])
+    agent = _agent(tmp_path, environments, model, turns=6, max_actions=1)
+    result = agent.run()
+    assert result.status == "budget_actions" and result.turns == 3 and result.phase == "fit"
+    saved = json.loads((tmp_path / "run" / "result.json").read_text())
+    assert saved["final"]["first_fail"] == 1 and saved["fit_rounds"][0]["end_turn"] is None
+    assert json.loads((tmp_path / "run" / "trace" / "trace.json").read_text())["steps"][-1]["action"] == {"id": 2}
+
+
+# --- nudges and the escape hatch ------------------------------------------------------------------
+
+
+def test_the_plan_nudge(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [[NOTHING]] * 4 + [[("commit_moves", {"actions": ["RIGHT"], "note": "go"})], [NOTHING]])
+    agent = _agent(tmp_path, environments, model, turns=8, plan_turns=2)
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    nudged = [i for i, t in enumerate(tools) if "turns in this plan round without commit_moves" in t]
+    # turn 1 (the install) and 2 (the commit) count, then a new plan round starts: turns 4 and 6 are nudged, not 7-8
+    assert nudged == [3, 5] and result.plan_nudges == 2
+    assert "send a short batch now, even a probing one of 1-3 moves" in tools[3]
+    assert sum("plan_nudge" in r for r in _records(tmp_path)) == 2
+
+
+def test_the_pure_loop_never_offers_the_escape_hatch(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [[("commit_moves", {"actions": ["DOWN"], "note": "probe"})]] + [[NOTHING]] * 4
+                           + [[("commit_moves", {"actions": ["RIGHT"], "note": "refused"})]])
+    agent = _agent(tmp_path, environments, model, turns=8)
+    result = agent.run()
+    assert not any("out of step" in t for t in _texts(agent, "tool"))
+    assert result.escapes == 0 and result.unexplained == [] and _texts(agent, "tool")[-1].startswith("Not sent: your engine does not")
+
+
+def test_the_escape_hatch_plays_blind_and_resyncs_at_a_reset(tmp_path: Path, environments: Path) -> None:
+    raising_down = WRONG_DOWN.replace("    moves = {", "    if action.id == 2 and player.y > 1:\n        raise ValueError('lost')\n    moves = {")
+    model = _ScriptedModel(_start(raising_down) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})],  # step 1 differs: a fit round
+        [NOTHING],
+        [NOTHING],  # 2 turns: the escape is offered
+        [("commit_moves", {"actions": ["DOWN", "DOWN", "RESET", "RIGHT"], "note": "blind"})],  # sent unchecked up to the RESET
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "in step again"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=7, fit_turns=2)
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    assert "You may now play on with your engine out of step" in tools[4]
+    blind = tools[5]
+    assert blind.startswith("Sent 3 of 4 move(s) (steps 2-4), not checked: your engine is out of step with the game since step 1.")
+    assert "#4 RESET: sent, not checked (your engine is out of step) (your engine is back in step with the game here)" in blind
+    assert result.unexplained == [1, 2, 3] and result.resync == {"4": {"level": 0, "score": 0}} and result.out_of_sync is None
+    plan = next(u for u in _texts(agent) if "Every step played passes with your engine again" in u)
+    assert plan.startswith("Plan the next moves. Steps 0-4 pass with your engine as committed (but the unexplained ones, which are "
+                           "not compared: 1-3).")
+    assert "#7 RIGHT: matches your prediction (level 0 solved)" in tools[-1]
+    assert result.levels_completed == 1 and result.escapes == 1 and result.fit_rounds[0]["end"] == "escaped"
+    # the tests: the unexplained steps never fail, even where the engine raised; the final test passes
+    assert result.final["passed"] and result.final["ignored"] == [1, 2, 3] and result.final["total"] == 5
+    text = (tmp_path / "run" / "final_test.txt").read_text()
+    assert "Unexplained steps 1-3 (played while your engine was out of step with the game)" in text
+
+
+def test_the_escape_hatch_through_a_level_change(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})],
+        [NOTHING],
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "blind"})],
+        [("commit_moves", {"actions": ["RIGHT", "UP"], "note": "blind, solves level 0"})],  # back in step at the level change
+        [("commit_moves", {"actions": ["RIGHT"], "note": "checked again"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=7, fit_turns=1)
+    result = agent.run()
+    users = _texts(agent)
+    assert any(u.startswith("Plan the next moves. Your engine is out of step with the game since step 1") for u in users)
+    assert result.unexplained == [1, 2, 3] and result.resync == {"4": {"level": 1, "score": 1}}
+    assert "#5 RIGHT: matches your prediction" in _texts(agent, "tool")[-1]
+    assert result.final["passed"] and result.levels_completed == 1
+
+
+def test_the_escape_hatch_resyncs_at_the_automatic_reset(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})],
+        [NOTHING],
+        [("commit_moves", {"actions": ["LEFT"], "note": "blind: loses"})],
+        [("commit_moves", {"actions": ["RIGHT"], "note": "checked"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=6, fit_turns=1)
+    result = agent.run()
+    assert result.unexplained == [1, 2] and result.resync == {"3": {"level": 0, "score": 0}} and result.auto_resets == 1
+    assert any("The game was over, so the harness sent a RESET (step 3, an action), which puts your engine back in step." in u
+               for u in _texts(agent))
+    assert "#4 RIGHT: matches your prediction" in _texts(agent, "tool")[-1]
+
+
+def test_a_resync_the_engine_does_not_reproduce_opens_a_fit_round(tmp_path: Path, environments: Path) -> None:
+    wrong_level_1 = WRONG_DOWN.replace("1: ((1, 3), 8, 7)", "1: ((2, 3), 8, 7)")
+    model = _ScriptedModel(_start(wrong_level_1) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})],
+        [NOTHING],
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "blind to the level change"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5, fit_turns=1)
+    result = agent.run()
+    fit = _texts(agent)[-1]
+    assert fit.startswith("Fix the engine: your engine does not reproduce step 4.")
+    assert "now that it is back in step with the game" in fit and result.phase == "fit" and result.fit_rounds[-1]["step"] == 4
+
+
+# --- resume ---------------------------------------------------------------------------------------
+
+
+def test_a_resumed_run_continues_the_game_and_the_conversation(tmp_path: Path, environments: Path) -> None:
+    first = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one step"})]])
+    agent = _agent(tmp_path, environments, first, turns=3, images=True)
     result = agent.run()
     assert result.status == "budget_turns" and result.actions == 1
     second = _ScriptedModel([
         [("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "finish level 0"})],
         [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "finish level 1"})],
     ])
-    agent2 = _agent(tmp_path, environments, second, turns=5)
+    agent2 = _agent(tmp_path, environments, second, turns=5, images=True)
     result2 = agent2.run()
     assert result2.resumes == 1 and result2.status == "won" and result2.actions == 6
     assert len(agent2.live.trace) == 7 and result2.batches == 3  # the earlier batch is restored from result.json
     assert any("The run was interrupted here and has now resumed" in u for u in _texts(agent2))
+    def texts(messages: list[dict]) -> list:
+        return [m["content"] if isinstance(m["content"], str) else [p.get("text") for p in m["content"]] for m in messages]
+
+    # the same conversation, rebuilt with its images: only the latest PLAN message's frame is still a live image
+    assert texts(second.seen[0][: len(first.seen[-1])])[:-2] == texts(first.seen[-1])[:-2]
+    live = [i for i, m in enumerate(second.seen[0]) if isinstance(m["content"], list)
+            and any(p.get("type") == "image_url" for p in m["content"])]
+    assert len(live) == 1 and second.seen[0][live[0]]["content"][0]["text"].startswith("Plan the next moves. Steps 0-1 pass")
+    assert result2.committed_sha == result.committed_sha and len(result2.step_tokens) == 6
+
+
+def test_a_run_resumed_in_its_first_plan_round_keeps_its_conversation(tmp_path: Path, environments: Path) -> None:
+    first = _ScriptedModel([[NOTHING]])
+    _agent(tmp_path, environments, first, turns=1).run()
+    second = _ScriptedModel([[("commit_moves", {"actions": ["RIGHT"], "note": "go"})]])
+    agent = _agent(tmp_path, environments, second, turns=2)
+    agent.run()
+    assert len(second.seen[0]) == len(first.seen[0]) + 3  # the assistant turn, its tool output, the resume note
+    assert "x = 1" in json.dumps(second.seen[0])
+
+
+def test_a_run_resumed_in_a_fit_round(tmp_path: Path, environments: Path) -> None:
+    first = _ScriptedModel(_start(WRONG_DOWN) + [[("commit_moves", {"actions": ["DOWN"], "note": "probe"})], [NOTHING]])
+    _agent(tmp_path, environments, first, turns=4, fit_turns=3).run()
+    second = _ScriptedModel([[NOTHING], [_edit("2: (0, -1)", "2: (0, 1)")], [("commit_engine", {"message": "fixed"})]])
+    agent = _agent(tmp_path, environments, second, turns=7, fit_turns=3)
+    result = agent.run()
+    assert len(result.fit_rounds) == 1 and result.fit_rounds[0]["step"] == 1 and result.fit_rounds[0]["accepted"]
+    assert result.fit_rounds[0]["escape_offered"] == 6  # three turns after the round opened at turn 3, across the resume
+    assert _texts(agent)[-1].startswith("Plan the next moves. Steps 0-1 pass")
+
+
+def test_a_run_interrupted_in_the_middle_of_a_batch(tmp_path: Path, environments: Path, monkeypatch) -> None:
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "two"})]])
+    agent = _agent(tmp_path, environments, model, turns=5)
+    real_play = PlayAgent._play
+
+    def crash(self, acts, note):
+        real_play(self, acts[:1], note)  # the first move is played and saved, then the process dies
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(PlayAgent, "_play", crash)
+    with pytest.raises(KeyboardInterrupt):
+        agent.run()
+    monkeypatch.setattr(PlayAgent, "_play", real_play)
+    second = _ScriptedModel([[("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "finish level 0"})]])
+    agent2 = _agent(tmp_path, environments, second, turns=4)
+    result = agent2.run()
+    users = _texts(agent2)
+    assert "The run was interrupted while moves were being played: steps 1-1 were played after the last message" in users[-2]
+    assert users[-2].startswith("Plan the next moves. Steps 0-1 pass") and result.levels_completed == 1
+    assert len(agent2.live.trace) == 4 and len(result.step_tokens) == 3
+
+
+def test_a_finished_game_gives_its_benchmark_record_again(tmp_path: Path, environments: Path) -> None:
+    from taaf.benchmark import Benchmark
+
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"] * 3, "note": "a"})],
+                                       [("commit_moves", {"actions": ["RIGHT"] * 3, "note": "b"})]])
+    agent = _agent(tmp_path, environments, model)
+    agent.run()
+    record = agent.game_run()
+    again = _agent(tmp_path, environments, _ScriptedModel([]))  # what run_play does for a finished game
+    again._restore()
+    assert again.game_run() | {"final_wallclock_seconds": 0, "started_at": 0} == record | {"final_wallclock_seconds": 0, "started_at": 0}
+    path = tmp_path / "benchmark.json"
+    path.write_text(json.dumps(benchmark_json("t", [record], 0.0)))
+    loaded = Benchmark.from_json(path)
+    assert loaded.game_runs[0].final_score == pytest.approx(100.0) and loaded.game_runs[0].state == "won"
+
+
+# --- context --------------------------------------------------------------------------------------
+
+
+def test_compaction_elides_the_listing_of_older_plan_messages(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})]])
+    agent = _agent(tmp_path, environments, model, turns=3, images=True)
+    agent.run()
+    plans = [m for m in agent.messages if m["role"] == "user" and isinstance(m["content"], list)
+             and m["content"][0]["text"].startswith("Plan the next moves")]
+    assert len(plans) == 3 and plans[-1]["content"][-1]["type"] == "image_url"
+    texts = [p["content"][0]["text"] for p in plans]
+    assert [ENGINE_HEADER in t for t in texts] == [True, True, False]  # listed when it changed
+    agent._compact()
+    texts = [p["content"][0]["text"] for p in plans]
+    assert ENGINE_ELIDED in texts[0] and ENGINE_HEADER not in texts[0]
+    assert ENGINE_HEADER in texts[1] and ENGINE_ELIDED not in texts[1]  # the latest listing stays
+    assert all(PLAN_CLOSING.strip() in t for t in texts)  # the paragraph after the listing is kept
+    text = "Head.\n\n" + ENGINE_HEADER + "\n\n  1#ABC:x = 1\n" + PLAN_CLOSING + " on your engine."
+    assert elide_engine_listing(text) == f"Head.\n\n{ENGINE_ELIDED}{PLAN_CLOSING} on your engine."
+
+
+def test_the_play_agent_keeps_compaction(tmp_path: Path, environments: Path) -> None:
+    with pytest.raises(ValueError, match="compact"):
+        PlayAgent("twol", tmp_path / "run", ModelConfig(context="condense"), Budget(), environments, client=_ScriptedModel([]))
+
+
+def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> None:
+    from engine_re.prompts import system_prompt, tools
+
+    for images in (True, False):
+        text = system_prompt(mode="play", images=images)
+        assert "run_tests(level" not in text and "first message" not in text and "the recorded frame as images" not in text
+        assert "state_now() -> State" in text and "simulate(actions, state=None, show=True) -> list[State]" in text
+        names = [t["function"]["name"] for t in tools(images, "play", True)]
+        assert names == ["python", "run_tests", "commit_engine", "commit_moves"]
+        run_tests = tools(images, "play", True)[1]["function"]
+        assert "level" not in run_tests["parameters"]["properties"]
+
+
+# --- the kernel's play built-ins ------------------------------------------------------------------
+
+
+def test_state_now_and_simulate_in_the_kernel(tmp_path: Path, environments: Path) -> None:
+    from engine_re.kernel import KernelClient
+
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})]])
+    _agent(tmp_path, environments, model, turns=3).run()
+    run = tmp_path / "run"
+    kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=1, history=True, play=True)
+    try:
+        out = kernel.execute(
+            "s = state_now()\nprint('x', s.vars['player'].x)\n"
+            "states = simulate(['RIGHT', 'RIGHT', 'UP', {'click': [3, 4]}], show=False)\nprint(len(states), states[1].level)"
+        )
+        assert "state_now(): your engine after replaying steps 0-1: level 0, NOT_FINISHED" in out and "x 2" in out
+        assert "#2 RIGHT: level 0 solved; level 1 starts" in out and "#3 UP: " in out and "\n4 1" in out
+        out = kernel.execute("after = simulate(['LEFT', 'LEFT', 'RESET'], state=s, show=False)\nprint([a is None for a in after])")
+        assert "#2 LEFT: GAME OVER" in out and "#3 RESET: level 0 restarts" in out
+        assert "#2 LEFT: refused" not in out and "[False, False, False]" in out
+        out = kernel.execute("simulate(['fly'])")
+        assert "simulate(): unrecognised action 'fly'" in out
+        assert "nothing was run" in kernel.execute("simulate = 1")
+    finally:
+        kernel.stop()
+
+
+def test_the_kernel_replays_unexplained_steps_and_resyncs(tmp_path: Path, environments: Path) -> None:
+    from engine_re.kernel import KernelClient
+
+    raising_down = WRONG_DOWN.replace("    moves = {", "    if action.id == 2 and player.y > 1:\n        raise ValueError('lost')\n    moves = {")
+    model = _ScriptedModel(_start(raising_down) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})], [NOTHING],
+        [("commit_moves", {"actions": ["DOWN", "RESET"], "note": "blind"})],
+    ])
+    _agent(tmp_path, environments, model, turns=5, fit_turns=1).run()
+    run = tmp_path / "run"
+    kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=3, history=True, play=True)
+    try:
+        out = kernel.execute("s = state_now()\nb, a = replay_step(3)")
+        assert "your engine after replaying steps 0-3: level 0, NOT_FINISHED" in out
+        assert "step 3 is where your engine was put back in step with the game" in out and "your frame matches the recording after step 3" in out
+    finally:
+        kernel.stop()
+
+
+def test_a_run_resumed_out_of_step(tmp_path: Path, environments: Path) -> None:
+    first = _ScriptedModel(_start(WRONG_DOWN) + [
+        [("commit_moves", {"actions": ["DOWN"], "note": "probe"})], [NOTHING],
+        [("commit_moves", {"actions": ["RIGHT"], "note": "blind"})],
+    ])
+    result = _agent(tmp_path, environments, first, turns=5, fit_turns=1).run()
+    assert result.out_of_sync == 1 and result.unexplained == [1, 2]
+    second = _ScriptedModel([[("commit_moves", {"actions": ["RESET", "RIGHT"], "note": "back in step"})],
+                             [("commit_moves", {"actions": ["RIGHT"], "note": "checked"})]])
+    agent = _agent(tmp_path, environments, second, turns=7, fit_turns=1)
+    result = agent.run()
+    assert result.unexplained == [1, 2] and result.resync == {"3": {"level": 0, "score": 0}} and result.out_of_sync is None
+    assert "#4 RIGHT: matches your prediction" in _texts(agent, "tool")[-1] and result.final["passed"]
+    assert [r["end"] for r in result.fit_rounds] == ["escaped"]
+
+
+def test_run_play_writes_what_score_run_reads_and_skips_finished_games(tmp_path: Path, environments: Path, monkeypatch) -> None:
+    import sys
+
+    from engine_re import run_play
+    from inference.tools.eval import _run_evaluations_from_benchmark
+
+    scripts = {
+        "twol": _start() + [[("commit_moves", {"actions": ["RIGHT"] * 3, "note": "a"})], [("commit_moves", {"actions": ["RIGHT"] * 4, "note": "b"})]],
+        "clik": _start(CLICK_ENGINE, names=("TARGETS", "make_level", "step")) + [[("commit_moves", {"actions": [{"click": [20, 20]}], "note": "a"})]],
+    }
+
+    class Scripted(PlayAgent):
+        def __init__(self, game, *args, **kw):
+            super().__init__(game, *args, client=_ScriptedModel([list(t) for t in scripts[game]]), **kw)
+
+    monkeypatch.setattr(run_play, "PlayAgent", Scripted)
+    out = tmp_path / "out"
+    argv = ["run_play", "--games", "twol,clik", "--out", str(out), "--environments-dir", str(environments), "--max-turns", "5",
+            "--no-images", "--batch-size", "4"]
+    monkeypatch.setattr(sys, "argv", argv)
+    assert run_play.main() == 0
+    first = json.loads((out / "benchmark.json").read_text())
+    assert [r["state"] for r in first["game_runs"]] == ["won", "gave_up"]
+    assert "| twol | won | 100.0 | 2/2 | 6 |" in (out / "summary.md").read_text()
+    [evaluation] = _run_evaluations_from_benchmark(out)
+    scores = {g.game_id: g.score for g in evaluation.games}
+    assert scores == {"twol-0000": pytest.approx(100.0), "clik-0000": pytest.approx(100 / 3)}
+    assert (out / "twol" / "artifacts" / "twol-0000_p0_events.jsonl").exists()
+    # again: the finished games are skipped and give the same records
+    assert run_play.main() == 0
+    again = json.loads((out / "benchmark.json").read_text())
+    strip = ("final_wallclock_seconds", "started_at")
+    assert [{k: v for k, v in r.items() if k not in strip} for r in again["game_runs"]] == \
+        [{k: v for k, v in r.items() if k not in strip} for r in first["game_runs"]]

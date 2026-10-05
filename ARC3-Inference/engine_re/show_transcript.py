@@ -50,6 +50,38 @@ def main() -> int:
             if args.diffs and change.get("diff"):
                 print("\n".join("        " + line for line in change["diff"].splitlines()))
             continue
+        if "move" in record:  # the play agent (engine_re.play_agent)
+            m = record["move"]
+            ok = "unchecked" if m.get("ok") is None else "matches" if m["ok"] else f"DIFFERS: {m.get('verdict')}"
+            print(f"    [move #{m['index']} {m['label']}] {ok} ({m.get('state')}, levels {m.get('levels_completed')})")
+            continue
+        if "batch" in record:
+            b = record["batch"]
+            print(f"    [batch] sent {b['sent']} of {len(b['moves'])}, matched {b['matched']}, mismatch {b.get('mismatch')}: {_one_line(b.get('note'), args.chars)}")
+            continue
+        if "plan" in record:
+            print(f"    [PLAN] step {record['plan'].get('step')}, level {record['plan'].get('level')}, actions {record['plan'].get('actions')}")
+            continue
+        if "step_start" in record:
+            print(f"    [FIT] step {record['step_start']['step']}: {_one_line(record['step_start'].get('verdict'), args.chars)}")
+            continue
+        if "advance" in record:
+            print(f"    [advance] fixed {record['advance']['fixed']}, next failing step {record['advance']['next']}")
+            continue
+        if "commit" in record:
+            c = record["commit"]
+            print(f"    [commit{' (implicit)' if c.get('implicit') else ''}] fixed {c.get('fixed')}, next {c.get('next')}: {_one_line(c.get('message'), args.chars)}")
+            continue
+        for key in ("plan_nudge", "fit_escape", "out_of_sync", "resync", "refused_batch"):
+            if key in record:
+                print(f"    [{key}] {json.dumps(record[key])}")
+                break
+        else:
+            key = None
+        if key is not None:
+            continue
+        if "finish_reason" not in record:  # messages, appends, hidden images, replays: shown by their own tools
+            continue
         usage = record.get("usage") or {}
         print(
             f"[turn {record['turn']}] prompt={usage.get('prompt_tokens')} out={usage.get('completion_tokens')} "

@@ -719,6 +719,27 @@ class GameRunner:
             self.status = "GAME_OVER"
         return self._observation([render(self.state)])
 
+    def resync(self, level: int, score: int, action: Any) -> dict[str, Any]:
+        """Back in step with the real game after unexplained steps (the play agent's escape hatch,
+        PLAY_DESIGN.md 3.6): the runner is put at level `level` with `score` levels completed. A RESET is
+        then performed as usual (the level restarts from make_level); any other action is not given to
+        step(): the real game entered the level with it, so the observation shows the level's start."""
+        self.level, self.score, self.status = int(level), int(score), "NOT_FINISHED"
+        if int(action.id) == 0:
+            return self.perform(action)
+        self.state = self.fresh(self.level)
+        return self._observation([render(self.state)])
+
+
+def sync_points(meta: dict[str, Any] | None) -> tuple[set[int], dict[int, dict[str, int]]]:
+    """The unexplained steps (`ignore`: replayed, never compared) and the resync points (`resync`: step ->
+    {"level", "score"}, GameRunner.resync before that step) a trace's meta holds (the play agent's escape
+    hatch); empty for a recording."""
+    meta = meta or {}
+    ignore = {int(i) for i in meta.get("ignore") or []}
+    resync = {int(k): {"level": int(v["level"]), "score": int(v["score"])} for k, v in (meta.get("resync") or {}).items()}
+    return ignore, resync
+
 
 # --- Contract tests -----------------------------------------------------------------
 

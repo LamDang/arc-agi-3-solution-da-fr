@@ -167,8 +167,10 @@ For a batch of actions `a_1..a_m` after `n` recorded steps:
    available actions; animation frames are not compared; one HUD-bar pixel at
    the frame's edge is tolerated with a warning.
    - match: append the step to the trace; continue.
-   - mismatch (or an engine error, or a `check_step` warning when
-     `--strict`): append the step (it is real), drop `a_{i+1}..a_m`, stop.
+   - mismatch (or an engine error): append the step (it is real), drop
+     `a_{i+1}..a_m`, stop. A tolerated HUD-bar pixel counts as a match, with its
+     warning shown (a `--strict` live check is not implemented: the tests
+     tolerate it too, so a strict fit round would already pass).
 3. Save the trace; `kernel.refocus(n+i-1)` so `recording` grows and
    `step_to_fix` is the last step; write the batch record.
 
@@ -266,11 +268,20 @@ then on in the second:
   so the model can choose between losing the level's progress and playing
   blind to the end of the level.
 - In the tests (`replay_test`), `ignore` (the unexplained steps: compared
-  but never failing, excluded from `passing_prefix`) and `resync`
-  (`{step: level}`: before that step the runner is set to `fresh(level)`
-  with the recorded score), so the engine's replay stays aligned with the
-  game after a divergence. `candidate_runner` takes both as arguments; the
-  candidate still sees only actions.
+  but never failing, excluded from `exact`, `total` and `passing_prefix`; an
+  engine error there does not end the replay) and `resync`
+  (`{step: {"level": L, "score": s}}`: before that step the runner is set to
+  level L with score s, then performs the RESET as usual, or, for a level
+  change, shows level L's start without calling `step()`), so the engine's
+  replay stays aligned with the game after a divergence. `candidate_runner`
+  takes both as arguments; the candidate still sees only actions. As
+  implemented, both live in the live trace's meta (with `out_of_sync`, the
+  step the engine is out of step since), so the kernel's `state_now`,
+  `simulate` and `replay_step` follow them too; an out-of-step batch stops at
+  the resync point, after which every step is tested and the loop goes on
+  (a FIT round when the resync step itself fails, e.g. `make_level(L+1)` not
+  drawing the new level). The hatch is refused when the current engine.py
+  fails a step before the fit round's step.
 - Unexplained steps are listed in `result.json` and the PLAN message, and the
   model can come back to them later with `replay_step(k)`.
 
@@ -291,8 +302,10 @@ Per game directory, as today (`trace/`, `workspace/engine.py`,
 `engine_versions/`, `engine_best.py`, `transcript.jsonl`, `tests.jsonl`,
 `images/`, `result.json`) plus:
 
-- `artifacts/<game>_p0_viewer_data_events.jsonl`, the base harness's event
-  sidecar (`initial` / `action` events with the action label, board, level
+- `artifacts/<game_id>_p0_events.jsonl`, the base harness's event
+  sidecar (the sidecar of `<game_id>_p0_viewer_data.json`, as
+  `inference/utils/viewer_artifacts.py` names it, so `engine_re.trace.events_path`
+  finds it) (`initial` / `action` events with the action label, board, level
   and state, as `inference/utils/viewer_artifacts.py` writes them), which is
   what `engine_re.trace.trace_from_run` reads: a play run can then be fed
   back to the recording-based harness, and `scripts/pack_run.py` can replay
@@ -328,7 +341,7 @@ already keeps one listing live).
 | --- | --- |
 | `engine_re/live_game.py` | new: `LiveGame` (section 3.1), action parsing from the model's labels, `events.jsonl` writer |
 | `engine_re/play_agent.py` | new: `PlayAgent` (3.3, 3.5, 3.6, 3.7), `score()` |
-| `engine_re/run_play.py` | new CLI: `--games`, `--out`, `--model`, budgets, `--max-actions`, `--batch-size`, `--fit-turns`, `--strict`, parallel games, `summary.md`, `benchmark.json` |
+| `engine_re/run_play.py` | new CLI: `--games`, `--out`, `--model`, budgets, `--max-actions`, `--batch-size`, `--fit-turns`, `--plan-turns`, parallel games, `summary.md`, `benchmark.json` |
 | `engine_re/prompts.py` | mode `"play"`: system prompt, `plan_message`, `mismatch_message`, `commit_moves` schema, Objects entries for `state_now`/`simulate` |
 | `engine_re/helpers.py`, `kernel.py` | `state_now`, `simulate`; `PRELOADED_PLAY`/`RESERVED_PLAY` |
 | `engine_re/tester.py`, `candidate_runner.py` | `predict()` (run the engine on recorded + planned actions), `ignore`, `resync` |

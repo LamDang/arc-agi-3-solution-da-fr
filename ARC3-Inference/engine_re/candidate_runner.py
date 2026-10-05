@@ -2,6 +2,7 @@
 
     python -m engine_re.candidate_runner ENGINE ACTIONS_JSON OUT_DIR [--start-level L]
         [--win-levels N --available-actions JSON --levels JSON] [--inspect JSON] [--no-contract]
+        [--ignore JSON] [--resync JSON]
 
 Two kinds of engine are accepted: a module with ``make_level`` and ``step``
 (the simple interface, ``engine_re.game_api``; it needs --win-levels and
@@ -19,6 +20,12 @@ RUN_PRINT_LIMIT over the run; prints of the contract tests are dropped.
 action, so the tester can say which sprites drew a differing region. The
 tester asks for it in a second, shorter run once it knows which step failed;
 the process itself never learns why.
+
+``--ignore`` and ``--resync`` (simple interface; the play agent's escape hatch, PLAY_DESIGN.md 3.6) take
+action positions: an error at an ignored position does not end the run (the step returns no frame, its
+error goes to result["ignored_errors"]) since the engine is out of step with the game there; before a
+resync position ({"pos": {"level": L, "score": s}}) the runner is put back at level L's start
+(game_api.GameRunner.resync). The process still gets only the actions and these positions.
 
 The process never sees the expected observations: it gets only the actions,
 and after loading the engine source it can read no files at all (only the
@@ -101,6 +108,8 @@ def main() -> int:
     parser.add_argument("--levels", default=None, help="JSON list of the levels the recording reaches (contract tests)")
     parser.add_argument("--inspect", default=None, help='JSON list of action positions (and "start") to describe')
     parser.add_argument("--no-contract", action="store_true", help="skip the contract tests")
+    parser.add_argument("--ignore", default=None, help="JSON list of action positions whose errors do not end the run")
+    parser.add_argument("--resync", default=None, help='JSON {"position": {"level": L, "score": s}}')
     args = parser.parse_args()
 
     engine_path = str(Path(args.engine).resolve())
@@ -108,6 +117,8 @@ def main() -> int:
     actions = [Action.from_json(a) for a in json.loads(Path(args.actions).read_text(encoding="utf-8"))]
     out_dir = Path(args.out_dir).resolve()
     inspect = {str(k) for k in json.loads(args.inspect)} if args.inspect else set()
+    ignore = {int(k) for k in json.loads(args.ignore)} if args.ignore else set()
+    resync = {int(k): v for k, v in json.loads(args.resync).items()} if args.resync else {}
     guard.install(read_roots=[], write_roots=[str(out_dir)])
 
     result: dict = {"steps": [], "error": None, "error_step": None, "start_frame": None, "interface": None, "contract": None}
@@ -205,8 +216,17 @@ def main() -> int:
             try:
                 signal.setitimer(signal.ITIMER_REAL, args.step_timeout)
                 with contextlib.redirect_stdout(capture):
-                    obs = play(action)
+                    if simple and step_index in resync:
+                        obs = game.resync(resync[step_index]["level"], resync[step_index]["score"], action)
+                    else:
+                        obs = play(action)
                 signal.setitimer(signal.ITIMER_REAL, 0)
+            except Exception as exc:  # noqa: BLE001  (an unexplained step may fail: the engine is out of step there)
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                if not (simple and step_index in ignore):
+                    raise
+                result.setdefault("ignored_errors", {})[str(step_index)] = _short_traceback(exc, engine_path)
+                obs = game._observation([])
             finally:
                 keep(str(step_index), capture, always=snap)
             if snap:

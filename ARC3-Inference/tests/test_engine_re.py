@@ -2389,8 +2389,21 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
     assert members["GridGuess"] == own(GridGuess)
     recorded = {f.name for f in dataclasses.fields(RecordedAction)} | {"name"}
     assert members["The recorded action"] == recorded and not hasattr(view.action, "cell")
+    # The play mode (engine_re.play_agent) has the same classes and two more built-ins, documented as helpers has them.
+    from engine_re.kernel import PRELOADED_PLAY
+
+    play = objects_reference("play", True, True)
+    play_members = _objects_members(play)
+    assert all(play_members[k] == v for k, v in members.items())
+    for name in FUNCTIONS + ("summarize_levels", "state_now", "simulate"):
+        documented = re.search(rf"^{name}\((.*?)\) ->", play, re.M).group(1)
+        args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
+        assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
+    assert set(PRELOADED_PLAY) - {"recording", "step_to_fix", "engine"} == set(helpers.PLAY_FUNCTIONS)
+    assert all(re.search(rf"^{name}[(:]", play, re.M) for name in PRELOADED_PLAY), PRELOADED_PLAY
+    assert "run_tests(level=L)" not in play and "run_tests(level=L)" in text
     # Every mode shares these parts; the recorded steps python holds differ.
-    for mode, history in (("single", True), ("step", True), ("step", False)):
+    for mode, history in (("single", True), ("step", True), ("step", False), ("play", True)):
         prompt = system_prompt(mode=mode, history=history)
         for part in ("StepView: a recorded step", "A recorded step has no State or vars:", "Piece: a Sprite",
                      "State(grid, sprites=[]", "replay_step(i, state=None, action=None, *, level=None) -> tuple[State | None, State]"):

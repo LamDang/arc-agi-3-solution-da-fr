@@ -427,26 +427,53 @@ evaluate.py: candidate vs real engine on new random action sequences per level
 ## The play-and-model agent (v10, `play_agent.py`)
 
 The same agent playing a live game instead of fitting a recording: one conversation that alternates a
-plan round (the game's current frame; in python `state_now()`, the engine's state after everything
-played, and `simulate(actions)`, moves played on it; then `commit_moves(actions, note)`) and the
-stepwise fit round above. `commit_moves` runs the full test first and sends nothing while a step fails;
-otherwise each move is predicted with the engine in one sandboxed run, sent to the real game
+plan round (the game's current frame and the actions it accepts; in python `state_now()`, the engine's
+state after everything played, and `simulate(actions)`, moves played on it; then
+`commit_moves(actions, note)`) and the stepwise fit round above. `commit_moves` runs the full test first
+and sends nothing while a step fails (a fit round opens on it); otherwise engine.py becomes the committed
+engine (`engine_committed.py`; a `commit_engine` earlier in the same turn is the batch's commit), each move
+is predicted with it in one sandboxed run (`tester.predict`), sent to the real game
 (`live_game.LiveGame`, the arcengine game stepped directly, every step kept in a growing `Trace`) and
-compared by the tests' rule (`tester.check_step`); the batch stops at the first difference (a fit round
-opens on that step, with the comparison as the test report), after a solved level and when the game
-ends; after a game over the harness RESETs the level itself. The design and the decisions behind it
-are in [PLAY_DESIGN.md](PLAY_DESIGN.md). `run_play.py` runs several games in parallel and writes
-`summary.md`, a TAAF-shaped `benchmark.json` (`make score_run SCORE_RUN_DIR=<out>` scores it) and,
-per game, `trace/`, the viewer event sidecar and `result.json` with the play fields (`PlayResult`:
-score, actions per level, batches, mismatches, fit rounds, turns per phase). Running the command again
-resumes interrupted games (the real game is replayed from `trace/`).
+compared by the tests' rule (`tester.check_step`; a one-pixel HUD-bar difference is a match, its warning
+shown); the batch stops at the first difference (a fit round opens on that step, with the comparison as
+the test report), after a solved level and when the game ends. One batch per turn; a batch is cut to the
+actions left in `--max-actions`. After a game over the harness RESETs the level itself (checked like any
+move; `--no-auto-reset` leaves it to the model). A commit whose engine passes the fit round's step but
+fails a later one gets that step (`advance_message`), as in the stepwise harness; engine.py edited after
+a batch in the same turn is tested automatically and the next message says whether it still reproduces
+every step. After `--plan-turns` turns (6) of a plan round without `commit_moves` a reminder to send a
+short batch is appended to the turn's last output (`plan_nudge`); the test nudge only runs in fit rounds.
+
+The escape hatch (`--fit-turns N`, off by default; PLAY_DESIGN.md 3.6): after N turns in one fit round
+without an accepted commit, the model is told it may play on with its engine out of step. `commit_moves`
+then sends moves although the tests fail, unchecked; the steps from the failing one on are unexplained
+(`ignore`: the tests replay them, an error there does not stop the replay, they never fail and are not
+counted in `exact`, `total` or `passing_prefix`), up to the first RESET or level change the game makes, a
+resync point (`resync`: `game_api.GameRunner.resync` puts the engine at that level's start, performing
+the RESET, or showing the new level without calling `step()`); there every step is tested again and the
+loop goes on. Both live in the trace's meta, so the tests (`tester.replay_test`, `candidate_runner
+--ignore/--resync`), the kernel (`state_now`, `simulate`, `replay_step`) and a resumed run see them;
+`result.json` lists them (`unexplained`, `resync`, `out_of_sync`) and the PLAN message names them.
+
+`run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`
+(`make score_run SCORE_RUN_DIR=<out>` scores it; `final_score` is TAAF's formula, 0 without baselines)
+and, per game, `trace/`, the viewer event sidecar `artifacts/<game_id>_p0_events.jsonl` (the base
+harness's name; `trace.trace_from_run(<out>/<game>, game, environment_files)` rebuilds and verifies the
+trace from it) and `result.json` with the play fields (`PlayResult`: score, actions per level, batches
+with their one-line differences, mismatches, fit rounds with their length and outcome, turns per phase,
+nudges, unexplained steps). Every transcript record carries its `phase`; `show_transcript` prints the
+moves, batches and phase messages. Running the command again resumes interrupted games: the real game
+is replayed from `trace/`, the conversation rebuilt from `transcript.jsonl`, and moves played after the
+last message the model got (an interruption during a batch) are tested and lead to the next message;
+finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
+(`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
 
 ```bash
 uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
   --model qwen/qwen3.8-flash --max-turns 300 --max-minutes 240 --max-cost 6 --max-actions 500 --batch-size 10
 ```
 
-Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level game).
+Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level key game and a click game).
 
 ## Run it
 

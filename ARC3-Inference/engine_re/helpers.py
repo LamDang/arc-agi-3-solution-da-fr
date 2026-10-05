@@ -445,6 +445,23 @@ def _quietly(fn: Callable[[], Any], what: str) -> Any:
         raise
 
 
+def _replay_recorded(game: game_api.GameRunner, k: int) -> Any:
+    """Replay recorded step k on `game` as the tests do: at a resync point (the play agent's escape hatch)
+    the runner is put back at the level's start; an error at an unexplained step is not raised (the engine
+    is out of step with the game there)."""
+    ignore, resync = game_api.sync_points(trace.meta)
+    action = trace.steps[k].action
+    if k in resync:
+        return _quietly(lambda: game.resync(resync[k]["level"], resync[k]["score"], action), f"while replaying step {k}")
+    if k in ignore:
+        try:
+            with contextlib.redirect_stdout(game_api.PrintCapture(0, 0)):
+                return game.perform(action)
+        except Exception:  # noqa: BLE001
+            return None
+    return _quietly(lambda: game.perform(action), f"while replaying step {k}")
+
+
 def _steps_text(first: int, last: int) -> str:
     return f"step {first}" if first == last else f"steps {first}-{last}"
 
@@ -510,11 +527,11 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
             print("\n".join(lines))
             return None, copy.deepcopy(after)
         for k in range(entry + 1, i):
-            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
+            _replay_recorded(game, k)
         start = f"started at level {level}, after replaying {_steps_text(entry + 1, i - 1)}" if i > entry + 1 else f"at the start of level {level}"
     else:
         for k in range(i):
-            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
+            _replay_recorded(game, k)
         start = f"after replaying {_steps_text(0, i - 1)}" if i else "fresh"
     act = _as_action(action, i)
     live = game.state
@@ -523,10 +540,14 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
     before = copy.deepcopy(live)
     level_before = game.level
     print(f"replay_step({i}): {act} on your engine {start} (level {level_before})")
+    resync = game_api.sync_points(trace.meta)[1].get(i) if recorded and state is None else None
+    if resync is not None:
+        print(f"step {i} is where your engine was put back in step with the game: the runner restarts level {resync['level']} "
+              "here" + ("" if act.id == 0 else " without calling step()"))
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
-            obs = game.perform(act)
+            obs = game.resync(resync["level"], resync["score"], act) if resync is not None else game.perform(act)
     except Exception:
         _print_output(capture)
         print("your engine raised an error in this step:")
@@ -564,7 +585,7 @@ def _runner(module: types.ModuleType) -> game_api.GameRunner:
 
 def _replay_all(game: game_api.GameRunner) -> None:
     for k in range(len(trace.steps)):
-        _quietly(lambda k=k: game.perform(trace.steps[k].action), f"while replaying step {k}")
+        _replay_recorded(game, k)
 
 
 def _vars_text(state: Any, limit: int = 160) -> str:
@@ -666,7 +687,7 @@ def simulate(actions: Any, state: Any = None, show: bool = True) -> list:
         elif game.level != level_before:
             text = f"level {level_before} solved; level {game.level} starts"
         elif act.id == 0:
-            text = f"RESET: level {game.level} restarts"
+            text = f"level {game.level} restarts"
         else:
             changes = diff_report.state_changes(before, game_api.state_summary(after) if after is not None else None, limit=6)
             text = "; ".join(c.strip() for c in changes) if changes else "nothing changed"

@@ -1392,10 +1392,11 @@ class EngineAgent:
                     self._add_to_last(note + self._commit_hint(tested))
                     self.result.auto_tests += 1
                     self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})
-                elif self.turns_since_test and self.turns_since_test % TEST_NUDGE_TURNS == 0:
+                elif self._test_nudge_due():
                     self._add_to_last(NUDGE.format(n=self.turns_since_test))
                     self.result.nudges += 1
                     self._log({"turn": self.result.turns, "nudge": self.turns_since_test})
+                self._turn_notes()
                 # After the tool messages (and the automatic test): the turn's images.
                 self._attach_images()
                 if not self._end_of_turn():
@@ -1417,6 +1418,13 @@ class EngineAgent:
 
     def _tools(self) -> list[dict[str, Any]]:
         return tools(self.images, self.mode, self.history)
+
+    def _test_nudge_due(self) -> bool:
+        """Whether this turn ends with the reminder to write and test (NUDGE)."""
+        return bool(self.turns_since_test) and self.turns_since_test % TEST_NUDGE_TURNS == 0
+
+    def _turn_notes(self) -> None:
+        """A subclass's notes to the turn's last tool output (with _add_to_last), before its images."""
 
     def _stepwise_start(self) -> str | list[dict[str, Any]] | None:
         """Stepwise: the first message, on the first step that fails; None when the whole recording passes."""

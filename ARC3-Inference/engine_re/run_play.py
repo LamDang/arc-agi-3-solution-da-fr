@@ -17,12 +17,13 @@ import argparse
 import json
 import sys
 import time
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from engine_re.agent import Budget, ModelConfig
 from engine_re.live_game import benchmark_json
-from engine_re.play_agent import PlayAgent
+from engine_re.play_agent import PLAN_TURNS, PlayAgent
 
 
 def summarize(out: Path, games: list[str]) -> None:
@@ -33,8 +34,8 @@ def summarize(out: Path, games: list[str]) -> None:
             rows.append(json.loads(path.read_text(encoding="utf-8")))
     (out / "summary.json").write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
     lines = [
-        "| game | status | score | levels | actions | per level | batches | moves | mismatches | fit rounds | turns (plan/fit) | final exact | prompt tok | cached | output tok | reasoning tok | cost $ | min |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| game | status | score | levels | actions | per level | batches | moves | mismatches | fit rounds | unexplained | turns (plan/fit) | final exact | prompt tok | cached | output tok | reasoning tok | cost $ | min |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for r in rows:
         u, final, pt = r["usage"], r.get("final") or {}, r.get("phase_turns") or {}
@@ -42,7 +43,7 @@ def summarize(out: Path, games: list[str]) -> None:
         lines.append(
             f"| {r['game']} | {r['status']} | {'-' if score is None else f'{score:.1f}'} | {r.get('levels_completed')}/{r.get('win_levels')} | "
             f"{r.get('actions')} | {' '.join(str(c) for c in r.get('actions_per_level') or [])} | {r.get('batches')} | {r.get('moves_sent')} | "
-            f"{r.get('mismatches')} | {len(r.get('fit_rounds') or [])} | {r['turns']} ({pt.get('plan', 0)}/{pt.get('fit', 0)}) | "
+            f"{r.get('mismatches')} | {len(r.get('fit_rounds') or [])} | {len(r.get('unexplained') or [])} | {r['turns']} ({pt.get('plan', 0)}/{pt.get('fit', 0)}) | "
             f"{final.get('exact')}/{final.get('total')} | {u['prompt_tokens']:,} | "
             f"{(100 * u['cached_tokens'] // max(1, u['prompt_tokens']))}% | {u['completion_tokens']:,} | {u['reasoning_tokens']:,} | "
             f"{u['cost_usd']:.3f} | {r['minutes']} |"
@@ -64,6 +65,12 @@ def main() -> int:
     parser.add_argument("--max-actions", type=int, default=500, help="actions per game, the opening RESET excluded")
     parser.add_argument("--batch-size", type=int, default=10, help="moves per commit_moves call")
     parser.add_argument("--no-auto-reset", action="store_true", help="after a game over, leave the RESET to the model")
+    parser.add_argument("--fit-turns", type=int, default=None,
+                        help="the escape hatch (PLAY_DESIGN.md 3.6): after this many turns in one fit round without an accepted "
+                             "commit, the model may play on with its engine out of step (default: off)")
+    parser.add_argument("--plan-turns", type=int, default=PLAN_TURNS,
+                        help="turns of a plan round without commit_moves before the harness reminds the model to send a batch "
+                             "(and again every as many turns; 0: never)")
     parser.add_argument("--no-images", action="store_true", help="text-only feedback (no pictures)")
     parser.add_argument("--providers", default=None, help="comma-separated OpenRouter providers, in order, no fallback")
     parser.add_argument("--reasoning-effort", default=None)
@@ -90,20 +97,22 @@ def main() -> int:
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
     runs: dict[str, dict] = {}
 
+    def agent_for(game: str) -> PlayAgent:
+        return PlayAgent(game, args.out / game, model, budget, args.environments_dir, images=not args.no_images,
+                         batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset,
+                         fit_turns=args.fit_turns, plan_turns=args.plan_turns)
+
     def work(game: str) -> None:
-        game_dir = args.out / game
-        previous = game_dir / "result.json"
+        previous = args.out / game / "result.json"
         if previous.exists():
             data = json.loads(previous.read_text(encoding="utf-8"))
             if data.get("status") not in ("running", "error"):
                 print(f"[{game}] already finished ({data.get('status')}); skipping", flush=True)
-                agent = PlayAgent(game, game_dir, model, budget, args.environments_dir, images=not args.no_images,
-                                  batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset)
+                agent = agent_for(game)  # replays the real game from trace/
                 agent._restore()
                 runs[game] = agent.game_run()
                 return
-        agent = PlayAgent(game, game_dir, model, budget, args.environments_dir, images=not args.no_images,
-                          batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset)
+        agent = agent_for(game)
         result = agent.run()
         runs[game] = agent.game_run()
         print(
@@ -113,16 +122,23 @@ def main() -> int:
             flush=True,
         )
 
+    failed = []
     with ThreadPoolExecutor(max_workers=len(games)) as pool:
-        for future in [pool.submit(work, g) for g in games]:
-            future.result()
+        futures = {g: pool.submit(work, g) for g in games}
+        for game, future in futures.items():
+            try:
+                future.result()
+            except Exception:  # noqa: BLE001  (one game failing must not lose the others' records)
+                failed.append(game)
+                print(f"[{game}] failed outside the agent loop:\n{traceback.format_exc()}", flush=True)
     summarize(args.out, games)
     label = args.label or args.out.name
     (args.out / "benchmark.json").write_text(
         json.dumps(benchmark_json(label, [runs[g] for g in games if g in runs], started), indent=2) + "\n", encoding="utf-8"
     )
+    # inference/tools/eval.py reads run_config.json for optional metadata (model, pass_offset, seed)
     (args.out / "run_config.json").write_text(json.dumps({"label": label, "games": games, "model": args.model}, indent=2) + "\n", encoding="utf-8")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

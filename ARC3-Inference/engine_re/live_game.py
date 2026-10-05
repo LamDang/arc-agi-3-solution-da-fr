@@ -10,13 +10,15 @@ RESET counts, including automatic RESETs after a game over, against the level it
 completed level scores min(115, (baseline / actions)^2 * 100), weighted by its 1-based index, and the
 game score is the weighted mean capped at the share of the levels that scored. ``benchmark_json``
 writes the TAAF shape ``make score_run`` reads; ``events`` the base harness's viewer event sidecar
-that ``engine_re.trace.trace_from_run`` reads.
+(``artifacts/<game_id>_p0_events.jsonl``, as inference.framework.solver names it) that
+``engine_re.trace.trace_from_run`` reads.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +33,7 @@ class LiveGame:
     def __init__(self, game: str, environments_dir: Path, trace: Trace | None = None):
         self.game = game
         self.game_file = find_game_file(game, Path(environments_dir))
-        self.game_id = self.game_file.parent.name and f"{self.game_file.stem}-{self.game_file.parent.name}"
+        self.game_id = f"{self.game_file.stem}-{self.game_file.parent.name}"
         meta_path = self.game_file.parent / "metadata.json"
         self.metadata: dict[str, Any] = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
         if self.metadata.get("game_id"):
@@ -60,7 +62,9 @@ class LiveGame:
 
     def replay(self, trace: Trace) -> None:
         """A fresh game fed `trace`'s actions; every observation must equal the saved one (the games are
-        deterministic), so the live game is exactly where the saved trace left it."""
+        deterministic), so the live game is exactly where the saved trace left it. The saved meta (the
+        play agent's unexplained steps and resync points) is kept."""
+        self.trace.meta.update({k: v for k, v in trace.meta.items() if k not in self.trace.meta})
         for saved in trace.steps:
             step = self.perform(saved.action)
             same = (
@@ -112,7 +116,8 @@ class LiveGame:
 
     @property
     def levels_completed(self) -> int:
-        return self.last.levels_completed if len(self.trace) else 0
+        """The most levels completed so far (TAAF keeps the maximum)."""
+        return max((s.levels_completed for s in self.trace.steps), default=0)
 
     def score(self) -> float | None:
         """TAAF's formula (taaf.game.GameRun._compute_final_score); None without baselines."""
@@ -147,11 +152,12 @@ class LiveGame:
         for k, step in enumerate(self.trace.steps):
             frame = step.last if step.last is not None else (self.trace[k - 1].last if k else np.zeros((64, 64), np.int8))
             level_before = self.trace[k - 1].levels_completed if k else 0
-            base = {
+            levels = max(1, int(step.win_levels))
+            base = {  # as inference.framework.solver._base_viewer_event: "level" is the 1-based level shown after the step
                 "board": [[int(v) for v in row] for row in np.asarray(frame)],
                 "score": int(step.levels_completed),
                 "state": step.state,
-                "level": min(level_before, step.win_levels - 1) + 1 if step.win_levels else 1,
+                "level": levels if step.state == "WIN" else max(1, min(levels, step.levels_completed + 1)),
                 "run_status": "won" if step.state == "WIN" else "playing",
                 "action_num": k,
                 "analysis_step": None,
@@ -168,20 +174,30 @@ class LiveGame:
                     "level_completed": step.levels_completed > level_before and step.state != "WIN",
                     "game_over": step.state == "GAME_OVER",
                     "run_complete": step.state == "WIN",
+                    "done": step.state == "WIN",
                 })
         return out
 
+    def events_path(self, run_dir: Path) -> Path:
+        """artifacts/<game_id>_p0_events.jsonl: the base harness's name for the sidecar of
+        <game_id>_p0_viewer_data.json (inference.utils.viewer_artifacts), which engine_re.trace.events_path finds."""
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", self.game_id)  # inference.utils.run_artifacts.artifact_stem
+        return Path(run_dir) / "artifacts" / f"{stem}_p0_events.jsonl"
+
     def write_events(self, run_dir: Path) -> Path:
-        path = Path(run_dir) / "artifacts" / f"{self.game_id}_p0_viewer_data_events.jsonl"
+        path = self.events_path(run_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as f:
             for event in self.events():
                 f.write(json.dumps(event, separators=(",", ":")) + "\n")
         return path
 
-    def game_run(self, tokens_per_step: list[int] | None = None, state: str | None = None, note: str | None = None) -> dict[str, Any]:
+    def game_run(
+        self, tokens_per_step: list[int] | None = None, state: str | None = None, note: str | None = None, final_tokens: int = 0,
+    ) -> dict[str, Any]:
         """A TAAF GameRun as JSON (taaf.game.GameRun.to_json_dict): the actions after the opening RESET
-        with the output tokens spent on each, the per-level counts and the final score."""
+        with the output tokens spent on each (`tokens_per_step[k]` for step k), the per-level counts and the
+        final score (TAAF's: 0 without baselines); `final_tokens`: output tokens spent after the last action."""
         tokens = list(tokens_per_step or [])
         history = []
         for k in range(1, len(self.trace)):
@@ -204,10 +220,10 @@ class LiveGame:
             "record_intermediate_states": False,
             "actions_per_level": self.actions_per_level(),
             "levels_completed": int(self.levels_completed),
-            "final_score": self.score(),
+            "final_score": self.score() or 0.0,
             "solver_note": note,
             "solver_analysis_html": None,
-            "final_generated_tokens": 0,
+            "final_generated_tokens": int(final_tokens),
             "final_uncached_input_tokens": 0,
             "final_wallclock_seconds": round(time.time() - self.started, 1),
             "started_at": datetime.fromtimestamp(self.started).isoformat(),
