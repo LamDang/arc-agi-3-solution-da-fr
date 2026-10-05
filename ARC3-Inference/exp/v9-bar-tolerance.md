@@ -133,3 +133,36 @@ Timeline: `tN: k` means the commit (or, before v7, the passing test) accepted at
   tokens and 205,589 output tokens to reproduce 65 of its 120 steps.
 - One sample per configuration: v9 and v9t, the same harness with and
   without a budget that barely bound, reached 65 and 54.
+
+## Engines compared with the golden engine
+
+A read of v9's `workspace/engine.py` and v9c's `engine_best.py` against the
+real game (`environment_files/lp85/*/lp85.py`):
+
+| | v9 (`workspace/engine.py`) | v9c (`engine_best.py`) |
+| --- | --- | --- |
+| steps passing | 0-64; step 65 raises `IndexError` in `make_level(5)` | the same |
+| contract tests | 4/5 | 4/5 |
+| arrow to loop | each arrow sprite tagged with its loop (as the golden `button_<loop>_<L\|R>` tag) | loops keyed by arrow position, one loop per position |
+| win rule | every block framed by four same-colour marks shows that colour: the golden rule on all levels | mark-slot grouping finds phantom slots on levels 5 and 7 (frames 6 px apart in one colour), which would make them unwinnable |
+
+- **Shared and right.** Both model the rotation as one general rule (click an
+  arrow, rotate its loop with wrap-around, spend a move, check the win), with
+  no per-level branches. Both have the golden bar formula
+  `round(64 * used / budget)` with budgets 13, 60, 80, 150 and 80, and the
+  eight level dashes exact. Both take the direction from the arrow colour
+  (8 backward, 14 forward), which holds in every golden level.
+- **v9c's code** is shorter but has 12 unused `SHAPE_*` constants, a stale
+  scaffold comment, and ring cells duplicated between its `BLOCKS` maps and
+  ring helpers.
+- **What both would break on the unseen levels 5-7.** The golden engine fires
+  every button under the click, in sprite order, and the later levels stack
+  buttons (level 5: 39 R buttons at 9 positions; levels 6-7 stack two or
+  three loops per arrow), while both engines rotate one loop per click.
+  Neither raises GAME_OVER on the click that exhausts the budget. Both store
+  loops as hand-written data, so each new level needs its loop cells in
+  golden order and each arrow's loop found by experiment (level 5 has 36
+  loops, rings running counter-clockwise, only R buttons, budget 80).
+- **Verdict.** v9's engine is the better base. It needs three changes: rotate
+  every arrow under the click, raise GAME_OVER when the budget runs out, and
+  the data of levels 5-7.
