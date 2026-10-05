@@ -424,6 +424,30 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   clicks aimed mostly at object pixels; occasional RESET; RESET after a game
   over), and the steps are compared exactly as in the tests.
 
+## The play-and-model agent (v10, `play_agent.py`)
+
+The same agent playing a live game instead of fitting a recording: one conversation that alternates a
+plan round (the game's current frame; in python `state_now()`, the engine's state after everything
+played, and `simulate(actions)`, moves played on it; then `commit_moves(actions, note)`) and the
+stepwise fit round above. `commit_moves` runs the full test first and sends nothing while a step fails;
+otherwise each move is predicted with the engine in one sandboxed run, sent to the real game
+(`live_game.LiveGame`, the arcengine game stepped directly, every step kept in a growing `Trace`) and
+compared by the tests' rule (`tester.check_step`); the batch stops at the first difference (a fit round
+opens on that step, with the comparison as the test report), after a solved level and when the game
+ends; after a game over the harness RESETs the level itself. The design and the decisions behind it
+are in [PLAY_DESIGN.md](PLAY_DESIGN.md). `run_play.py` runs several games in parallel and writes
+`summary.md`, a TAAF-shaped `benchmark.json` (`make score_run SCORE_RUN_DIR=<out>` scores it) and,
+per game, `trace/`, the viewer event sidecar and `result.json` with the play fields (`PlayResult`:
+score, actions per level, batches, mismatches, fit rounds, turns per phase). Running the command again
+resumes interrupted games (the real game is replayed from `trace/`).
+
+```bash
+uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
+  --model qwen/qwen3.8-flash --max-turns 300 --max-minutes 240 --max-cost 6 --max-actions 500 --batch-size 10
+```
+
+Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level game).
+
 ## Run it
 
 From `ARC3-Inference/`, with `OPENROUTER_API_KEY` set and the game files in
