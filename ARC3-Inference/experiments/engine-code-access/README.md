@@ -175,9 +175,12 @@ uv run --no-sync python scripts/token_breakdown.py runs/20261004_135539 runs/eng
   --out experiments/engine-code-access --names "baseline (no code),engine code"
 ```
 
-The engine-code run's request logs were compressed with xz after the run
-(`*_requests.jsonl.xz`, 1.4 MB instead of 283 MB); its `response` lines still
-repeat the request, as logs did before that change.
+Both runs are archived packed (`LOCAL_EVAL.md`, "Pack a run"): 4.1 MB and
+7.3 MB instead of 340 MB and 535 MB. `token_breakdown.py` reads them packed;
+the viewer unpacks a run when it opens it, and `check_labeller.py` needs
+`scripts/pack_run.py unpack runs/20261004_135539` first. The engine-code
+run's request logs were compressed after the run; their `response` lines
+still repeat the request, as logs did before that change.
 
 To play the engine-code arm again, with `OPENROUTER_API_KEY` set:
 

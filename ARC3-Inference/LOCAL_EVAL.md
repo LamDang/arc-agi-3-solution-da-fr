@@ -171,6 +171,7 @@ Other tools:
 | `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
 | `artifacts/*_game_code.json` | Only with `ARC3_GAME_CODE_DIR`: the source files the agent could read, with sha256 and line counts. |
 | `eval_settings.json` | Only in runs made by `scripts/dvc_eval.py`: the make variables and harness environment of the run. |
+| `pack.json`, `*.xz`, `*_events.jsonl.pack.xz`, `src.tar.xz` | Only in a packed run: what was replaced and the packed data. See [Pack a run](#pack-a-run). |
 
 ## Save and reproduce runs with DVC
 
@@ -219,6 +220,8 @@ dvc exp push origin qwen38-500k                # git ref to GitHub, data to S3
 - `dvc exp apply` replaces the workspace files with the experiment's,
   including code, and overwrites uncommitted changes. Commit them first.
 - A failed run leaves `runs/dvc-eval/` for inspection and caches nothing.
+- The stage packs `runs/dvc-eval/` after scoring it (see
+  [Pack a run](#pack-a-run)). The viewer unpacks it when opened.
 
 To run the same settings outside DVC, for example two arms of an experiment
 at once, call the stage's script with a run directory and overrides:
@@ -237,12 +240,14 @@ with the settings used.
 ### Archive a run made with `make interactive`
 
 ```bash
+uv run --no-sync python scripts/pack_run.py pack runs/<run>   # see "Pack a run"
 dvc add runs/<run>        # writes runs/<run>.dvc and stages it in git
 git commit -m "Archive run <run>"
 dvc push runs/<run>.dvc
 ```
 
-The run's `git_info.txt` and `src/` record the code it ran.
+The run's `git_info.txt` and `src/` (in `src.tar.xz` once packed) record the
+code it ran.
 
 ### Get a saved run
 
@@ -251,6 +256,12 @@ dvc pull runs/<run>.dvc                        # an archived run
 dvc pull                                       # everything the branch tracks
 dvc exp pull origin <name> && dvc exp apply <name>                   # an experiment
 ```
+
+Archived runs are packed. The viewer, `make traces` and `RESUME_FROM` unpack a
+packed run when they open it; `scripts/token_breakdown.py`, `make score_run`
+and the metrics read it packed. Anything else that reads the transcripts,
+event logs or pickles directly needs `scripts/pack_run.py unpack runs/<run>`
+first. Pack the run again before another `dvc add`.
 
 ## Request log size
 
@@ -268,10 +279,43 @@ the next. Two things keep the logs small:
 
 To read a log, use `inference.utils.run_artifacts.open_log`, which opens both
 `.jsonl` and `.jsonl.xz`, or `xzcat`. `scripts/dvc_eval.py`,
-`scripts/token_breakdown.py` and the viewer read both. DVC stores files as
-they are, so a run archived after this change takes about 70 times less space
-in the cache and in S3. An older run can be shrunk before `dvc add` with
-`xz -T0 runs/<run>/*requests.jsonl`.
+`scripts/token_breakdown.py` and the viewer read both. Packing a run (below)
+compresses an older run's logs too.
+
+## Pack a run
+
+DVC stores files as they are, and most of a run directory can be rebuilt from
+the rest. `scripts/pack_run.py pack` keeps what cannot be rebuilt and replaces
+the rest, losslessly:
+
+| Replaced | Rebuilt from |
+| --- | --- |
+| The boards in `artifacts/*_events.jsonl`, as numbers and as ASCII | `benchmark.json`'s action history, replayed through the game engine. The games are deterministic. |
+| The transcript text in the event logs, and `solver_analysis/*.html` | `transcripts/*.txt` |
+| Every other file of 64 KB or more (transcripts, pickles, `diagnostics.html`, prompt logs), and `src/` as one `src.tar.xz` | xz |
+
+`benchmark.json` and `analyses/` stay as they are. `pack.json` records the
+sha256 of every replaced file. Pack removes a file only after rebuilding it
+from the packed form and comparing the bytes; a file that does not rebuild
+exactly stays, and pack names it. `runs/engine-code` packs from 60 MB to
+4.1 MB, and `runs/20261004_135539` from 101 MB to 7.3 MB. What remains is
+mostly the request logs and transcripts, the record of the agent itself.
+
+```bash
+uv run --no-sync python scripts/pack_run.py pack runs/<run>     # 10-20 s
+uv run --no-sync python scripts/pack_run.py unpack runs/<run>   # a few seconds
+uv run --no-sync python scripts/pack_run.py status runs/<run>
+```
+
+- Unpack rebuilds every file and checks its hash against `pack.json`, so an
+  unpacked run is byte-identical to the original. It keeps the packed files,
+  and packing again just removes the rebuilt ones.
+- Unpacking replays the games, so it needs their files in `environment_files/`
+  (or `--environments-dir`; `ENVIRONMENTS_DIR` also works). `pack.json`
+  records each game file's hash, and unpack stops if the version differs.
+- Pack refuses a run that is still playing. Request logs are compressed for
+  good: every reader opens `.jsonl.xz`.
+- The DVC `eval` stage packs `runs/dvc-eval/` after scoring it.
 
 ## Token spend
 

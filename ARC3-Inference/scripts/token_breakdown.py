@@ -310,7 +310,9 @@ def _transcript_thinking(transcript: Path) -> list[str]:
     """The [THINKING] blocks of a transcript, one per model response."""
     blocks: list[list[str]] = []
     current: list[str] | None = None
-    for line in transcript.read_text(encoding="utf-8").split("\n"):
+    with open_log(transcript) as handle:
+        text = handle.read()
+    for line in text.split("\n"):
         if line == "[THINKING]":
             current = []
             blocks.append(current)
@@ -327,9 +329,11 @@ def _fill_from_transcript(responses: list[Response], transcript: Path) -> None:
     # A response whose message no later request carries (the game's last, or
     # one the harness dropped at a turn change) still has its thinking in the
     # transcript, which holds one block per response.
-    if not transcript.exists():
+    # a packed run keeps its transcripts as .txt.xz
+    found = existing_log(transcript)
+    if found is None:
         return
-    blocks = _transcript_thinking(transcript)
+    blocks = _transcript_thinking(found)
     if len(blocks) != len(responses):
         print(f"{transcript}: {len(blocks)} thinking blocks for {len(responses)} responses; not used")
         return

@@ -7,11 +7,9 @@ import contextlib
 import copy
 import functools
 import hashlib
-import html
 import logging
 import json
 import os
-import re
 import subprocess
 import threading
 import time
@@ -62,7 +60,11 @@ from inference.framework.kaggle import (
     duck_kaggle_setup_command,
     duck_kaggle_teardown_command,
 )
-from inference.utils.run_artifacts import compress_log
+from inference.utils.run_artifacts import (  # noqa: F401  (artifact_stem: run.py imports it from here)
+    artifact_stem,
+    compress_log,
+    render_transcript_html,
+)
 from inference.utils.viewer_artifacts import (
     append_raw_events_sidecar,
     reset_raw_events_sidecar,
@@ -333,10 +335,6 @@ def _analyzer_reported_tokens(analyzer: Any) -> int:
     return max(0, int(value or 0))
 
 
-def artifact_stem(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
-
-
 def _animation_chain(
     previous_grid: tuple[tuple[int, ...], ...],
     state: taaf.game.GameState | None,
@@ -454,19 +452,7 @@ def _write_transcript_html(transcript_path: Path, html_path: Path, title: str) -
         return
     html_path.parent.mkdir(parents=True, exist_ok=True)
     text = transcript_path.read_text(encoding="utf-8")
-    body = (
-        '<!doctype html>\n<html><head><meta charset="utf-8">'
-        f"<title>{html.escape(title)}</title>"
-        "<style>"
-        "body{background:#1e1e1e;color:#e0e0e0;font-family:-apple-system,system-ui,sans-serif;"
-        "padding:20px;max-width:1100px;margin:0 auto;line-height:1.4;}"
-        "h1{color:#fff;}pre{white-space:pre-wrap;background:#111;padding:16px;border-radius:6px;"
-        "border:1px solid #333;overflow:auto;}"
-        "</style></head><body>"
-        f"<h1>{html.escape(title)}</h1><pre>{html.escape(text)}</pre>"
-        "</body></html>\n"
-    )
-    html_path.write_text(body, encoding="utf-8")
+    html_path.write_text(render_transcript_html(text, title), encoding="utf-8")
 
 
 @dataclass

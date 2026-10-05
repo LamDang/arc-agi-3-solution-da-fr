@@ -12,7 +12,8 @@ experiment side by side:
         --metrics runs/engine-code.metrics.json --env ARC3_GAME_CODE_DIR=game_code
 
 Each run directory gets eval_settings.json: the make variables and the
-harness environment it ran with.
+harness environment it ran with. The run is then packed for archiving
+(scripts/pack_run.py); the viewer unpacks it when opened.
 """
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ from typing import Any
 import yaml
 
 from inference.utils.run_artifacts import open_log
+from inference.utils.run_pack import pack_run
 
 PARAMS_PATH = Path("params.yaml")
 RUN_DIR = Path("runs/dvc-eval")
@@ -144,6 +146,9 @@ def main() -> int:
     subprocess.run(["make", "score_run", f"SCORE_RUN_DIR={run_dir}"], env=env, check=True)
     _write_metrics(run_dir, args.metrics)
     print(f"dvc_eval: wrote {args.metrics}")
+    # Lossless: the viewer unpacks it again (scripts/pack_run.py).
+    report = pack_run(run_dir, environments_dir=make_vars["ENVIRONMENTS_DIR"])
+    print(f"dvc_eval: packed {run_dir}: {report.bytes_before / 1e6:.1f} MB -> {report.bytes_after / 1e6:.1f} MB")
     return 0
 
 

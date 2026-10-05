@@ -1,6 +1,7 @@
 """Helpers for per-run artifact directories, git metadata, and file logging."""
 from __future__ import annotations
 
+import html
 import logging
 import lzma
 import re
@@ -179,3 +180,24 @@ def compress_log(path: Path) -> Path | None:
     partial.replace(target)
     path.unlink()
     return target
+
+
+def artifact_stem(value: str) -> str:
+    """A game id made safe for file names; game run files are <stem>_p<pass>."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value)
+
+
+def render_transcript_html(text: str, title: str) -> str:
+    """The solver_analysis/ page of a transcript: the text, escaped, in a <pre>."""
+    return (
+        '<!doctype html>\n<html><head><meta charset="utf-8">'
+        f"<title>{html.escape(title)}</title>"
+        "<style>"
+        "body{background:#1e1e1e;color:#e0e0e0;font-family:-apple-system,system-ui,sans-serif;"
+        "padding:20px;max-width:1100px;margin:0 auto;line-height:1.4;}"
+        "h1{color:#fff;}pre{white-space:pre-wrap;background:#111;padding:16px;border-radius:6px;"
+        "border:1px solid #333;overflow:auto;}"
+        "</style></head><body>"
+        f"<h1>{html.escape(title)}</h1><pre>{html.escape(text)}</pre>"
+        "</body></html>\n"
+    )
