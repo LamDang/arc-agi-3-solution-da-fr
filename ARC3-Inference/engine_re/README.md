@@ -147,7 +147,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     its picture) and the session goes on.
 - **Feedback the harness adds** (`agent.py`). The first message gives the
   recording's facts and engine.py as `read()` shows it (anchors included, the
-  FIXED block unfolded), and ends with "Run run_tests to see where to start."
+  FIXED block unfolded), and ends by pointing to the first move: `auto_sprites(0)` into `make_level` with `edit()`, then `run_tests`.
   The model's reasoning is sent back with its turns, as the main harness does
   on OpenRouter; compaction trims old tool outputs and all but the last 10
   turns' reasoning once the prompt passes 140K tokens. When a turn changes

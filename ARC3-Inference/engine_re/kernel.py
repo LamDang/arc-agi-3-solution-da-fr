@@ -42,13 +42,63 @@ from engine_re.guard import sandbox_env
 MAX_OUTPUT_CHARS = 200_000
 # What the namespace of the model's code starts with (besides np and the fixed-block classes).
 PRELOADED = ("S", "read", "edit", "undo", "render", "show", "try_step", "auto_sprites")
+# Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
+RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
 
 
-def _run(code: str, namespace: dict[str, Any]) -> str:
+def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
+    """Where the code binds a reserved name: (name, line, how), e.g. ("show", 4, "def show")."""
+    found: list[tuple[str, int, str]] = []
+
+    def hit(name: str | None, node: ast.AST, how: str) -> None:
+        if name in reserved:
+            found.append((name, getattr(node, "lineno", 0), how))
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            hit(node.name, node, f"def {node.name}")
+        elif isinstance(node, ast.ClassDef):
+            hit(node.name, node, f"class {node.name}")
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            hit(node.id, node, f"{'del' if isinstance(node.ctx, ast.Del) else 'assigns'} {node.id}")
+        elif isinstance(node, ast.arg):
+            hit(node.arg, node, f"a parameter named {node.arg}")
+        elif isinstance(node, ast.alias):
+            bound = node.asname or node.name.split(".")[0]
+            hit(bound, node, f"import as {bound}")
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            hit(node.name, node, f"except ... as {node.name}")
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            for name in node.names:
+                hit(name, node, f"global {name}")
+        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
+            hit(node.name, node, f"case ... {node.name}")
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            hit(node.rest, node, f"case **{node.rest}")
+    return sorted(set(found), key=lambda f: (f[1], f[0]))
+
+
+def _reserved_error(found: list[tuple[str, int, str]]) -> str:
+    where = "; ".join(f"line {line}: {how}" for _, line, how in found)
+    names = ", ".join(dict.fromkeys(name for name, _, _ in found))
+    return (
+        f"Error: nothing was run. This code would replace the harness's built-in {names} ({where}).\n"
+        f"These names are reserved: {', '.join(RESERVED)}. Give your own functions and variables other names.\n"
+    )
+
+
+def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None = None) -> str:
+    """Run the model's code in `namespace`. `builtins` (name -> object) are the reserved names: code
+    that binds one is rejected before it runs, and any that were changed anyway are put back."""
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
         try:
             tree = ast.parse(code, "<python>", "exec")
+            if builtins:
+                found = reserved_bindings(tree, tuple(builtins))
+                if found:
+                    print(_reserved_error(found), end="")
+                    return buffer.getvalue()
             last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
             exec(compile(tree, "<python>", "exec"), namespace)
             if last is not None:
@@ -60,6 +110,12 @@ def _run(code: str, namespace: dict[str, Any]) -> str:
                 raise
             frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename != __file__]
             print("Traceback (most recent call last):\n" + "".join(traceback.format_list(frames[-6:])) + f"{type(exc).__name__}: {exc}")
+        finally:
+            changed = [name for name, value in (builtins or {}).items() if namespace.get(name) is not value]
+            for name in changed:
+                namespace[name] = builtins[name]
+            if changed:
+                print(f"[harness] Your code replaced the built-in {', '.join(changed)}; restored. These names are reserved.")
     return buffer.getvalue()
 
 
@@ -81,6 +137,7 @@ def main() -> int:
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
     namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
     namespace.update({name: getattr(helpers, name) for name in PRELOADED})
+    builtins = {name: namespace[name] for name in RESERVED}
     os.chdir(workspace)
     # Replies go on a private copy of stdout; fd 1 itself goes to /dev/null so
     # code that writes to it directly cannot corrupt the protocol.
@@ -103,7 +160,7 @@ def main() -> int:
         if not line.strip():
             continue
         request = json.loads(line)
-        output = _run(request["code"], namespace)
+        output = _run(request["code"], namespace, builtins)
         if len(output) > MAX_OUTPUT_CHARS:
             output = output[: MAX_OUTPUT_CHARS // 2] + "\n...[output truncated]...\n" + output[-MAX_OUTPUT_CHARS // 2 :]
         shown = helpers.take_shown()

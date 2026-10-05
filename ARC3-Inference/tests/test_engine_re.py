@@ -1284,7 +1284,7 @@ def test_first_message_shows_engine_py_with_anchors(tmp_path: Path, tiny_trace: 
     assert "Advertised actions: [1, 2, 3, 4]; win_levels: 1" in opening
     assert f"{hashline.anchor(lines, 1)}:" in opening and f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in opening
     assert "class Sprite:" in opening  # the FIXED block is shown in full here
-    assert opening.rstrip().endswith("Run run_tests to see where to start.")
+    assert opening.rstrip().endswith("then call run_tests.") and "auto_sprites(0)" in opening.splitlines()[-1]
     assert agent.messages[0]["content"].startswith("# Goal")
 
 
@@ -1307,3 +1307,60 @@ def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, 
     # The resume showed the engine as the first session left it (version 2), with valid anchors.
     lines, _ = hashline.split_lines((tmp_path / "engine_versions" / "v0002.py").read_text())
     assert f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in shown
+
+
+def test_kernel_rejects_code_that_rebinds_a_builtin():
+    from engine_re import kernel
+
+    def show(*frames):
+        return "the harness show"
+
+    namespace = {"show": show, "print": print}
+    builtins = {"show": show}
+    out = kernel._run("def show(f):\n    pass\nprint('ran')", namespace, builtins)
+    assert "nothing was run" in out and "line 1: def show" in out and "ran" not in out
+    assert namespace["show"] is show
+    for code in ("show = 3", "for show in range(2): pass", "import os as show", "f = lambda show: show", "del show"):
+        assert "nothing was run" in kernel._run(code, namespace, builtins), code
+    # Other names, calls and keyword arguments are fine.
+    assert kernel._run("x = show()\nprint(x)\ndef f(frames, show_all=True): return frames", namespace, builtins).strip() == "the harness show"
+    # A rebinding the check cannot see is undone after the run, and reported.
+    out = kernel._run("globals()['show'] = 1", namespace, builtins)
+    assert namespace["show"] is show and "restored" in out
+
+
+def test_system_prompt_names_every_builtin_function():
+    from engine_re.kernel import RESERVED
+    from engine_re.prompts import first_user_message, system_prompt
+
+    for images in (True, False):
+        prompt = system_prompt(images=images)
+        section = prompt[prompt.index("# Built-in python functions") : prompt.index("# How to work")]
+        for name in RESERVED:
+            assert name in section, name
+        assert "reserved" in section
+
+
+def test_openrouter_client_asks_again_after_a_provider_error(monkeypatch):
+    from engine_re import agent as agent_mod
+
+    answers = [
+        {"choices": [{"finish_reason": "error", "error": {"message": "upstream failed"}, "message": {"content": ""}}]},
+        {"choices": [{"finish_reason": "tool_calls", "message": {"content": "", "tool_calls": []}}], "usage": {}},
+    ]
+
+    class Resp:
+        status_code = 200
+
+        def __init__(self, data):
+            self.data = data
+
+        def json(self):
+            return self.data
+
+    client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(), api_key="test")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: Resp(answers.pop(0)))
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda s: None)
+    data = client.chat([], [])
+    assert data["choices"][0]["finish_reason"] == "tool_calls"
+    assert len(client.provider_errors) == 1 and "upstream failed" in client.provider_errors[0]

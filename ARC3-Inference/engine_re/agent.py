@@ -163,6 +163,7 @@ class OpenRouterClient:
         if not self.api_key:
             raise RuntimeError("set OPENROUTER_API_KEY")
         self.session = requests.Session()
+        self.provider_errors: list[str] = []  # answers that came back with finish_reason "error", retried
 
     def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
         payload = {
@@ -190,9 +191,14 @@ class OpenRouterClient:
             else:
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data.get("choices"):
+                    choices = data.get("choices") or []
+                    if choices and choices[0].get("finish_reason") != "error":
                         return data
-                    error = f"no choices: {json.dumps(data)[:500]}"
+                    # The provider failed mid-answer (finish_reason "error"): ask again rather than
+                    # hand the model an empty turn.
+                    detail = (choices[0].get("error") if choices else None) or data.get("error") or data
+                    error = f"{'provider error' if choices else 'no choices'}: {json.dumps(detail)[:500]}"
+                    self.provider_errors.append(error)
                 elif resp.status_code in (408, 429) or resp.status_code >= 500:
                     error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                 else:
@@ -231,6 +237,7 @@ class AgentResult:
     interface: str = "simple"
     images: bool = True
     image_messages: int = 0
+    provider_errors: int = 0  # answers that failed at the provider and were asked again
 
 
 class EngineAgent:
@@ -567,6 +574,7 @@ class EngineAgent:
                     self.result.status = reason
                     break
                 response = self.client.chat(self.messages, tools(self.images))
+                self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
                 self.result.usage.add(usage)

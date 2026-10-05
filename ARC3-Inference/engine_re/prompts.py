@@ -61,6 +61,21 @@ once step 3 is undone, or None outside the grid. Coordinates: x is the column, y
   (or after up to 10, if you ask). For the first one you get: __REPORT_IMAGES__; for each region, the colours and your sprites there;
   what your step() printed; and the python command that reproduces the step.
 
+# Built-in python functions
+These are python functions: call them in your code inside the python tool (the python tool's
+description has the details). They are not separate tools.
+- read(path="engine.py", offset=None, limit=None): print engine.py, each line with a LINE#HASH anchor.
+- edit(path="engine.py", edits=[...]): change engine.py at those anchors. engine.py changes only
+  through edit() and undo() called in the python tool; writing the file any other way is blocked.
+- undo(n=1, to=None): put engine.py back as it was n changes ago, or to="best".
+- render(state): draw a State as a 64x64 array, exactly as the tests do.
+- __SHOW_LINE__
+- try_step(i): your State before and after recorded step i, what your step() printed, and where your
+  frame differs from the recording.
+- auto_sprites(level): sprite code that draws the first frame of a level exactly, ready for edit().
+They come with S (the recording), np and the classes Sprite, Action, View, State. All these names are
+reserved: code that defines or assigns any of them is rejected before it runs.
+
 # How to work
 The recording shows only part of what the game can do, so its real rules cannot always be known from
 it. Your job is to reproduce what was observed, with the simplest general mechanism that explains it:
@@ -82,6 +97,12 @@ Work through the recording in order:
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
 inside step(); the test report and try_step show it.
 """
+
+# The show() line of the built-in functions section.
+_SHOW_LINE = {
+    True: "show(*frames, titles=None, boxes=None): look at frames or States as images, with boxes.",
+    False: "show(*frames, titles=None, boxes=None): print frames or States as hex digits, with boxes.",
+}
 
 # The third Tests item, which depends on whether reports carry images (the line breaks differ).
 _REPORT_IMAGES = {
@@ -106,7 +127,8 @@ The recording
     S[i-1].levels_completed.
   - S[i].win_levels, S[i].available_actions.
 
-engine.py (python cannot open it for writing; edit() is the only way to change it)
+engine.py (change it by calling edit() or undo() in your python code; writing the file any other way,
+such as open('engine.py', 'w'), is blocked)
 - read(path="engine.py", offset=None, limit=None): print the file, every line as LINE#HASH:content.
   Those anchors are how edit() addresses lines. offset: first line (1-based); limit: number of lines.
   Long output is cut; it says which offset to continue from. The FIXED block is folded unless offset
@@ -181,7 +203,7 @@ def system_prompt(match: str = "final", interface: str = "simple", images: bool 
         raise ValueError("the agent offers only the simple interface (make_level/step)")
     if match != "final":
         raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-    return _SYSTEM.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images])
+    return _SYSTEM.replace("__REPORT_IMAGES__", _REPORT_IMAGES[images]).replace("__SHOW_LINE__", _SHOW_LINE[images])
 
 
 SYSTEM_PROMPT = system_prompt()
@@ -275,7 +297,7 @@ engine.py now, as read() shows it (LINE#HASH anchors for edit()):
 
 {engine_read}
 
-Run run_tests to see where to start."""
+Start as "How to work" says: in the python tool, code = auto_sprites(0), then edit() to put that code into make_level; then call run_tests."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:
