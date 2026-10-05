@@ -1427,3 +1427,25 @@ def test_openrouter_client_asks_again_after_a_provider_error(monkeypatch):
     data = client.chat([], [])
     assert data["choices"][0]["finish_reason"] == "tool_calls"
     assert len(client.provider_errors) == 1 and "upstream failed" in client.provider_errors[0]
+
+
+def test_openrouter_client_can_pin_providers(monkeypatch):
+    from engine_re import agent as agent_mod
+
+    sent = []
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"finish_reason": "stop", "message": {"content": "ok"}}], "usage": {}}
+
+    def post(*args, **kwargs):
+        sent.append(kwargs["json"])
+        return Resp()
+
+    for providers, expected in ((None, None), (["z-ai"], {"order": ["z-ai"], "allow_fallbacks": False})):
+        client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(providers=providers), api_key="test")
+        monkeypatch.setattr(client.session, "post", post)
+        client.chat([], [])
+        assert sent[-1].get("provider") == expected

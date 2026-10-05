@@ -88,6 +88,11 @@ def main() -> int:
         action="store_true",
         help="Do not play the first round for the model (auto_sprites(0) into make_level, then the tests).",
     )
+    parser.add_argument(
+        "--providers",
+        default=None,
+        help="Comma-separated OpenRouter providers to use, in order, with no fallback (e.g. z-ai). Default: OpenRouter routes.",
+    )
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
 
@@ -100,7 +105,8 @@ def main() -> int:
     if args.prepare_only:
         return 0
 
-    model = ModelConfig(model=args.model)
+    providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
+    model = ModelConfig(model=args.model, providers=providers)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes, args.python_quota)
 
     def work(game: str) -> None:

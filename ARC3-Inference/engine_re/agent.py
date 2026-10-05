@@ -137,6 +137,9 @@ class ModelConfig:
     # does on OpenRouter); compaction trims all but the most recent ones.
     keep_recent_reasoning: int = 10
     old_reasoning_chars: int = 1200
+    # OpenRouter providers to use, in order, with no fallback to others (e.g. ["z-ai"]);
+    # None lets OpenRouter route each request.
+    providers: list[str] | None = None
 
 
 @dataclass
@@ -203,6 +206,8 @@ class OpenRouterClient:
             "reasoning": {"enabled": self.config.reasoning},
             "usage": {"include": True},
         }
+        if self.config.providers:
+            payload["provider"] = {"order": list(self.config.providers), "allow_fallbacks": False}
         delay = 2.0
         for attempt in range(10):
             try:
