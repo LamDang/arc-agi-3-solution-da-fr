@@ -10,6 +10,15 @@ everything else is kept), and writes one JSON reply per line
 expression is printed. "images" holds the pictures show_frames() made during the
 request (base64 PNG and caption), for the harness to attach.
 
+Two more requests. {"names": true} answers {"names": ["RING: list[20]", "cols: function", ...],
+"more": n}: what the model has defined in the namespace (not the preloaded built-ins, modules or
+dunders), each with a one-word summary, at most NAMES_SHOWN of them. {"replay": [{"turn": t, "code":
+...}, ...], "cell_seconds": 20, "total_seconds": 120} re-runs those cells in order after a restart
+(a resumed run, agent._resume_conversation) in replay mode: edit_file() and undo_edit() do nothing,
+show_frames() makes no image, output is discarded, an exception ends only its cell, and each cell is
+cut after cell_seconds (SIGALRM), the whole replay after total_seconds; it answers {"replayed": n,
+"failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}.
+
 The kernel runs sandboxed (engine_re.guard): it can read the workspace and the
 trace, write only the workspace, and cannot start processes or open
 connections. It cannot write engine.py at all: edit_file() and undo_edit() send their
@@ -32,28 +41,38 @@ import io
 import json
 import os
 import select
+import signal
 import subprocess
 import sys
 import time
 import traceback
+import types
 from pathlib import Path
 from typing import Any, Callable
 
 from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
-# What the namespace of the model's code starts with (besides np and the fixed-block classes).
+NAMES_SHOWN = 40  # entries a {"names": true} answer lists before "... and N more"
+REPLAY_CELL_SECONDS = 20.0
+REPLAY_TOTAL_SECONDS = 120.0
+# What the namespace of the model's code starts with (besides np and the fixed-block classes): the built-in
+# functions, and `engine`, engine.py as it is now (helpers._EngineModule).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step")
-PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels",)
-# Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
+PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels", "engine")
+# Names the model's code may not rebind: the built-ins, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
 # The stepwise harness (--focus K): `step_to_fix`, the step to fix, instead of the recording, and no
 # summarize_levels; with --history also `recording`, the recording so far (steps 0..K, all the trace on disk
 # holds, recording[K] being step_to_fix), and summarize_levels.
-PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS
+PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("engine",)
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
+ENGINE_IMPORT_NOTE = (
+    "engine is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
+    "engine.step(...), engine.make_level(...) directly"
+)
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
@@ -73,9 +92,16 @@ def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> li
             hit(node.id, node, f"{'del' if isinstance(node.ctx, ast.Del) else 'assigns'} {node.id}")
         elif isinstance(node, ast.arg):
             hit(node.arg, node, f"a parameter named {node.arg}")
-        elif isinstance(node, ast.alias):
-            bound = node.asname or node.name.split(".")[0]
-            hit(bound, node, f"import as {bound}")
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            # Any import of the engine module is refused (that copy would go stale; `engine` is the built-in).
+            if isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == "engine":
+                hit("engine", node, "from engine import")
+            for alias in node.names:
+                if isinstance(node, ast.Import) and alias.name.split(".")[0] == "engine":
+                    hit("engine", node, f"import engine as {alias.asname}" if alias.asname else "import engine")
+                else:
+                    bound = alias.asname or alias.name.split(".")[0]
+                    hit(bound, node, f"import as {bound}")
         elif isinstance(node, ast.ExceptHandler) and node.name:
             hit(node.name, node, f"except ... as {node.name}")
         elif isinstance(node, (ast.Global, ast.Nonlocal)):
@@ -91,15 +117,19 @@ def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> li
 def _reserved_error(found: list[tuple[str, int, str]], reserved: tuple[str, ...] = RESERVED) -> str:
     where = "; ".join(f"line {line}: {how}" for _, line, how in found)
     names = ", ".join(dict.fromkeys(name for name, _, _ in found))
-    return (
+    text = (
         f"Error: nothing was run. This code would replace the harness's built-in {names} ({where}).\n"
         f"These names are reserved: {', '.join(reserved)}. Give your own functions and variables other names.\n"
     )
+    if any(name == "engine" and how.startswith(("import", "from engine")) for name, _, how in found):
+        text += ENGINE_IMPORT_NOTE + ".\n"
+    return text
 
 
-def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None = None) -> str:
+def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None = None, status: dict[str, str] | None = None) -> str:
     """Run the model's code in `namespace`. `builtins` (name -> object) are the reserved names: code
-    that binds one is rejected before it runs, and any that were changed anyway are put back."""
+    that binds one is rejected before it runs, and any that were changed anyway are put back. `status`,
+    when given, gets "error": "Type: message" if the code raised."""
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
         try:
@@ -120,6 +150,8 @@ def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None =
                 raise
             frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename != __file__]
             print("Traceback (most recent call last):\n" + "".join(traceback.format_list(frames[-6:])) + f"{type(exc).__name__}: {exc}")
+            if status is not None:
+                status["error"] = f"{type(exc).__name__}: {str(exc).splitlines()[0] if str(exc) else ''}"[:200]
         finally:
             changed = [name for name, value in (builtins or {}).items() if namespace.get(name) is not value]
             for name in changed:
@@ -127,6 +159,74 @@ def _run(code: str, namespace: dict[str, Any], builtins: dict[str, Any] | None =
             if changed:
                 print(f"[harness] Your code replaced the built-in {', '.join(changed)}; restored. These names are reserved.")
     return buffer.getvalue()
+
+
+def _summary(value: Any) -> str:
+    """One word about a namespace value: "int", "list[20]", "ndarray(64, 64)", "function", "State", ..."""
+    if value is None:
+        return "None"
+    if isinstance(value, (bool, int, float, complex)):
+        return type(value).__name__
+    if isinstance(value, (str, bytes, list, tuple, dict, set, frozenset)):
+        return f"{type(value).__name__}[{len(value)}]"
+    if isinstance(value, type):
+        return "class"
+    if callable(value):
+        return "function"
+    shape = getattr(value, "shape", None)
+    if isinstance(shape, tuple):
+        return f"{type(value).__name__}{shape}"
+    return type(value).__name__
+
+
+def user_names(namespace: dict[str, Any], preloaded: dict[str, Any], limit: int = NAMES_SHOWN) -> tuple[list[str], int]:
+    """What the model defined: every name in the namespace that is not preloaded, a module or a dunder, as
+    "name: summary" in definition order, at most `limit` of them, and how many more there are."""
+    names = [
+        f"{name}: {_summary(value)}"
+        for name, value in namespace.items()
+        if not name.startswith("__") and name not in preloaded and name != "np" and not isinstance(value, types.ModuleType)
+    ]
+    return names[:limit], max(0, len(names) - limit)
+
+
+def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtins: dict[str, Any],
+                 cell_seconds: float = REPLAY_CELL_SECONDS, total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
+    """Re-run the model's earlier cells ({"turn", "code"}) in order, in replay mode (helpers.REPLAY: no edits,
+    no images), output discarded, an exception ending only its cell, each cell cut after `cell_seconds` and
+    the whole replay after `total_seconds`. Returns the counts, the cells that raised and the seconds taken."""
+    from engine_re import helpers
+
+    started = time.time()
+    failed: list[dict[str, Any]] = []
+    skipped = 0
+
+    def alarm(signum, frame):  # noqa: ARG001
+        raise TimeoutError(f"the cell ran longer than {cell_seconds:g} s when replayed")
+
+    previous = signal.signal(signal.SIGALRM, alarm)
+    helpers.REPLAY = True
+    try:
+        for i, cell in enumerate(cells):
+            remaining = total_seconds - (time.time() - started)
+            if remaining <= 0:
+                skipped = len(cells) - i
+                break
+            status: dict[str, str] = {}
+            signal.setitimer(signal.ITIMER_REAL, max(0.01, min(cell_seconds, remaining)))
+            try:
+                _run(str(cell.get("code") or ""), namespace, builtins, status)
+            except BaseException as exc:  # noqa: BLE001  (the alarm fired outside the cell's own handler)
+                status["error"] = f"{type(exc).__name__}: {exc}"[:200]
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            if status.get("error"):
+                failed.append({"turn": cell.get("turn"), "error": status["error"]})
+    finally:
+        helpers.REPLAY = False
+        helpers.take_shown()
+        signal.signal(signal.SIGALRM, previous)
+    return {"replayed": len(cells) - skipped, "failed": failed, "skipped": skipped, "seconds": round(time.time() - started, 2)}
 
 
 def main() -> int:
@@ -182,6 +282,19 @@ def main() -> int:
             if "recording" in builtins:
                 namespace["recording"] = builtins["recording"] = helpers.recording
             protocol.write(json.dumps({"output": "", "images": []}) + "\n")
+            protocol.flush()
+            continue
+        if "names" in request:
+            shown, more = user_names(namespace, builtins)
+            protocol.write(json.dumps({"names": shown, "more": more}) + "\n")
+            protocol.flush()
+            continue
+        if "replay" in request:
+            result = replay_cells(
+                list(request["replay"] or []), namespace, builtins,
+                float(request.get("cell_seconds") or REPLAY_CELL_SECONDS), float(request.get("total_seconds") or REPLAY_TOTAL_SECONDS),
+            )
+            protocol.write(json.dumps(result) + "\n")
             protocol.flush()
             continue
         output = _run(request["code"], namespace, builtins)
@@ -272,32 +385,64 @@ class KernelClient:
 
     def execute(self, code: str) -> str:
         self.last_images = []
+        message = self._request({"code": code}, self.timeout)
+        if "error" in message:
+            return message["error"]
+        for item in message.get("images") or []:
+            try:
+                self.last_images.append((base64.b64decode(item["png"]), str(item.get("caption", ""))))
+            except (KeyError, ValueError, TypeError):
+                continue
+        return message.get("output", "")
+
+    def names(self) -> tuple[list[str], int]:
+        """What the model has defined in the kernel: "name: summary" entries (at most NAMES_SHOWN) and how
+        many more there are; nothing when the kernel cannot answer."""
+        message = self._request({"names": True}, self.timeout)
+        return list(message.get("names") or []), int(message.get("more") or 0)
+
+    def replay(self, cells: list[dict[str, Any]], cell_seconds: float = REPLAY_CELL_SECONDS,
+               total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
+        """Re-run earlier python cells ({"turn", "code"}) in the kernel's replay mode (see the module). Returns
+        {"replayed", "failed": [{"turn", "error"}], "skipped", "seconds"}; "error" says why when the kernel
+        could not do it."""
+        if not cells:
+            return {"replayed": 0, "failed": [], "skipped": 0, "seconds": 0.0}
+        request = {"replay": cells, "cell_seconds": cell_seconds, "total_seconds": total_seconds}
+        message = self._request(request, total_seconds + max(30.0, cell_seconds))
+        if "error" in message:
+            return {"replayed": 0, "failed": [], "skipped": len(cells), "seconds": 0.0, "error": message["error"]}
+        return message
+
+    def _request(self, request: dict[str, Any], timeout: float) -> dict[str, Any]:
+        """Send one request and return the kernel's reply, answering its edit/undo requests meanwhile; on a
+        kernel that dies, hangs or breaks the protocol, {"error": text} and the kernel is restarted next time."""
         if self.proc is None or self.proc.poll() is not None:
             self.start()
         assert self.proc is not None and self.proc.stdin is not None and self.proc.stdout is not None
         try:
-            self.proc.stdin.write(json.dumps({"code": code}) + "\n")
+            self.proc.stdin.write(json.dumps(request) + "\n")
             self.proc.stdin.flush()
         except BrokenPipeError:
             self.stop()
-            return "The Python kernel had died; it was restarted and all variables were lost. Run your code again."
-        deadline = time.time() + self.timeout
+            return {"error": "The Python kernel had died; it was restarted and all variables were lost. Run your code again."}
+        deadline = time.time() + timeout
         while True:
             ready, _, _ = select.select([self.proc.stdout], [], [], max(0.0, deadline - time.time()))
             if not ready:
                 self.stop()
-                return f"Timed out after {self.timeout:g}s. The kernel was restarted and all variables were lost."
+                return {"error": f"Timed out after {timeout:g}s. The kernel was restarted and all variables were lost."}
             line = self.proc.stdout.readline()
             if not line:
                 log = self.workspace.parent / "kernel_stderr.log"
                 tail = log.read_text(encoding="utf-8", errors="replace")[-1500:] if log.exists() else ""
                 self.stop()
-                return tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."
+                return {"error": tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."}
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
                 self.stop()
-                return "Kernel protocol error; the kernel was restarted and all variables were lost."
+                return {"error": "Kernel protocol error; the kernel was restarted and all variables were lost."}
             if "rpc" in message:
                 reply = self.editor.handle(message["rpc"])
                 try:
@@ -306,12 +451,7 @@ class KernelClient:
                 except BrokenPipeError:
                     pass
                 continue
-            for item in message.get("images") or []:
-                try:
-                    self.last_images.append((base64.b64decode(item["png"]), str(item.get("caption", ""))))
-                except (KeyError, ValueError, TypeError):
-                    continue
-            return message.get("output", "")
+            return message
 
 
 if __name__ == "__main__":

@@ -26,7 +26,8 @@ replay of the recording) and "advances" (one per accepted commit: the turn, the 
 failing step or null, the commit message, the engine's sha256 and version). The transcript has a
 "commit" record for each, and its records carry "step". transcript.jsonl holds everything the model is
 sent, so running the same command again continues an interrupted run in that same conversation, rebuilt
-from it, with a note that the run resumed and the python kernel restarted (its variables are gone).
+from it; the python kernel restarts and re-runs the conversation's python cells with edits disabled, and
+a note says so, with the cells that raised and the names the kernel keeps.
 """
 
 from __future__ import annotations

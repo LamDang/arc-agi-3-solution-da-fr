@@ -58,13 +58,15 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   tester and `evaluate.py` still score engines written as an `arcengine` game
   class (the earlier runs).
 - **Tools** (`agent.py`, `prompts.py`): exactly three.
-  - `python(code)`: a persistent kernel. Its namespace holds `np`, the
-    fixed-block classes, `recording` (the recorded steps) and seven functions
-    (`helpers.py`); nothing else is preloaded. These names are reserved: code
-    that binds one (`def`, assignment, parameter, loop variable, import as) is
-    refused before it runs (`kernel.reserved_bindings`). They are named so that
-    they do not collide with the engine's own names (`step`, `State`,
-    `State.status`) or the model's natural variable names:
+  - `python(code)`: a kernel that is persistent for the whole run (the prompt
+    says so plainly: define helpers and data once). Its namespace holds `np`,
+    the fixed-block classes, `recording` (the recorded steps), seven functions
+    (`helpers.py`) and `engine`; nothing else is preloaded. These names are
+    reserved: code that binds one (`def`, assignment, parameter, loop
+    variable, import as) is refused before it runs
+    (`kernel.reserved_bindings`). They are named so that they do not collide
+    with the engine's own names (`step`, `State`, `State.status`) or the
+    model's natural variable names:
     - `recording`: a list with one `StepView` (`helpers.py`) per recorded step:
       `.index`, `.action` (the recorded action: `.id`, `.x`, `.y`, `.name`; no
       `.cell`), `.before` (the previous step's last frame; None for step 0),
@@ -130,6 +132,31 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       first frame (`recording[k].after`), its guessed grid, the steps played in
       it and their actions, animated steps, RESETs and game overs, and the step
       that solved it.
+    - `engine`: engine.py as it is now (`helpers._EngineModule`): an attribute
+      access loads the file again when its content hash changed since the last
+      load, so `engine.step(...)` and `engine.make_level(...)` never go stale
+      after an edit. Every `import engine` / `from engine import ...` /
+      `import engine as e` is refused by the reserved-name check with a note
+      saying to use the built-in.
+
+    A tool call named after one of these functions (the model calling
+    `read_file` or `edit_file` as if it were a tool) runs through the python
+    tool as `name(**args)`, a string argument that parses as JSON (an `edits`
+    list given as text) parsed first; the output starts with one line saying
+    so, the call counts as a python call and the transcript keeps the name the
+    model used (`called_as`). An unknown name still gets the unknown-tool error.
+
+    The kernel answers two more requests (`kernel.py`, `KernelClient`):
+    `{"names": true}` lists what the model defined (everything in the
+    namespace that is not a preloaded built-in, a module or a dunder) with a
+    one-word summary each (`RING: list[20], cols: function, f0: ndarray(64,
+    64)`; 40 at most, then "... and N more"); the line "Your python kernel
+    keeps: ..." goes into every next-step message and the resume note, never
+    into tool outputs. `{"replay": [cells]}` re-runs earlier python cells in
+    order in a replay mode (`edit_file`/`undo_edit` do nothing, `show_frames`
+    makes no image, output discarded, an exception ends only its cell, 20 s
+    per cell by SIGALRM and 120 s in all), which is how a resumed run gets its
+    variables back.
 
     A frame's pieces (`segment.py`, a pure module over `auto_sprites.py`).
     `pieces(frame, grid=None, known=None)` splits a frame as the sprite code
@@ -314,10 +341,16 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   logs everything the model is sent: system and user messages as sent (images
   by their saved PNG), assistant turns, tool outputs, the text the harness
   adds to an output (`append`) and the points where old images are hidden
-  (`hide_images`) and old turns shortened (`compact`). A note says the run
-  resumed and the python kernel restarted, so its variables are gone. A
-  transcript from before these records is rebuilt from what it has and
-  written back in full, so it is exact from then on. A single-mode session resumes from its
+  (`hide_images`) and old turns shortened (`compact`). The kernel restarts
+  empty, so the harness re-runs every python cell of that conversation (the
+  `python` calls, and the built-ins called as tools) in order in the kernel's
+  replay mode, and a note says the run resumed, that the kernel re-ran the N
+  cells with file edits disabled so the variables and functions are back,
+  which cells raised when re-run (by turn: as before, or because engine.py
+  changed later), and what the kernel keeps; the transcript logs the replay
+  (`replay`: counts, failed turns, seconds). A transcript from before these
+  records is rebuilt from what it has and written back in full, so it is
+  exact from then on. A single-mode session resumes from its
   `engine.py` (shown with anchors, the FIXED block folded) with a fresh
   conversation that carries its last test report and reasoning.
 - **Sandbox** (`guard.py`). The kernel and the candidate run in subprocesses

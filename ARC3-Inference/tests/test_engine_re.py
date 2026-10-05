@@ -988,6 +988,9 @@ def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
     python = TOOLS[0]["function"]["description"]
     assert "# Objects" in python and "edit_file() and undo_edit()" in python
     objects = system_prompt()[system_prompt().index("# Objects") : system_prompt().index("# How to work")]
+    assert "engine: module  engine.py as it is now" in objects and "Never `import engine`" in objects
+    for text in (python, objects):  # the kernel's persistence, said plainly
+        assert "persistent for the whole run" in text and "define helpers and data once and reuse them" in text
     for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(",
                  "summarize_levels(", "recording[i]", "recording[k].after"):
         assert name in objects and name.split("(")[0].split("[")[0] in python, name
@@ -1816,6 +1819,75 @@ def test_a_resumed_session_keeps_the_versions_and_shows_anchors(tmp_path: Path, 
     assert f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in shown
 
 
+def test_the_kernel_lists_what_the_model_defined_and_replays_cells(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re import kernel as kernel_mod
+    from engine_re.prompts import KERNEL_KEEPS_NOTHING, kernel_names_text
+    from engine_re.skeleton import render_skeleton
+
+    tiny_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    engine = workspace / "engine.py"
+    engine.write_text(render_skeleton("tiny", [1, 2, 3, 4]), encoding="utf-8")
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        assert kernel.names() == ([], 0) and kernel_names_text([], 0) == KERNEL_KEEPS_NOTHING
+        kernel.execute("import os, numpy\nRING = list(range(20))\ndef cols(a): return a\nL1 = {1: 2, 2: 3, 3: 4}\n"
+                       "f0 = np.zeros((64, 64))\nbest = (1, 2)\nst = engine.make_level(0)\nclass K: pass\nn = None\ns = 'ab'")
+        names, more = kernel.names()
+        assert names == ["RING: list[20]", "cols: function", "L1: dict[3]", "f0: ndarray(64, 64)", "best: tuple[2]", "st: State",
+                         "K: class", "n: None", "s: str[2]"] and more == 0  # not the built-ins, np, modules or dunders
+        assert kernel_names_text(names, 0) == "Your python kernel keeps: " + ", ".join(names)
+        assert kernel_names_text(names[:2], 7) == "Your python kernel keeps: RING: list[20], cols: function, ... and 7 more"
+        kernel.execute("\n".join(f"v{k} = {k}" for k in range(45)))
+        names, more = kernel.names()
+        assert len(names) == kernel_mod.NAMES_SHOWN == 40 and more == 14
+        # Replay: edits are skipped, images not made, an error ends only its cell, a slow cell is cut, the rest goes on.
+        before = engine.read_text()
+        result = kernel.replay([
+            {"turn": 1, "code": "kept = 41\nedit_file(edits=[{'op': 'append', 'lines': ['Y_MARK = 8']}])\nundo_edit()"},
+            {"turn": 2, "code": "1 / 0"},
+            {"turn": 3, "code": "show_frames(recording[0].after)\nafter = 5"},
+            {"turn": 4, "code": "while True: pass"},
+            {"turn": 5, "code": "late = 1"},
+        ], cell_seconds=1.0, total_seconds=10.0)
+        assert result["replayed"] == 5 and result["skipped"] == 0 and 1.0 <= result["seconds"] < 5.0
+        assert [(f["turn"], f["error"].split(":")[0]) for f in result["failed"]] == [(2, "ZeroDivisionError"), (4, "TimeoutError")]
+        assert engine.read_text() == before and kernel.last_images == []
+        assert kernel.execute("print(kept, after, late)").split() == ["41", "5", "1"]
+        # After the replay, edits work again, and the overall cap skips the cells it cannot reach.
+        assert "engine.py: inserted" in kernel.execute("edit_file(edits=[{'op': 'append', 'lines': ['Z_MARK = 9']}])")
+        result = kernel.replay([{"turn": 6, "code": "while True: pass"}, {"turn": 7, "code": "x = 1"}], cell_seconds=5.0, total_seconds=1.0)
+        assert result["replayed"] == 1 and result["skipped"] == 1 and [f["turn"] for f in result["failed"]] == [6]
+        assert kernel.replay([]) == {"replayed": 0, "failed": [], "skipped": 0, "seconds": 0.0}
+    finally:
+        kernel.stop()
+
+
+def test_the_engine_builtin_always_reflects_the_current_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.kernel import ENGINE_IMPORT_NOTE
+    from engine_re.skeleton import render_skeleton
+
+    tiny_trace.save(tmp_path / "trace")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "engine.py").write_text(render_skeleton("tiny", [1, 2, 3, 4]), encoding="utf-8")
+    kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
+    try:
+        assert kernel.execute("print(engine.make_level(0).grid, callable(engine.step), 'make_level' in dir(engine))").split() == ["(64,", "64)", "True", "True"]
+        for code in ("import engine", "from engine import step", "import engine as e", "engine = 3"):
+            out = kernel.execute(code)
+            assert "nothing was run" in out and "engine" in out, code
+            assert (ENGINE_IMPORT_NOTE in out) == ("import" in code), code
+        kernel.execute("edit_file(edits=[{'op': 'append', 'lines': ['X_MARK = 7']}])")
+        assert kernel.execute("engine.X_MARK").strip() == "7"  # reloaded after the change
+        kernel.execute("undo_edit()")
+        assert "AttributeError" in kernel.execute("engine.X_MARK")
+        assert kernel.execute("engine").startswith("<engine: engine.py as it is now")
+    finally:
+        kernel.stop()
+
+
 def test_kernel_rejects_code_that_rebinds_a_builtin():
     from engine_re import kernel
 
@@ -1998,6 +2070,8 @@ def test_stepwise_moves_on_only_after_a_commit(tmp_path: Path, tiny_trace: Trace
     listing = advance[advance.index(ENGINE_HEADER) :]
     assert ENGINE_HEADER in model.openings[0] and "the FIXED block, folded" in listing and "def make_level(" in listing
     assert listing.splitlines()[-1] == "Fix step 4, keeping steps 0-3 passing; commit_engine(message) when the tests pass."
+    # And what the model's kernel keeps, just before the listing.
+    assert "\nYour python kernel keeps: kept: int, " in advance and advance.index("kernel keeps") < advance.index(ENGINE_HEADER)
     outputs = [m["content"] for m in model.last_messages if m["role"] == "tool"]
     hint = "Steps {} pass. You can now call commit_engine(message) to submit the fix, or keep refining first"
     assert "[harness] engine.py changed, so it was tested automatically" in outputs[0] and hint.format("0-0") in outputs[0]
@@ -2023,14 +2097,15 @@ def test_stepwise_moves_on_only_after_a_commit(tmp_path: Path, tiny_trace: Trace
 def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, tiny_trace: Trace) -> None:
     import json
 
-    from engine_re.agent import RESUME_NOTE, Budget, EngineAgent, ModelConfig
+    from engine_re.agent import Budget, EngineAgent, ModelConfig, resume_note
+    from engine_re.prompts import KERNEL_KEEPS
 
     tiny_trace.save(tmp_path / "trace")
     no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
     first = _RecordingModel(
         [
             [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],
-            [("python", {"code": "show_frames(recording[0].after)"})],
+            [("python", {"code": "show_frames(recording[0].after)\nbroken = 1 / 0"})],  # raises after the image
             [("commit_engine", {"message": "moves"})],  # on to step 4; then the run stops (3 turns)
         ]
     )
@@ -2052,15 +2127,17 @@ def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, 
     rebuilt = EngineAgent("tiny", tmp_path, ModelConfig(compact_prompt_tokens=0), Budget(), client=_ScriptedModel([]), stepwise=True)
     state = rebuilt._rebuild_conversation()
     assert state["focus"] == 4 and state["messages"] == sent
-    # A turn cut off before its tools answered is left out.
+    assert [(c["turn"], c["code"][:12]) for c in state["cells"]] == [(1, "kept = 41\nfr"), (2, "show_frames(")]  # the python cells
+    # A turn cut off before its tools answered is left out (its cells too).
     kept_log = log.read_text()
     cut = {"turn": 4, "finish_reason": "tool_calls", "content": "", "usage": {},
            "tool_calls": [{"id": "x", "type": "function", "function": {"name": "python", "arguments": "{}"}}]}
     log.write_text(kept_log + json.dumps(cut) + "\n")
-    assert rebuilt._rebuild_conversation()["messages"] == sent
+    assert rebuilt._rebuild_conversation()["messages"] == sent and len(rebuilt._rebuild_conversation()["cells"]) == 2
     log.write_text(kept_log)
+    versions = len((tmp_path / "engine_versions" / "versions.jsonl").read_text().splitlines())
 
-    # Running again continues that conversation: no new first message, a note, and the kernel restarted.
+    # Running again continues that conversation: no new first message; the kernel restarted and re-ran the cells.
     second = _RecordingModel(
         [
             [("python", {"code": "print(kept)"})],
@@ -2073,9 +2150,21 @@ def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, 
     assert result.status == "passed" and result.turns == 6 and result.resumes == 1
     assert second.openings == []  # never a fresh two-message conversation
     first_call = second.calls[0]
-    assert first_call[: len(sent)] == sent and first_call[len(sent)] == {"role": "user", "content": RESUME_NOTE}
+    note = first_call[len(sent)]["content"]
+    assert first_call[: len(sent)] == sent and first_call[len(sent)]["role"] == "user"
+    assert note.startswith("[harness] The run was interrupted here and has now resumed, in this same conversation.")
+    assert ("re-ran your 2 python cells in order with file edits disabled, so your variables and functions are back; "
+            "cells that raised when re-run (as before, or because engine.py changed later): turn 2.") in note
+    assert note.splitlines()[-1].startswith(KERNEL_KEEPS + "kept: int")  # the names it keeps, after the replay
+    replays = [r["replay"] for r in (json.loads(line) for line in log.read_text().splitlines()) if "replay" in r]
+    assert len(replays) == 1 and replays[0]["cells"] == replays[0]["replayed"] == 2 and replays[0]["skipped"] == 0
+    assert [f["turn"] for f in replays[0]["failed"]] == [2] and "ZeroDivisionError" in replays[0]["failed"][0]["error"]
+    assert note == resume_note(replays[0], note.splitlines()[-1])
     outputs = [m["content"] for m in second.last_messages[len(sent):] if m["role"] == "tool"]
-    assert "NameError" in outputs[0]  # the kernel's variables are gone
+    assert outputs[0].strip() == "41"  # the variable is back
+    # The replayed edit_file cell did not change engine.py (no new version), and the replayed show_frames made no image.
+    assert len((tmp_path / "engine_versions" / "versions.jsonl").read_text().splitlines()) == versions + 1  # the second run's edit
+    assert result.engine_changes == 2
     assert [(a["fixed"], a["next"], a["message"]) for a in result.advances] == [(0, 4, "moves"), (4, None, "up moves too")]
     # And the resumed part is in the transcript too: rebuilding now gives the whole conversation.
     assert EngineAgent("tiny", tmp_path, ModelConfig(compact_prompt_tokens=0), Budget(), client=_ScriptedModel([]),
@@ -2085,7 +2174,8 @@ def test_an_interrupted_stepwise_run_continues_its_conversation(tmp_path: Path, 
 def test_an_older_transcript_is_rebuilt_and_written_back_in_full(tmp_path: Path, tiny_trace: Trace) -> None:
     import json
 
-    from engine_re.agent import RESUME_NOTE, Budget, EngineAgent, ModelConfig
+    from engine_re.agent import Budget, EngineAgent, ModelConfig, resume_note
+    from engine_re.prompts import KERNEL_KEEPS
 
     tiny_trace.save(tmp_path / "trace")
     no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
@@ -2098,21 +2188,26 @@ def test_an_older_transcript_is_rebuilt_and_written_back_in_full(tmp_path: Path,
     log.write_text("".join(line + "\n" for line in log.read_text().splitlines()
                            if not any(k in json.loads(line) for k in new_kinds)))  # as logged before these records
 
-    def texts(messages):
-        return [(m["role"], m["content"] if isinstance(m["content"], str) else [p.get("text") for p in m["content"]])
+    def texts(messages):  # the older records do not keep what the kernel held at a next step: that line is left out
+        def plain(text):
+            return "\n".join(line for line in text.splitlines() if not line.startswith(KERNEL_KEEPS)) if isinstance(text, str) else text
+
+        return [(m["role"], plain(m["content"]) if isinstance(m["content"], str) else [plain(p.get("text")) for p in m["content"]])
                 for m in messages]
 
     older = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(), client=_ScriptedModel([]), stepwise=True)
     state = older._rebuild_conversation()
-    assert state["legacy"] and texts(state["messages"]) == texts(sent)
+    assert state["legacy"] and texts(state["messages"]) == texts(sent) and len(state["cells"]) == 1
     second = _RecordingModel([[("python", {"code": "1"})]])
     EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), client=second, stepwise=True).run()
-    assert texts(second.calls[0]) == texts(sent) + [("user", RESUME_NOTE)]
+    note = resume_note({"replayed": 1, "failed": [], "skipped": 0}, KERNEL_KEEPS + "_P: class, _t: str[" )
+    sent_note = second.calls[0][len(sent)]["content"]
+    assert texts(second.calls[0])[: len(sent)] == texts(sent) and sent_note.startswith(note)
     records = [json.loads(line) for line in log.read_text().splitlines()]
     assert sum("rebased" in r for r in records) == 1
     # Written back in full: from now on the transcript alone gives the exact conversation.
     state = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(), client=_ScriptedModel([]), stepwise=True)._rebuild_conversation()
-    assert "legacy" not in state and texts(state["messages"])[: len(sent) + 1] == texts(sent) + [("user", RESUME_NOTE)]
+    assert "legacy" not in state and texts(state["messages"])[: len(sent) + 1] == texts(sent) + texts([{"role": "user", "content": sent_note}])
 
 
 def test_a_commit_dropped_when_engine_changes_after_it(tmp_path: Path, tiny_trace: Trace) -> None:

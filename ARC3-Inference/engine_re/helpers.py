@@ -13,6 +13,10 @@ private. In the stepwise harness (the kernel's --focus K) the recording on disk 
     show_frames(*frames, titles=None, boxes=None)          look at frames as images
     replay_step(i, state=None, action=None)                run one step of engine.py and explain it
     summarize_levels()                                     each level's first frame, steps and end
+    engine                                                 engine.py as it is now, reloaded after a change
+
+The kernel's replay mode (REPLAY, set while the harness re-runs the python cells of a resumed
+conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image.
 
 Each StepView also has the frames' segmentation (engine_re.segment), computed when first used and
 only from the steps loaded: .grid, .pieces_before, .pieces_after (whose .code() writes sprites that
@@ -28,6 +32,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import copy
+import hashlib
 import re
 import sys
 import types
@@ -60,6 +65,7 @@ ENGINE_PATH: Path = Path("engine.py")
 IMAGES = True  # False: show_frames() prints hex views instead of making images
 _RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the harness
 _SHOWN: list[dict[str, str]] = []  # images made by show_frames() during the current request
+REPLAY = False  # the kernel is re-running earlier cells: no edits, no images (engine_re.kernel.replay_cells)
 
 _API = game_api.canonical()
 Sprite, Action, View, State = _API.Sprite, _API.Action, _API.View, _API.State
@@ -90,6 +96,9 @@ def read_file(path: str = "engine.py", offset: int | None = None, limit: int | N
 def edit_file(path: str = "engine.py", edits: Any = None) -> None:
     """Apply anchored edits to a file (engine.py through the harness); prints what changed, a
     syntax check and fresh anchors, or why nothing was applied."""
+    if REPLAY:
+        print("edit_file(): skipped, the kernel is replaying earlier cells")
+        return
     if edits is None:
         print('edit_file(): give edits=[{"op": ..., ...}, ...]; see read_file() for the anchors.')
         return
@@ -132,6 +141,9 @@ def _plain(value: Any) -> Any:
 def undo_edit(n: int = 1, to: Any = None) -> None:
     """Put engine.py back as it was n changes ago, or to="best" (the version that matched the most
     steps), or to=k (version k). The restore is a new version, so undo_edit() again brings the change back."""
+    if REPLAY:
+        print("undo_edit(): skipped, the kernel is replaying earlier cells")
+        return
     if _RPC is None:
         print("undo_edit(): engine.py can only be changed through the harness, which is not connected.")
         return
@@ -147,6 +159,36 @@ def _load_engine() -> types.ModuleType:
     sys.modules[name] = module
     exec(compile(source, str(ENGINE_PATH), "exec", dont_inherit=True), module.__dict__)
     return module
+
+
+class _EngineModule:
+    """The `engine` built-in: engine.py as it is now. An attribute access loads the file again
+    (_load_engine) when its content changed since the last load, else uses the module loaded then; so
+    engine.step(...) and engine.make_level(...) never go stale after an edit, as `import engine` would."""
+
+    def __init__(self) -> None:
+        self._sha: str | None = None
+        self._module: types.ModuleType | None = None
+
+    def _current(self) -> types.ModuleType:
+        sha = hashlib.sha256(ENGINE_PATH.read_bytes()).hexdigest()
+        if self._module is None or sha != self._sha:
+            self._module = None
+            self._module = _load_engine()
+            self._sha = sha
+        return self._module
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._current(), name)
+
+    def __dir__(self) -> list[str]:
+        return [n for n in dir(self._current()) if not n.startswith("__")]
+
+    def __repr__(self) -> str:
+        return "<engine: engine.py as it is now (loaded again whenever the file changed)>"
+
+
+engine = _EngineModule()
 
 
 # --- Drawing and looking ----------------------------------------------------------------------
@@ -166,6 +208,8 @@ def show_frames(*frames: Any, titles: list[str] | None = None, boxes: list[tuple
     with the boxes (x0, y0, x1, y1, screen pixels, inclusive) outlined and numbered on each. The
     image comes in a message after this call's output. At most MAX_SHOWN frames per call. With
     images off, prints a hex view of the boxes (or of each frame at half resolution) instead."""
+    if REPLAY:
+        return
     items = list(frames[0]) if len(frames) == 1 and isinstance(frames[0], (list, tuple)) else list(frames)
     if not items:
         print("show_frames(): give one or more frames, e.g. show_frames(recording[3].after, render_state(state))")
@@ -575,5 +619,5 @@ class _LevelCode(str):
 
 __all__ = [
     "Sprite", "Action", "View", "State", "recording", "read_file", "edit_file", "undo_edit", "render_state", "show_frames",
-    "replay_step", "summarize_levels",
+    "replay_step", "summarize_levels", "engine",
 ]

@@ -142,6 +142,9 @@ A reference of everything your python code handles. In the python tool the names
   __NAMES__
 All these names are reserved: code that defines or assigns any of them is rejected before it runs. The
 built-in functions are python functions to call in your code inside the python tool, not separate tools.
+The python kernel is persistent for the whole run: every variable, function and import you define stays
+until the run ends (moving on to the next step keeps them); define helpers and data once and reuse them
+instead of retyping them.
 """
 
 # Which recorded steps python holds, per mode ("history": the stepwise harness with the recording so far).
@@ -201,6 +204,9 @@ step(state: State, action: Action) -> None  apply one action to the state, in pl
     it. A level ends when it sets state.status (below)
 After every action the harness draws the state (Drawing) and records the outcome and levels completed;
 the tests compare both with the recording.
+engine: module  engine.py as it is now, in python: engine.make_level(n), engine.step(state, action), its
+    constants and helpers. It is loaded again whenever the file changed since the last use, so it never goes
+    stale after an edit. Never `import engine` (that copy would go stale; the kernel refuses it).
 Sprite(pixels, x=0, y=0, layer=0, name="", tags=(), visible=True, collidable=True, blocking="pixel",
     rotation=0, mirror_ud=False, mirror_lr=False, scale=1, screen=False)  == compares identity. It prints as
     the code that builds it, with the fields that differ from their defaults, e.g.
@@ -386,9 +392,11 @@ def objects_reference(mode: str = "single", history: bool = True, images: bool =
     )
 
 
-_PYTHON = """Run Python in a persistent kernel: variables and imports survive between calls. Prints what your code
-prints plus the value of the last expression. Long output is cut, so print compact summaries or small
-crops, never whole frames. Preloaded: np (numpy), the engine classes Sprite, Action, View, State, and
+_PYTHON = """Run Python in a kernel that is persistent for the whole run: every variable, function and import you
+define stays until the run ends, so define helpers and data once and reuse them instead of retyping them.
+Prints what your code prints plus the value of the last expression. Long output is cut, so print compact
+summaries or small crops, never whole frames. Preloaded: np (numpy), the engine classes Sprite, Action,
+View, State, and
   __NAMES__
 The system prompt's # Objects section documents each of them (fields, signatures, return values). These
 names are reserved: code that defines or assigns any of them is rejected before it runs. engine.py
@@ -707,10 +715,24 @@ edit_file(), and run the tests. When they pass, call commit_engine(message) to s
 the next steps are shown only after a commit."""
 
 
-def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True, engine_read: str = "") -> str:
+KERNEL_KEEPS = "Your python kernel keeps: "
+KERNEL_KEEPS_NOTHING = "Your python kernel keeps nothing you defined yet."
+
+
+def kernel_names_text(names: list[str], more: int = 0) -> str:
+    """The names the model defined in the kernel (kernel.user_names: "name: summary" each), in one line."""
+    if not names:
+        return KERNEL_KEEPS_NOTHING
+    return KERNEL_KEEPS + ", ".join(names) + (f", ... and {more} more" if more else "")
+
+
+def advance_message(
+    trace: Trace, fixed: int, k: int, report: str, history: bool = True, engine_read: str = "", kernel_names: str = "",
+) -> str:
     """The user message when a commit of steps 0..fixed was accepted and the harness replayed on to step k, the next that
     fails (`trace` is the whole recording; the model now sees it up to k, and so does step_objects). `engine_read` is
-    engine.py as read_file() shows it, listed under ENGINE_HEADER as the first message lists it."""
+    engine.py as read_file() shows it, listed under ENGINE_HEADER as the first message lists it; `kernel_names` is
+    kernel_names_text(), what the model's kernel keeps."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     if k == fixed + 1:
@@ -741,7 +763,7 @@ Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(
 The test report:
 
 {report.strip()}
-{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
+{(chr(10) + kernel_names) if kernel_names else ""}{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
 Fix step {k}, keeping steps 0-{k - 1} passing; commit_engine(message) when the tests pass."""
 
 

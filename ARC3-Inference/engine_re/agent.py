@@ -51,8 +51,11 @@ ends with status "passed" when a commit makes the whole recording pass, or when 
 there is no per-step limit.
 
 Sessions survive interruptions: result.json is rewritten every turn with status "running", and
-running a game again whose session did not end continues from its engine.py (and its versions)
-with a fresh conversation, carrying over the turns, tokens, cost, time and test history.
+running a game again whose session did not end continues from its engine.py (and its versions),
+carrying over the turns, tokens, cost, time and test history: a stepwise run in its own conversation,
+rebuilt from transcript.jsonl, its kernel restarted and the conversation's python cells re-run in
+order with edits disabled (KernelClient.replay), the resume note saying which cells raised and what
+the kernel keeps; a single-mode run with a fresh conversation.
 """
 
 from __future__ import annotations
@@ -76,8 +79,8 @@ from engine_re.game_api import fixed_block_lines
 from engine_re.helpers import FUNCTIONS as BUILTIN_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.prompts import (
-    ENGINE_HEADER, advance_message, elide_engine_listing, episode_message, first_user_message, resume_user_message,
-    system_prompt, tools,
+    ENGINE_HEADER, advance_message, elide_engine_listing, episode_message, first_user_message, kernel_names_text,
+    resume_user_message, system_prompt, tools,
 )
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import MAX_FAILURES, replay_test
@@ -132,11 +135,32 @@ PYTHON_PAUSED = (
 # A resumed run continues its conversation, rebuilt from transcript.jsonl: every message the model is sent is logged
 # there ("message" records; assistant turns and tool outputs as their own records), with the text the harness adds to
 # a message ("append"), and the points where old images are hidden ("hide_images") and old turns shortened ("compact").
+# The kernel restarts empty and re-runs the conversation's python cells (KernelClient.replay); the note says so.
 RESUME_NOTE = (
-    "[harness] The run was interrupted here and has now resumed, in this same conversation. The python kernel restarted, "
-    "so its variables and the functions you defined in it are gone: define again what you need. engine.py, its versions "
-    "(undo_edit) and everything above are kept."
+    "[harness] The run was interrupted here and has now resumed, in this same conversation. engine.py, its versions "
+    "(undo_edit) and everything above are kept. {replay}\n{names}"
 )
+REPLAY_DONE = (
+    "The python kernel restarted and re-ran your {n} python cell{s} in order with file edits disabled, so your variables "
+    "and functions are back{failed}."
+)
+REPLAY_FAILED = "; cells that raised when re-run (as before, or because engine.py changed later): turn{s} {turns}"
+REPLAY_SKIPPED = " The last {n} cell{s} were not re-run (the replay's time ran out)."
+REPLAY_NONE = "The python kernel restarted (there were no python cells to re-run)."
+
+
+def resume_note(replay: dict[str, Any], names: str) -> str:
+    """RESUME_NOTE for a replay result (KernelClient.replay) and the kernel's names line (kernel_names_text)."""
+    n = int(replay.get("replayed") or 0)
+    if not n and not replay.get("skipped"):
+        text = REPLAY_NONE
+    else:
+        turns = sorted({int(f["turn"]) for f in replay.get("failed") or [] if f.get("turn") is not None})
+        failed = REPLAY_FAILED.format(s="s" if len(turns) > 1 else "", turns=", ".join(map(str, turns))) if turns else ""
+        text = REPLAY_DONE.format(n=n, s="" if n == 1 else "s", failed=failed)
+        if replay.get("skipped"):
+            text += REPLAY_SKIPPED.format(n=replay["skipped"], s="" if replay["skipped"] == 1 else "s")
+    return RESUME_NOTE.format(replay=text, names=names)
 CONTINUE = "Continue by calling a tool (python, run_tests or commit_engine)."
 READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in the first message (FIXED block folded)
 # The opening, run in the kernel: level 0's first frame as code, recording[0].pieces_after.code(), through the private
@@ -240,6 +264,21 @@ def builtin_call_code(name: str, args: Any) -> str:
                 value = parsed
         parts.append(f"{key}={value!r}")
     return f"{name}({', '.join(parts)})"
+
+
+def cell_code(call: dict[str, Any]) -> str | None:
+    """The python code a logged tool call ran: the python tool's code, or a built-in called as a tool
+    (builtin_call_code); None for the other tools or unreadable arguments."""
+    name = call["function"]["name"]
+    try:
+        args = json.loads(call["function"].get("arguments") or "{}")
+    except json.JSONDecodeError:
+        return None
+    if name == "python":
+        return args.get("code") if isinstance(args, dict) and isinstance(args.get("code"), str) else None
+    if name in BUILTIN_FUNCTIONS:
+        return builtin_call_code(name, args)
+    return None
 
 
 def _elide_arguments(arguments: str) -> str:
@@ -727,6 +766,8 @@ class EngineAgent:
         self.messages = messages = []
         focus = None
         calls: Any = iter(())
+        cells: list[dict[str, Any]] = []  # the python cells that ran, in order: {"turn", "code"}
+        last_turn = None  # of the last assistant record (its cells go when its turn is left out)
         for r in records[starts[-1] :]:
             if "message" in r:
                 message = dict(r["message"])
@@ -744,10 +785,14 @@ class EngineAgent:
                 if r.get("tool_calls"):
                     assistant["tool_calls"] = r["tool_calls"]
                 calls = iter(r.get("tool_calls") or [])
+                last_turn = r.get("turn")
                 messages.append(assistant)
             elif "tool" in r:
                 call = next(calls, None)
                 messages.append({"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]})
+                code = cell_code(call) if call and r["tool"] == "python" else None
+                if code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):  # a paused call never ran
+                    cells.append({"turn": r.get("turn"), "code": code})
             elif "append" in r:
                 messages[-1]["content"] += r["append"]
             elif "hide_images" in r:
@@ -760,17 +805,20 @@ class EngineAgent:
                 focus = r["advance"]["next"]
             elif "resumed" in r:
                 focus = r["resumed"]["step"]
-        self._drop_unanswered(messages)
-        return {"messages": messages, "focus": focus}
+        if self._drop_unanswered(messages):
+            cells = [c for c in cells if c["turn"] != last_turn]
+        return {"messages": messages, "focus": focus, "cells": cells}
 
     @staticmethod
-    def _drop_unanswered(messages: list[dict[str, Any]]) -> None:
-        """A turn cut off before all its tools answered is left out (every call needs an answer)."""
+    def _drop_unanswered(messages: list[dict[str, Any]]) -> bool:
+        """A turn cut off before all its tools answered is left out (every call needs an answer); True when one was."""
         assistants = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
         if assistants:
             last = assistants[-1]
             if sum(m["role"] == "tool" for m in messages[last + 1 :]) < len(messages[last].get("tool_calls") or []):
                 del messages[last:]
+                return True
+        return False
 
     def _resume_conversation(self) -> bool:
         """Continue an interrupted stepwise run in its own conversation, rebuilt from transcript.jsonl. A transcript
@@ -786,7 +834,14 @@ class EngineAgent:
         self._focus_on(int(state["focus"]))
         self.passed = False
         self.tested_hash = self.engine_hash_seen = self._engine_hash()
-        self._say("user", RESUME_NOTE)
+        # The kernel restarted empty: re-run the conversation's python cells (edits disabled), then say what it keeps.
+        cells = state.get("cells") or []
+        replay = self.kernel.replay(cells)
+        self._log({"turn": self.result.turns, "replay": {
+            "cells": len(cells), "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []),
+            "skipped": replay.get("skipped", 0), "seconds": replay.get("seconds", 0.0), **({"error": replay["error"]} if "error" in replay else {}),
+        }})
+        self._say("user", resume_note(replay, kernel_names_text(*self.kernel.names())))
         self._log({"turn": self.result.turns, "resumed": {"step": self.focus, "messages": len(self.messages)}})
         return True
 
@@ -824,6 +879,8 @@ class EngineAgent:
         focus, prompt_tokens = k, 0
         last_tool = None
         calls: Any = iter(())
+        cells: list[dict[str, Any]] = []
+        last_turn = None
 
         def engine_listing() -> str:  # engine.py as it was at this point of the transcript
             file = self.dir / "engine_versions" / f"v{version or 1:04d}.py"
@@ -852,6 +909,7 @@ class EngineAgent:
                 if r.get("tool_calls"):
                     assistant["tool_calls"] = r["tool_calls"]
                     calls = iter(r["tool_calls"])
+                last_turn = r.get("turn")
                 messages.append(assistant)
                 if not r.get("tool_calls"):
                     messages.append({"role": "user", "content": CONTINUE})
@@ -859,6 +917,9 @@ class EngineAgent:
                 call = next(calls, None)
                 last_tool = {"role": "tool", "tool_call_id": call["id"] if call else "", "content": r["output"]}
                 messages.append(last_tool)
+                code = cell_code(call) if call and r["tool"] == "python" else None
+                if code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):
+                    cells.append({"turn": r.get("turn"), "code": code})
             elif "auto_test" in r and last_tool is not None:
                 hint = COMMIT_HINT.format(k=focus) if auto_passed.get(r["turn"]) else ""
                 last_tool["content"] += AUTO_TEST.format(report=_truncate(r["auto_test"], AUTO_TEST_CHARS)) + hint
@@ -879,11 +940,12 @@ class EngineAgent:
                 focus = a["next"]
                 messages.append({"role": "user", "content": advance_message(
                     self.full_trace, a["fixed"], a["next"], a["report"], self.history, engine_listing())})
-        self._drop_unanswered(messages)
+        if self._drop_unanswered(messages):
+            cells = [c for c in cells if c["turn"] != last_turn]
         self.messages = messages
         if prompt_tokens > self.model.compact_prompt_tokens:
             self._compact()
-        return {"messages": self.messages, "focus": focus, "legacy": True}
+        return {"messages": self.messages, "focus": focus, "legacy": True, "cells": cells}
 
     @staticmethod
     def _has_engine_listing(message: dict[str, Any]) -> bool:
@@ -1060,7 +1122,8 @@ class EngineAgent:
         self.tested_hash = self._engine_hash()
         self._log({"turn": self.result.turns, "advance": {"fixed": fixed, "next": k, "report": text}})
         engine_read = self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES)
-        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history, engine_read)))
+        names = kernel_names_text(*self.kernel.names())
+        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history, engine_read, names)))
         return True
 
     def setup(self) -> None:
