@@ -5,9 +5,10 @@ helpers to run and look at it), run_tests and finish. ``images`` says whether te
 show() come with pictures; the texts follow it.
 
 Two modes. "single" (v5): one session over the whole recording. "step" (v6, engine_re.stepwise):
-the harness replays the recording and, at each step that breaks, opens a new conversation that
-asks to fix that step; the agent sees only that step (`step` in python, not S) and the tests
-replay steps 0 to it (episode_message is its first message).
+the harness replays the recording and asks to fix the first step that breaks; the agent sees the
+recording up to it (S and `step`; with history=False only `step`) and the tests replay steps 0 to
+it. When they pass, the harness replays on and, in the same conversation, names the next step that
+breaks (episode_message is the first message, advance_message each next one).
 """
 
 from __future__ import annotations
@@ -230,9 +231,9 @@ _SYSTEM_STEP = """# Goal
 You are building engine.py, a Python model of a game, from a recording of someone playing it: every
 action they took and every frame the game returned. The harness replays the recording through
 engine.py step by step. When a step does not give the recorded result, it stops there and asks you to
-fix that step; once you have, it replays on to the next step that breaks and asks again, each time in
-a new conversation. engine.py (with its comments) and its versions carry over from one conversation to
-the next; nothing else does.
+fix that step. Once the steps up to it pass, it replays on and tells you, in this conversation, how
+many more steps passed and which step breaks next; you see the recording only up to that step. This
+goes on until the whole recording passes.
 Fix each step with the simplest general rule that explains it and keeps the earlier steps passing:
 the engine is later also played on action sequences nobody recorded, where general rules hold up and
 special cases keyed to step numbers do not.
@@ -277,8 +278,8 @@ defines or assigns any of them is rejected before it runs.
 4. When the step starts a new level (the frame after it shows the next level), make_level must draw
    that level: auto_sprites(n) gives code for its first frame. Reuse the sprite kinds engine.py already
    has where they fit.
-5. Keep engine.py's comments up to date with the rules you found: the next conversation starts from
-   engine.py alone.
+5. Keep engine.py's comments up to date with the rules you found: older parts of this conversation are
+   shortened as it grows, and engine.py is what stays.
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
 inside step(); the test report and try_step show it.
 """
@@ -360,8 +361,8 @@ first failure, the first failure in full (images, regions, what a click hit, you
 step() printed, the try_step command), and one line per further failure."""
 
 _FINISH_STEP = """Say the step is fixed. Runs the tests first (steps 0 to the step you are fixing): when they all pass,
-this conversation ends and the harness replays on to the next step that breaks; otherwise you get the
-report and go on. summary: the rule you added or changed."""
+the harness replays on and tells you the next step that breaks (or that the whole recording passes);
+otherwise you get the report and go on. summary: the rule you added or changed."""
 
 _FINISH = """Ask to end the session. Runs the tests first: if anything fails you get the report and the session
 goes on; it ends only when every test passes. summary: what the engine implements."""
@@ -570,6 +571,40 @@ engine.py now, as read() shows it (the FIXED block folded):
 
 Fix step {k}: find the simplest rule that explains it and keeps the earlier steps passing, change engine.py with
 edit(), run the tests, and call finish when they pass."""
+
+
+def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True) -> str:
+    """The user message when steps 0..fixed pass and the harness replayed on to step k, the next that
+    fails (`trace` is the whole recording; the model now sees it up to k)."""
+    s = trace.steps[k]
+    level = trace.steps[k - 1].levels_completed if k > 0 else 0
+    if k == fixed + 1:
+        passed = f"Steps 0-{fixed} pass. The next step, {k}, fails."
+    else:
+        between = f"step {fixed + 1}" if k == fixed + 2 else f"steps {fixed + 1}-{k - 1}"
+        passed = (f"Steps 0-{fixed} pass. The harness replayed on: {between} ({k - fixed - 1} more step"
+                  f"{'s' if k - fixed - 1 > 1 else ''}) passed without error. Step {k} is the next that fails.")
+    notes = []
+    if s.state == "WIN":
+        notes.append(f"It solves level {level}, the last one: the game ends with WIN.")
+    elif s.levels_completed > level:
+        notes.append(
+            f"It solves level {level}: the frame after it is level {s.levels_completed}'s first frame, which "
+            f"make_level({s.levels_completed}) must draw (auto_sprites({s.levels_completed}) gives code for it; reuse the "
+            "sprite kinds engine.py already has where they fit)."
+        )
+    if s.state == "GAME_OVER":
+        notes.append("After it the game is over (GAME_OVER).")
+    shown = (f"S now holds the recording up to step {k}, and `step` is step {k}." if history else f"`step` is now step {k}.")
+    return f"""{passed}
+Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}
+{shown}
+
+The test report:
+
+{report.strip()}
+
+Fix step {k} the same way, keeping steps 0-{k - 1} passing, and call finish when they pass."""
 
 
 def resume_user_message(game: str, trace: Trace, turns: int, test_report: str, engine_read: str, notes: str = "") -> str:

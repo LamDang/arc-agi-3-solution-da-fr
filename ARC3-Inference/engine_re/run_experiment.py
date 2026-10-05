@@ -9,9 +9,9 @@ logged board), then let one agent per game work in parallel. Writes
 ``<out>/summary.json`` and ``<out>/summary.md``.
 
 --mode stepwise (the default, v6, engine_re.stepwise): the harness replays the
-recording and opens one conversation per breaking step ("fix step k"), each
-seeing only that step. --mode single (v5): one conversation over the whole
-recording.
+recording and asks to fix the first step that breaks, showing the recording only
+up to it; when it passes, it replays on and names the next breaking step in the
+same conversation. --mode single (v5): one conversation over the whole recording.
 
 Running the same command again skips finished games and continues interrupted
 ones, and ones stopped by an error such as a provider outage (see engine_re.agent
@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from engine_re.agent import Budget, EngineAgent, ModelConfig
-from engine_re.stepwise import ATTEMPTS, EPISODE_TURNS, StepwiseRun
+from engine_re.stepwise import StepwiseRun
 from engine_re.trace import trace_from_run
 
 
@@ -101,9 +101,7 @@ def main() -> int:
         help="Comma-separated OpenRouter providers to use, in order, with no fallback (e.g. z-ai). Default: OpenRouter routes.",
     )
     parser.add_argument("--mode", choices=("stepwise", "single"), default="stepwise",
-                        help="stepwise (v6): one conversation per breaking step; single (v5): one conversation for the recording.")
-    parser.add_argument("--episode-turns", type=int, default=EPISODE_TURNS, help="Stepwise: turns per conversation.")
-    parser.add_argument("--attempts", type=int, default=ATTEMPTS, help="Stepwise: conversations per step before the run stops.")
+                        help="stepwise (v6): fix one breaking step after another; single (v5): the whole recording at once.")
     parser.add_argument("--only-step", action="store_true",
                         help="Stepwise: python shows only the step to fix, not the recording so far (S, steps 0..k).")
     parser.add_argument("--prepare-only", action="store_true")
@@ -129,8 +127,8 @@ def main() -> int:
             return
         if args.mode == "stepwise":
             runner = StepwiseRun(
-                game, game_dirs[game], model, budget, images=not args.no_images, episode_turns=args.episode_turns,
-                attempts=args.attempts, opening=not args.no_opening, history=not args.only_step,
+                game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening,
+                history=not args.only_step,
             )
         else:
             runner = EngineAgent(game, game_dirs[game], model, budget, images=not args.no_images, opening=not args.no_opening)

@@ -1479,10 +1479,11 @@ class _RecordingModel(_ScriptedModel):
             content = messages[1]["content"]
             self.openings.append(content if isinstance(content, str) else content[0]["text"])
             self.tools = tools
+        self.last_messages = list(messages)
         return super().chat(messages, tools)
 
 
-def test_stepwise_fixes_one_breaking_step_at_a_time(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_stepwise_leads_one_conversation_from_step_to_step(tmp_path: Path, tiny_trace: Trace) -> None:
     import json
 
     from engine_re.agent import Budget, ModelConfig
@@ -1492,45 +1493,43 @@ def test_stepwise_fixes_one_breaking_step_at_a_time(tmp_path: Path, tiny_trace: 
     no_up = SIMPLE_TINY_GAME.replace("DOWN", "1").replace("1: (0, -1)", "1: (0, 0)")
     model = _RecordingModel(
         [
-            [("python", {"code": _rewrite_now(no_up)})],  # conversation 1 (step 0): passes steps 0..0
-            [("python", {"code": "print(step.index, step.level, step.action.id, len(S), S[-1].action == step.action, step.before.shape)"})],
-            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # conversation 2 (step 4)
+            [("python", {"code": "kept = 41\n" + _rewrite_now(no_up)})],  # step 0: passes steps 0..0, the harness moves on
+            [("python", {"code": "print(kept + 1, step.index, step.level, len(S), S[-1].action == step.action)"})],
+            [("finish", {"summary": "nothing yet"})],  # step 4 still fails
+            [("python", {"code": _rewrite_now(SIMPLE_TINY_GAME.replace("DOWN", "1"))})],  # step 4 fixed: the recording passes
         ]
     )
     result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False).run()
-    assert result.status == "passed" and result.turns == 3 and result.engine_changes == 2
-    data = json.loads((tmp_path / "result.json").read_text())
-    assert data["mode"] == "stepwise" and [e["step"] for e in data["episodes"]] == [0, 4]
-    assert [e["fixed"] for e in data["episodes"]] == [True, True] and [e["turns"] for e in data["episodes"]] == [1, 2]
-    assert data["final"]["exact"] == 8 and data["passing_prefix"] == 8
-    # Each conversation asks to fix its step and sees only that step.
-    assert model.openings[0].startswith("Fix the breaking test: step 0.")
-    assert model.openings[1].startswith("Fix the breaking test: step 4.")
-    assert "Steps 0-3 of the recording pass with your engine.py; step 4 is the first that does not." in model.openings[1]
-    assert "Step 4: ACTION1 (up), played in level 0." in model.openings[1]
-    assert "S holds the recording so far, steps 0-4" in model.openings[1]
-    assert "level" not in model.tools[1]["function"]["parameters"]["properties"]
+    assert result.status == "passed" and result.turns == 4 and result.engine_changes == 2
+    assert [(a["fixed"], a["next"]) for a in result.advances] == [(0, 4), (4, None)]
+    assert result.final["exact"] == 8 and result.passing_prefix == 8 and result.mode == "stepwise"
+    # One conversation: one first message, then the harness's message about the next step, in the same history.
+    assert len(model.openings) == 1 and model.openings[0].startswith("Fix the breaking test: step 0.")
+    advance = [m["content"] for m in model.last_messages if m["role"] == "user"][1]
+    advance = advance if isinstance(advance, str) else advance[0]["text"]
+    assert advance.startswith("Steps 0-0 pass. The harness replayed on: steps 1-3 (3 more steps) passed without error. "
+                              "Step 4 is the next that fails.")
+    assert "Step 4: ACTION1 (up), played in level 0" in advance and "S now holds the recording up to step 4" in advance
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
-    outputs = [r["output"] for r in records if r.get("tool") == "python"]
-    assert outputs[1].split() == ["4", "0", "1", "5", "True", "(64,", "64)"]  # the recording so far: steps 0..4
-    assert [r["episode_start"]["step"] for r in records if "episode_start" in r] == [0, 4]
-    assert {r.get("episode") for r in records if "finish_reason" in r} == {1, 2}
+    outputs = [r["output"] for r in records if r.get("tool") in ("python", "finish")]
+    assert outputs[1].split() == ["42", "4", "0", "5", "True"]  # the kernel kept its variables; S grew to step 4
+    assert outputs[2].startswith("Not finished")
+    assert [r["advance"]["next"] for r in records if "advance" in r] == [4]
     tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
-    assert [(t["auto"], t["focus"]) for t in tests] == [("episode", 0), (True, 0), ("episode", 4), (True, 4)]
-    assert len(Trace.load(tmp_path / "episode_trace")) == 5  # the last conversation saw steps 0..4
+    assert [(t["auto"], t["focus"]) for t in tests] == [("episode", 0), (True, 0), ("advance", 4), (False, 4), (True, 4)]
+    assert len(Trace.load(tmp_path / "visible_trace")) == 5  # the model saw steps 0..4, never 5..7
 
 
-def test_stepwise_stops_on_a_step_it_cannot_fix(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_stepwise_has_no_limit_per_step(tmp_path: Path, tiny_trace: Trace) -> None:
+    import json
+
     from engine_re.agent import Budget, ModelConfig
     from engine_re.stepwise import StepwiseRun
 
     tiny_trace.save(tmp_path / "trace")
-    model = _ScriptedModel([[("python", {"code": "print('S' in globals(), step.index)"})], [("python", {"code": "2"})]])
-    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=10), client=model, opening=False,
-                         episode_turns=1, attempts=2, history=False).run()
-    assert result.status == "stuck" and result.turns == 2 and result.final["first_fail"] == 0
-    import json
-
+    model = _ScriptedModel([[("python", {"code": "print('S' in globals(), step.index)"})]] + [[("python", {"code": "1"})]] * 4)
+    result = StepwiseRun("tiny", tmp_path, ModelConfig(), Budget(max_turns=5), client=model, opening=False, history=False).run()
+    assert result.status == "budget_turns" and result.turns == 5 and result.step == 0 and result.final["first_fail"] == 0
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
     assert next(r["output"] for r in records if r.get("tool") == "python").split() == ["False", "0"]  # only the step
 

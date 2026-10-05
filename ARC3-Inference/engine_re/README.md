@@ -148,28 +148,29 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `finish(summary)` always runs the tests (`failures=1`). When
     everything passes the session ends; otherwise it returns the report (with
     its picture) and the session goes on.
-- **The stepwise harness, v6** (`stepwise.py`, `run_experiment --mode stepwise`,
-  the default). The harness drives the work: it replays the whole recording
-  through engine.py and, at the first step k that fails, opens a new
-  conversation whose first message is "Fix the breaking test: step k" (the
-  step's action and level, the test report with its picture, engine.py with
-  the FIXED block folded). In that conversation the kernel shows the recording
-  so far: `S` holds steps 0..k (the recording on disk too; later steps are not
-  loaded), `step` is step k (`.before`, `.action`, `.after`, `.frames`,
-  `.level`) and `summarize_levels()` lists the levels reached; with
-  `--only-step` it shows only `step`. The tests replay steps 0..k. The conversation ends as soon as those pass (by
-  `finish`, `run_tests` or the automatic test after an edit), or after
-  `--episode-turns` turns (20). Then the harness replays again: steps after k
-  that already pass are skipped, and the next breaking step opens the next
-  conversation. Only engine.py (its comments and versions) carries over. A
-  step still broken after `--attempts` conversations (2) ends the run
-  (`stuck`). Files: `episode_trace/` (steps 0..k of the current
-  conversation), `episodes/epNNN.json` and `episodes.jsonl` (one per
-  conversation), `result.json` (`"mode": "stepwise"`, the episodes, the
-  current `episode` and `step`); transcript, tests and images are shared, with
-  an `episode` field. Every step report also says, for a click, which grid
-  cell it lands on and which of the engine's sprites are there (the one
-  `state.sprite_at(*action.cell)` returns marked). `--mode single` runs v5.
+- **The stepwise harness, v6** (`stepwise.py`, the stepwise mode of `agent.py`,
+  `run_experiment --mode stepwise`, the default). The harness leads one
+  conversation from one breaking step to the next. It replays the whole
+  recording through engine.py and, at the first step k that fails, starts the
+  conversation with "Fix the breaking test: step k" (the step's action and
+  level, the test report with its picture, engine.py with the FIXED block
+  folded). The model sees the recording only up to step k: `S` holds steps
+  0..k (so does `visible_trace/` on disk), `step` is step k (`.before`,
+  `.action`, `.after`, `.frames`, `.level`) and `summarize_levels()` lists the
+  levels reached; with `--only-step`, python shows only `step`. Its tests
+  replay steps 0..k. As soon as they pass (by `finish`, `run_tests` or the
+  automatic test after an edit), the harness replays on and adds a user message
+  to the same conversation: steps 0..k pass, how many more steps passed without
+  error, and the next step k' that fails, with its report. The kernel keeps its
+  variables and `S` grows to step k'. There is no limit per step: the run ends
+  when the recording passes, or when a budget runs out, the model stops calling
+  tools, or a request fails for good. `result.json` adds `"mode":
+  "stepwise"`, `step` (the step being fixed), `passing_prefix` (of the last
+  replay) and `advances` (per step fixed: the turn, the step, the next failing
+  step); transcript records carry `step`. Every step report also says, for a
+  click, which grid cell it lands on and which of the engine's sprites are
+  there (the one `state.sprite_at(*action.cell)` returns marked). `--mode
+  single` runs v5.
 - **The opening** (`agent.py`). Before the first turn of a new session the
   harness plays the first round itself: in the kernel, `auto_sprites(0)` makes
   sprite code for level 0's first frame and one `edit()` puts it above

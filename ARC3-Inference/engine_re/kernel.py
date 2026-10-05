@@ -3,7 +3,8 @@
     python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history]]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
-namespace that persists between requests, and writes one JSON reply per line
+namespace that persists between requests (a {"focus": k} request, from the stepwise harness, reloads
+the trace, which now holds steps 0..k, and moves `step` and S to it, keeping everything else), and writes one JSON reply per line
 ({"output": ..., "images": [...]}). As in a notebook, the value of a final
 expression is printed. "images" holds the pictures show() made during the
 request (base64 PNG and caption), for the harness to attach.
@@ -176,6 +177,16 @@ def main() -> int:
         if not line.strip():
             continue
         request = json.loads(line)
+        if "focus" in request:  # the stepwise harness moved on: the trace on disk now ends at the new step
+            helpers.trace = Trace.load(trace_dir)
+            helpers.S = helpers.trace.steps
+            helpers.FOCUS = int(request["focus"])
+            namespace["step"] = builtins["step"] = helpers.StepView(helpers.trace, helpers.FOCUS)
+            if "S" in builtins:
+                namespace["S"] = builtins["S"] = helpers.S
+            protocol.write(json.dumps({"output": "", "images": []}) + "\n")
+            protocol.flush()
+            continue
         output = _run(request["code"], namespace, builtins)
         if len(output) > MAX_OUTPUT_CHARS:
             output = output[: MAX_OUTPUT_CHARS // 2] + "\n...[output truncated]...\n" + output[-MAX_OUTPUT_CHARS // 2 :]
@@ -238,6 +249,21 @@ class KernelClient:
     def _stderr_log(self):
         log_dir = self.workspace.parent
         return open(log_dir / "kernel_stderr.log", "a", encoding="utf-8")  # noqa: SIM115
+
+    def refocus(self, focus: int) -> None:
+        """Stepwise harness: the trace on disk now ends at step `focus`; a running kernel reloads it and
+        moves `step` (and S) there, keeping its variables; a kernel started later starts there."""
+        self.focus = focus
+        if self.proc is None or self.proc.poll() is not None or self.proc.stdin is None or self.proc.stdout is None:
+            return
+        try:
+            self.proc.stdin.write(json.dumps({"focus": focus}) + "\n")
+            self.proc.stdin.flush()
+            ready, _, _ = select.select([self.proc.stdout], [], [], self.timeout)
+            if not ready or not self.proc.stdout.readline():
+                self.stop()
+        except (BrokenPipeError, OSError):
+            self.stop()
 
     def stop(self) -> None:
         if self.proc is not None:
