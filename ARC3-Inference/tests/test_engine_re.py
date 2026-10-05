@@ -108,12 +108,130 @@ def test_animation_frames_are_compared_only_with_match_all(tmp_path: Path) -> No
     assert "frame count" in strict.text
 
 
-def test_skeleton_runs_as_an_engine(tmp_path: Path, tiny_trace: Trace) -> None:
+@pytest.mark.parametrize("interface", ["simple", "arcengine"])
+def test_skeleton_runs_as_an_engine(tmp_path: Path, tiny_trace: Trace, interface: str) -> None:
     from engine_re.skeleton import render_skeleton
 
-    report = replay_test(_engine(tmp_path, render_skeleton("tiny", [1, 2, 3, 4])), tiny_trace, scratch_root=tmp_path)
+    report = replay_test(_engine(tmp_path, render_skeleton("tiny", [1, 2, 3, 4], interface)), tiny_trace, scratch_root=tmp_path)
     assert report.error is None, report.error
     assert "--- Step 0: RESET" in report.text
+    if interface == "simple":
+        assert report.contract_passed == report.contract_total == 6, report.text
+
+
+SIMPLE_TINY_GAME = """
+def make_level(n):
+    return State(
+        grid=(8, 8),
+        sprites=[
+            Sprite([[3] * 64 for _ in range(64)], screen=True, layer=-2, name="border"),
+            Sprite([[0] * 8 for _ in range(8)], layer=-1, name="background"),
+            Sprite([[9]], x=1, y=1, tags=("player",)),
+            Sprite([[5] * 8], x=0, y=0, tags=("wall",)),
+        ],
+    )
+
+
+def step(state, action):
+    moves = {1: (0, -1), 2: (0, DOWN), 3: (-1, 0), 4: (1, 0)}
+    if action.id in moves:
+        player = state.by_tag("player")[0]
+        dx, dy = moves[action.id]
+        player.x += dx
+        player.y += dy
+        if any("wall" in s.tags for s in state.overlapping(player)):
+            player.x -= dx
+            player.y -= dy
+"""
+
+
+def _simple_engine(tmp_path: Path, game_code: str) -> Path:
+    from engine_re.skeleton import render_skeleton
+
+    skeleton = render_skeleton("tiny", [1, 2, 3, 4])
+    source = skeleton[: skeleton.index("# ==== YOUR GAME ====")] + game_code
+    return _engine(tmp_path, source)
+
+
+def test_simple_engine_passes_contract_and_acceptance(tmp_path: Path, tiny_trace: Trace) -> None:
+    report = replay_test(_simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "1")), tiny_trace, scratch_root=tmp_path)
+    assert report.passed, report.text
+    assert report.contract_total and report.contract_passed == report.contract_total
+    assert "Contract tests: 6/6 pass." in report.text
+
+
+def test_simple_engine_divergence_is_located(tmp_path: Path, tiny_trace: Trace) -> None:
+    report = replay_test(_simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2")), tiny_trace, scratch_root=tmp_path)
+    assert not report.passed and report.first_fail == 1
+
+
+def test_contract_catches_an_edited_interface(tmp_path: Path, tiny_trace: Trace) -> None:
+    path = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "1"))
+    path.write_text(path.read_text().replace("    layer: int = 0  # higher", "    layer: int = 1  # higher"), encoding="utf-8")
+    report = replay_test(path, tiny_trace, scratch_root=tmp_path)
+    assert not report.passed
+    assert "FAILED the FIXED INTERFACE block is unchanged" in report.text
+
+
+def test_contract_catches_state_shared_between_levels(tmp_path: Path, tiny_trace: Trace) -> None:
+    shared = SIMPLE_TINY_GAME.replace("DOWN", "1").replace(
+        "def make_level(n):\n    return State(", "SHARED = []\n\n\ndef make_level(n):\n    return SHARED.append(0) or State("
+    ).replace('Sprite([[9]], x=1, y=1, tags=("player",))', "PLAYER")
+    shared = "PLAYER = Sprite([[9]], x=1, y=1, tags=('player',))\n" + shared
+    report = replay_test(_simple_engine(tmp_path, shared), tiny_trace, scratch_root=tmp_path)
+    assert "FAILED make_level(n) builds a fresh state on every call" in report.text
+
+
+def test_render_matches_arcengine_camera() -> None:
+    from arcengine import Camera, Level, Sprite as ArcSprite
+
+    from engine_re.game_api import canonical, render
+
+    api = canonical()
+    arc = [
+        ArcSprite([[7, -1, 7], [7, 7, 7]], name="a", x=-1, y=2, layer=2),
+        ArcSprite([[11] * 4] * 3, name="b", x=7, y=4, layer=1),
+        ArcSprite([[12, 12]], name="c", x=3, y=0, layer=1),
+        ArcSprite([[8]], name="d", x=0, y=0, layer=-3),
+    ]
+    level = Level(sprites=arc, grid_size=(10, 6))
+    camera = Camera(0, 0, 10, 6, background=4, letter_box=2)
+    expected = np.asarray(camera.render(level.get_sprites()))
+    state = api.State(
+        grid=(10, 6),
+        sprites=[
+            api.Sprite([[2] * 64 for _ in range(64)], screen=True, layer=-100),
+            api.Sprite([[4] * 10 for _ in range(6)], layer=-99),
+        ]
+        + [api.Sprite(np.asarray(s.render()).tolist(), x=s.x, y=s.y, layer=s.layer) for s in level.get_sprites()],
+    )
+    assert np.array_equal(render(state), expected)
+
+
+def test_game_runner_follows_the_episode_rules() -> None:
+    import types as _types
+
+    from engine_re.game_api import GameRunner, canonical
+
+    api = canonical()
+
+    def make_level(n):
+        return api.State(grid=(4, 4), sprites=[api.Sprite([[n] * 4 for _ in range(4)])], vars={"n": n})
+
+    def step(state, action):
+        state.status = {1: "level_solved", 2: "game_over"}.get(action.id, "playing")
+
+    runner = GameRunner(_types.SimpleNamespace(make_level=make_level, step=step, Action=api.Action), 2, [1, 2, 3])
+    assert runner.perform(Action(0))["state"] == "NOT_FINISHED"
+    obs = runner.perform(Action(1))
+    assert (obs["levels_completed"], runner.level, int(obs["frames"][-1][0, 0])) == (1, 1, 1)
+    assert runner.perform(Action(2))["state"] == "GAME_OVER"
+    ended = runner.perform(Action(3))
+    assert len(ended["frames"]) == 0 and ended["levels_completed"] == 0 and ended["win_levels"] == 0
+    assert runner.perform(Action(0))["levels_completed"] == 1 and runner.level == 1  # RESET restarts the level
+    assert runner.perform(Action(1))["state"] == "WIN"
+    restarted = runner.perform(Action(0))
+    assert (restarted["levels_completed"], runner.level) == (0, 0)  # RESET after WIN starts over
 
 
 def test_engine_crash_is_reported(tmp_path: Path, tiny_trace: Trace) -> None:
@@ -205,7 +323,7 @@ def test_python_quota_pauses_until_engine_changes(tmp_path: Path, tiny_trace: Tr
             [("python", {"code": "1"})],
             [("python", {"code": "2"})],
             [("python", {"code": "3"})],  # over the quota: paused
-            [("edit_engine", {"old_str": "pass", "new_str": "pass  # changed", "replace_all": True})],
+            [("edit_engine", {"old_str": "# ==== YOUR GAME ====", "new_str": "# ==== YOUR GAME ==== (changed)"})],
             [("python", {"code": "4"})],  # engine changed: runs again
         ]
     )

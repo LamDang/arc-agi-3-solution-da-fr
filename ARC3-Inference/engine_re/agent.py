@@ -203,6 +203,7 @@ class AgentResult:
     auto_tests: int = 0
     python_paused: int = 0
     match: str = "final"
+    interface: str = "simple"
 
 
 class EngineAgent:
@@ -214,9 +215,11 @@ class EngineAgent:
         budget: Budget,
         client: OpenRouterClient | None = None,
         match: str = "final",
+        interface: str = "simple",
     ):
         self.game = game
         self.match = match
+        self.interface = interface
         self.dir = Path(game_dir).resolve()
         self.trace_dir = self.dir / "trace"
         self.workspace = self.dir / "workspace"
@@ -226,7 +229,7 @@ class EngineAgent:
         self.budget = budget
         self.client = client or OpenRouterClient(model)
         self.kernel = KernelClient(self.workspace, self.trace_dir)
-        self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace), match=match)
+        self.result = AgentResult(game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface)
         self.messages: list[dict[str, Any]] = []
         self.finish_requests = 0
         self.best_exact = -1
@@ -432,7 +435,7 @@ class EngineAgent:
     def setup(self) -> None:
         self.workspace.mkdir(parents=True, exist_ok=True)
         if not self.engine_path.exists():
-            self.engine_path.write_text(render_skeleton(self.game, self.trace[0].available_actions), encoding="utf-8")
+            self.engine_path.write_text(render_skeleton(self.game, self.trace[0].available_actions, self.interface), encoding="utf-8")
 
     def run(self) -> AgentResult:
         self.setup()
@@ -444,8 +447,8 @@ class EngineAgent:
                 self.game, self.trace, self.result.turns, _truncate(report.text, 6000), len(engine.splitlines()), self.prior_notes
             )
         else:
-            opening = first_user_message(self.game, self.trace, engine)
-        system = system_prompt(self.match)
+            opening = first_user_message(self.game, self.trace, engine, self.interface)
+        system = system_prompt(self.match, self.interface)
         if self.budget.python_quota is not None:
             system += (
                 f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "

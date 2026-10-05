@@ -8,6 +8,68 @@ from pathlib import Path
 from engine_re.trace import Trace
 
 API_NOTES = (Path(__file__).with_name("api_notes.md")).read_text(encoding="utf-8")
+GAME_NOTES = (Path(__file__).with_name("game_notes.md")).read_text(encoding="utf-8")
+
+INTERFACES = ("simple", "arcengine")
+
+_SIMPLE_PROMPT = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
+You have every action that was played and every frame the real engine returned. Your job is to write a Python module,
+engine.py, that reproduces the game: replaying the recorded actions through it must give the recorded results.
+
+# What you write
+engine.py starts with a FIXED INTERFACE block (the Sprite, Action and State classes, a few pixel helpers, and the rules
+for how a State is drawn). Do not edit that block. Below it you write two functions:
+- make_level(n) -> State: the state at the start of level n: grid size, every sprite (border, background, objects,
+  HUD) and the hidden variables (state.vars). The harness calls it when a level starts and on every RESET.
+- step(state, action): apply one action to the state, in place. Set state.status = "level_solved" or "game_over"
+  when that happens.
+The harness does the rest: drawing, counting completed levels, WIN and GAME_OVER, and turning clicks into grid cells.
+
+# What passing means
+run_tests runs two suites. The contract tests check that the fixed interface is unchanged, that states are valid, that
+make_level builds a fresh state on every call, that step accepts every advertised action, and that the same actions give
+the same result. The acceptance test replays the recorded actions and compares, after every action, the FINAL frame
+(every pixel of your drawn state) and the game state (NOT_FINISHED / WIN / GAME_OVER, levels_completed). Animation
+frames are not compared: do each action's whole effect in one step() call. Look at animation frames only to understand
+what an action does. The goal is "ALL STEPS MATCH" with every contract test passing. The session ends as soon as that
+happens.
+
+# Rules
+- Implement the game's real rules and level data, so that your engine would also be right on actions nobody played.
+  Do not hard-code recorded frames, per-step outputs or anything keyed to the step number or the action history:
+  your engine will later be tested against the real game on new action sequences.
+- engine.py must be self-contained: standard library and numpy only, no file reads. Put level data in the file as
+  Python literals. Generate those literals with the python tool from the recorded frames rather than typing pixels by
+  hand; the python tool may write engine.py (or parts of it) directly.
+- The original game source code is not available anywhere you can reach; do not look for it.
+
+# Tools
+- python: a persistent Python kernel. The recording is loaded as `trace` / `S` (S[i] is step i) with analysis helpers;
+  call help_helpers() to list them. It can also run your engine for debugging (engine, render, new_game, play, replay,
+  compare, check_contract).
+- view_engine, write_engine, edit_engine: read and change engine.py.
+- run_tests: the contract tests, then the acceptance test, reporting the first steps where your engine deviates, with
+  pixel diffs. from_level=L tests only level L onwards (the harness starts at make_level(L)), so you can work on a later
+  level before earlier ones pass.
+- finish: stop, when every step matches or you are truly stuck.
+
+# How to work
+1. Look before you write: summary(), detect_grid(), show() the first frame of each level, components(), and
+   show_step(i) / animation(i) for what each action changed. Work out the logical grid size and scale, the border and
+   background colours, the objects, and the HUD drawn in screen pixels.
+2. Make step 0 (the RESET) match exactly first: grid size, border and background sprites, the level's objects, the
+   HUD. A reliable way to get a layout pixel-exact: downsample the level's first frame to the logical grid
+   (logical(frame, geom)), keep everything that never changes as one background sprite, and make separate sprites only
+   for the things that move, change or get clicked. render(state) draws a State exactly as the harness does.
+3. Then fix the first failing step each time: understand what the action did, implement the rule, re-test. Only the
+   end state of each action counts, so skip animations.
+4. Keep outputs small: print regions and summaries, not whole 64x64 arrays repeatedly.
+5. Write code early and test often: a partial engine plus run_tests tells you exactly what to fix next, faster than
+   more analysis. Every change should move the first mismatch later or fix more steps.
+6. Keep a short notes.md in the workspace with what you have established (geometry, colours, sprites, rules, open
+   questions). Old tool outputs are dropped from your context as it grows; the notes and engine.py persist.
+
+"""
 
 _INTRO = """You are reverse-engineering the game engine of an ARC-AGI-3 game from a recording of someone playing it.
 You have every action that was played and every frame the real engine returned. Your job is to write a Python module,
@@ -77,8 +139,15 @@ _STEP3 = {
 }
 
 
-def system_prompt(match: str = "final") -> str:
-    """The system prompt for a matching rule: "final" (last frame + state per step) or "all" (every frame)."""
+def system_prompt(match: str = "final", interface: str = "simple") -> str:
+    """The system prompt for an engine interface ("simple": make_level/step; "arcengine": an ARCBaseGame
+    subclass) and a matching rule ("final": last frame + state per step; "all": every frame, arcengine only)."""
+    if interface == "simple":
+        if match != "final":
+            raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
+        return _SIMPLE_PROMPT + GAME_NOTES
+    if interface != "arcengine":
+        raise ValueError(f"interface must be one of {INTERFACES}")
     body = _RULES_AND_TOOLS.replace("__STEP3__", _STEP3[match])
     return _INTRO + _PASSING[match] + body + API_NOTES
 
@@ -101,13 +170,19 @@ def describe_trace(trace: Trace) -> str:
     )
 
 
-def first_user_message(game: str, trace: Trace, skeleton: str) -> str:
+def first_user_message(game: str, trace: Trace, skeleton: str, interface: str = "simple") -> str:
+    intro = (
+        "engine.py currently holds this starting module (the fixed interface and empty make_level and step; "
+        "it runs but matches nothing yet):"
+        if interface == "simple"
+        else "engine.py currently holds this skeleton (the structure every real game follows; it runs but matches nothing yet):"
+    )
     return f"""Game: {game}. Reproduce its engine in engine.py.
 
 The recording:
 {describe_trace(trace)}
 
-engine.py currently holds this skeleton (the structure every real game follows; it runs but matches nothing yet):
+{intro}
 
 ```python
 {skeleton}
@@ -201,16 +276,17 @@ TOOLS = [
         "function": {
             "name": "run_tests",
             "description": (
-                "Replay the recorded actions through a fresh instance of engine.py and compare with the recording. "
-                "Reports how many steps match, the first mismatching steps in detail (pixel diffs of the final frame, "
-                "state fields, tracebacks) and the list of all mismatching steps."
+                "Test engine.py: the contract tests (for a make_level/step engine), then the acceptance test, which "
+                "replays the recorded actions through a fresh engine and compares with the recording. Reports how many "
+                "steps match, the first mismatching steps in detail (pixel diffs of the final frame, state fields, "
+                "tracebacks) and the list of all mismatching steps."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "from_level": {
                         "type": "integer",
-                        "description": "Test only level L onwards: the engine starts with set_level(L). Omit for a full replay.",
+                        "description": "Test only level L onwards: the engine starts at level L. Omit for a full replay.",
                     },
                     "details": {"type": "integer", "description": "How many failing steps to explain in detail (default 2, max 6)."},
                 },

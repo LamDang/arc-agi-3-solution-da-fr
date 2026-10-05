@@ -1,15 +1,84 @@
 """The starting engine module handed to the agent.
 
-It has code for only the three things the agent must write (sprites, levels and
-the game's step), and explains the rest in comments: where a game keeps its
-state, how levels are rebuilt on entry and RESET, screen-space UI, and that only
-the final frame of each action is checked. No game-specific content beyond the
-class name and the advertised actions.
+Two interfaces:
+
+- ``simple`` (default): the module defines ``make_level(n)`` and
+  ``step(state, action)`` below a fixed block of ``Sprite``/``Action``/``State``
+  classes (``engine_re.game_api``); the harness renders, counts levels and
+  handles RESET, WIN and GAME_OVER.
+- ``arcengine``: the module is an ``arcengine.ARCBaseGame`` subclass like the
+  real games, with comments explaining state, levels, the HUD and that only the
+  final frame counts.
+
+Neither has game-specific content beyond the game id and the advertised actions.
 """
 
 from __future__ import annotations
 
-TEMPLATE = '''"""Re-implementation of ARC-AGI-3 game "{game}", reverse-engineered from a recorded run.
+from engine_re.game_api import FIXED_INTERFACE
+
+SIMPLE_TEMPLATE = '''"""ARC-AGI-3 game "__GAME__", reverse-engineered from a recorded run.
+
+Write two functions below the fixed interface:
+
+    make_level(n) -> State     the state at the start of level n (0-based)
+    step(state, action)        apply one action to the state, in place
+
+The harness does everything else. It calls make_level when a level starts and on every RESET
+(RESET restarts the current level), calls step for every other action, draws the state (rules in
+the FIXED INTERFACE comment), counts completed levels and ends the game with WIN or GAME_OVER.
+This game advertises actions __ACTIONS__.
+
+How it is tested (run_tests):
+- contract tests: the fixed interface is unchanged, states are valid, make_level builds a fresh
+  state on every call, step accepts every advertised action, the same actions give the same result;
+- acceptance test: the recorded actions are replayed; after each one, your final frame and the game
+  state must equal the recording. Animation frames are not compared.
+
+Keep this file self-contained: no file reads, all level data written in it.
+"""
+
+__FIXED__
+
+
+# ==== YOUR GAME ====
+
+
+def make_level(n: int) -> State:
+    """The state at the start of level n. Called when level n starts and on every RESET, so it must
+    build everything anew: new Sprite objects, new pixel lists, a new vars dict."""
+    return State(
+        grid=(64, 64),  # logical grid (width, height)
+        sprites=[
+            # Sprite([[5] * 64 for _ in range(64)], screen=True, layer=-2, name="border"),  # around the grid
+            # Sprite([[0] * 64 for _ in range(64)], layer=-1, name="background"),  # fills the grid
+            # Sprite([[9]], x=1, y=1, layer=1, tags=("player",)),
+            # Sprite([[11] * 32], x=16, y=63, screen=True, layer=9, tags=("budget",)),  # HUD, screen pixels
+        ],
+        vars={},  # hidden state, e.g. {"budget": 32}
+    )
+
+
+def step(state: State, action: Action) -> None:
+    """Apply `action` to `state` in place: its whole effect, as seen in the action's final frame.
+
+    Change sprites (move, recolour, show, hide, add, remove), state.vars and the HUD sprites.
+    Set state.status = "level_solved" when the level is solved (the harness then shows the next
+    level, or ends the game with WIN after the last one), or "game_over" when the game is lost.
+    """
+    # player = state.by_tag("player")[0]
+    # if action.id in (1, 2, 3, 4):
+    #     dx, dy = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}[action.id]
+    #     player.x += dx
+    #     player.y += dy
+    #     if any("wall" in s.tags for s in state.overlapping(player)):
+    #         player.x -= dx  # blocked: undo the move
+    #         player.y -= dy
+    # elif action.id == 6 and action.cell is not None:
+    #     clicked = state.at(*action.cell)  # sprites under the click, topmost first
+'''
+
+ARCENGINE_TEMPLATE = '''"""Re-implementation of ARC-AGI-3 game "{game}", reverse-engineered from a recorded run.
 
 What is tested: a fresh {cls}() replays the recorded actions (step 0 is RESET). After every action,
 the LAST frame your engine returns must equal the recorded final frame, and state, levels_completed,
@@ -129,5 +198,13 @@ def class_name(game: str) -> str:
     return game[:4].capitalize()
 
 
-def render_skeleton(game: str, available_actions: list[int]) -> str:
-    return TEMPLATE.format(game=game[:4], cls=class_name(game), actions=list(available_actions))
+def render_skeleton(game: str, available_actions: list[int], interface: str = "simple") -> str:
+    if interface == "simple":
+        return (
+            SIMPLE_TEMPLATE.replace("__GAME__", game[:4])
+            .replace("__ACTIONS__", str(list(available_actions)))
+            .replace("__FIXED__", FIXED_INTERFACE)
+        )
+    if interface == "arcengine":
+        return ARCENGINE_TEMPLATE.format(game=game[:4], cls=class_name(game), actions=list(available_actions))
+    raise ValueError(f"unknown interface {interface!r}")

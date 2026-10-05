@@ -14,6 +14,7 @@ from typing import Any, Callable, Iterable
 
 import numpy as np
 
+from engine_re import game_api
 from engine_re.trace import Action, Step, Trace, new_game as _instantiate, perform
 
 HEX = "0123456789abcdef"
@@ -49,10 +50,14 @@ logical(grid, geom)           downsample a screen frame to the logical grid
 screen_to_grid(x, y, geom) / grid_to_screen(gx, gy, geom)   coordinate conversion
 find_steps(pred)              indices of steps with pred(step) True
 level_starts()                level -> first step whose final frame shows it
-new_game()                    load engine.py fresh and return an instance (for debugging)
+new_game()                    load engine.py fresh and return a game to play (for debugging)
 play(game, action_or_step)    perform an Action (or step index) on a game; returns observation
 replay(n, start_level=None)   new_game() + play the actions of the first n steps (or a level's steps)
-compare(i, obs)               diff an observation from play()/replay() against step i"""
+compare(i, obs)               diff an observation from play()/replay() against step i
+engine()                      load engine.py fresh and return it as a module (engine().make_level(0), ...)
+render(state)                 draw a State as a 64x64 frame, exactly as the harness does
+game.state                    after play()/replay() on a make_level/step engine: the current State
+check_contract()              run the contract tests on engine.py (run_tests runs them too)"""
     )
 
 
@@ -262,16 +267,39 @@ def level_starts() -> dict[int, int]:
 # --- Running your engine in this kernel ---------------------------------------
 
 
-def new_game() -> Any:
-    """Load engine.py fresh and return a new instance of its game class."""
-    from arcengine import ARCBaseGame
-
+def engine() -> types.ModuleType:
+    """Load engine.py fresh and return it as a module."""
     name = "candidate_engine_dev"
     source = ENGINE_PATH.read_text(encoding="utf-8")
     module = types.ModuleType(name)
     module.__file__ = str(ENGINE_PATH)
     sys.modules[name] = module
-    exec(compile(source, str(ENGINE_PATH), "exec"), module.__dict__)
+    exec(compile(source, str(ENGINE_PATH), "exec", dont_inherit=True), module.__dict__)
+    return module
+
+
+def render(state: Any) -> np.ndarray:
+    """Draw a State as a 64x64 frame, exactly as the harness does."""
+    return game_api.render(state)
+
+
+def check_contract() -> None:
+    """Run the contract tests on engine.py and print the result."""
+    source = ENGINE_PATH.read_text(encoding="utf-8")
+    meta_levels = sorted(level for level in trace.level_starts() if level < S[0].win_levels)
+    results = game_api.contract_checks(engine(), source, levels=meta_levels, available_actions=list(S[0].available_actions))
+    print(game_api.describe_contract(results))
+
+
+def new_game() -> Any:
+    """Load engine.py fresh and return a game to play: a GameRunner for a make_level/step
+    engine (its .state is the current State), or an instance of an ARCBaseGame subclass."""
+    from arcengine import ARCBaseGame
+
+    module = engine()
+    if game_api.is_simple_engine(module):
+        return game_api.GameRunner(module, S[0].win_levels, S[0].available_actions)
+    name = module.__name__
     classes = [o for o in vars(module).values() if isinstance(o, type) and issubclass(o, ARCBaseGame) and o is not ARCBaseGame and o.__module__ == name]
     if not classes:
         raise TypeError("engine.py defines no ARCBaseGame subclass")
@@ -284,6 +312,8 @@ def play(game: Any, action: Action | int) -> dict[str, Any]:
     dict: frames, state, levels_completed, win_levels, available_actions."""
     if isinstance(action, (int, np.integer)):
         action = S[int(action)].action
+    if isinstance(game, game_api.GameRunner):
+        return game.perform(action)
     return perform(game, action)
 
 
@@ -297,7 +327,10 @@ def replay(n: int | None = None, start_level: int | None = None) -> tuple[Any, l
     if start_level:
         entry = trace.level_starts()[start_level]
         game.set_level(start_level)
-        game._score = start_level
+        if isinstance(game, game_api.GameRunner):
+            game.score = start_level
+        else:
+            game._score = start_level
         steps = S[entry + 1 :]
     if n is not None:
         steps = steps[:n]

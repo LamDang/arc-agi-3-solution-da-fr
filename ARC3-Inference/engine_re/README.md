@@ -35,25 +35,30 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   exactly; the replay is checked against the board the run logged after every
   action. The replay also recovers what the logs drop: every animation frame.
   RESET restarts the current level, as in the harness (`ONLY_RESET_LEVELS=true`).
-- **Interface** (`skeleton.py`, `api_notes.md`). The engine is a module with one
-  `arcengine.ARCBaseGame` subclass, the same interface as the real games: the
-  harness calls `perform_action` and compares what it returns. The skeleton
-  has code only for what the agent writes: tagged sprite prototypes, levels
-  built from clones of them plus a `data` dict, `on_set_level` and `step` (with
-  the library's `try_move_sprite` collision). Comments explain the rest: where
-  visible and hidden state live, how entering a level or RESET rebuilds it
-  from a pristine copy, screen-space UI, and that only the final frame counts.
-  Nothing game-specific beyond the class name and the advertised actions. The
-  API notes describe arcengine's fixed main loop, sprites, levels and camera,
-  plus the primitives table.
+- **Interface** (`game_api.py`, `skeleton.py`, `game_notes.md`; `--interface`).
+  By default (`simple`) engine.py is a plain module: a fixed block defining
+  `Sprite`, `Action` and `State` (plus pixel helpers and the drawing rules),
+  which the agent must not edit, and two functions the agent writes:
+  `make_level(n) -> State` (grid size, all sprites including border,
+  background and HUD, and hidden `vars`) and `step(state, action)`, which
+  changes the state in place and sets `state.status` to `"level_solved"` or
+  `"game_over"`. The harness renders states (identical to arcengine's camera
+  on all 34 level starts of the five games), turns clicks into grid cells,
+  and applies arcengine's episode rules (RESET restarts the level, level
+  changes, WIN, GAME_OVER) in `GameRunner`, so the tester, sandbox and
+  evaluation work unchanged. `--interface arcengine` keeps the earlier
+  setup: an `ARCBaseGame` subclass with `api_notes.md` in the prompt.
 - **Tools** (`agent.py`, `prompts.py`):
   - `python`: a persistent kernel with the trace loaded as `trace` / `S` and
     analysis helpers (`helpers.py`: summaries, hex region views, frame diffs,
     animation diffs, connected components, logical-grid detection, and
     running the engine in-process with `new_game` / `replay` / `compare`).
   - `view_engine`, `write_engine`, `edit_engine`: read and change `engine.py`.
-  - `run_tests(from_level=None, details=2)`: full replay, or one level onwards
-    (the engine starts at `set_level(L)`), reporting matching steps, the first
+  - `run_tests(from_level=None, details=2)`: for a `simple` engine first the
+    contract tests (interface unchanged, valid states, a fresh state on every
+    `make_level` call, every advertised action accepted, determinism), then the
+    acceptance test: a full replay, or one level onwards (the engine starts at
+    level L), reporting matching steps, the first
     mismatch with side-by-side pixel crops of the final frame, state fields,
     tracebacks, and the list of all mismatching steps.
   - `finish(summary)`.

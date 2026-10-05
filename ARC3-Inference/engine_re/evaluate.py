@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 
 from engine_re.guard import scan_engine_source
-from engine_re.tester import check_step, replay_test, run_candidate
+from engine_re.tester import check_step, replay_test, run_candidate, trace_meta
 from engine_re.trace import Action, Step, Trace, find_game_file, load_game_class, new_game, perform
 
 
@@ -112,7 +112,9 @@ def evaluate_game(
         recorded = trace.actions[: entry + 1]
         for _ in range(rollouts):
             actions, real_steps = real_rollout(game_cls, recorded, random_actions(trace, level, length, rng), max_level)
-            result, frames = run_candidate(engine_path, [a.to_json() for a in recorded + actions], scratch_root=game_dir)
+            result, frames = run_candidate(
+                engine_path, [a.to_json() for a in recorded + actions], scratch_root=game_dir, meta=trace_meta(trace)
+            )
             got, frames = result.get("steps", [])[len(recorded) :], frames[len(recorded) :]
             checks = [
                 check_step(step, got[k] if k < len(got) else None, frames[k] if k < len(frames) else None, match)

@@ -32,6 +32,7 @@ from typing import Any
 
 import numpy as np
 
+from engine_re.game_api import describe_contract
 from engine_re.guard import sandbox_env
 from engine_re.trace import Step, Trace
 
@@ -63,10 +64,13 @@ class TestReport:
     checks: list[StepCheck]
     text: str = ""
     match: str = "final"
+    contract_passed: int | None = None  # simple-interface engines only
+    contract_total: int | None = None
 
     @property
     def passed(self) -> bool:
-        return self.exact == self.total and self.error is None
+        contract_ok = self.contract_total is None or self.contract_passed == self.contract_total
+        return self.exact == self.total and self.error is None and contract_ok
 
     def summary(self) -> dict[str, Any]:
         out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text")}
@@ -77,6 +81,17 @@ class TestReport:
 # --- Running the candidate ----------------------------------------------------
 
 
+def trace_meta(trace: Trace) -> dict[str, Any]:
+    """What a make_level/step engine needs from the recording: win levels, the advertised
+    actions and the levels the recording reaches (for the contract tests)."""
+    win = trace[0].win_levels
+    return {
+        "win_levels": win,
+        "available_actions": list(trace[0].available_actions),
+        "levels": sorted(level for level in trace.level_starts() if level < win),
+    }
+
+
 def run_candidate(
     engine_path: Path,
     actions: list[dict[str, Any]],
@@ -85,6 +100,7 @@ def run_candidate(
     step_timeout: float = 5.0,
     total_timeout: float = 900.0,
     scratch_root: Path | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[np.ndarray]]:
     """Run the engine on ``actions`` in a sandboxed process.
 
@@ -108,6 +124,15 @@ def run_candidate(
         ]
         if start_level is not None:
             cmd += ["--start-level", str(start_level)]
+        if meta:
+            cmd += [
+                "--win-levels",
+                str(meta["win_levels"]),
+                "--available-actions",
+                json.dumps(meta["available_actions"]),
+                "--levels",
+                json.dumps(meta.get("levels", [0])),
+            ]
         try:
             proc = subprocess.run(
                 cmd, cwd=scratch, env=sandbox_env(str(scratch)), capture_output=True, text=True, timeout=total_timeout
@@ -306,7 +331,10 @@ def replay_test(
         mode = f"full replay: a fresh engine plays steps 0-{len(trace) - 1}"
         start_level = None
     actions = [s.action.to_json() for s in steps]
-    result, got_frames = run_candidate(engine_path, actions, start_level=start_level, scratch_root=scratch_root)
+    result, got_frames = run_candidate(
+        engine_path, actions, start_level=start_level, scratch_root=scratch_root, meta=trace_meta(trace)
+    )
+    contract = result.get("contract")
     got_steps = result.get("steps", [])
 
     checks = []
@@ -325,12 +353,16 @@ def replay_test(
         start_frame_diff = 0 if d is None else d["count"]
 
     lines = [f"TEST RESULT ({mode})"]
+    if contract:
+        lines.append(describe_contract(contract))
+        lines.append("  Acceptance test (replay of the recording):")
     if match == "final":
         lines.append(f"  {exact}/{len(steps)} steps match (final frame and state; animation frames are not compared).")
     else:
         lines.append(f"  {exact}/{len(steps)} steps match exactly; {final}/{len(steps)} final frames match.")
     if first_fail is None and result.get("error") is None:
-        lines.append("  ALL STEPS MATCH.")
+        contract_failures = sum(not c["ok"] for c in contract or [])
+        lines.append("  ALL STEPS MATCH." if not contract_failures else "  All steps match, but the contract tests above must pass too.")
     elif first_fail is not None:
         ok_prefix = first_fail - steps[0].index
         lines.append(f"  First mismatch at step {first_fail} (the {ok_prefix} step(s) before it match).")
@@ -387,4 +419,6 @@ def replay_test(
         checks=checks,
         text="\n".join(lines),
         match=match,
+        contract_passed=sum(c["ok"] for c in contract) if contract else None,
+        contract_total=len(contract) if contract else None,
     )
