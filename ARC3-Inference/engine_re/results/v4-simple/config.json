@@ -1,0 +1,17 @@
+{
+  "run_dir": "runs/20261004_135539",
+  "games": "ls20,ft09,vc33,sp80,lp85",
+  "out": "runs/engine-re/qwen38flash-v4-simple-run20261004_135539",
+  "environments_dir": "environment_files",
+  "model": "qwen/qwen3.8-flash",
+  "max_turns": 300,
+  "max_output_tokens": 1500000,
+  "max_cost": 6.0,
+  "max_minutes": 115.0,
+  "python_quota": null,
+  "max_steps": null,
+  "match": "final",
+  "interface": "simple",
+  "prepare_only": false,
+  "started": "2026-10-05T05:37:44"
+}

@@ -1,0 +1,32 @@
+TEST RESULT (full replay: a fresh engine plays steps 0-331)
+  Contract tests: 5/5 pass.
+  Acceptance test (replay of the recording):
+  5/332 steps match (final frame and state; animation frames are not compared).
+  First mismatch at step 2 (the 2 step(s) before it match).
+  Per level (by levels_completed before the step): level 0 (steps 0-7): 3/8; level 1 (steps 8-19): 2/12; level 2 (steps 20-43): 0/24; level 3 (steps 44-73): 0/30; level 4 (steps 74-208): 0/135; level 5 (steps 209-245): 0/37; level 6 (steps 246-331): 0/86
+  Mismatch kinds over all steps: final frame x327, levels_completed x289, state x1
+--- Step 2: ACTION6(x=40, y=10)   (levels_completed before the step: 0)
+    expected: state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    got:      state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    final frame: 1 pixels differ in rows 0-0, cols 61-61 (expected->got colour: 4->7 x1)
+    rows 0-1, cols 60-62 (one hex digit per pixel = colour 0-15)
+    row  expected  got  diff (x = differs)
+      0  744  774  .x.
+      1  000  000  ...
+--- Step 3: ACTION6(x=61, y=33)   (levels_completed before the step: 0)
+    expected: state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    got:      state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    final frame: 1 pixels differ in rows 0-0, cols 60-60 (expected->got colour: 4->7 x1)
+    rows 0-1, cols 59-61 (one hex digit per pixel = colour 0-15)
+    row  expected  got  diff (x = differs)
+      0  744  774  .x.
+      1  000  000  ...
+--- Step 4: ACTION6(x=61, y=25)   (levels_completed before the step: 0)
+    expected: state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    got:      state=NOT_FINISHED, levels_completed=0, win_levels=7, available_actions=[6]
+    final frame: 1 pixels differ in rows 0-0, cols 59-59 (expected->got colour: 4->7 x1)
+    rows 0-1, cols 58-60 (one hex digit per pixel = colour 0-15)
+    row  expected  got  diff (x = differs)
+      0  744  774  .x.
+      1  000  000  ...
+  All mismatching steps: 2-6, 9-18, 20-331
