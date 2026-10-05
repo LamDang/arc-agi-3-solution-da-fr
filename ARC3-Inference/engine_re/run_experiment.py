@@ -100,6 +100,11 @@ def main() -> int:
         default=None,
         help="Comma-separated OpenRouter providers to use, in order, with no fallback (e.g. z-ai). Default: OpenRouter routes.",
     )
+    parser.add_argument("--reasoning-effort", default=None,
+                        help="OpenRouter reasoning.effort, e.g. low, medium, high. Default: the provider's.")
+    parser.add_argument("--temperature", type=float, default=ModelConfig.temperature)
+    parser.add_argument("--top-p", type=float, default=ModelConfig.top_p)
+    parser.add_argument("--top-k", type=int, default=None, help="Default: not sent (the provider's).")
     parser.add_argument("--mode", choices=("stepwise", "single"), default="stepwise",
                         help="stepwise (v6): fix one breaking step after another; single (v5): the whole recording at once.")
     parser.add_argument("--only-step", action="store_true",
@@ -117,7 +122,8 @@ def main() -> int:
         return 0
 
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
-    model = ModelConfig(model=args.model, providers=providers)
+    model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
+                        top_k=args.top_k, reasoning_effort=args.reasoning_effort)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes, args.python_quota)
 
     def work(game: str) -> None:

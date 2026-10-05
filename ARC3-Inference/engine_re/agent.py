@@ -160,6 +160,10 @@ class ModelConfig:
     top_p: float = 0.95
     max_tokens: int = 32768
     reasoning: bool = True
+    # OpenRouter's reasoning.effort ("low", "medium", "high", ...); None leaves the provider's default.
+    reasoning_effort: str | None = None
+    # None: not sent (the provider's default).
+    top_k: int | None = None
     # Above this prompt size, old tool outputs are elided from the history.
     compact_prompt_tokens: int = 140_000
     keep_recent_tool_outputs: int = 8
@@ -236,6 +240,10 @@ class OpenRouterClient:
             "reasoning": {"enabled": self.config.reasoning},
             "usage": {"include": True},
         }
+        if self.config.reasoning and self.config.reasoning_effort:
+            payload["reasoning"] = {"effort": self.config.reasoning_effort}
+        if self.config.top_k is not None:
+            payload["top_k"] = self.config.top_k
         if self.config.providers:
             payload["provider"] = {"order": list(self.config.providers), "allow_fallbacks": False}
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}

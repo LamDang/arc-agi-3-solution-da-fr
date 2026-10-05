@@ -1466,6 +1466,34 @@ def test_openrouter_client_can_pin_providers(monkeypatch):
         assert sent[-1].get("provider") == expected
 
 
+
+def test_openrouter_client_sends_reasoning_effort_and_sampling(monkeypatch):
+    from engine_re import agent as agent_mod
+
+    sent = []
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"finish_reason": "stop", "message": {"content": "ok"}}], "usage": {}}
+
+    def post(*args, **kwargs):
+        sent.append(kwargs["json"])
+        return Resp()
+
+    client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(), api_key="test")
+    monkeypatch.setattr(client.session, "post", post)
+    client.chat([], [])
+    assert sent[-1]["reasoning"] == {"enabled": True} and "top_k" not in sent[-1]
+
+    config = agent_mod.ModelConfig(reasoning_effort="low", temperature=1.0, top_p=0.95, top_k=20)
+    client = agent_mod.OpenRouterClient(config, api_key="test")
+    monkeypatch.setattr(client.session, "post", post)
+    client.chat([], [])
+    assert sent[-1]["reasoning"] == {"effort": "low"}
+    assert (sent[-1]["temperature"], sent[-1]["top_p"], sent[-1]["top_k"]) == (1.0, 0.95, 20)
+
 # --- The stepwise harness (v6) ----------------------------------------------------------------
 
 

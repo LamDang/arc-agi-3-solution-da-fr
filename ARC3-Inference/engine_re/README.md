@@ -305,6 +305,12 @@ rate limits (HTTP 429), gateway errors and failed connections wait and retry wit
 `ARC3_HTTP_RETRY_MAX_SECONDS` set the waits). Answers the provider ends with `finish_reason: error`, and
 reads that stall, are asked again up to 20 times.
 
+Sampling: `--temperature` (default 0.7), `--top-p` (0.95), `--top-k` (not sent by default) and
+`--reasoning-effort` (OpenRouter's `reasoning.effort`, e.g. `low` or `medium`; by default only
+`reasoning.enabled` is sent and the provider picks the effort). Qwen's card for its 3.8 Flash models
+recommends temperature 1.0, top_p 0.95, top_k 20 with thinking on. The values used are in the run's
+`config.json`.
+
 `run_experiment --no-images` gives text-only feedback (test reports and `show_frames()` print hex
 digits), for models without image input.
 
