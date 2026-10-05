@@ -2491,3 +2491,44 @@ def test_interior_or_two_border_pixels_still_fail(tmp_path: Path, tiny_trace: Tr
     assert not inside.passed and inside.first_fail == 3 and inside.tolerated == []
     two = replay_test(engine, _trace_with_pixel(tiny_trace, 3, 0, 5, n=2), scratch_root=tmp_path)
     assert not two.passed and two.first_fail == 3 and "tolerated" not in two.text
+
+
+def test_the_thinking_budget_goes_into_the_request_body(monkeypatch) -> None:
+    import sys
+
+    from engine_re import run_experiment
+    from engine_re.agent import NO_BUDGET_WARNING, ModelConfig, OpenRouterClient, thinking_budget_warning
+
+    messages, tool_list = [{"role": "user", "content": "hi"}], []
+    body = OpenRouterClient(ModelConfig(thinking_budget=1024), api_key="test").body(messages, tool_list)
+    assert body["reasoning"] == {"max_tokens": 1024}
+    plain = OpenRouterClient(ModelConfig(), api_key="test").body(messages, tool_list)
+    assert plain["reasoning"] == {"enabled": True} and "max_tokens" not in plain["reasoning"]
+    effort = OpenRouterClient(ModelConfig(reasoning_effort="low"), api_key="test").body(messages, tool_list)
+    assert effort["reasoning"] == {"effort": "low"}
+    # A budget and an effort together are refused, by the config and by run_experiment.
+    with pytest.raises(ValueError, match="cannot be combined"):
+        ModelConfig(thinking_budget=1024, reasoning_effort="low")
+    with pytest.raises(ValueError, match="positive"):
+        ModelConfig(thinking_budget=0)
+    monkeypatch.setattr(sys, "argv", ["run_experiment", "--run-dir", "r", "--games", "g", "--out", "o",
+                                      "--thinking-budget", "1024", "--reasoning-effort", "low"])
+    with pytest.raises(SystemExit) as exit_info:
+        run_experiment.main()
+    assert exit_info.value.code == 2
+
+    # The model listing: a warning only for a model whose reasoning settings do not say supports_max_tokens.
+    listing = {"data": [
+        {"id": "a/budget", "reasoning": {"mandatory": False, "supports_max_tokens": True}},
+        {"id": "b/efforts", "reasoning": {"mandatory": True, "supported_efforts": ["max", "high", "low"]}},
+        {"id": "c/none", "reasoning": None},
+    ]}
+    assert thinking_budget_warning("a/budget", 1024, fetch=lambda: listing) is None
+    assert thinking_budget_warning("b/efforts", 1024, fetch=lambda: listing) == NO_BUDGET_WARNING.format(model="b/efforts", budget=1024)
+    assert thinking_budget_warning("c/none", 1024, fetch=lambda: listing) is None
+    assert thinking_budget_warning("d/missing", 1024, fetch=lambda: listing) is None
+
+    def offline():
+        raise OSError("no network")
+
+    assert thinking_budget_warning("b/efforts", 1024, fetch=offline) is None

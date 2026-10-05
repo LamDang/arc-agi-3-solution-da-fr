@@ -102,6 +102,9 @@ def main() -> int:
     )
     parser.add_argument("--reasoning-effort", default=None,
                         help="OpenRouter reasoning.effort, e.g. low, medium, high. Default: the provider's.")
+    parser.add_argument("--thinking-budget", type=int, default=None,
+                        help="OpenRouter reasoning.max_tokens: at most N thinking tokens per answer. Default: no limit. "
+                             "Not together with --reasoning-effort.")
     parser.add_argument("--temperature", type=float, default=ModelConfig.temperature)
     parser.add_argument("--top-p", type=float, default=ModelConfig.top_p)
     parser.add_argument("--top-k", type=int, default=None, help="Default: not sent (the provider's).")
@@ -118,6 +121,11 @@ def main() -> int:
                              "commands included); the older ones lose them.")
     parser.add_argument("--prepare-only", action="store_true")
     args = parser.parse_args()
+    if args.thinking_budget is not None and args.reasoning_effort:
+        parser.error("--thinking-budget and --reasoning-effort cannot be combined: OpenRouter takes a thinking budget "
+                     "(reasoning.max_tokens) or an effort (reasoning.effort), not both")
+    if args.thinking_budget is not None and args.thinking_budget <= 0:
+        parser.error("--thinking-budget must be a positive number of tokens")
 
     games = [g.strip() for g in args.games.split(",") if g.strip()]
     args.out.mkdir(parents=True, exist_ok=True)
@@ -130,7 +138,7 @@ def main() -> int:
 
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
     model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
-                        top_k=args.top_k, reasoning_effort=args.reasoning_effort,
+                        top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget,
                         context="condense" if args.condense else "compact", condense_keep_turns=args.condense_keep_turns)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes, args.python_quota)
 

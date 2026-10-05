@@ -465,6 +465,15 @@ Sampling: `--temperature` (default 0.7), `--top-p` (0.95), `--top-k` (not sent b
 recommends temperature 1.0, top_p 0.95, top_k 20 with thinking on. The values used are in the run's
 `config.json`.
 
+Thinking budget: `--thinking-budget N` (`ModelConfig.thinking_budget`, None by default: no limit) sends
+OpenRouter's `reasoning: {"max_tokens": N}`, at most N thinking tokens per answer, then the answer as usual.
+It cannot be combined with `--reasoning-effort` (OpenRouter takes one or the other; `run_experiment` exits
+with an error, `ModelConfig` raises). It is kept in `config.json` (`thinking_budget`) and `result.json`
+(`thinking_budget`). When a budget is set, the agent reads OpenRouter's public model listing once at start
+and prints a one-line warning when the model's `reasoning` settings do not say `supports_max_tokens: true`
+(models that only list efforts): the budget may then be ignored or mapped to an effort level. The run goes
+on either way, and a listing that cannot be read is ignored.
+
 `run_experiment --no-images` gives text-only feedback (test reports and `show_frames()` print hex
 digits), for models without image input.
 

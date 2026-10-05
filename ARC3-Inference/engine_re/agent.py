@@ -96,6 +96,11 @@ from engine_re.tester import MAX_FAILURES, replay_test
 from engine_re.trace import Trace
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"  # public: no key needed
+NO_BUDGET_WARNING = (
+    "[{model}] warning: this model advertises no thinking-token budget on OpenRouter (its reasoning settings lack "
+    "supports_max_tokens), so the thinking budget of {budget} tokens may be ignored or mapped to an effort level."
+)
 TOOL_OUTPUT_CHARS = 8000
 # Turns without a run_tests call after which the harness reminds the model to
 # write what it knows into engine.py and test it (and again every as many turns).
@@ -217,6 +222,9 @@ class ModelConfig:
     reasoning: bool = True
     # OpenRouter's reasoning.effort ("low", "medium", "high", ...); None leaves the provider's default.
     reasoning_effort: str | None = None
+    # OpenRouter's reasoning.max_tokens: at most this many thinking tokens per answer; None: no limit. Not together
+    # with reasoning_effort (OpenRouter takes one or the other).
+    thinking_budget: int | None = None
     # None: not sent (the provider's default).
     top_k: int | None = None
     # Above this prompt size, old tool outputs are elided from the history.
@@ -237,6 +245,13 @@ class ModelConfig:
     context: str = "compact"
     condense_keep_turns: int = 10
     condense_chars_per_token: float = 3.0
+
+    def __post_init__(self) -> None:
+        if self.thinking_budget is not None:
+            if self.reasoning_effort:
+                raise ValueError("a thinking budget (reasoning.max_tokens) and a reasoning effort cannot be combined: give one")
+            if int(self.thinking_budget) <= 0:
+                raise ValueError(f"the thinking budget must be a positive number of tokens, got {self.thinking_budget}")
 
 
 @dataclass
@@ -322,8 +337,9 @@ class OpenRouterClient:
         self.session = requests.Session()
         self.provider_errors: list[str] = []  # answers that failed at the provider (or stalled), asked again
 
-    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
-        payload = {
+    def body(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+        """The request body sent to OpenRouter."""
+        payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": messages,
             "tools": tools,
@@ -334,12 +350,18 @@ class OpenRouterClient:
             "reasoning": {"enabled": self.config.reasoning},
             "usage": {"include": True},
         }
-        if self.config.reasoning and self.config.reasoning_effort:
+        if self.config.reasoning and self.config.thinking_budget is not None:
+            payload["reasoning"] = {"max_tokens": int(self.config.thinking_budget)}
+        elif self.config.reasoning and self.config.reasoning_effort:
             payload["reasoning"] = {"effort": self.config.reasoning_effort}
         if self.config.top_k is not None:
             payload["top_k"] = self.config.top_k
         if self.config.providers:
             payload["provider"] = {"order": list(self.config.providers), "allow_fallbacks": False}
+        return payload
+
+    def chat(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+        payload = self.body(messages, tools)
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         error = ""
         for attempt in range(PROVIDER_ERROR_RETRIES):
@@ -373,6 +395,31 @@ class OpenRouterClient:
 
 
 
+_BUDGET_CHECKED: dict[tuple[str, int], str | None] = {}  # (model, budget) -> the warning, once per process
+
+
+def thinking_budget_warning(model: str, budget: int, fetch: Any = None) -> str | None:
+    """A one-line warning when OpenRouter's model listing gives `model` reasoning settings without
+    supports_max_tokens: true (the budget may then be ignored or mapped to an effort). None when it supports one,
+    when the model is not listed or has no reasoning settings, and when the listing cannot be read. `fetch` returns
+    the listing's JSON (by default a GET of OPENROUTER_MODELS_URL)."""
+
+    def get() -> Any:
+        resp = requests.get(OPENROUTER_MODELS_URL, timeout=20)
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        listing = (fetch or get)()
+        entry = next((m for m in listing.get("data") or [] if m.get("id") == model), None)
+    except Exception:  # noqa: BLE001  (only a warning: a failed lookup says nothing)
+        return None
+    reasoning = (entry or {}).get("reasoning")
+    if isinstance(reasoning, dict) and reasoning.get("supports_max_tokens") is not True:
+        return NO_BUDGET_WARNING.format(model=model, budget=budget)
+    return None
+
+
 @dataclass
 class AgentResult:
     game: str
@@ -403,6 +450,7 @@ class AgentResult:
     opening: dict = field(default_factory=dict)  # the harness's first round: exact, first_fail, or error
     mode: str = "single"  # "stepwise": one conversation led from one breaking step to the next
     context: str = "compact"  # "compact" | "condense": ModelConfig.context, how the conversation was bounded
+    thinking_budget: int | None = None  # ModelConfig.thinking_budget (reasoning.max_tokens); None: no limit
     step: int | None = None  # stepwise: the step being fixed
     passing_prefix: int | None = None  # stepwise: steps passing in order in the last replay of the recording
     # stepwise: one per accepted commit: {"turn", "fixed", "next", "message", "engine_sha", "version"}
@@ -450,7 +498,7 @@ class EngineAgent:
         self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, history=history)
         self.result = AgentResult(
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images,
-            mode="stepwise" if stepwise else "single", context=model.context,
+            mode="stepwise" if stepwise else "single", context=model.context, thinking_budget=model.thinking_budget,
         )
         if model.context not in ("compact", "condense"):
             raise ValueError(f"ModelConfig.context must be 'compact' or 'condense', got {model.context!r}")
@@ -1221,6 +1269,13 @@ class EngineAgent:
         self.setup()
         self.started = time.time()
         resumed = False
+        budget = self.model.thinking_budget
+        if budget is not None:  # does OpenRouter say the model takes a thinking budget? (once per process)
+            key = (self.model.model, int(budget))
+            if key not in _BUDGET_CHECKED:
+                _BUDGET_CHECKED[key] = thinking_budget_warning(*key)
+                if _BUDGET_CHECKED[key]:
+                    print(_BUDGET_CHECKED[key], flush=True)
         if self.stepwise:
             if self._restore():  # the totals of an interrupted run; then its conversation, when it can be continued
                 self._replay_all()
