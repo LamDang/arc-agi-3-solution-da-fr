@@ -24,14 +24,16 @@ Write two functions below the fixed interface:
     make_level(n) -> State     the state at the start of level n (0-based)
     step(state, action)        apply one action to the state, in place
 
-The harness does everything else. It calls make_level when a level starts and on every RESET
-(RESET restarts the current level), calls step for every other action, draws the state (rules in
-the FIXED INTERFACE comment), counts completed levels and ends the game with WIN or GAME_OVER.
-This game advertises actions __ACTIONS__.
+The fixed interface already provides what every game shares: sprites with layers, visibility,
+collidability, blocking modes, rotation, mirroring and scale; collisions (state.try_move,
+state.collisions); lookups (state.sprite_at, by_tag, by_name). The harness does the rest: it gives
+step() a fresh copy of the level's first state on entering a level and on every RESET (RESET
+restarts the current level), draws the state, counts completed levels and ends the game with WIN or
+GAME_OVER. This game advertises actions __ACTIONS__.
 
 How it is tested (run_tests):
-- contract tests: the fixed interface is unchanged, states are valid, make_level builds a fresh
-  state on every call, step accepts every advertised action, the same actions give the same result;
+- contract tests: the fixed interface is unchanged, states are valid, step accepts every advertised
+  action, the same actions give the same result;
 - acceptance test: the recorded actions are replayed; after each one, your final frame and the game
   state must equal the recording. Animation frames are not compared.
 
@@ -45,15 +47,16 @@ __FIXED__
 
 
 def make_level(n: int) -> State:
-    """The state at the start of level n. Called when level n starts and on every RESET, so it must
-    build everything anew: new Sprite objects, new pixel lists, a new vars dict."""
+    """The state at the start of level n: grid size, every sprite (border, background, objects, HUD)
+    and the hidden variables. The harness calls it once per level and copies the result whenever the
+    level starts, so it may use module-level data directly."""
     return State(
         grid=(64, 64),  # logical grid (width, height)
         sprites=[
-            # Sprite([[5] * 64 for _ in range(64)], screen=True, layer=-2, name="border"),  # around the grid
-            # Sprite([[0] * 64 for _ in range(64)], layer=-1, name="background"),  # fills the grid
+            # Sprite([[5] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name="border"),
+            # Sprite([[0] * 64 for _ in range(64)], layer=-1, collidable=False, name="background"),
             # Sprite([[9]], x=1, y=1, layer=1, tags=("player",)),
-            # Sprite([[11] * 32], x=16, y=63, screen=True, layer=9, tags=("budget",)),  # HUD, screen pixels
+            # Sprite([[11] * 32], x=16, y=63, screen=True, layer=9, collidable=False, tags=("budget",)),  # HUD
         ],
         vars={},  # hidden state, e.g. {"budget": 32}
     )
@@ -69,13 +72,9 @@ def step(state: State, action: Action) -> None:
     # player = state.by_tag("player")[0]
     # if action.id in (1, 2, 3, 4):
     #     dx, dy = {1: (0, -1), 2: (0, 1), 3: (-1, 0), 4: (1, 0)}[action.id]
-    #     player.x += dx
-    #     player.y += dy
-    #     if any("wall" in s.tags for s in state.overlapping(player)):
-    #         player.x -= dx  # blocked: undo the move
-    #         player.y -= dy
+    #     hit = state.try_move(player, dx, dy)  # moved back if it collided; returns what it hit
     # elif action.id == 6 and action.cell is not None:
-    #     clicked = state.at(*action.cell)  # sprites under the click, topmost first
+    #     clicked = state.sprite_at(*action.cell)  # topmost collidable sprite under the click, or None
 '''
 
 ARCENGINE_TEMPLATE = '''"""Re-implementation of ARC-AGI-3 game "{game}", reverse-engineered from a recorded run.

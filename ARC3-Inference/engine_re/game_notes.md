@@ -10,7 +10,7 @@ fixed interface. These are the facts that hold across the games.
 | Time | Nothing moves without an input. The real game sometimes animates an action over several frames; only the last frame, the resulting state, is compared. |
 | Actions | RESET (handled by the harness), 1 up, 2 down, 3 left, 4 right, 5 interact, 6 click at (x, y), 7 undo. Each game advertises a fixed subset. |
 | Levels | Each level starts from its initial layout, also after a RESET, so a move budget refills then. Completing a level is permanent. After a game over only RESET is accepted. |
-| Objects | Pixel sprites with a layer and tags. Pixel -1 is transparent; -2 is invisible but solid. Collision is usually pixel-exact, and a blocked move is undone. Objects that disappear are often only hidden. Rotation, mirroring and scaling change the drawn pixels: use rotate_cw, flip_lr, flip_ud and scale_up. |
+| Objects | Pixel sprites with a layer and tags. Pixel -1 is transparent; -2 is invisible but solid. A sprite can be visible and collidable (a normal object), visible only (drawn, never hit), collidable only (an invisible wall) or neither (hidden and inert). Collision is pixel-exact by default (or by bounding box, or never), and a blocked move is undone (state.try_move). Objects that disappear are often only hidden. Rotation, mirroring and scale are sprite fields applied when drawing. |
 | Determinism | The same state and action always give the same result. |
 
 ## Colours

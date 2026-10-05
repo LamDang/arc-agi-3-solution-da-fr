@@ -17,18 +17,21 @@ You have every action that was played and every frame the real engine returned. 
 engine.py, that reproduces the game: replaying the recorded actions through it must give the recorded results.
 
 # What you write
-engine.py starts with a FIXED INTERFACE block (the Sprite, Action and State classes, a few pixel helpers, and the rules
-for how a State is drawn). Do not edit that block. Below it you write two functions:
+engine.py starts with a FIXED INTERFACE block: the Sprite, Action and State classes and the rules for how a State is
+drawn. Do not edit that block. It already provides what every game shares, with the same rules as the real games:
+sprites with layers, visibility, collidability, blocking modes, rotation, mirroring and scale; collisions
+(state.try_move, state.collisions, sprite.collides_with); lookups (state.sprite_at, by_tag, by_name). Below it you
+write two functions:
 - make_level(n) -> State: the state at the start of level n: grid size, every sprite (border, background, objects,
-  HUD) and the hidden variables (state.vars). The harness calls it when a level starts and on every RESET.
+  HUD) and the hidden variables (state.vars).
 - step(state, action): apply one action to the state, in place. Set state.status = "level_solved" or "game_over"
   when that happens.
-The harness does the rest: drawing, counting completed levels, WIN and GAME_OVER, and turning clicks into grid cells.
+The harness does the rest: it hands step() a fresh copy of the level's first state when a level starts and on every
+RESET, draws the state, counts completed levels, handles WIN and GAME_OVER, and turns clicks into grid cells.
 
 # What passing means
 run_tests runs two suites. The contract tests check that the fixed interface is unchanged, that states are valid, that
-make_level builds a fresh state on every call, that step accepts every advertised action, and that the same actions give
-the same result. The acceptance test replays the recorded actions and compares, after every action, the FINAL frame
+step accepts every advertised action, and that the same actions give the same result. The acceptance test replays the recorded actions and compares, after every action, the FINAL frame
 (every pixel of your drawn state) and the game state (NOT_FINISHED / WIN / GAME_OVER, levels_completed). Animation
 frames are not compared: do each action's whole effect in one step() call. Look at animation frames only to understand
 what an action does. The goal is "ALL STEPS MATCH" with every contract test passing. The session ends as soon as that
