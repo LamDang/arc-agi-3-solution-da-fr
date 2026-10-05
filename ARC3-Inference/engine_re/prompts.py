@@ -10,13 +10,15 @@ from __future__ import annotations
 import copy
 from collections import Counter
 
+from engine_re.tester import MAX_FAILURES
 from engine_re.trace import Trace
 
 _SYSTEM = """# Goal
 You are given a recording of someone playing a game: every action they took and every frame the game
 returned. Write engine.py, a Python model of that game, so that replaying the recorded actions through it
-gives the same result after every action. Model the game's actual rules: the engine is also checked
-afterwards on action sequences nobody recorded.
+gives the same result after every action. Use the simplest general rules that explain what you see: the
+engine is later also played on action sequences nobody recorded, where general rules hold up and special
+cases do not.
 
 # Setup
 - The game shows a 64x64 screen of colours 0-15 and is played in levels, in order. Actions: 0 RESET,
@@ -55,19 +57,36 @@ once step 3 is undone, or None outside the grid. Coordinates: x is the column, y
 - Acceptance: the recorded actions are replayed. After every action, your final frame (every pixel) and
   the game status (NOT_FINISHED / WIN / GAME_OVER, levels completed) must equal the recording. When the
   real game animated an action, only its last frame is compared.
-- The report stops at the first failure. For it, you get: __REPORT_IMAGES__; for each region, the colours
-  and your sprites there; what your step() printed; and the python command that reproduces the step.
+- The recording is replayed in the order it was played, and the report stops at the first failing step
+  (or after up to 10, if you ask). For the first one you get: __REPORT_IMAGES__; for each region, the colours and your sprites there;
+  what your step() printed; and the python command that reproduces the step.
 
-# Direction
-Run the tests, see what breaks, find out why from the recording, fix it, and test again. Fix the cause,
-not the symptom: write the rule that explains every step where it applies, not a patch for the current
-mismatch. Never hard-code recorded frames or anything keyed to the step number. Print whatever helps
-you debug inside step(); the test report and try_step show it.
+# How to work
+The recording shows only part of what the game can do, so its real rules cannot always be known from
+it. Your job is to reproduce what was observed, with the simplest general mechanism that explains it:
+one rule that covers many steps rather than special cases, and nothing the recording gives no evidence for.
+Work through the recording in order:
+1. Start with the first frame of level 0: auto_sprites(0) gives sprite code that draws it exactly. Put it
+   into make_level with edit() and run run_tests.
+2. Then make the steps pass one at a time, in the order they were played. run_tests shows the first step
+   that fails: find the simplest, most logical mechanism that makes it pass while every earlier step
+   still passes, then test again.
+3. When a step contradicts a rule you wrote, replace the rule with the simplest one that explains all
+   the steps so far, instead of adding a special case.
+4. All levels are the same game. Keep one set of sprite kinds for the whole game (pixels, tags,
+   collision) and describe each level by where those kinds go and how they are shown there: moved,
+   turned, mirrored, scaled or recoloured, and the level's grid and view. A new level reuses the kinds
+   and rules it shares with earlier levels and only adds what it introduces; the earlier levels' steps
+   must keep passing. auto_sprites(n) recognises pieces that are an existing kind turned, mirrored,
+   scaled or recoloured, and writes them that way.
+Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
+inside step(); the test report and try_step show it.
 """
 
+# The third Tests item, which depends on whether reports carry images (the line breaks differ).
 _REPORT_IMAGES = {
-    True: "your frame and the recorded frame as images with the differing regions boxed and numbered",
-    False: "the regions where your frame differs from the recorded one, numbered, with their pixels",
+    True: "your frame and the recorded frame as images\n  with the differing regions boxed and numbered",
+    False: "the regions where your frame differs from the\n  recorded one, numbered, with their pixels",
 }
 
 _PYTHON = """Run Python in a persistent kernel: variables and imports survive between calls. Prints what your code
@@ -105,7 +124,7 @@ engine.py (python cannot open it for writing; edit() is the only way to change i
   file changed since your read) is rejected: read again. Edits inside the FIXED block are rejected.
   Prints what changed, a syntax check, and fresh anchors around the change.
 - undo(n=1, to=None): put engine.py back as it was n changes ago, or to="best": the version that
-  matched the most steps so far (to=k: version k). Every change (each edit() call, and undo itself) is
+  passed the most steps before its first failure so far (to=k: version k). Every change (each edit() call, and undo itself) is
   kept as a numbered version, so nothing is lost: undo() right after an undo() brings the undone change
   back. Prints the recent versions (what changed, and the test result of each version that was tested),
   what this undo restored, and a reminder to read() again for fresh anchors.
@@ -125,10 +144,12 @@ Generating code
   that draw the first frame of `level` exactly (or a given frame, or a region (x0, y0, x1, y1) of it):
   the frame split into same-colour connected pieces (merge=True: touching pieces of different colours
   become one sprite), identical pieces sharing one pixel list whose name comes from its content, so the
-  same shape gets the same name in every call; pixel lists already defined in engine.py are not repeated.
-  It prints whether the code draws the frame exactly. A starting point only: real objects often have
-  several colours, anything hidden or covered is missing, transparency is unknown, layers, tags and
-  collidability are guesses, and the grid size is guessed unless you pass grid=(w, h)."""
+  same shape gets the same name in every call; pixel lists already defined in engine.py are not repeated,
+  and a piece that is an existing one turned, mirrored, scaled or recoloured is written as that one
+  with the matching rotation, mirror, scale or colour change. It prints whether the code draws the
+  frame exactly. A starting point only: real objects often have several colours, anything hidden or
+  covered is missing, transparency is unknown, layers, tags and collidability are guesses, and the
+  grid size is guessed unless you pass grid=(w, h)."""
 
 _SHOW = {
     True: """- show(*frames, titles=None, boxes=None): look at frames as images. Each item is a 64x64 frame (e.g.
@@ -141,8 +162,13 @@ _SHOW = {
   side; without boxes, every frame at half resolution.""",
 }
 
-_RUN_TESTS = """Run the contract tests and the acceptance test. level=L tests only level L, starting from
-make_level(L). stop_on_fail=False reports every mismatch instead of stopping at the first."""
+_RUN_TESTS = """Run the contract tests, then replay the recording in order: from step 0, or from the start of level L
+(make_level(L)) when level=L is given. Stops after `failures` failing steps (1 to 10, default 1).
+Reports how many steps pass before the first failure, the first failure in full (images, regions,
+your sprites there, what step() printed, the try_step command), and one line per further failure."""
+
+_RUN_TESTS_NO_IMAGES = _RUN_TESTS.replace("(images, regions,\nyour sprites there,", "(regions with their\npixels, your sprites there,")
+
 
 _FINISH = """Ask to end the session. Runs the tests first: if anything fails you get the report and the session
 goes on; it ends only when every test passes. summary: what the engine implements."""
@@ -184,12 +210,21 @@ def tools(images: bool = True) -> list[dict]:
                 "type": "function",
                 "function": {
                     "name": "run_tests",
-                    "description": _RUN_TESTS,
+                    "description": _RUN_TESTS if images else _RUN_TESTS_NO_IMAGES,
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "level": {"type": "integer", "description": "Test only this level, starting from make_level(level). Omit for every level."},
-                            "stop_on_fail": {"type": "boolean", "description": "true (default): stop at the first failure. false: report every mismatch."},
+                            "level": {
+                                "type": "integer",
+                                "description": "Replay only this level, from its start (make_level(level)). Omit to replay from step 0.",
+                            },
+                            "failures": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": MAX_FAILURES,
+                                "description": "How many failing steps to report before stopping, 1 to 10 (default 1): "
+                                "the first in full, the others one line each.",
+                            },
                         },
                     },
                 },

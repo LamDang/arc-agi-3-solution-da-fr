@@ -63,14 +63,15 @@ def main() -> int:
             print(f"    -> {call['function']['name']}: {_one_line(call['function']['arguments'], args.chars)}")
     tests = args.game_dir / "tests.jsonl"
     if tests.exists():
-        print("\nTests (turn: exact/total, first mismatch):")
+        print("\nTests (turn: exact/total, steps passing before the first failure, first failing step):")
         for line in tests.read_text(encoding="utf-8").splitlines():
             t = json.loads(line)
             if t.get("level") is not None:
                 level = f" level={t['level']} only"
             else:
                 level = f" from_level={t['from_level']}" if t.get("from_level") else ""
-            print(f"  turn {t['turn']}{level}: {t['exact']}/{t['total']}, first mismatch {t['first_fail']}")
+            prefix = t.get("passing_prefix", "?")
+            print(f"  turn {t['turn']}{level}: {t['exact']}/{t['total']}, {prefix} before the first failure, step {t['first_fail']}")
     return 0
 
 

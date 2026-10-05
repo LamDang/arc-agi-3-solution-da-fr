@@ -7,8 +7,10 @@ earlier version, writes engine.py, and answers with the text the kernel prints.
 
 Every change is kept as a numbered version in ``versions_dir`` (``<game_dir>/engine_versions/``,
 outside the kernel's reach): ``v0001.py``, ... and ``versions.jsonl`` with what each change was.
-undo(n) restores the version n changes back, undo(to="best") the engine that matched the most
-steps (``<game_dir>/engine_best.py``); a restore is itself a new version, so nothing is lost.
+undo(n) restores the version n changes back, undo(to="best") the best engine tested
+(``<game_dir>/engine_best.py``: the most steps passing before the first failure in a full replay,
+ties broken by the most steps passing in all, see ``best_key``); a restore is itself a new version,
+so nothing is lost.
 Versions are matched to test results by the sha256 of their content (``engine_sha`` in
 ``tests.jsonl``).
 """
@@ -27,6 +29,24 @@ from engine_re.game_api import fixed_block_lines
 
 DIFF_LINES = 200  # lines of unified diff kept per change in the transcript
 RECENT_VERSIONS = 8
+
+
+BEST_RULE = "the most steps passing before the first failure, ties broken by the most steps passing in all"
+
+
+def passing_prefix(entry: dict[str, Any]) -> int:
+    """Steps passing before the first failure, from a tests.jsonl entry (also one written before
+    the field existed: those were full replays, where it is the first failing step's index)."""
+    if entry.get("passing_prefix") is not None:
+        return int(entry["passing_prefix"])
+    if entry.get("first_fail") is not None:
+        return int(entry["first_fail"]) - int(entry.get("first_step") or 0)
+    return int(entry.get("total") or 0) if entry.get("exact") == entry.get("total") and not entry.get("error") else 0
+
+
+def best_key(entry: dict[str, Any]) -> tuple[int, int]:
+    """How full-replay results rank for engine_best.py and undo(to="best") (BEST_RULE)."""
+    return passing_prefix(entry), int(entry.get("exact") or 0)
 
 
 def sha256(text: str) -> str:
@@ -96,10 +116,12 @@ class EngineEditor:
             return "not tested"
         if entry.get("passed"):
             return "tested: every test passes"
+        contract = ""
         if entry.get("contract_total") and entry.get("contract_passed") != entry.get("contract_total"):
-            return f"tested: contract {entry.get('contract_passed')}/{entry.get('contract_total')}, {entry.get('exact')}/{entry.get('total')} steps"
-        first = entry.get("first_fail")
-        return f"tested: {entry.get('exact')}/{entry.get('total')} steps match" + (f", first mismatch at step {first}" if first is not None else "")
+            contract = f"contract {entry.get('contract_passed')}/{entry.get('contract_total')}, "
+        prefix, first = passing_prefix(entry), entry.get("first_fail")
+        before = f"{prefix} pass before the first failure" + (f" (step {first})" if first is not None else "")
+        return f"tested: {contract}{before}, {entry.get('exact')}/{entry.get('total')} in all"
 
     def history(self, limit: int = RECENT_VERSIONS) -> list[str]:
         tests = self._tests_by_sha()
@@ -165,7 +187,8 @@ class EngineEditor:
             target_text = best.read_text(encoding="utf-8")
             same = [v["version"] for v in versions if v["sha"] == sha256(target_text)]
             entry = self._tests_by_sha().get(sha256(target_text))
-            source = "the best tested version" + (f" (v{same[-1]})" if same else "") + (f", {self._result_text(entry)}" if entry else "")
+            source = (f"the best tested version ({BEST_RULE})" + (f": v{same[-1]}" if same else "")
+                      + (f", {self._result_text(entry)}" if entry else ""))
         elif to is not None:
             if isinstance(to, bool) or not isinstance(to, int) or not 1 <= to <= len(versions):
                 raise hashline.EditError(f'[E_BAD_ARG] to must be "best" or a version number 1-{len(versions)}, got {to!r}.')

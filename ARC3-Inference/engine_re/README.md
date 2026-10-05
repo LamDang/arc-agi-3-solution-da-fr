@@ -73,7 +73,8 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       changed, a syntax check, and fresh anchors around each change (at most
       about 12 lines; the first and last lines of a long insert).
     - `undo(n=1, to=None)` restores the engine.py of `n` changes ago (`to=k`:
-      version k; `to="best"`: `engine_best.py`). Every change, a restore
+      version k; `to="best"`: `engine_best.py`, and it says by which rule).
+      Every change, a restore
       included, is a new numbered version in `<game_dir>/engine_versions/`
       (outside the workspace), so undo after undo brings a change back. It
       prints the last 8 versions with what changed and their test result
@@ -110,24 +111,26 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     harness over the kernel's protocol, and `engine_files.py` applies them.
     While the analysis quota pauses python, calls that use `edit(` or `undo(`
     still run.
-  - `run_tests(level=None, stop_on_fail=True)`: first the contract tests
+  - `run_tests(level=None, failures=1)`: first the contract tests
     (interface unchanged, valid states, a fresh state on every `make_level`
     call, every advertised action accepted, determinism), then the acceptance
-    test: a full replay, or with `level=L` only level L (the engine starts at
-    `make_level(L)`, its drawing is compared with the level's recorded start,
-    then it plays that level's steps). By default the report stops at the
-    first failing test: a failing contract test, or "steps a..k-1 match" and
-    step k explained; `stop_on_fail=false` reports everything (per-level
-    counts, two failing steps explained, the list of all failing steps). A
-    failing step is explained with the differing regions of the final frame,
-    numbered and boxed in a picture of both frames (below), the colour changes,
-    the engine's sprites drawn in each region before and after the step (a
-    second, short sandboxed run collects them), state fields and vars, the end
-    of what the engine printed during the step (prints are captured per step
-    and capped), and the `try_step` command that reproduces it. The counts kept
-    (`tests.jsonl`, best engine, pass) always come from the whole replay; the
-    text is what stops.
-  - `finish(summary)` always runs the tests (`stop_on_fail=True`). When
+    test, the recording replayed in order: from step 0, or with `level=L` only
+    level L (the engine starts at `make_level(L)`, its drawing is compared with
+    the level's recorded start, then it plays that level's steps). The report
+    stops after `failures` failing steps (1 to 10, clamped; default 1): it says
+    how many steps pass before the first failure, explains the first failure
+    in full, with the picture, and gives one line per further failure (step,
+    action, differing regions with their colour changes, the engine's sprites
+    there). A failure explained in full has the differing regions of the final
+    frame, numbered and boxed in a picture of both frames (below), the colour
+    changes, the engine's sprites drawn in each region before and after the
+    step (a second, short sandboxed run collects them), state fields and vars,
+    the end of what the engine printed during the step (prints are captured per
+    step and capped), and the `try_step` command that reproduces it. A failing
+    contract test does not hide the replay. The counts kept (`tests.jsonl`,
+    best engine, pass) always come from the whole replay; the text is what
+    stops. The automatic test uses `failures=1`.
+  - `finish(summary)` always runs the tests (`failures=1`). When
     everything passes the session ends; otherwise it returns the report (with
     its picture) and the session goes on.
 - **Feedback the harness adds** (`agent.py`). The first message gives the
@@ -157,9 +160,13 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   every step (with every contract test passing), whether from `run_tests`, an
   automatic test or `finish`, or when a budget (turns, output tokens, cost,
   wall time) runs out. Only full replays count towards passing and
-  `engine_best.py`, with their exact counts over the whole recording whatever
-  `stop_on_fail` shows; one-level tests do not. The authoritative final test is
-  a full replay with the full report (`final_test.txt`). An interrupted session
+  `engine_best.py`, with their counts over the whole recording whatever the
+  report shows; one-level tests do not. `engine_best.py` (and
+  `undo(to="best")`) is the engine with the most steps passing before the first
+  failure, ties broken by the most steps passing in all
+  (`engine_files.best_key`), since the agent works through the recording in
+  order. The authoritative final test is a full replay with the full report
+  (every failing step listed, `final_test.txt`). An interrupted session
   resumes from its `engine.py` (shown with anchors, the FIXED block folded)
   with a fresh conversation that carries its last test report and reasoning.
 - **Sandbox** (`guard.py`). The kernel and the candidate run in subprocesses
@@ -203,14 +210,14 @@ uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine bes
 uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game>
 
 # Test an engine by hand, as the agent sees it (images saved as PNGs)
-uv run --no-sync python -m engine_re.tester ENGINE.py TRACE_DIR --stop-on-fail [--level L] [--images DIR]
+uv run --no-sync python -m engine_re.tester ENGINE.py TRACE_DIR --failures 1 [--level L] [--images DIR]
 ```
 
 `run_experiment --no-images` gives text-only feedback (test reports and `show()` print hex
 digits), for models without image input.
 
 Each game directory holds `trace/`, `workspace/engine.py` (final),
-`engine_best.py` (most exactly-matching steps in a full replay),
+`engine_best.py` (the best full replay, as above),
 `engine_versions/` (`vNNNN.py`, one per change of engine.py, and
 `versions.jsonl`), `transcript.jsonl` (turns, tool outputs, one record per
 edit or undo with its line range and diff, and one per `show()` with its image
@@ -220,8 +227,12 @@ engine changes), `images/` (the pictures sent to the model,
 `turn<N>_step<S>[_auto].png` and `turn<N>_show<K>.png`) and
 `evaluation_<engine>.json`. In `tests.jsonl` a full replay has `"level": null`
 and `total` equal to the trace length; a one-level test has its `level`, and
-`from_level` (the level the engine started at) as before; `engine_sha` is the
-hash of the engine tested, which `undo` uses to show each version's result. The experiment directory holds `summary.md` and
+`from_level` (the level the engine started at) as before; `first_fail` is the
+first failing step's index, `passing_prefix` the number of steps passing
+before it (the whole scope when none fails; for a full replay the two are
+equal while a step fails), `failures` what the report was asked to show, and
+`engine_sha` the hash of the engine tested, which `undo` uses to show each
+version's result. The experiment directory holds `summary.md` and
 `evaluation_<engine>.md`.
 
 Tests: `uv run --no-sync pytest tests/test_engine_re.py`.

@@ -453,7 +453,7 @@ def test_compaction_keeps_tool_argument_keys() -> None:
     assert len(elided["content"]) < 400 and "elided" in elided["content"]
 
 
-# --- Failure reports: stop_on_fail, one level, regions, sprites, images, reproduction ---------
+# --- Failure reports: failures, one level, regions, sprites, images, reproduction ------------
 
 TWO_LEVELS = '''
 from arcengine import ARCBaseGame, Camera, GameAction, Level, Sprite
@@ -520,32 +520,53 @@ def _repro_commands(text: str) -> str:
     return "\n".join(line[4:] for line in lines[start + 1 :] if line.startswith("    "))
 
 
-def test_stop_on_fail_reports_only_the_first_failure(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_the_report_stops_at_the_first_failure_by_default(tmp_path: Path, tiny_trace: Trace) -> None:
     engine = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2"))
     full = replay_test(engine, tiny_trace, scratch_root=tmp_path)
-    stop = replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    stop = replay_test(engine, tiny_trace, failures=1, scratch_root=tmp_path)
     # The bookkeeping covers the whole replay either way; only the text stops.
-    text_only = ("stop_on_fail", "mode", "seconds", "detail_steps")
+    text_only = ("failures", "mode", "seconds", "detail_steps")
     assert {k: v for k, v in stop.summary().items() if k not in text_only} == {
         k: v for k, v in full.summary().items() if k not in text_only
     }
-    assert stop.first_fail == 1 and stop.exact < stop.total
-    assert "step 0 matches; step 1 is the first mismatch" in stop.text
-    assert "--- Step 1: ACTION2" in stop.text and "--- Step 2" not in stop.text
+    assert stop.first_fail == 1 and stop.passing_prefix == 1 and stop.exact < stop.total
+    assert "step 1 is the first failure; 1 step passes before it (step 0)." in stop.text
+    assert "--- Step 1: ACTION2" in stop.text and "--- Step 2" not in stop.text and "    step 2 " not in stop.text
     assert "All mismatching steps" not in stop.text and "Per level" not in stop.text
     assert "Reproduce in python:" in stop.text
-    # stop_on_fail=False reports everything, as before.
+    assert "The report stops after 1 failing step; later steps are not reported (run_tests(failures=n) lists up to 10)." in stop.text
+    assert replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path).text == stop.text
+    # failures=None (the final test) reports everything, as before.
     assert "All mismatching steps" in full.text and "Per level" in full.text and "--- Step 2" in full.text
 
 
-def test_stop_on_fail_reports_a_contract_failure_without_the_replay(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_further_failures_get_one_line_each(tmp_path: Path, tiny_trace: Trace) -> None:
+    engine = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2"))
+    full = replay_test(engine, tiny_trace, scratch_root=tmp_path)
+    failing = [c.index for c in full.checks if not c.ok]
+    assert len(failing) >= 3, full.text
+    three = replay_test(engine, tiny_trace, failures=3, scratch_root=tmp_path, images=True)
+    lines = three.text.splitlines()
+    assert "--- Step 1: ACTION2" in three.text and len(three.images) == 1  # images: the first failure only
+    head = lines.index("  Further failures (2), one line each:")
+    for k, line in zip(failing[1:3], lines[head + 1 : head + 3]):
+        assert line.startswith(f"    step {k} ACTION"), line
+        assert "px differ in" in line and "[1] rows" in line and ("yours: #" in line or "no sprite of yours" in line), line
+    assert lines.index("  Reproduce in python:") < head  # the command belongs to the first failure
+    last = lines[head + 3]
+    assert last == "  No other step fails." if len(failing) == 3 else last.startswith("  The report stops after 3 failing steps")
+    everything = replay_test(engine, tiny_trace, failures=99, scratch_root=tmp_path)  # clamped to 10
+    assert everything.failures == 10 and f"Further failures ({min(9, len(failing) - 1)})" in everything.text
+    assert replay_test(engine, tiny_trace, failures=0, scratch_root=tmp_path).failures == 1
+
+
+def test_a_contract_failure_is_reported_with_the_replay(tmp_path: Path, tiny_trace: Trace) -> None:
     path = _simple_engine(tmp_path, SIMPLE_TINY_GAME.replace("DOWN", "2"))
     path.write_text(path.read_text().replace("    layer: int = 0  # higher", "    layer: int = 1  # higher"), encoding="utf-8")
-    stop = replay_test(path, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    stop = replay_test(path, tiny_trace, failures=1, scratch_root=tmp_path)
     assert "FAILED the FIXED INTERFACE block is unchanged" in stop.text
-    assert "not reported until the contract tests pass" in stop.text and "--- Step" not in stop.text
-    assert stop.total == len(tiny_trace) and stop.first_fail == 1  # still replayed for the bookkeeping
-    assert "--- Step 1" in replay_test(path, tiny_trace, stop_on_fail=False, scratch_root=tmp_path).text
+    assert "--- Step 1" in stop.text and "step 1 is the first failure" in stop.text
+    assert stop.total == len(tiny_trace) and stop.first_fail == 1
 
 
 def test_level_only_replays_that_level(tmp_path: Path, two_level_trace: Trace) -> None:
@@ -555,7 +576,7 @@ def test_level_only_replays_that_level(tmp_path: Path, two_level_trace: Trace) -
     assert level_span(two_level_trace, 0) == (0, 0, 4) and level_span(two_level_trace, 1) == (3, 4, 9)
     engine = _simple_engine(tmp_path, SIMPLE_TWO.replace("WALL1", "8"))
     assert replay_test(engine, two_level_trace, scratch_root=tmp_path).passed
-    one = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path)
+    one = replay_test(engine, two_level_trace, level=1, failures=1, scratch_root=tmp_path)
     assert one.passed and (one.first_step, one.total, one.level) == (4, 5, 1), one.text
     assert one.start_frame_diff == 0
     assert "level 1 only" in one.text and "ALL 5 STEPS OF LEVEL 1 MATCH (and its start frame)" in one.text
@@ -567,9 +588,9 @@ def test_level_only_replays_that_level(tmp_path: Path, two_level_trace: Trace) -
 
 def test_level_start_failure_is_explained_first(tmp_path: Path, two_level_trace: Trace) -> None:
     engine = _simple_engine(tmp_path, SIMPLE_TWO.replace("WALL1", "11"))
-    report = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path, images=True)
-    assert not report.passed and report.start_frame_diff == 64 * 8
-    assert "the level 1 start frame differs (512 px)" in report.text
+    report = replay_test(engine, two_level_trace, level=1, failures=1, scratch_root=tmp_path, images=True)
+    assert not report.passed and report.start_frame_diff == 64 * 8 and report.passing_prefix == 0
+    assert "the level 1 start frame differs (512 px): the first failure, so 0 steps pass before it." in report.text
     assert "--- Level 1 start" in report.text and "--- Step" not in report.text
     assert "[1] rows 56-63, cols 0-63 (your grid cells x 0-7, y 7): 512 px differ, expected->got 8->11 x512" in report.text
     assert '#3 "wall" tags=(wall) layer=0 x=0 y=7 size=8x1 visible collidable (shows at 512 of these px)' in report.text
@@ -690,7 +711,7 @@ def test_printed_command_reproduces_the_failure_in_the_kernel(tmp_path: Path, ti
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     engine = _simple_engine(workspace, _printing_tiny_game("2"))
-    report = replay_test(engine, tiny_trace, stop_on_fail=True, scratch_root=tmp_path)
+    report = replay_test(engine, tiny_trace, failures=1, scratch_root=tmp_path)
     assert "your engine printed during this step:\n      action 2 player at 1 1" in report.text
     command = _repro_commands(report.text)
     assert command.startswith("before, after = try_step(1)\n# replays steps 0-0")
@@ -718,7 +739,7 @@ def test_try_step_compares_a_level_start(tmp_path: Path, two_level_trace: Trace)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     engine = _simple_engine(workspace, SIMPLE_TWO.replace("WALL1", "11"))
-    report = replay_test(engine, two_level_trace, level=1, stop_on_fail=True, scratch_root=tmp_path)
+    report = replay_test(engine, two_level_trace, level=1, failures=1, scratch_root=tmp_path)
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
         out = kernel.execute(_repro_commands(report.text) + "\nprint(before, after.level)")
@@ -792,7 +813,7 @@ def test_agent_sends_the_latest_test_images_after_the_tool_messages(tmp_path: Pa
         [
             [("python", {"code": wrong})],  # tested automatically
             [("run_tests", {})],
-            [("run_tests", {"level": 0, "stop_on_fail": False})],
+            [("run_tests", {"level": 0, "failures": 3})],
         ]
     )
     agent = EngineAgent("tiny", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
@@ -803,13 +824,14 @@ def test_agent_sends_the_latest_test_images_after_the_tool_messages(tmp_path: Pa
         assert agent.messages[k - 1]["role"] == "tool"  # after the turn's tool messages
     assert all(isinstance(m["content"], str) for m in agent.messages if m["role"] == "tool")
     latest = images[-1][1]["content"]
-    assert sum(p["type"] == "image_url" for p in latest) == 2  # stop_on_fail=false, details=2
+    assert sum(p["type"] == "image_url" for p in latest) == 1  # the first failure's picture only
+    assert "Further failures (" in agent.messages[images[-1][0] - 1]["content"]
     assert all(p["image_url"]["url"].startswith("data:image/png;base64,") for p in latest if p["type"] == "image_url")
     for _, earlier in images[:-1]:  # only the latest test keeps its images
         assert all(p["type"] == "text" for p in earlier["content"]) and any("omitted" in p["text"] for p in earlier["content"])
     records = [json.loads(line) for line in (tmp_path / "transcript.jsonl").read_text().splitlines()]
     saved = [path for r in records if "images" in r for path in r["images"]]
-    assert saved[0] == "images/turn001_step1_auto.png" and len(saved) == 4
+    assert saved == ["images/turn001_step1_auto.png", "images/turn002_step1.png", "images/turn003_step1.png"]
     assert all((tmp_path / path).read_bytes().startswith(b"\x89PNG") for path in saved)
     assert "base64" not in (tmp_path / "transcript.jsonl").read_text()
 
@@ -839,16 +861,17 @@ def test_agent_level_tests_are_kept_apart_from_full_replays(tmp_path: Path, two_
         [
             [("python", {"code": wrong})],
             [("run_tests", {"level": 1})],
-            [("run_tests", {"from_level": 1, "stop_on_fail": "false"})],  # the earlier name still works
+            [("run_tests", {"level": "1", "failures": 30})],  # clamped to 10
         ]
     )
     agent = EngineAgent("two", tmp_path, ModelConfig(), Budget(max_turns=3), client=model)
     agent.run()
     tests = [json.loads(line) for line in (tmp_path / "tests.jsonl").read_text().splitlines()]
-    assert [(t["level"], t["from_level"], t["stop_on_fail"], t["total"]) for t in tests] == [
-        (None, None, True, 9), (1, 1, True, 5), (1, 1, False, 5),
+    assert [(t["level"], t["from_level"], t["failures"], t["total"]) for t in tests] == [
+        (None, None, 1, 9), (1, 1, 1, 5), (1, 1, 10, 5),
     ]
-    assert agent.result.best["total"] == 9 and agent.best_exact == tests[0]["exact"]
+    assert [t["passing_prefix"] for t in tests] == [tests[0]["first_fail"], 0, 0]  # level 1's start frame differs
+    assert agent.result.best["total"] == 9 and agent.best_key == (tests[0]["passing_prefix"], tests[0]["exact"])
     final = (tmp_path / "final_test.txt").read_text()
     assert "All mismatching steps" in final  # the authoritative final test is the full report
 
@@ -875,7 +898,8 @@ def test_the_tools_are_python_run_tests_and_finish() -> None:
     assert [t["function"]["name"] for t in TOOLS] == ["python", "run_tests", "finish"]
     assert [t["function"]["name"] for t in tools(False)] == ["python", "run_tests", "finish"]
     run_tests = TOOLS[1]["function"]
-    assert set(run_tests["parameters"]["properties"]) == {"level", "stop_on_fail"}
+    assert set(run_tests["parameters"]["properties"]) == {"level", "failures"}
+    assert run_tests["description"].startswith("Run the contract tests, then replay the recording in order")
     python = TOOLS[0]["function"]["description"]
     for name in ("read(", "edit(", "undo(", "render(", "show(", "try_step(", "auto_sprites(", "S[i].last"):
         assert name in python
@@ -1090,7 +1114,12 @@ def test_python_cannot_write_engine_py(tmp_path: Path, tiny_trace: Trace) -> Non
 def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     import json
 
-    from engine_re.engine_files import EngineEditor, sha256
+    from engine_re.engine_files import EngineEditor, best_key, sha256
+
+    # The best version: the most steps passing before the first failure, then the most in all.
+    assert best_key({"passing_prefix": 5, "exact": 6}) > best_key({"passing_prefix": 4, "exact": 9}) > best_key({"passing_prefix": 4, "exact": 8})
+    assert best_key({"first_fail": 4, "exact": 7, "total": 9}) == (4, 7)  # entries written before passing_prefix
+    assert best_key({"first_fail": None, "exact": 9, "total": 9}) == (9, 9)
 
     engine = tmp_path / "workspace" / "engine.py"
     engine.parent.mkdir()
@@ -1108,7 +1137,7 @@ def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     (tmp_path / "tests.jsonl").write_text(json.dumps(tested) + "\n")
     out = editor.undo()
     assert engine.read_text() == "A = 2\n" and "Restored version 2" in out and "saved as version 4" in out
-    assert "tested: 7/9 steps match, first mismatch at step 4" in out and "read() again" in out
+    assert "tested: 4 pass before the first failure (step 4), 7/9 in all" in out and "read() again" in out
     editor.undo()  # undo the undo: back to A = 3
     assert engine.read_text() == "A = 3\n" and [v["version"] for v in editor.versions()] == [1, 2, 3, 4, 5]
     out = editor.undo(3)  # the state 3 changes ago: version 2
@@ -1116,7 +1145,11 @@ def test_undo_restores_earlier_versions_and_the_best(tmp_path: Path) -> None:
     editor.undo(to=1)
     assert engine.read_text() == "A = 1\n"
     out = editor.undo(to="best")
-    assert engine.read_text() == "A = 2\n" and "Restored the best tested version (v6), tested: 7/9 steps match" in out
+    assert engine.read_text() == "A = 2\n"
+    assert out.startswith(
+        "Restored the best tested version (the most steps passing before the first failure, ties broken by the most "
+        "steps passing in all): v6, tested: 4 pass before the first failure (step 4), 7/9 in all, saved as version 8."
+    )
     assert [r["engine_change"]["op"] for r in log] == ["edit", "edit", "undo", "undo", "undo", "undo", "undo"]
     assert log[0]["engine_change"]["diff"].splitlines()[-2:] == ["-A = 1", "+A = 2"]
     assert not editor.handle({"op": "undo", "n": 99})["ok"]

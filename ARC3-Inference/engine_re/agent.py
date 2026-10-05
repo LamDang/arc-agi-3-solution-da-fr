@@ -8,7 +8,7 @@ One `EngineAgent` works on one game in its own directory:
     <game_dir>/images/           the pictures sent to the model (test reports, show())
     <game_dir>/transcript.jsonl  every model turn, tool call, engine change and image
     <game_dir>/tests.jsonl       every run_tests result
-    <game_dir>/engine_best.py    the engine with the most exactly-matching steps so far
+    <game_dir>/engine_best.py    the best engine tested so far (engine_files.BEST_RULE)
     <game_dir>/result.json       outcome, tokens, cost, final test
 
 Tools: python (a kernel with the recording and read/edit/undo/render/show/try_step/auto_sprites;
@@ -47,11 +47,12 @@ from typing import Any
 import requests
 
 from engine_re import diff_report, hashline
+from engine_re.engine_files import best_key
 from engine_re.game_api import fixed_block_lines
 from engine_re.kernel import KernelClient
 from engine_re.prompts import first_user_message, resume_user_message, system_prompt, tools
 from engine_re.skeleton import render_skeleton
-from engine_re.tester import replay_test
+from engine_re.tester import MAX_FAILURES, replay_test
 from engine_re.trace import Trace
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -67,6 +68,7 @@ NUDGE = (
 # harness runs run_tests() with its defaults (full replay, reported up to the
 # first failure) and appends the report to the turn's last output.
 AUTO_TEST = "\n\n[harness] engine.py changed, so it was tested automatically (run_tests with its defaults):\n{report}"
+REPORT_CHARS = 9000  # a test report in a tool output
 AUTO_TEST_CHARS = 3500
 IMAGE_NOTE = "[harness] The images of this turn, in order:"
 TEST_IMAGE_NOTE = (
@@ -262,7 +264,7 @@ class EngineAgent:
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images
         )
         self.messages: list[dict[str, Any]] = []
-        self.best_exact = -1
+        self.best_key: tuple[int, int] = (-1, -1)
         self.passed = False
         self.prior_minutes = 0.0
         self.prior_notes = ""
@@ -294,34 +296,29 @@ class EngineAgent:
     def _engine_hash(self) -> str:
         return hashlib.sha256(self.engine_path.read_bytes()).hexdigest()
 
-    def _tool_run_tests(
-        self,
-        level: int | None = None,
-        stop_on_fail: bool = True,
-        details: int | None = None,
-        from_level: int | None = None,
-        auto: bool = False,
-    ) -> str:
-        """No level: the full replay; level=L: only level L. stop_on_fail (default): report up to the
-        first failure (the counts kept in tests.jsonl are those of the whole replay either way).
-        details: failing steps explained when stop_on_fail is false. from_level: an earlier name of
-        level, still accepted."""
-        report = self._run_tests(level, stop_on_fail, details, from_level, auto)
-        return report if isinstance(report, str) else _truncate(report.text, 9000)
+    def _tool_run_tests(self, level: int | None = None, failures: int = 1) -> str:
+        """No level: replay from step 0; level=L: only level L. The report stops after `failures`
+        failing steps (clamped to 1..MAX_FAILURES); the counts kept in tests.jsonl are those of the
+        whole replay either way."""
+        report = self._run_tests(level, failures, auto=False)
+        return report if isinstance(report, str) else _truncate(report.text, REPORT_CHARS)
 
-    def _run_tests(self, level: Any, stop_on_fail: Any, details: Any, from_level: Any, auto: bool) -> Any:
+    def _run_tests(self, level: Any, failures: Any, auto: bool) -> Any:
         """Run and record a test; returns the TestReport, or an error text."""
-        if level is None and from_level is not None:
-            level = from_level
-        level = None if level is None else int(level)
-        if isinstance(stop_on_fail, str):
-            stop_on_fail = stop_on_fail.strip().lower() not in ("false", "0", "no", "")
-        details = max(1, min(6, int(details or 2)))
+        try:
+            level = None if level is None else int(level)
+        except (TypeError, ValueError):
+            return f"Error: level must be a level number, got {level!r}."
+        try:
+            failures = int(failures)
+        except (TypeError, ValueError):
+            failures = 1
+        failures = max(1, min(MAX_FAILURES, failures))
         self.turns_since_test = 0
         tested_hash = self._engine_hash()
         try:
             report = replay_test(
-                self.engine_path, self.trace, level=level, stop_on_fail=bool(stop_on_fail), details=details,
+                self.engine_path, self.trace, level=level, failures=failures,
                 scratch_root=self.dir, match=self.match, images=self.images,
             )
         except ValueError as exc:
@@ -341,8 +338,9 @@ class EngineAgent:
             f.write(json.dumps(entry) + "\n")
         self._keep_test_images(report, auto)
         if full:
-            if report.exact > self.best_exact:
-                self.best_exact = report.exact
+            key = best_key(entry)
+            if key > self.best_key:
+                self.best_key = key
                 shutil.copy(self.engine_path, self.dir / "engine_best.py")
                 self.result.best = {"turn": self.result.turns, **report.summary()}
             if report.passed:
@@ -355,12 +353,12 @@ class EngineAgent:
         """Run the tests; the session ends only when every test passes."""
         self.result.finish_calls += 1
         self.result.finish_summary = summary
-        report = self._run_tests(None, True, None, None, False)
+        report = self._run_tests(None, 1, auto=False)
         if isinstance(report, str):
             return report
         if report.passed:
             return "Every test passes. Session finished."
-        return "Not finished: the tests still fail, so the session goes on. The report:\n\n" + _truncate(report.text, 9000)
+        return "Not finished: the tests still fail, so the session goes on. The report:\n\n" + _truncate(report.text, REPORT_CHARS)
 
     # --- images ----------------------------------------------------------------
 
@@ -485,8 +483,8 @@ class EngineAgent:
                 entry = json.loads(line)
                 self.result.tests_run += 1
                 if entry.get("level") is None and entry.get("from_level") in (None, 0):
-                    if entry["exact"] > self.best_exact:
-                        self.best_exact = entry["exact"]
+                    if best_key(entry) > self.best_key:
+                        self.best_key = best_key(entry)
                         self.result.best = {k: v for k, v in entry.items() if k not in ("time", "from_level")}
                     if entry.get("passed") and self.result.first_pass_turn is None:
                         self.result.first_pass_turn = entry["turn"]
@@ -543,7 +541,7 @@ class EngineAgent:
         self.setup()
         self.started = time.time()
         if self._restore():
-            report = replay_test(self.engine_path, self.trace, stop_on_fail=True, scratch_root=self.dir, match=self.match)
+            report = replay_test(self.engine_path, self.trace, failures=1, scratch_root=self.dir, match=self.match)
             opening = resume_user_message(
                 self.game, self.trace, self.result.turns, _truncate(report.text, 6000),
                 self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), self.prior_notes,
@@ -612,7 +610,8 @@ class EngineAgent:
                     self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
                     self._log({"turn": self.result.turns, "tool": name, "seconds": round(time.time() - t0, 2), "output": output})
                 if not self.passed and self.tested_hash is not None and self._engine_hash() != self.tested_hash:
-                    report = self._tool_run_tests(auto=True)
+                    tested = self._run_tests(None, 1, auto=True)
+                    report = tested if isinstance(tested, str) else tested.text
                     self.messages[-1]["content"] += AUTO_TEST.format(report=_truncate(report, AUTO_TEST_CHARS))
                     self.result.auto_tests += 1
                     self._log({"turn": self.result.turns, "auto_test": report[:AUTO_TEST_CHARS]})

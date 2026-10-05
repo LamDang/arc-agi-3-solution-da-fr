@@ -22,14 +22,18 @@ Three replay scopes:
   ``level=L`` but playing every step to the end of the recording.
 
 Two report styles, from the same full comparison (the counts in the summary
-are always those of the whole scope):
+are always those of the whole scope, and ``passing_prefix`` is the number of
+steps that pass before the first failure):
 
-- ``stop_on_fail=True``: the report stops at the first failing test. A failing
-  contract test is reported and the replay is not; otherwise the report says
-  which steps match and explains the first failing step (or, for one level,
-  the level's start frame) and nothing after it;
-- ``stop_on_fail=False``: everything: per-level counts, the first ``details``
-  failing steps explained, and the list of all failing steps.
+- ``failures=N`` (1 to 10; what the agent gets): the contract tests, then the
+  replay in recorded order up to the N-th failing step: how many steps pass
+  before the first failure, the first failure (a step, or for one level the
+  level's start frame) explained in full, with images, and one line per further
+  failure (step, action, differing regions, the engine's sprites there).
+  ``stop_on_fail=True`` is ``failures=1``;
+- ``failures=None`` (the final test, evaluate, the command line by default):
+  everything: per-level counts, the first ``details`` failing steps explained,
+  and the list of all failing steps.
 
 A failing step is explained with the differing regions of its final frame,
 numbered, with the colours that differ and the engine's sprites that draw
@@ -61,6 +65,7 @@ from engine_re.guard import sandbox_env
 from engine_re.trace import Step, Trace
 
 HEX = "0123456789abcdef"
+MAX_FAILURES = 10  # failing steps a report can list (run_tests(failures=N))
 FIELDS = ("state", "levels_completed", "win_levels", "available_actions")
 MATCH_MODES = ("final", "all")
 
@@ -100,7 +105,8 @@ class TestReport:
     contract_passed: int | None = None  # simple-interface engines only
     contract_total: int | None = None
     level: int | None = None  # level=L: only level L was tested
-    stop_on_fail: bool = False
+    failures: int | None = None  # the report stopped after this many failing steps (None: it reports everything)
+    passing_prefix: int = 0  # steps that pass before the first failure (0 when a level's start frame differs)
     detail_steps: list[int] = field(default_factory=list)  # steps explained in the text (a level start: its entry step)
     images: list[TestImage] = field(default_factory=list)
 
@@ -328,6 +334,24 @@ def describe_step(
     return "\n".join(lines), regions
 
 
+def compact_step(
+    step: Step, check: StepCheck, got: dict[str, Any] | None, got_frames: np.ndarray | None, before: int,
+    crashed_here: bool = False, states: dict[str, Any] | None = None,
+) -> str:
+    """One line for a further failing step: its action, what differs and the engine's sprites there."""
+    head = f"    step {step.index} {step.action} (level {before}): "
+    if got is None or got_frames is None:
+        return head + ("your engine raised an error here" if crashed_here else "not run (your engine stopped earlier)")
+    parts = [f"{name} expected {getattr(step, name)}, got {got.get(name)}" for name in FIELDS if getattr(step, name) != got.get(name)]
+    if step.n_frames and len(got_frames):
+        if not check.final_ok:
+            parts.append(diff_report.compact_frame(step.frames[-1], got_frames[-1], (states or {}).get("after")))
+    elif step.n_frames != len(got_frames):
+        parts.append(f"expected {'a frame' if step.n_frames else 'no frame'}, got {len(got_frames)}")
+    parts += [p for p in check.problems if p in ("frame count", "animation frames")]
+    return head + "; ".join(parts)
+
+
 def printed_lines(printed: str | None, what: str = "this step") -> list[str]:
     """The end of what the engine printed, indented for a report."""
     if not printed or not printed.strip():
@@ -405,6 +429,7 @@ def replay_test(
     *,
     level: int | None = None,
     from_level: int | None = None,
+    failures: int | None = None,
     stop_on_fail: bool = False,
     details: int = 2,
     scratch_root: Path | None = None,
@@ -415,14 +440,20 @@ def replay_test(
     """Test an engine against the recording (see the module docstring).
 
     level: test only level L. from_level: start at level L and play to the end (older scope).
-    stop_on_fail: report only up to the first failing test (the counts still cover the scope).
-    details: with stop_on_fail=False, how many failing steps to explain.
-    images: also draw each explained step's frames (TestReport.images).
+    failures: report up to this many failing steps (clamped to 1..MAX_FAILURES), the first in full;
+    None reports everything. stop_on_fail=True means failures=1. The counts always cover the scope.
+    details: with failures=None, how many failing steps to explain.
+    images: also draw the explained steps' frames (TestReport.images).
     crops: include hex-digit crops of the regions (default: when there are no images)."""
     if match not in MATCH_MODES:
         raise ValueError(f"match must be one of {MATCH_MODES}")
     if level is not None and from_level is not None:
         raise ValueError("give level or from_level, not both")
+    if failures is None and stop_on_fail:
+        failures = 1
+    if failures is not None:
+        failures = max(1, min(MAX_FAILURES, int(failures)))
+    limited = failures is not None
     crops = (not images) if crops is None else crops
     n_steps = len(trace)
     entry: int | None = None
@@ -451,8 +482,8 @@ def replay_test(
     else:
         steps = trace.steps
         mode = f"full replay: a fresh engine plays steps 0-{n_steps - 1}"
-    if stop_on_fail:
-        mode += "; the report stops at the first failure"
+    if limited:
+        mode += "; the report stops at the first failure" if failures == 1 else f"; the report stops after {failures} failing steps"
     meta = trace_meta(trace)
     actions = [s.action.to_json() for s in steps]
     result, got_frames = run_candidate(engine_path, actions, start_level=start_level, scratch_root=scratch_root, meta=meta)
@@ -484,18 +515,26 @@ def replay_test(
     # An error before any step ran: loading engine.py, or make_level when the test starts at a level.
     startup_error = error is not None and not isinstance(error_pos, int)
 
-    # What to explain in detail: "start" (a level's start frame) and/or step positions in `steps`.
+    if start_bad:
+        passing_prefix = 0
+    elif first_fail is None:
+        passing_prefix = len(steps) if error is None else 0
+    else:
+        passing_prefix = index_of[first_fail]
+
+    # What to explain in detail: "start" (a level's start frame) and/or step positions in `steps`;
+    # with `failures`, the first failure in detail and the next ones (`compact`) one line each.
     targets: list[int | str] = []
+    compact: list[int] = []
+    more_failures = False
+    ran = [index_of[i] for i in failing if not isinstance(error_pos, int) or index_of[i] <= error_pos]
     if startup_error:
         pass
-    elif stop_on_fail:
-        if not contract_failures:
-            if start_bad:
-                targets = ["start"]
-            elif first_fail is not None:
-                targets = [index_of[first_fail]]
+    elif limited:
+        items: list[int | str] = (["start"] if start_bad else []) + ran
+        targets, compact = items[:1], [int(k) for k in items[1:failures]]
+        more_failures = len(items) > failures
     else:
-        ran = [index_of[i] for i in failing if not isinstance(error_pos, int) or index_of[i] <= error_pos]
         targets = ((["start"] if start_bad else []) + ran)[: max(1, details)]
 
     # A second, short run of the candidate describes its states at those steps (simple interface),
@@ -506,14 +545,15 @@ def replay_test(
     def printed(key: str) -> str | None:
         return second_prints.get(key) or (result.get("prints") or {}).get(key)
 
-    positions = [t for t in targets if t != "start"]
-    if targets and result.get("interface") == "simple" and not (error is not None and error_pos is None):
+    wanted: list[int | str] = [*targets, *compact]
+    positions = [int(t) for t in wanted if t != "start"]
+    if wanted and result.get("interface") == "simple" and not (error is not None and error_pos is None):
         limit = max(positions) + 1 if positions else 0
         if isinstance(error_pos, int):
             limit = min(limit, error_pos + 1)
         second, second_frames = run_candidate(
             engine_path, actions[:limit], start_level=start_level, scratch_root=scratch_root, meta=meta,
-            inspect=[t for t in targets if t == "start" or t < limit], contract=False,
+            inspect=[t for t in wanted if t == "start" or int(t) < limit], contract=False,
         )
         inspected = second.get("inspect") or {}
         second_prints = second.get("prints") or {}
@@ -525,31 +565,26 @@ def replay_test(
     lines = [f"TEST RESULT ({mode})"]
     if contract:
         lines.append(describe_contract(contract))
-    acceptance_shown = not (stop_on_fail and contract_failures)
-    if not acceptance_shown:
-        lines.append(
-            "  Acceptance test (replay of the recording): not reported until the contract tests pass. Fix them first, "
-            "or call run_tests(stop_on_fail=false) to see the replay anyway."
-        )
-    elif stop_on_fail:
-        head = "  Acceptance test (replay of the recording):" if contract else " "
-        scope = f"level {level}'s" if level is not None else "the"
+    if limited:
+        head = "  Acceptance test (the recording replayed in order):" if contract else " "
         if startup_error:
             pass  # the error is shown below
         elif start_bad:
-            lines.append(f"{head} the level {level} start frame differs ({start_frame_diff} px), explained below; its steps are not checked in this report.")
+            lines.append(f"{head} the level {level} start frame differs ({start_frame_diff} px): the first failure, so 0 steps pass before it.")
         elif first_fail is None and error is None:
             what = f"ALL {len(steps)} STEPS OF LEVEL {level} MATCH" if level is not None else "ALL STEPS MATCH"
             extra = " (and its start frame)" if entry is not None and start_frame_diff == 0 else ""
             lines.append(f"{head} {what}{extra}." + ("" if not contract_failures else " The contract tests above must pass too."))
         elif first_fail is not None:
             k = index_of[first_fail]
-            ok = "" if not k else f"step {first_fail - 1} matches; " if k == 1 else f"steps {steps[0].index}-{first_fail - 1} match; "
+            if not k:
+                ok = "no step passes before it"
+            elif k == 1:
+                ok = f"1 step passes before it (step {first_fail - 1})"
+            else:
+                ok = f"{k} steps pass before it (steps {steps[0].index}-{first_fail - 1})"
             start_ok = "the start frame matches; " if entry is not None and start_frame_diff == 0 else ""
-            lines.append(
-                f"{head} {start_ok}{ok}step {first_fail} is the first mismatch. Later steps are not reported "
-                f"(run_tests(stop_on_fail=false) lists every failing step of {scope} replay)."
-            )
+            lines.append(f"{head} {start_ok}step {first_fail} is the first failure; {ok}.")
     else:
         head = "  Acceptance test (replay of the recording):"
         if contract:
@@ -580,27 +615,28 @@ def replay_test(
                 lines.append(
                     f"  Level start frame (step {entry}'s final frame vs your engine's render right after set_level({start_level})): {verdict}."
                 )
-    if acceptance_shown and error:
+    if error:
         if startup_error:
             what = f"make_level({start_level}) or " if start_level is not None else ""
             lines.append(f"\n  YOUR ENGINE RAISED AN ERROR at start-up ({what}loading engine.py), so no step ran:")
             lines.append("\n".join("    " + line for line in error.splitlines()))
         else:
             at = f"step {steps[error_pos].index}" if error_pos < len(steps) else f"position {error_pos}"
-            if not stop_on_fail or first_fail is None or error_pos >= len(steps) or steps[error_pos].index == first_fail:
+            shown = [*targets, *compact]
+            if not limited or first_fail is None or error_pos >= len(steps) or error_pos in shown:
                 lines.append(f"\n  YOUR ENGINE RAISED AN ERROR at {at}:\n" + "\n".join("    " + line for line in error.splitlines()))
-    if acceptance_shown and printed("load"):
+    if printed("load"):
         lines += [line[2:] for line in printed_lines(printed("load"), "loading engine.py")]
     if result.get("stdout", "").strip():  # written past the capture (to the file descriptor itself)
         tail = result["stdout"].splitlines()[-10:]
         lines.append("  Engine stdout (tail):\n" + "\n".join("    " + line for line in tail))
-    if acceptance_shown and failing and not stop_on_fail:
+    if failing and not limited:
         problem_counts = Counter(p for c in checks for p in c.problems)
         lines.append("  Mismatch kinds over all steps: " + ", ".join(f"{k} x{n}" for k, n in problem_counts.most_common()))
 
     report_images: list[TestImage] = []
     detail_steps: list[int] = []
-    for target in targets if acceptance_shown else []:
+    for target in targets:
         if target == "start":
             assert entry is not None and start_frame is not None
             detail_steps.append(entry)
@@ -636,9 +672,9 @@ def replay_test(
                 left_title=f"YOUR ENGINE: after step {step.index} ({step.action})", right_title=f"ORIGINAL GAME: after step {step.index}",
             )
             report_images.append(TestImage(step.index, f"Step {step.index} ({step.action}): left your engine's final frame, right the original game's", diff_report.png_bytes(img)))
-    if acceptance_shown and failing and not stop_on_fail:
+    if failing and not limited:
         lines.append(f"  All mismatching steps: {_ranges(failing)}")
-    if acceptance_shown and targets and result.get("interface") == "simple":
+    if targets and result.get("interface") == "simple":
         target = targets[0]
         lvl = level if level is not None else from_level
         if target == "start":
@@ -646,8 +682,29 @@ def replay_test(
         else:
             step = steps[int(target)]
             lines += repro_lines(step.index, lvl if start_level is not None else None, str(step.action))
-    elif acceptance_shown and error is not None and not targets:
-        lines.append("  Reproduce in python: engine()   # loads engine.py in the kernel and shows the error")
+    elif error is not None and not targets and result.get("interface") == "simple":
+        lvl = level if level is not None else from_level
+        first_index = steps[0].index if steps else 0
+        lines.append(
+            f"  Reproduce in python: before, after = try_step({first_index}{f', level={lvl}' if lvl else ''})   # shows the error"
+        )
+    if limited and targets:
+        if compact:
+            lines.append(f"  Further failures ({len(compact)}), one line each:")
+            for k in compact:
+                step = steps[k]
+                got = got_steps[k] if k < len(got_steps) else None
+                frames = got_frames[k] if k < len(got_frames) else None
+                lines.append(compact_step(
+                    step, checks[k], got, frames, played_in[step.index], error is not None and error_pos == k, inspected.get(str(k)),
+                ))
+        if more_failures:
+            hint = f" (run_tests(failures=n) lists up to {MAX_FAILURES})" if failures < MAX_FAILURES else ""
+            lines.append(f"  The report stops after {failures} failing step{'s' if failures > 1 else ''}; later steps are not reported{hint}.")
+        elif isinstance(error_pos, int) and error_pos < len(steps) - 1:
+            lines.append("  Your engine stopped at that error, so the later steps did not run.")
+        else:
+            lines.append("  No other step fails.")
 
     return TestReport(
         mode=mode,
@@ -666,15 +723,16 @@ def replay_test(
         contract_passed=sum(c["ok"] for c in contract) if contract else None,
         contract_total=len(contract) if contract else None,
         level=level,
-        stop_on_fail=stop_on_fail,
+        failures=failures,
+        passing_prefix=passing_prefix,
         detail_steps=detail_steps,
         images=report_images,
     )
 
 
 def main() -> int:
-    """python -m engine_re.tester ENGINE TRACE_DIR [--level L | --from-level L] [--stop-on-fail] [--details N]
-    [--match final|all] [--images DIR]"""
+    """python -m engine_re.tester ENGINE TRACE_DIR [--level L | --from-level L] [--failures N | --stop-on-fail]
+    [--details N] [--match final|all] [--images DIR]"""
     import argparse
 
     parser = argparse.ArgumentParser(description="Test an engine against a recorded trace.")
@@ -682,13 +740,14 @@ def main() -> int:
     parser.add_argument("trace", type=Path)
     parser.add_argument("--level", type=int, default=None, help="test only this level")
     parser.add_argument("--from-level", type=int, default=None, help="start at this level and play to the end")
-    parser.add_argument("--stop-on-fail", action="store_true", help="report only up to the first failure")
+    parser.add_argument("--failures", type=int, default=None, help=f"report up to this many failing steps (1-{MAX_FAILURES}), as the agent sees it")
+    parser.add_argument("--stop-on-fail", action="store_true", help="the same as --failures 1")
     parser.add_argument("--details", type=int, default=2)
     parser.add_argument("--match", choices=MATCH_MODES, default="final")
     parser.add_argument("--images", type=Path, default=None, help="save the comparison images (PNG) in this directory")
     args = parser.parse_args()
     report = replay_test(
-        args.engine, Trace.load(args.trace), level=args.level, from_level=args.from_level, stop_on_fail=args.stop_on_fail,
+        args.engine, Trace.load(args.trace), level=args.level, from_level=args.from_level, failures=args.failures, stop_on_fail=args.stop_on_fail,
         details=args.details, match=args.match, images=args.images is not None,
     )
     print(report.text)

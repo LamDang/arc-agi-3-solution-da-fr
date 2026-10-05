@@ -350,6 +350,27 @@ def vars_line(before: SummaryView, after: SummaryView) -> str | None:
     return "    your state.vars changed: " + "; ".join(changed[:6]) + (f"; ... ({len(changed) - 6} more)" if len(changed) > 6 else "")
 
 
+def compact_frame(expected: np.ndarray, got: np.ndarray, after: dict[str, Any] | None = None, limit: int = 3) -> str:
+    """One line for a differing final frame: its regions with their colour changes and the engine's
+    sprites showing there (for the further failures of a report)."""
+    regions, hidden = find_regions(expected, got)
+    if not regions:
+        return "final frame matches"
+    view = SummaryView(after)
+    total = int((np.asarray(expected) != np.asarray(got)).sum())
+    parts = []
+    for region in regions[:limit]:
+        r0, c0, r1, c1 = region.core
+        text = f"[{region.n}] rows {_range(r0, r1)}, cols {_range(c0, c1)}, {_changes_text(region.changes, 2)}"
+        if view:
+            shown = [i for i, top, _ in view.at(region.mask) if top]
+            sprites = view.summary["sprites"]
+            text += ", yours: " + ", ".join(f"#{i} {_name(sprites[i])}" for i in shown[:2]) + (", ..." if len(shown) > 2 else "") if shown else ", no sprite of yours"
+        parts.append(text)
+    rest = len(regions) - len(parts) + hidden
+    return f"{total} px differ in {len(regions) + hidden} region(s): " + "; ".join(parts) + (f"; {rest} more" if rest else "")
+
+
 def describe_frames(
     expected: np.ndarray, got: np.ndarray | None, before: dict[str, Any] | None, after: dict[str, Any] | None, *, crops: bool, images: bool, show_vars: bool = True
 ) -> tuple[list[str], list[Region]]:
