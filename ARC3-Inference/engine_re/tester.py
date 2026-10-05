@@ -422,3 +422,23 @@ def replay_test(
         contract_passed=sum(c["ok"] for c in contract) if contract else None,
         contract_total=len(contract) if contract else None,
     )
+
+
+def main() -> int:
+    """python -m engine_re.tester ENGINE TRACE_DIR [--from-level L] [--details N] [--match final|all]"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Test an engine against a recorded trace.")
+    parser.add_argument("engine", type=Path)
+    parser.add_argument("trace", type=Path)
+    parser.add_argument("--from-level", type=int, default=None)
+    parser.add_argument("--details", type=int, default=2)
+    parser.add_argument("--match", choices=MATCH_MODES, default="final")
+    args = parser.parse_args()
+    report = replay_test(args.engine, Trace.load(args.trace), from_level=args.from_level, details=args.details, match=args.match)
+    print(report.text)
+    return 0 if report.passed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
