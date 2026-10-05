@@ -911,9 +911,12 @@ def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
     python = TOOLS[0]["function"]["description"]
     assert "# Objects" in python and "edit_file() and undo_edit()" in python
     objects = system_prompt()[system_prompt().index("# Objects") : system_prompt().index("# How to work")]
-    for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(", "auto_sprites(",
+    for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(",
                  "summarize_levels(", "recording[i]", "recording[k].after"):
         assert name in objects and name.split("(")[0].split("[")[0] in python, name
+    assert "auto_sprites" not in system_prompt() and "auto_sprites" not in python
+    for name in (".pieces_after: Pieces", ".changes: list[Change]", ".code() -> str", "Piece: a Sprite", "GridGuess:"):
+        assert name in objects, name
     assert "as images" in objects and "as hex digits" in system_prompt(images=False)
     assert "image" not in system_prompt(images=False).lower() and "as images" in system_prompt(images=True)
     for term in ("camera", "letterbox", "letter_box", "ARCBaseGame", "arcengine", "library"):
@@ -1034,34 +1037,293 @@ def test_guess_grid_takes_a_coarse_scale_only_with_evidence() -> None:
     assert guess_grid([frame, moved]).scale == 1
 
 
-def test_auto_sprites_helper_in_the_kernel(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_pieces_in_the_kernel_replace_auto_sprites(tmp_path: Path, tiny_trace: Trace) -> None:
+    from engine_re.kernel import FUNCTIONS, RESERVED, RESERVED_HISTORY, RESERVED_STEP
+
+    assert all("auto_sprites" not in names for names in (FUNCTIONS, RESERVED, RESERVED_HISTORY, RESERVED_STEP))
     tiny_trace.save(tmp_path / "trace")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
-        out = kernel.execute("code = auto_sprites(0)")
-        assert "Traceback" not in out and "did not load" not in out, out
-        assert "assumed 8x8 at scale 8" in out and "Renders the frame exactly: yes" in out
-        assert "def level_0_sprites() -> list:" in out and "Not the real sprites" in out
-        assert "SHAPE_9_1x1_" in out and "def shape_pixels" in out and "Kinds: 2 pieces: none reuses an existing kind, 2 new kinds." in out
+        assert "NameError: name 'auto_sprites' is not defined" in kernel.execute("auto_sprites(0)")
+        out = kernel.execute("code = recording[0].pieces_after.code(); print(code)")
+        assert "Traceback" not in out, out
+        assert "# ---- Sprites that draw recording[0].after, level 0's first frame: grid 8x8 at scale 8 ----" in out
+        assert "def level_0_sprites() -> list:" in out and "SHAPE_9_1x1_" in out and "def shape_pixels" in out
         check = (
             "ns = {'Sprite': Sprite, 'State': State, 'View': View}; exec(code, ns)\n"
             "st = State(grid=(8, 8), sprites=ns['level_0_sprites']())\n"
-            "print(bool((render_state(st) == recording[0].after).all()), code.exact, auto_sprites(frame=recording[3].after).grid)"
+            "p = recording[2].pieces_after\n"
+            "print(bool((render_state(st) == recording[0].after).all()), recording[3].grid.grid, isinstance(p[2], Sprite),\n"
+            "      bool((render_state(State(grid=p.grid.grid, sprites=list(p))) == recording[2].after).all()),\n"
+            "      recording[0].pieces_before, recording[0].changes, recording[2].pieces_before is recording[1].pieces_after)"
         )
-        assert kernel.execute(check).strip().endswith("True True (8, 8)")
-        out = kernel.execute("c = auto_sprites(frame=recording[2].after, grid=(16, 16), region=(8, 8, 23, 31)); print(c.exact)")
-        assert "Renders the region exactly: yes" in out and "def frame_sprites_region()" in out and "border" not in out.split("def frame_sprites_region")[1]
+        assert kernel.execute(check).split() == ["True", "(8,", "8)", "True", "True", "None", "None", "True"]
+        out = kernel.execute("print(recording[1].changes)")
+        assert out.startswith("moved: SHAPE_9_1x1_") and "(1, 1) -> (1, 2), dx=+0 dy=+1" in out, out
+        out = kernel.execute("recording[1].pieces_after")
+        assert out.startswith("4 pieces on a 8x8 grid at scale 8, offset (0, 0)") and "  [3] SHAPE_9_1x1_" in out, out
         # A pixel constant in engine.py is reused, not written again.
         (workspace / "engine.py").write_text("WALL = [[5] * 8]\n", encoding="utf-8")
-        out = kernel.execute("code = auto_sprites(0)")
-        assert "Kinds: 2 pieces: 1 reuse existing kinds (1 as they are; 1 kind from engine.py), 1 new kind." in out
-        assert "  From engine.py: WALL." in out and "Sprite(shape_pixels(WALL), x=0, y=0, tags=(\"wall\",))" in out
-        (workspace / "engine.py").write_text("WALL = [[5] * 8]\nraise SystemExit\n", encoding="utf-8")
-        assert "(engine.py did not load, so its constants were not reused: SystemExit" in kernel.execute("code = auto_sprites(0)")
+        out = kernel.execute("print(recording[0].pieces_after.code())")
+        assert "Sprite(shape_pixels(WALL), x=0, y=0, tags=(\"wall\",))" in out and "WALL =" not in out
     finally:
         kernel.stop()
+
+
+def test_step_views_never_segment_beyond_the_focus(monkeypatch, two_level_trace: Trace) -> None:
+    from engine_re import auto_sprites, helpers, segment
+
+    seen: list[int] = []  # the steps whose final frame was segmented or used to guess a grid
+    where = {s.last.__array_interface__["data"][0]: i for i, s in enumerate(two_level_trace.steps)}
+
+    def spy(found):
+        def wrapped(frame, *args, **kwargs):
+            seen.extend(where.get(f.__array_interface__["data"][0], -1) for f in (frame if isinstance(frame, list) else [frame]))
+            return found(frame, *args, **kwargs)
+        return wrapped
+
+    monkeypatch.setattr(segment, "guess_grid", spy(auto_sprites.guess_grid))
+    monkeypatch.setattr(segment, "pieces", spy(segment.pieces))
+    helpers.load_trace(two_level_trace, focus=4)  # the whole recording in memory, focused on step 4
+    for view in helpers.recording[:5]:
+        view.grid, view.pieces_before, view.pieces_after, view.changes
+    helpers.summarize_levels()
+    assert seen and max(seen) <= 4 and -1 not in seen
+    for attribute in ("grid", "pieces_before", "pieces_after", "changes"):
+        with pytest.raises(ValueError, match="only steps 0-4 are loaded"):
+            getattr(helpers.recording[5], attribute)
+    # Level 1 starts at step 3: its grid comes from steps 3 and 4 only; moving the focus guesses it again.
+    assert helpers.recording[4].pieces_after.grid is helpers.recording[4].grid
+    helpers.load_trace(two_level_trace, focus=6)
+    seen.clear()
+    helpers.recording[6].changes
+    assert max(seen) == 6
+    helpers.load_trace(two_level_trace)
+
+
+def _sprite_fields(sprite) -> dict:
+    import dataclasses
+
+    out = {}
+    for f in dataclasses.fields(sprite):
+        value = getattr(sprite, f.name)
+        out[f.name] = np.asarray(value).tolist() if f.name == "pixels" else value
+    return out
+
+
+def test_sprites_print_as_the_code_that_builds_them() -> None:
+    import dataclasses
+    import random
+
+    from engine_re import game_api, segment
+    from engine_re.skeleton import render_skeleton
+
+    api = game_api.canonical()
+    Sprite = api.Sprite
+    rng = random.Random(0)
+    names = ["", "player", "it's", 'say "hi"', "both ' and \"", "back\\slash", "new\nline", "naïve"]
+    for _ in range(400):
+        h, w = rng.randint(1, 6), rng.randint(1, 70)
+        if rng.random() < 0.3:
+            pixels = [[rng.choice([-2, -1, 3])] * w for _ in range(h)]
+        elif rng.random() < 0.3:
+            row = [rng.randint(-2, 15) for _ in range(w)]
+            pixels = [list(row) for _ in range(h)]
+        else:
+            pixels = [[rng.randint(-2, 15) for _ in range(w)] for _ in range(h)]
+        if rng.random() < 0.2:
+            pixels = np.array(pixels, dtype=np.int8)
+        kw = {}
+        for name, choices in (("x", [0, 3, -2, 63]), ("y", [0, 1, -5]), ("layer", [0, -2, 9]), ("name", names),
+                              ("tags", [(), ("wall",), ("a", 'b"c', "d'e"), ["x"]]), ("visible", [True, False]),
+                              ("collidable", [True, False]), ("blocking", ["pixel", "box", "none"]),
+                              ("rotation", [0, 90, 180, 270]), ("mirror_ud", [False, True]), ("mirror_lr", [False, True]),
+                              ("scale", [1, 2, 3, -1]), ("screen", [False, True])):
+            if rng.random() < 0.4:
+                kw[name] = rng.choice(choices)
+        if rng.random() < 0.1:
+            kw["x"] = np.int64(7)
+        sprite = Sprite(pixels, **kw)
+        text = str(sprite)
+        assert text == repr(sprite) and text.startswith("Sprite(") and "pixels=" not in text
+        again = eval(text, {"Sprite": Sprite})  # noqa: S307
+        assert _sprite_fields(again) == _sprite_fields(sprite), text
+        for name, value in kw.items():  # only the fields that differ from their defaults are written
+            default = Sprite.__dataclass_fields__[name].default
+            assert (f" {name}=" in text) == (value != default), (name, text)
+    assert str(Sprite([[3] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name="border")) == (
+        'Sprite([[3] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False, name="border")'
+    )
+    shape = Sprite([[8, 8, -1], [8, 8, 8], [8, 8, 8], [8, 8, -1]], x=28, y=8, rotation=180, tags=("shape_8_3x4_79b9",))
+    assert str(shape) == 'Sprite([[8, 8, -1], [8, 8, 8], [8, 8, 8], [8, 8, -1]], x=28, y=8, rotation=180, tags=("shape_8_3x4_79b9",))'
+    assert str([shape, Sprite([[1]])]) == f"[{shape}, Sprite([[1]])]"
+    # A Piece prints as the Sprite it is.
+    piece = segment.Piece([[9, 9]], x=1, shape="SHAPE_9_2x1_abcd", colour=9, size=2)
+    assert str(piece) == "Sprite([[9, 9]], x=1)" and dataclasses.fields(piece)
+    # engine.py's FIXED block has it too, and an engine prints its sprites as code.
+    source = render_skeleton("tiny", [1, 2, 3, 4])
+    assert "def __repr__(self) -> str:" in source[: source.index(game_api.END_MARKER)]
+    module: dict = {}
+    exec(compile(source, "engine.py", "exec", dont_inherit=True), module)
+    assert repr(module["Sprite"]([[1, 2]], tags=("a",))) == 'Sprite([[1, 2]], tags=("a",))'
+    # An engine of an earlier run, whose block has no __repr__, still has an unchanged interface.
+    block = game_api.FIXED_INTERFACE
+    start = block.index("    def __repr__(self) -> str:")
+    end = block.index('        return "Sprite(" + ", ".join(parts) + ")"\n') + len('        return "Sprite(" + ", ".join(parts) + ")"\n')
+    earlier = block[:start].rstrip("\n") + "\n" + block[end:]
+    assert game_api.same_interface(earlier) and not game_api.same_interface(earlier.replace("layer: int = 0", "layer: int = 1"))
+
+
+def test_pieces_redraw_every_reference_level_start_exactly() -> None:
+    import time
+
+    from engine_re import game_api, segment
+    from engine_re.auto_sprites import guess_grid, sprite_code
+
+    api = game_api.canonical()
+    with np.load(LEVEL_STARTS) as data:
+        frames, names = data["frames"], data["names"]
+    slowest = 0.0
+    for frame, name in zip(frames, names):
+        guess = guess_grid(frame)
+        started = time.perf_counter()
+        found = segment.pieces(frame, guess)
+        slowest = max(slowest, time.perf_counter() - started)
+        view = {} if guess.default_scale else {"view": api.View(scale=guess.scale)}
+        state = api.State(grid=guess.grid, sprites=list(found), **view)
+        assert np.array_equal(game_api.render(state), frame), name
+        assert [p.role for p in found[:2]] == ["border", "background"] and {p.role for p in found[2:]} <= {"object"}
+        assert all(isinstance(p, api.Sprite) and p.size > 0 for p in found)
+        for p in found[2:]:
+            assert p.tags[-1] == p.shape.lower() and p.screen == ("hud" in p.tags)
+            shown = {k: getattr(p, k) for k, default in (("rotation", 0), ("mirror_ud", False), ("mirror_lr", False), ("scale", 1))
+                     if getattr(p, k) != default}
+            assert {k: v for k, v in p.transform.items() if k != "recolour"} == shown
+        assert found.code() == sprite_code(frame, guess, function="frame_sprites", source="the frame").code
+        children = sorted(c for p in found for c in p.children)
+        assert children == list(range(1, len(found)))  # a tree: every piece but the border has one parent
+    assert slowest < 0.5
+
+
+def _ring_frame(colours: list[int], bar: int) -> np.ndarray:
+    """A 16x16 grid at scale 4: 20 tiles of 1 cell around a square, each its own colour, a 3x3 frame
+    enclosing a dot in the middle, and a screen bar (pixels off the grid's blocks) `bar` pixels tall."""
+    cells = np.zeros((16, 16), np.int16)
+    ring = [(x, 2) for x in range(2, 14, 2)] + [(12, y) for y in range(4, 14, 2)] + [(x, 12) for x in range(10, 0, -2)]
+    ring += [(2, y) for y in range(10, 2, -2)]
+    ring = ring[:20]
+    for (x, y), colour in zip(ring, colours):
+        cells[y, x] = colour
+    cells[6:9, 6:9] = 7
+    cells[7, 7] = 8
+    frame = np.repeat(np.repeat(cells, 4, axis=0), 4, axis=1).astype(np.int8)
+    frame[64 - bar :, 1] = 11
+    return frame
+
+
+def test_changes_find_recoloured_moved_reshaped_and_new_pieces() -> None:
+    from engine_re import segment
+    from engine_re.auto_sprites import GridGuess
+
+    grid = GridGuess(16, 16, 4, 0, 0, 0, 1, "as given")
+    colours = [1 + k % 6 for k in range(20)]
+    before = segment.pieces(_ring_frame(colours, 30), grid)
+    after = segment.pieces(_ring_frame(colours[1:] + colours[:1], 25), grid)  # the ring turns by one tile; the bar shrinks
+    found = segment.changes(before, after)
+    kinds = [c.kind for c in found]
+    assert kinds.count("recoloured") == 20 and kinds.count("reshaped") == 1 and len(found) == 21, found
+    first = found[0]
+    assert first.colours == {colours[0]: colours[1]} and first.before.x == first.after.x and (first.dx, first.dy) == (0, 0)
+    reshaped = next(c for c in found if c.kind == "reshaped")
+    assert reshaped.note == "1x30 -> 1x25, lost 5 px at the top" and (reshaped.dx, reshaped.dy) == (0, 5)
+    text = segment.summary(found)
+    assert text.splitlines()[0].startswith("20 recoloured (1x1, 6 shapes): ") and "... and" in text.splitlines()[0]
+    assert text.splitlines()[1] == "1 reshaped: screen piece " + reshaped.before.shape + " colour 11 (yellow) at (1, 34): 1x30 -> 1x25, lost 5 px at the top"
+    assert len(text.splitlines()) == 2 and all(len(line) <= segment.LINE_CHARS + 30 for line in text.splitlines())
+    # The 3x3 frame encloses the dot.
+    frame_piece = next(i for i, p in enumerate(before) if p.colour == 7)
+    dot = next(i for i, p in enumerate(before) if p.colour == 8)
+    assert before[frame_piece].children == [dot] and dot not in before[1].children and frame_piece in before[1].children
+    # Appeared, disappeared, and a piece filled in; unchanged pieces are not listed.
+    other = _ring_frame(colours, 30)
+    other[28:32, 28:32] = 7  # the dot takes the frame's colour: the frame is now a solid square
+    other[8:12, 0:4] = 13  # a new piece at cell (0, 2)
+    other[8:12, 8:12] = 0  # the first tile is gone
+    found = segment.changes(before, segment.pieces(other, grid))
+    assert [c.kind for c in found] == ["reshaped", "appeared", "disappeared", "disappeared"], found
+    assert found[0].note == "3x3 -> 3x3, gained 1 cell inside its box" and found[1].after.colour == 13
+    assert str(segment.changes(before, before)) == "no piece changed" and segment.summary([]) == "no piece changed"
+    # Pieces of two different grids (a new level) are never the same piece; screen pieces still compare.
+    coarse = segment.pieces(_ring_frame(colours, 30), GridGuess(32, 32, 2, 0, 0, 0, 1, "as given"))
+    found = segment.changes(before, coarse)
+    assert {c.kind for c in found if not (c.after or c.before).screen} == {"appeared", "disappeared"}
+    assert len([c for c in found if c.kind == "disappeared"]) == len(before) - 2  # all but the border and the bar
+    step = segment.pieces(_ring_frame(colours, 30), grid)
+    step_moved = _ring_frame(colours, 30)
+    step_moved[:, 1] = 0
+    step_moved[64 - 30 :, 2] = 11  # the bar moves one pixel right
+    found = segment.changes(step, segment.pieces(step_moved, grid))
+    assert [(c.kind, c.dx, c.dy) for c in found] == [("moved", 1, 0)] and str(found[0]).startswith("moved: screen piece SHAPE_11_1x30_")
+    assert segment.summary(found).startswith("1 moved by (+1, +0) screen (SHAPE_11_1x30_")
+
+
+def test_the_step_messages_show_what_the_step_changed(monkeypatch, two_level_trace: Trace) -> None:
+    from engine_re import auto_sprites, prompts, segment
+
+    def visible(k: int) -> Trace:
+        return Trace(two_level_trace.game_id, two_level_trace.steps[: k + 1])
+
+    text = prompts.episode_message("two", visible(1), 1, "REPORT", "ENGINE", history=False)
+    block = text[text.index("What the recorded step changed (objects):") : text.index("The test report:")].strip()
+    assert block.splitlines()[0] == ("What the recorded step changed (objects): step_to_fix.pieces_before -> "
+                                     "step_to_fix.pieces_after; step_to_fix.changes lists them.")
+    assert block.splitlines()[1].startswith("  1 moved by (+1, +0) (SHAPE_9_1x1_") and len(block.splitlines()) == 2
+    assert "it starts the game" in prompts.episode_message("two", visible(0), 0, "REPORT", "ENGINE")
+    # advance_message gets the whole recording, but the block looks only at steps 0..k.
+    seen: list[int] = []
+    where = {s.last.__array_interface__["data"][0]: i for i, s in enumerate(two_level_trace.steps)}
+
+    def spy(found):
+        def wrapped(frame, *args, **kwargs):
+            seen.extend(where.get(f.__array_interface__["data"][0], -1) for f in (frame if isinstance(frame, list) else [frame]))
+            return found(frame, *args, **kwargs)
+        return wrapped
+
+    monkeypatch.setattr(segment, "guess_grid", spy(auto_sprites.guess_grid))
+    monkeypatch.setattr(segment, "pieces", spy(segment.pieces))
+    text = prompts.advance_message(two_level_trace, 1, 3, "REPORT", history=True)
+    assert seen and max(seen) <= 3
+    assert "What the recorded step changed (objects): it enters level 1. step_to_fix.pieces_after holds that level's" in text
+    assert "step_to_fix.pieces_after.code() gives code for it" in text and "auto_sprites" not in text
+    seen.clear()
+    text = prompts.advance_message(two_level_trace, 3, 4, "REPORT")
+    assert max(seen) == 4 and "1 moved by (+0, +1)" in text
+    # A frame the segmentation cannot read leaves a note, not a failed run.
+    monkeypatch.setattr(segment, "pieces", lambda *a, **k: 1 / 0)
+    assert "(objects): not available (ZeroDivisionError" in prompts.advance_message(two_level_trace, 3, 4, "REPORT")
+
+
+LP85_TRACE = Path("/home/user/arc-agi-3-solution-da-fr/ARC3-Inference/runs/engine-re/qwen38flash-v6c-lp85/lp85/trace")
+
+
+@pytest.mark.skipif(not LP85_TRACE.exists(), reason="the lp85 run is not on this machine")
+def test_pieces_and_changes_on_a_real_recording() -> None:
+    from engine_re import game_api, segment
+
+    trace = Trace.load(LP85_TRACE)
+    api = game_api.canonical()
+    segmenter = segment.Segmenter(trace)
+    for level, k in trace.level_starts().items():
+        found = segmenter.pieces(k)
+        view = {} if found.grid.default_scale else {"view": api.View(scale=found.grid.scale)}
+        assert np.array_equal(game_api.render(api.State(grid=found.grid.grid, sprites=list(found), **view)), trace.steps[k].last), level
+    kinds = [c.kind for c in segmenter.changes(1)]
+    # The ring of 20 tiles turns: 18 change colour (2 keep theirs); the bar at the left loses its top 5 pixels to black.
+    assert (kinds.count("recoloured"), kinds.count("reshaped"), kinds.count("appeared"), len(kinds)) == (18, 1, 1, 20)
+    assert "lost 5 px at the top" in segment.summary(segmenter.changes(1))
+    assert "it enters level 1" in segmenter.report(8)
 
 
 # --- read_file / edit_file / undo_edit, the tools, finish and show_frames ---------------------------------------------
@@ -1317,6 +1579,10 @@ def test_the_harness_plays_the_first_round(tmp_path: Path, tiny_trace: Trace) ->
     assert "Levels reached" not in text and "frames per step" not in text
     assert "Before your first turn the harness did the first round" in text
     assert "Renders the frame exactly: yes." in text and "def shape_pixels" not in text.split("TEST RESULT")[0]
+    assert "1. recording[0].pieces_after.code() wrote sprites that draw level 0's first frame" in text
+    assert "recording[0].pieces_after.code(): sprites that draw level 0's first frame (recording[0].after)." in text
+    assert "    # recording[e].pieces_after.code(), e being the step that enters level n." in engine
+    assert "auto_sprites" not in engine and "auto_sprites" not in text
     assert "step 1 is the first failure; 1 step passes before it (step 0)" in text
     assert "the FIXED block, folded" in text and "class Sprite:" not in text
     lines, _ = hashline.split_lines(engine)
@@ -1337,7 +1603,7 @@ def test_first_message_without_the_opening(tmp_path: Path, tiny_trace: Trace) ->
     assert (tmp_path / "workspace" / "engine.py").read_text() == render_skeleton("tiny", [1, 2, 3, 4])
     assert "The actions this game accepts: 1 (up), 2 (down), 3 (left), 4 (right)." in opening
     assert "the FIXED block, folded" in opening and "class Sprite:" not in opening
-    assert "Your first task: put auto_sprites(0)'s code into make_level with edit_file()" in opening
+    assert "Your first task: put recording[0].pieces_after.code() into make_level with edit_file()" in opening
     assert agent.messages[0]["content"].startswith("# Goal")
     assert not agent.result.opening
 
@@ -1359,8 +1625,9 @@ def test_summarize_levels_lists_each_level(two_level_trace: Trace) -> None:
 
     rows = helpers._levels_text(two_level_trace).splitlines()
     assert rows[0].startswith("The recording: 9 steps") and "2 of the game's 2 levels played" in rows[0]
-    assert rows[2].split() == ["0", "recording[0].after", "1-3", "(3)", "right", "x3", "3", "-", "-", "solved", "at", "step", "3"]
-    assert rows[3].startswith("1      recording[3].after  4-8 (5)") and rows[3].rstrip().endswith("not solved: the recording ends (NOT_FINISHED)")
+    assert rows[2].split() == ["0", "recording[0].after", "8x8", "s8", "1-3", "(3)", "right", "x3", "3", "-", "-", "solved", "at",
+                               "step", "3"]
+    assert rows[3].startswith("1      recording[3].after  8x8 s8  4-8 (5)") and rows[3].rstrip().endswith("not solved: the recording ends (NOT_FINISHED)")
     assert "RESET x1" in rows[3] and "summarize_levels" in PRELOADED
 
 
@@ -1809,13 +2076,31 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
         args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
         assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
     view = helpers.StepView(tiny_trace, 1)
-    assert members["StepView"] == set(vars(view)), members["StepView"] ^ set(vars(view))
+    lazy = {k for k, v in vars(helpers.StepView).items() if isinstance(v, property)}
+    assert lazy == {"grid", "pieces_before", "pieces_after", "changes"}
+    public = {k for k in vars(view) if not k.startswith("_")} | lazy
+    assert members["StepView"] == public, members["StepView"] ^ public
+    # A frame's pieces: Piece lists what it adds to Sprite; Pieces, Change and GridGuess everything they have.
+    from engine_re import segment
+    from engine_re.auto_sprites import GridGuess
+
+    def own(cls: type, instance: object = None) -> set[str]:
+        names = {k for k in vars(cls) if not k.startswith("_")}
+        if dataclasses.is_dataclass(cls):
+            names |= {f.name for f in dataclasses.fields(cls)}
+        return names | {k for k in vars(instance or object()) if not k.startswith("_")} if instance is not None else names
+
+    sprite_fields = {f.name for f in dataclasses.fields(api.Sprite)}
+    assert members["Piece"] == {f.name for f in dataclasses.fields(segment.Piece)} - sprite_fields
+    assert members["Pieces"] == own(segment.Pieces, segment.pieces(tiny_trace.steps[0].last)) == {"grid", "code"}
+    assert members["Change"] == own(segment.Change)
+    assert members["GridGuess"] == own(GridGuess)
     recorded = {f.name for f in dataclasses.fields(RecordedAction)} | {"name"}
     assert members["The recorded action"] == recorded and not hasattr(view.action, "cell")
     # Every mode shares these parts; the recorded steps python holds differ.
     for mode, history in (("single", True), ("step", True), ("step", False)):
         prompt = system_prompt(mode=mode, history=history)
-        for part in ("StepView: a recorded step", "A recorded step has no State, sprites, grid or vars: frames only",
+        for part in ("StepView: a recorded step", "A recorded step has no State or vars:", "Piece: a Sprite",
                      "State(grid, sprites=[]", "replay_step(i, state=None, action=None, *, level=None) -> tuple[State | None, State]"):
             assert part in prompt, (mode, history, part)
 

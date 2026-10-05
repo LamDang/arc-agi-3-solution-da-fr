@@ -11,18 +11,19 @@ One `EngineAgent` works on one game in its own directory:
     <game_dir>/engine_best.py    the best engine tested so far (engine_files.BEST_RULE)
     <game_dir>/result.json       outcome, tokens, cost, final test
 
-Tools: python (a kernel with the recording and read_file/edit_file/undo_edit/render_state/show_frames/
-replay_step/auto_sprites; it cannot write engine.py except through edit_file() and undo_edit(), which
+Tools: python (a kernel with the recording, each step's pieces, and read_file/edit_file/undo_edit/render_state/
+show_frames/replay_step; it cannot write engine.py except through edit_file() and undo_edit(), which
 the harness applies), run_tests and commit_engine(message), which submits engine.py: it runs the
 tests, and the message says what changed and why (result.json keeps it). In the single mode the
 session ends when every test passes (by commit_engine, run_tests or the automatic test) or when a
 budget (turns, output tokens, cost, wall time) runs out.
 
 The opening: before the first turn of a new session the harness plays the first round itself. In the
-kernel, auto_sprites(0) makes sprite code for level 0's first frame and one edit_file() puts it above
-make_level, which then returns level_0_sprites(); then it runs the tests. The first message shows
-what auto_sprites printed, the test report (with its picture) and engine.py, and sets the first task:
-the first failing step, usually step 1. That edit and test are not counted as the model's
+kernel, recording[0].pieces_after.code() makes sprite code for level 0's first frame (through the private
+helpers._level_code, which also prints a summary) and one edit_file() puts it above make_level, which
+then returns level_0_sprites(); then it runs the tests. The first message shows that summary, the
+test report (with its picture) and engine.py, and sets the first task: the first failing step,
+usually step 1. That edit and test are not counted as the model's
 (engine_changes, tests_run); tests.jsonl marks the test "auto": "opening".
 
 Feedback the harness adds on its own: when engine.py changed during a turn and was not tested
@@ -130,24 +131,28 @@ RESUME_NOTE = (
 )
 CONTINUE = "Continue by calling a tool (python, run_tests or commit_engine)."
 READ_CHARS_IN_MESSAGES = 14000  # engine.py shown in the first message (FIXED block folded)
-# The opening, run in the kernel: auto_sprites(0) (its summary printed, not its code), then one edit_file() that
-# puts the code above make_level and makes make_level return level_0_sprites(). Filled in by
-# EngineAgent._opening_code with the anchors of the starting engine.py.
+# The opening, run in the kernel: level 0's first frame as code, recording[0].pieces_after.code(), through the private
+# helpers._level_code (its summary printed, not its code), then one edit_file() that puts the code above make_level
+# and makes make_level return level_0_sprites(). Filled in by EngineAgent._opening_code with the anchors of the
+# starting engine.py.
 OPENING_SPLIT = "----- harness: edit -----"
 OPENING_CODE = '''\
 import contextlib as _harness_contextlib, io as _harness_io
+from engine_re.helpers import _level_code as _harness_level_code
 _harness_out = _harness_io.StringIO()
 with _harness_contextlib.redirect_stdout(_harness_out):
-    _harness_code = auto_sprites(0)
+    _harness_code = _harness_level_code(0)
 print(_harness_out.getvalue().split("\\n\\n")[0])
 print({split!r})
+_harness_view = f", view=View(scale={{_harness_code.view}})" if _harness_code.view else ""
 edit_file(edits=[
     {{"op": "prepend", "pos": {head!r}, "lines": _harness_code.rstrip("\\n").splitlines() + ["", ""]}},
     {{"op": "replace", "pos": {start!r}, "end": {end!r}, "lines": [
-        "    # For now every level starts as level 0: add level n (auto_sprites(n)) when the tests reach it.",
-        f"    return State(grid={{_harness_code.grid}}, sprites=level_0_sprites())"]}},
+        "    # For now every level starts as level 0: add level n when the tests reach it, from",
+        "    # recording[e].pieces_after.code(), e being the step that enters level n.",
+        f"    return State(grid={{_harness_code.grid}}, sprites=level_0_sprites(){{_harness_view}})"]}},
 ])
-del _harness_contextlib, _harness_io, _harness_out, _harness_code
+del _harness_contextlib, _harness_io, _harness_out, _harness_code, _harness_level_code, _harness_view
 '''
 
 
@@ -891,7 +896,7 @@ class EngineAgent:
         )
 
     def _open(self) -> dict[str, Any] | None:
-        """Play the first round before the first turn: auto_sprites(0) into make_level, then the tests.
+        """Play the first round before the first turn: level 0's sprite code into make_level, then the tests.
         Returns what the first message shows ("sprites", "report", "first_fail"), or None when it could
         not be done (engine.py is then as it was)."""
         code = self._opening_code()
@@ -940,8 +945,8 @@ class EngineAgent:
         return content
 
     def play_opening(self) -> dict[str, Any] | None:
-        """Only the opening, for the stepwise driver: engine.py from the template, auto_sprites(0) put
-        into make_level, the first test. Returns what _open returns."""
+        """Only the opening, for the stepwise driver: engine.py from the template, level 0's sprite code
+        (recording[0].pieces_after.code()) put into make_level, the first test. Returns what _open returns."""
         self.setup()
         self.started = time.time()
         try:

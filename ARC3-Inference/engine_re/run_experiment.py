@@ -93,7 +93,7 @@ def main() -> int:
     parser.add_argument(
         "--no-opening",
         action="store_true",
-        help="Do not play the first round for the model (auto_sprites(0) into make_level, then the tests).",
+        help="Do not play the first round for the model (level 0's sprite code into make_level, then the tests).",
     )
     parser.add_argument(
         "--providers",

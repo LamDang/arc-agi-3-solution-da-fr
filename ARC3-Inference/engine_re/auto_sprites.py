@@ -20,6 +20,10 @@ for the level's sprite list that redraws the frame exactly with ``game_api.rende
 - screen sprites, on top, for whatever the grid cannot draw: anything outside the grid (HUD)
   and pixels that break the grid's blocks.
 
+``plan_sprites`` is the segmentation alone (which piece goes where, drawn from which kind and how);
+``engine_re.segment`` turns it into Sprite objects for the agent to explore (``Pieces.code()`` is
+this module's code), and the kernel's recorded steps carry it.
+
 The code is executed and rendered to check it reproduces the frame. Its pixel rows come from
 ``shape_pixels(shape, recolor=None)``, written once at the top unless engine.py defines it, which
 gives every sprite its own rows.
@@ -336,7 +340,7 @@ SCALES = (2, 3, 4, 5)
 
 def as_shape(value: object) -> np.ndarray | None:
     """A module-level value as a pixel array (-1 transparent), if it is a pixel constant: hex strings
-    as auto_sprites writes them ('.' transparent), or rows of colour numbers (-2 counts as transparent)."""
+    as sprite_code writes them ('.' transparent), or rows of colour numbers (-2 counts as transparent)."""
     try:
         if isinstance(value, np.ndarray):
             if value.ndim != 2 or value.dtype.kind not in "iu" or not value.size:
@@ -467,23 +471,43 @@ def _rows_array(rows: tuple[str, ...]) -> np.ndarray:
     return np.array([[-1 if ch == "." else int(ch, 16) for ch in row] for row in rows], np.int16)
 
 
-def sprite_code(
+@dataclass
+class Plan:
+    """How sprite_code draws a frame: the grid, the background colour, the placed pieces (objects on the
+    grid, then screen sprites) and the pixel kinds they use."""
+
+    guess: GridGuess
+    background: int
+    objects: list[Placement]
+    huds: list[Placement]
+    arrays: dict[str, np.ndarray]  # every kind a placement uses: name -> pixels (-1 transparent)
+    new_rows: dict[str, tuple[str, ...]]  # the kinds this plan writes as new constants, in order
+    uses: Counter
+    screen_kinds: set[str]
+    known: dict[str, np.ndarray]  # the known kinds it could reuse (engine.py's)
+    inside: np.ndarray  # the screen pixels it draws (the region)
+
+    def sprite(self, p: Placement, **extra: object) -> object:
+        """The fixed interface's Sprite that a placement draws, with its own pixel rows."""
+        pix = self.arrays[p.name].tolist()
+        if p.recolor:
+            pix = [[p.recolor.get(v, v) for v in row] for row in pix]
+        return game_api.canonical().Sprite(
+            pix, x=p.x, y=p.y, rotation=p.rotation, mirror_ud=p.mirror_ud, mirror_lr=p.mirror_lr, scale=p.scale, **extra
+        )
+
+
+def plan_sprites(
     frame: np.ndarray,
     guess: GridGuess,
     *,
     merge: bool = False,
-    function: str = "level_0_sprites",
-    source: str = "",
     region: tuple[int, int, int, int] | None = None,
     defined: set[str] | None = None,
     existing: dict[str, object] | None = None,
-) -> SpriteCode:
-    """Python code for a sprite list that redraws `frame` exactly on the grid `guess` (see the module
-    docstring). merge: one sprite per group of touching non-background regions instead of per
-    single-colour region. region (x0, y0, x1, y1, screen pixels, inclusive): only the objects inside
-    it, without border and background. defined: names engine.py already defines, not emitted again.
-    existing: engine.py's module-level values; its pixel constants are reused, as they are or turned,
-    mirrored, scaled or recoloured, before any new constant is written."""
+) -> Plan:
+    """The segmentation behind sprite_code (same arguments): which piece goes where, drawn from
+    which kind and how."""
     frame = np.asarray(frame).astype(np.int16)
     g = guess
     defined = set(defined or ())
@@ -521,33 +545,52 @@ def sprite_code(
         return p
 
     objects = [place(x, y, rows) for x, y, rows in (_cut(logical, m) for m in _components(logical, background, merge))]
-
+    plan = Plan(g, background, objects, [], {}, new_rows, uses, screen_kinds, known, inside)
+    plan.arrays = {**known, **{n: _rows_array(r) for n, r in new_rows.items()}}
     api = game_api.canonical()
     view = api.View(scale=g.scale) if not g.default_scale else None
-    arrays = {**known, **{n: _rows_array(r) for n, r in new_rows.items()}}
-
-    def sprite(p: Placement, **extra: object) -> object:
-        pix = arrays[p.name].tolist()
-        if p.recolor:
-            pix = [[p.recolor.get(v, v) for v in row] for row in pix]
-        return api.Sprite(pix, x=p.x, y=p.y, rotation=p.rotation, mirror_ud=p.mirror_ud, mirror_lr=p.mirror_lr, scale=p.scale, **extra)
-
     base = [
         api.Sprite([[g.border] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False),
         api.Sprite([[background] * g.width for _ in range(g.height)], layer=-1, collidable=False),
     ]
-    drawn = base + [sprite(p) for p in objects]
-    state = api.State(grid=(g.width, g.height), sprites=drawn, **({"view": view} if view else {}))
+    state = api.State(grid=(g.width, g.height), sprites=base + [plan.sprite(p) for p in objects], **({"view": view} if view else {}))
     residual = (game_api.render(state).astype(np.int16) != frame) & inside
-    huds: list[Placement] = []
     if residual.any():
         values = np.where(residual, frame, -1)
-        huds = [place(x, y, rows, True) for x, y, rows in (_cut(frame, m) for m in _components(values, -1, merge))]
-        arrays.update({n: _rows_array(r) for n, r in new_rows.items()})
+        plan.huds = [place(x, y, rows, True) for x, y, rows in (_cut(frame, m) for m in _components(values, -1, merge))]
+        plan.arrays.update({n: _rows_array(r) for n, r in new_rows.items()})
+    return plan
+
+
+def sprite_code(
+    frame: np.ndarray,
+    guess: GridGuess,
+    *,
+    merge: bool = False,
+    function: str = "level_0_sprites",
+    source: str = "the frame",
+    region: tuple[int, int, int, int] | None = None,
+    defined: set[str] | None = None,
+    existing: dict[str, object] | None = None,
+) -> SpriteCode:
+    """Python code for a sprite list that redraws `frame` exactly on the grid `guess` (see the module
+    docstring). merge: one sprite per group of touching non-background regions instead of per
+    single-colour region. source: what the frame is, for the code's first comment. region (x0, y0,
+    x1, y1, screen pixels, inclusive): only the objects inside it, without border and background.
+    defined: names engine.py already defines, not emitted again. existing: engine.py's module-level
+    values; its pixel constants are reused, as they are or turned, mirrored, scaled or recoloured,
+    before any new constant is written."""
+    frame = np.asarray(frame).astype(np.int16)
+    g = guess
+    defined = set(defined or ())
+    plan = plan_sprites(frame, g, merge=merge, region=region, defined=defined, existing=existing)
+    objects, huds, new_rows, uses, background, inside = plan.objects, plan.huds, plan.new_rows, plan.uses, plan.background, plan.inside
+    api = game_api.canonical()
+    view = not g.default_scale
 
     where = "" if region is None else f", region x {region[0]}-{region[2]}, y {region[1]}-{region[3]}"
     lines = [
-        f"# ---- auto_sprites{source}: grid {g.width}x{g.height} at scale {g.scale}{where} ----",
+        f"# ---- Sprites that draw {source}: grid {g.width}x{g.height} at scale {g.scale}{where} ----",
         "# A starting point, not the game's real sprites: rename, merge and retag them, and check them against the steps.",
     ]
     skipped = ["shape_pixels"] if "shape_pixels" in defined else []
@@ -556,7 +599,7 @@ def sprite_code(
     if new_rows:
         lines += ["", ""]
         for name, rows in new_rows.items():
-            lines += _shape_lines(name, rows, _describe_shape(rows, uses[name], name in screen_kinds))
+            lines += _shape_lines(name, rows, _describe_shape(rows, uses[name], name in plan.screen_kinds))
     view_text = f", view=View(scale={g.scale})" if view else ""
     what = "objects in the region" if region is not None else "sprites of the frame"
     lines += [
@@ -580,10 +623,14 @@ def sprite_code(
 
     # Check: run the code (with engine.py's constants it uses) on the fixed interface and draw it.
     namespace = dict(vars(api))
-    exec(compile(SHAPE_PIXELS, "<auto_sprites>", "exec", dont_inherit=True), namespace)
-    namespace.update({n: v for n, v in (existing or {}).items() if n in known})
-    exec(compile(code, "<auto_sprites>", "exec", dont_inherit=True), namespace)
+    exec(compile(SHAPE_PIXELS, "<sprite code>", "exec", dont_inherit=True), namespace)
+    namespace.update({n: v for n, v in (existing or {}).items() if n in plan.known})
+    exec(compile(code, "<sprite code>", "exec", dont_inherit=True), namespace)
     made = namespace[function]()
+    base = [
+        api.Sprite([[g.border] * 64 for _ in range(64)], screen=True, layer=-2, collidable=False),
+        api.Sprite([[background] * g.width for _ in range(g.height)], layer=-1, collidable=False),
+    ]
     check = api.State(grid=(g.width, g.height), sprites=(base + made) if region is not None else made, **({"view": api.View(scale=g.scale)} if view else {}))
     differing = int(((game_api.render(check).astype(np.int16) != frame) & inside).sum())
     placed = objects + huds

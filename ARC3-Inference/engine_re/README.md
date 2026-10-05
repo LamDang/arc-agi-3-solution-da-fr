@@ -49,11 +49,17 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   cells, and applies the episode rules (RESET restarts the level, level
   changes, WIN, GAME_OVER) in `GameRunner`, so the tester, sandbox and
   evaluation work unchanged. The contract test compares the fixed block's code
-  with the original, ignoring comments. The tester and `evaluate.py` still
-  score engines written as an `arcengine` game class (the earlier runs).
+  with the original, ignoring comments (and accepts the code of earlier blocks,
+  `game_api.EARLIER_INTERFACES`, so engines of earlier runs still pass). A
+  `Sprite` prints as the code that builds it, with only the fields that differ
+  from their defaults (`Sprite([[8, 8, -1], ...], x=28, y=8, rotation=180,
+  tags=("shape_8_3x4_79b9",))`; equal rows as `[[3] * 64 for _ in range(64)]`),
+  so a printed sprite list is code, and `eval` of it gives equal fields. The
+  tester and `evaluate.py` still score engines written as an `arcengine` game
+  class (the earlier runs).
 - **Tools** (`agent.py`, `prompts.py`): exactly three.
   - `python(code)`: a persistent kernel. Its namespace holds `np`, the
-    fixed-block classes, `recording` (the recorded steps) and eight functions
+    fixed-block classes, `recording` (the recorded steps) and seven functions
     (`helpers.py`); nothing else is preloaded. These names are reserved: code
     that binds one (`def`, assignment, parameter, loop variable, import as) is
     refused before it runs (`kernel.reserved_bindings`). They are named so that
@@ -65,7 +71,14 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       `.after` (= `.last`, the frame the tests compare), `.frames`, `.level`
       (the level it is played in), `.outcome` (`NOT_FINISHED`, `WIN` or
       `GAME_OVER`; `trace.json` keeps it as `state`), `.levels_completed`,
-      `.win_levels`, `.available_actions`. Frames only: no State.
+      `.win_levels`, `.available_actions`. Frames only: no State. And the
+      frames' segmentation (`segment.py`), computed when first read and kept,
+      only ever from the steps loaded (in the stepwise harness, steps 0..k; a
+      new focus guesses the grids again): `.grid` (the `GridGuess` of its level,
+      from that level's loaded frames), `.pieces_before` (None for step 0) and
+      `.pieces_after`, the frames as `Pieces`, and `.changes`, what the step
+      changed piece by piece (None for step 0). The kernel starts as fast as
+      before: nothing is segmented until it is read.
     - `read_file(path="engine.py", offset=None, limit=None)` prints the file as
       `LINE#HASH:content` lines (`hashline.py`). The hash is 2 characters from
       `ZPMQVRWSNKTXJBYH` over the previous, current and next line (trailing
@@ -102,33 +115,47 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       `#index` and name, matched by identity; vars; status) and, for the
       recorded action, the comparison with the recording as `run_tests`
       explains it. It returns copies of the State before and after.
-    - `auto_sprites(level=0, grid=None, frame=None, region=None, merge=False)`
-      returns code (a str usable as `edit_file` lines) for a sprite list that redraws
-      a level's recorded start, a given frame, or a region of it exactly
-      (`auto_sprites.py`): border and background sprites, one sprite per
-      single-colour 4-connected region (`merge=True`: per group of touching
-      regions), identical objects sharing a constant named from its content
-      (`SHAPE_<colours>_<w>x<h>_<4 hex>`), screen sprites for the HUD. A piece
-      that is an existing pixel constant (one of engine.py's module-level
-      constants, hex strings or rows of numbers, or one made earlier in the
-      call) is drawn from it rather than written again: as it is, turned or
-      mirrored (`rotation`, `mirror_ud`, `mirror_lr`), scaled 2-5x, or
-      recoloured one-to-one (`shape_pixels(NAME, {old: new})`), tried in that
-      order, with at most two of these changes at once and solid one-colour
-      rectangles only as they are or turned. It prints a summary such as "14
-      pieces: 12 reuse existing kinds (6 as they are, 5 turned, 1
-      recoloured; 6 kinds from engine.py), 2 new kinds". Run level after
-      level on the reference ports, the later levels draw many pieces from
-      the earlier levels' kinds (vc33's levels, each drawn turned by 0 to 270
-      degrees, as turned copies), and all 34 level starts are still drawn
-      exactly. It guesses the logical grid
-      conservatively (33 of the 34 level starts of the reference ports right,
-      and every one of their 1,529 recorded frames on its own), runs the code
-      and prints whether it renders the frame exactly. A starting point, not
-      the real sprites.
     - `summarize_levels()` prints one row per level the recording plays: its
-      first frame (`recording[k].after`), the steps played in it and their actions,
-      animated steps, RESETs and game overs, and the step that solved it.
+      first frame (`recording[k].after`), its guessed grid, the steps played in
+      it and their actions, animated steps, RESETs and game overs, and the step
+      that solved it.
+
+    A frame's pieces (`segment.py`, a pure module over `auto_sprites.py`).
+    `pieces(frame, grid=None, known=None)` splits a frame as the sprite code
+    does: a border sprite, a background sprite, one sprite per single-colour
+    4-connected region on the guessed logical grid (the segmentation of
+    `inference/utils/segmentation.py`), screen sprites for the HUD and pixels
+    that break the grid's blocks. Each is a `Piece`, a real fixed-interface
+    `Sprite` (grid cells for grid pieces, screen pixels for screen ones) with
+    `.shape` (the stable name `SHAPE_<colours>_<w>x<h>_<4 hex>` from its
+    content), `.colour` (main colour), `.size` (pixels), `.transform`
+    (rotation, mirror_ud, mirror_lr, scale, recolour relative to its shape:
+    a piece equal to a known shape, or one met earlier in the frame, as it is,
+    turned or mirrored, scaled 2-5x, or recoloured one-to-one, tried in that
+    order, at most two changes at once, solid rectangles only as they are or
+    turned), `.children` (the pieces it encloses, under the innermost
+    encloser only, as in segmentation.py) and `.role` (`border`,
+    `background`, `object`). Drawn in order they redraw the frame exactly (all
+    34 reference level starts, and every lp85 level start; about 10 ms a frame).
+    `Pieces` is a list with `.grid` (the `GridGuess`) and `.code()`: the Python
+    that `auto_sprites.sprite_code` writes for the frame, usable as `edit_file`
+    lines (a constant per shape, one `Sprite` per piece, in `level_<n>_sprites`),
+    which in the kernel reuses engine.py's pixel constants (as they are,
+    turned, mirrored, scaled or recoloured) and does not define its names
+    again; it replaces the former `auto_sprites()` built-in, as
+    `recording[e].pieces_after.code()` with e the step that entered the level.
+    `print(pieces)` lists them, one line each. The grid is guessed
+    conservatively (33 of the 34 level starts of the reference ports right, and
+    every one of their 1,529 recorded frames on its own).
+    `changes(before, after)` is the object-level diff of two frames' pieces:
+    `moved` (the same pixels elsewhere, nearest first), `recoloured` (same place
+    and shape, with the colour map), `reshaped` (overlapping, other pixels or
+    size, e.g. "1x31 -> 1x26, lost 5 px at the top"), `appeared`,
+    `disappeared`; unchanged pieces are left out, and pieces of two different
+    grids (a new level) never match. lp85's step 1 comes out as 18 recoloured
+    ring tiles (the other 2 keep their colour), the bar at the left reshaped and
+    its lost top as a black piece that appeared. `summary(changes)` groups
+    similar changes into at most 12 lines.
 
     engine.py cannot be written from the kernel any other way: the sandbox
     denies opening it for writing and every operation that could replace it
@@ -143,8 +170,9 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     by the modes: the recorded steps python holds in that mode and `StepView`
     with the recorded action; `make_level`, `step` and every field and method
     of `Sprite`, `Action` (what `step()` receives, with `.cell`), `View` and
-    `State`, with how `State.status` maps to the recorded outcome; and every
-    built-in function's signature, return value and meaning. The python tool's
+    `State`, with how `State.status` maps to the recorded outcome; a frame's
+    pieces (`Pieces`, `Piece`, `Change`, `GridGuess`); and every built-in
+    function's signature, return value and meaning. The python tool's
     description only names the preloaded names and points there. A test
     checks the reference against the classes and functions themselves.
   - `run_tests(level=None, failures=1)`: first the contract tests
@@ -178,8 +206,11 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   conversation from one breaking step to the next. It replays the whole
   recording through engine.py and, at the first step k that fails, starts the
   conversation with "Fix the breaking test: step k" (the step's action and
-  level, the test report with its picture, engine.py with the FIXED block
-  folded). The model sees the recording only up to step k: `recording` holds
+  level, what the recorded step changed piece by piece, summarised in at most
+  about 15 lines, or, for a step that enters a level, that
+  `step_to_fix.pieces_after.code()` draws its first frame; the test report with
+  its picture, engine.py with the FIXED block folded). The message for each
+  next step has the same block. The model sees the recording only up to step k: `recording` holds
   steps 0..k (so does `visible_trace/` on disk), `step_to_fix` is step k
   (`recording[-1]`, the same `StepView`) and `summarize_levels()` lists the
   levels reached; with `--only-step`, python shows only `step_to_fix`. Its tests
@@ -206,13 +237,15 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   `state.sprite_at(*action.cell)` returns marked). `--mode
   single` runs v5.
 - **The opening** (`agent.py`). Before the first turn of a new session the
-  harness plays the first round itself: in the kernel, `auto_sprites(0)` makes
-  sprite code for level 0's first frame and one `edit_file()` puts it above
+  harness plays the first round itself: in the kernel,
+  `recording[0].pieces_after.code()` (through the private `helpers._level_code`,
+  not a built-in, which also prints a summary) makes sprite code for level 0's
+  first frame and one `edit_file()` puts it above
   `make_level`, which then returns `level_0_sprites()` (for every level, until
   the model adds more); then it runs the tests. The first message gives the
   recording in one sentence (steps, levels, how it ends, the actions the game
-  accepts; `summarize_levels()` has the per-level detail), what `auto_sprites`
-  printed (not its code), the test report with its picture, engine.py as
+  accepts; `summarize_levels()` has the per-level detail), that summary (not
+  the code), the test report with its picture, engine.py as
   `read_file()` shows it (FIXED block folded), and the first task: make the first
   failing step pass (usually step 1, the first action of level 0), then the
   next one, in recorded order. The harness's edit and test are logged

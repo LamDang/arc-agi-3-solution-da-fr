@@ -12,8 +12,11 @@ private. In the stepwise harness (the kernel's --focus K) the recording on disk 
     render_state(state)                                    draw a State as the tests do
     show_frames(*frames, titles=None, boxes=None)          look at frames as images
     replay_step(i, state=None, action=None)                run one step of engine.py and explain it
-    auto_sprites(level, grid=None, frame=None, region=None, merge=False)   sprite code from a frame
     summarize_levels()                                     each level's first frame, steps and end
+
+Each StepView also has the frames' segmentation (engine_re.segment), computed when first used and
+only from the steps loaded: .grid, .pieces_before, .pieces_after (whose .code() writes sprites that
+draw the frame) and .changes.
 
 engine.py cannot be opened for writing from the kernel (engine_re.guard): edit_file() and
 undo_edit() send their arguments to the harness (engine_re.kernel, engine_re.engine_files), which
@@ -33,7 +36,8 @@ from typing import Any, Callable
 
 import numpy as np
 
-from engine_re import auto_sprites as _auto, diff_report, game_api, hashline, tester
+from engine_re import diff_report, game_api, hashline, segment, tester
+from engine_re.auto_sprites import kinds_summary
 from engine_re.trace import Action as _TraceAction, Trace
 
 HEX = "0123456789abcdef"
@@ -48,6 +52,7 @@ MAX_SHOWN = 4  # frames per show_frames() call
 trace: Trace = None  # type: ignore[assignment]
 recording: list[StepView] = []  # the model's `recording`: one StepView per loaded step (kept as one list object)
 FOCUS: int | None = None  # the step to fix, in the stepwise harness: steps after it are not loaded
+_SEGMENTER: segment.Segmenter | None = None  # grids, pieces and changes of the loaded steps (0..FOCUS), made lazily
 ENGINE_PATH: Path = Path("engine.py")
 IMAGES = True  # False: show_frames() prints hex views instead of making images
 _RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the harness
@@ -108,7 +113,7 @@ def edit_file(path: str = "engine.py", edits: Any = None) -> None:
 
 
 def _plain(value: Any) -> Any:
-    """Edits as plain JSON values (str subclasses such as auto_sprites' result become str)."""
+    """Edits as plain JSON values (str subclasses become str, numpy integers int)."""
     if isinstance(value, dict):
         return {str(k): _plain(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -217,7 +222,11 @@ class StepView:
     frame[y, x]; None for step 0); after (also .last): the frame after it, the one the tests compare;
     frames: every frame it returned, (n, 64, 64); level: the level it is played in; outcome
     ("NOT_FINISHED", "WIN" or "GAME_OVER"; not the engine's State.status), levels_completed: after it;
-    win_levels, available_actions."""
+    win_levels, available_actions.
+
+    And, computed when first read and kept (engine_re.segment, from the loaded steps only): grid, the
+    GridGuess of its level; pieces_before (None for step 0) and pieces_after, the frames' pieces;
+    changes, what changed between them (None for step 0)."""
 
     def __init__(self, recorded: Trace, k: int):
         s = recorded.steps[k]
@@ -232,6 +241,31 @@ class StepView:
         self.win_levels = s.win_levels
         self.available_actions = s.available_actions
 
+    @property
+    def grid(self) -> Any:
+        """The GridGuess of the level it is played in, guessed from that level's loaded frames."""
+        _visible(self.index)
+        return _SEGMENTER.grid(segment.shown_level(trace, self.index - 1) if self.index else 0)
+
+    @property
+    def pieces_before(self) -> segment.Pieces | None:
+        """The pieces of .before (None for step 0)."""
+        _visible(self.index)
+        return _SEGMENTER.pieces(self.index - 1) if self.index else None
+
+    @property
+    def pieces_after(self) -> segment.Pieces:
+        """The pieces of .after, on the grid of the level it shows (the next level's after a step that
+        solves one); .code() writes sprites that draw it."""
+        _visible(self.index)
+        return _SEGMENTER.pieces(self.index)
+
+    @property
+    def changes(self) -> segment.Changes | None:
+        """What changed from .pieces_before to .pieces_after (None for step 0)."""
+        _visible(self.index)
+        return _SEGMENTER.changes(self.index)
+
     def __repr__(self) -> str:
         what = _ACTION_WORDS.get(self.action.id, str(self.action))
         if self.action.id == 6:
@@ -244,8 +278,10 @@ def load_trace(loaded: Trace, focus: int | None = None) -> None:
     """Make `loaded` the recording the helpers use (the kernel calls this at the start, and again when
     the stepwise harness moves on to step `focus`). `recording` stays the same list object: its
     entries are replaced, so it grows with the trace."""
-    global trace, FOCUS
+    global trace, FOCUS, _SEGMENTER
     trace, FOCUS = loaded, focus
+    _SEGMENTER = segment.Segmenter(loaded, focus)  # a new one: the grids are guessed again from the steps now loaded
+    _SEGMENTER.context = _code_context
     recording[:] = [StepView(loaded, k) for k in range(len(loaded))]
 
 
@@ -267,15 +303,16 @@ def _steps_list(steps: list[int], limit: int = 6) -> str:
 
 
 def _levels_text(recorded: Trace) -> str:
-    """One row per level the recording plays: where its first frame is, the steps played in it, the
-    actions, the animated steps, RESETs and game overs, and how it ended."""
+    """One row per level the recording plays: where its first frame is, its guessed grid, the steps
+    played in it, the actions, the animated steps, RESETs and game overs, and how it ended."""
     steps = recorded.steps
+    segmenter = _SEGMENTER if _SEGMENTER is not None and _SEGMENTER.trace is recorded else segment.Segmenter(recorded, FOCUS)
     win = steps[0].win_levels
     played: dict[int, list[int]] = {0: []}
     for i in range(1, len(steps)):
         played.setdefault(steps[i - 1].levels_completed, []).append(i)
     starts = recorded.level_starts()
-    rows = [("level", "first frame", "steps played", "actions", "animated", "RESET", "GAME_OVER", "how it ended")]
+    rows = [("level", "first frame", "grid", "steps played", "actions", "animated", "RESET", "GAME_OVER", "how it ended")]
     for level in sorted(played):
         indices = played[level]
         moves: dict[str, int] = {}
@@ -289,9 +326,15 @@ def _levels_text(recorded: Trace) -> str:
             ended = f"not solved by step {len(steps) - 1}, the step to fix (later steps are not loaded)"
         else:
             ended = f"not solved: the recording ends ({steps[-1].state})"
+        try:
+            g = segmenter.grid(level)
+            grid = f"{g.width}x{g.height} s{g.scale}"
+        except ValueError:
+            grid = "-"
         rows.append((
             str(level),
             f"recording[{starts.get(level, 0)}].after",
+            grid,
             f"{indices[0]}-{indices[-1]} ({len(indices)})" if indices else "none",
             ", ".join(f"{name} x{n}" for name, n in moves.items()) or "-",
             _steps_list([i for i in indices if steps[i].n_frames > 1]),
@@ -307,14 +350,15 @@ def _levels_text(recorded: Trace) -> str:
     if FOCUS is not None:
         head = (f"The recording so far: steps 0-{len(steps) - 1} (recording[0] is the RESET that starts the game; step "
                 f"{len(steps) - 1} is the one to fix), {len(played)} of the game's {win} levels reached.")
-    note = ("A level's first frame is the last frame of the step that solved the level before (recording[0].after for level 0). "
-            "\"animated\": steps that returned more than one frame; the tests compare only the last one.")
+    note = ("A level's first frame is the last frame of the step that solved the level before (recording[0].after for level 0); "
+            "recording[k].pieces_after.code() writes sprites that draw it. \"grid\": the logical grid guessed from the level's "
+            "frames (width x height, scale). \"animated\": steps that returned more than one frame; the tests compare only the last one.")
     return "\n".join([head] + table + [note])
 
 
 def summarize_levels() -> None:
-    """Print one row per level of the recording: its first frame, the steps played in it, their
-    actions, animated steps, RESETs and game overs, and how the level ended."""
+    """Print one row per level of the recording: its first frame, its guessed grid, the steps played
+    in it, their actions, animated steps, RESETs and game overs, and how the level ended."""
     print(_levels_text(trace))
 
 
@@ -456,32 +500,11 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
     return before, copy.deepcopy(after_state)
 
 
-# --- Generating code --------------------------------------------------------------------------
-
-
-class GeneratedCode(str):
-    """The code auto_sprites made (a str, usable as edit_file lines), with .exact, .grid, .scale and
-    .info; its repr stays short."""
-
-    exact: bool = False
-    grid: tuple[int, int] = (64, 64)
-    scale: int = 1
-    info: Any = None
-
-    def __repr__(self) -> str:
-        return f"<generated code: {len(self.splitlines())} lines; use it as edit_file lines, or print() it>"
-
-
-def _level_frames(level: int, limit: int = 60) -> list[np.ndarray]:
-    """Final frames of the recorded steps that show level `level` (at most `limit`, evenly spaced)."""
-    frames = [s.last for s in trace.steps if s.levels_completed == level and s.last is not None and s.state != "WIN"]
-    if len(frames) > limit:
-        frames = [frames[round(k * (len(frames) - 1) / (limit - 1))] for k in range(limit)]
-    return frames
+# --- Code for a frame's pieces --------------------------------------------------------------------
 
 
 def _defined_names() -> set[str]:
-    """Top-level names engine.py defines (assignments and defs), so auto_sprites does not repeat them."""
+    """Top-level names engine.py defines (assignments and defs), so generated code does not repeat them."""
     try:
         text = ENGINE_PATH.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -490,7 +513,7 @@ def _defined_names() -> set[str]:
 
 
 def _engine_values() -> tuple[dict[str, Any], str | None]:
-    """engine.py's module-level values (for the pixel constants auto_sprites can reuse), or why not."""
+    """engine.py's module-level values (for the pixel constants generated code can reuse), or why not."""
     if not ENGINE_PATH.exists():
         return {}, None
     try:
@@ -501,90 +524,48 @@ def _engine_values() -> tuple[dict[str, Any], str | None]:
     return dict(vars(module)), None
 
 
-def auto_sprites(
-    level: int = 0,
-    grid: tuple[int, int] | None = None,
-    frame: np.ndarray | None = None,
-    region: tuple[int, int, int, int] | None = None,
-    merge: bool = False,
-) -> GeneratedCode:
-    """Python code (a str, usable directly as edit_file lines) for sprites that draw the first frame of
-    `level` exactly, or `frame`, or only the part of it inside `region` (x0, y0, x1, y1, screen
-    pixels, inclusive). Prints what it assumed and found, whether the code renders the frame
-    exactly, and the code. It guesses the grid (grid=(w, h) overrides it), splits the frame into
-    4-connected single-colour pieces (merge=True: touching pieces of different colours become one
-    sprite, -1 elsewhere in its box), gives identical pieces one pixel constant named from its
-    content, SHAPE_<colours>_<w>x<h>_<hash> (the same name in every call), and draws a piece that is
-    an existing constant (engine.py's, or one made earlier in the call) as it is, turned, mirrored,
-    scaled or recoloured from that constant instead of writing a new one. A starting point, NOT the
-    game's real sprites."""
-    if frame is not None:
-        source_frame = np.asarray(frame)
-        evidence = [source_frame]
-        what, function = "the frame you gave", "frame_sprites"
-    else:
-        starts = trace.level_starts()
-        if level not in starts:
-            if FOCUS is not None:
-                raise ValueError(f"level {level} is not reached by step {FOCUS}; levels reached so far: {sorted(starts)}")
-            raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
-        source_frame = trace.steps[starts[level]].last
-        evidence = [source_frame] + _level_frames(level)
-        where = f"recording[{starts[level]}].after" if FOCUS is None else f"the frame after step {starts[level]}"
-        what, function = f"the first frame of level {level} ({where})", f"level_{level}_sprites"
-    if source_frame is None or np.asarray(source_frame).shape != (64, 64):
-        raise ValueError("auto_sprites needs a 64x64 frame")
-    if region is not None:
-        function += "_region"
-    args = f"({'frame=...' if frame is not None else level}" + (f", region={tuple(region)}" if region is not None else "") + ")"
-    if grid is None:
-        guess = _auto.guess_grid(evidence)
-        assumed = f"assumed {guess.width}x{guess.height} at scale {guess.scale}"
-        how = (f"guessed from {guess.frames} frame(s): {guess.note}. A scale above 1 is taken only if every block is "
-               "one colour in all of them; a scale-1 game whose objects align on a coarser lattice can still fool it")
-    else:
-        w, h = int(grid[0]), int(grid[1])
-        s, ox, oy = game_api.geometry((w, h))
-        ring = np.concatenate([source_frame[0], source_frame[-1], source_frame[:, 0], source_frame[:, -1]])
-        guess = _auto.GridGuess(w, h, s, ox, oy, int(np.bincount(np.asarray(ring, np.int64) % 16).argmax()), 1, "as given")
-        assumed, how = f"{w}x{h} at scale {s} (as given)", ""
-    defined = _defined_names()
-    existing, load_error = _engine_values()
-    result = _auto.sprite_code(
-        source_frame, guess, merge=merge, function=function, source=args, region=region, defined=defined, existing=existing
-    )
-    code = GeneratedCode(result.code)
-    code.exact, code.grid, code.scale, code.info = result.exact, guess.grid, guess.scale, result
-    pieces = "one sprite per group of touching pieces (merge=True)" if merge else "one sprite per single-colour piece"
-    print(f"auto_sprites{args}: {what}.")
-    print(f"Grid: {assumed}, offset ({guess.x_offset}, {guess.y_offset}), border colour {guess.border} "
-          f"({COLOR_NAMES.get(guess.border, '?')}); pass grid=(w, h) if that is wrong.")
-    if how:
-        print(f"  ({how}.)")
-    print(f"Found: background colour {result.background}, {result.objects} objects ({pieces}), "
-          f"{result.hud} screen sprite(s) for displays or pixels off the grid.")
-    print(f"Kinds: {_auto.kinds_summary(result)}.")
-    if result.from_engine:
-        print(f"  From engine.py: {', '.join(result.from_engine)}.")
+def _code_context() -> tuple[dict[str, Any], set[str]]:
+    """What Pieces.code() takes from engine.py: its module-level values and the names it defines."""
+    return _engine_values()[0], _defined_names()
+
+
+def _level_code(level: int = 0) -> str:
+    """The harness's opening (agent.OPENING_CODE), not a built-in: the code of level `level`'s first
+    frame, recording[e].pieces_after.code() with e the step that entered it; prints what it assumed
+    and found, then the code. Returns the code (a str) with .grid and .view set, for make_level."""
+    starts = trace.level_starts()
+    if level not in starts:
+        raise ValueError(f"the recording never reaches level {level}; levels it reaches: {sorted(starts)}")
+    e = starts[level]
+    made = recording[e].pieces_after
+    _, load_error = _engine_values()
+    result = made._sprite_code()
+    g = made.grid
+    objects = sum(1 for p in made if p.role == "object" and not p.screen)
+    print(f"recording[{e}].pieces_after.code(): sprites that draw level {level}'s first frame (recording[{e}].after).")
+    print(f"Grid: {g.width}x{g.height} at scale {g.scale}, offset ({g.x_offset}, {g.y_offset}), border colour {g.border} "
+          f"({COLOR_NAMES.get(g.border, '?')}), guessed from {g.frames} frame(s) of the level: {g.note}.")
+    print(f"Found: background colour {result.background}, {objects} objects (one sprite per single-colour piece), "
+          f"{len(made) - objects - 2} screen sprite(s) for displays or pixels off the grid.")
+    print(f"Kinds: {kinds_summary(result)}.")
     if load_error:
         print(f"  (engine.py did not load, so its constants were not reused: {load_error})")
-    target = "the region" if region is not None else "the frame"
-    print(f"Renders {target} exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
-    if result.skipped:
-        print(f"Already in engine.py, so not repeated: {', '.join(result.skipped)}().")
-    if function in defined:
-        print(f"engine.py already defines {function}(): replace it rather than adding a second one.")
+    print(f"Renders the frame exactly: {'yes' if result.exact else f'NO ({result.differing} pixels differ)'}.")
     print("Not the real sprites: one colour per sprite, nothing hidden or covered, transparency unknown, layers, tags "
           "and collidability are placeholders, identical-looking objects may be different kinds. The steps decide.")
     print()
-    if len(code) <= 4000:
-        print(code)
-    else:
-        print(code[:3000] + f"\n# ... {len(code.splitlines())} lines in all: the returned string holds them (print(code) shows them)")
+    print(result.code)
+    code = _LevelCode(result.code)
+    code.grid, code.view = g.grid, (None if g.default_scale else g.scale)
     return code
+
+
+class _LevelCode(str):
+    grid: tuple[int, int] = (64, 64)
+    view: int | None = None  # the grid's scale when it is not the default one (View(scale=...))
 
 
 __all__ = [
     "Sprite", "Action", "View", "State", "recording", "read_file", "edit_file", "undo_edit", "render_state", "show_frames",
-    "replay_step", "auto_sprites", "summarize_levels",
+    "replay_step", "summarize_levels",
 ]

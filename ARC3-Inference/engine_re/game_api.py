@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import io
 import random
 import sys
@@ -180,6 +181,38 @@ class Sprite:
             a[y - self.y][x - self.x] != -1 and b[y - other.y][x - other.x] != -1 for y in range(y0, y1) for x in range(x0, x1)
         )
 
+    def __repr__(self) -> str:
+        """The Python code that builds this sprite, with the fields that differ from their defaults,
+        e.g. Sprite([[8, 8], [8, -1]], x=3, y=4, tags=("wall",)). print() of a sprite list shows code."""
+
+        def code(value) -> str:
+            value = value.tolist() if hasattr(value, "tolist") else value  # numpy values as plain ones
+            if isinstance(value, str):
+                text = repr(value)
+                return '"' + text[1:-1] + '"' if text[0] == "'" and '"' not in value else text
+            if isinstance(value, tuple):
+                return "(" + ", ".join(code(v) for v in value) + ("," if len(value) == 1 else "") + ")"
+            if not isinstance(value, list):
+                return repr(value)
+            items = [code(v) for v in value]
+            text = "[" + ", ".join(items) + "]"
+            if len(items) > 1 and len(set(items)) == 1:  # equal items: [v] * n, or [row for _ in range(n)], when much shorter
+                same = f"[{items[0]} for _ in range({len(items)})]" if isinstance(value[0], list) else f"[{items[0]}] * {len(items)}"
+                text = same if len(same) + 8 < len(text) else text
+            return text
+
+        parts = [code(self.pixels)]
+        for name in ("x", "y", "rotation", "mirror_ud", "mirror_lr", "scale", "screen", "layer", "visible", "collidable",
+                     "blocking", "name", "tags"):
+            value, default = getattr(self, name), Sprite.__dataclass_fields__[name].default
+            try:
+                differs = bool(value != default)
+            except Exception:  # e.g. a numpy array, which has no single truth value
+                differs = True
+            if differs:
+                parts.append(f"{name}={code(value)}")
+        return "Sprite(" + ", ".join(parts) + ")"
+
 
 @dataclass
 class Action:
@@ -307,13 +340,21 @@ def _code_tokens(text: str) -> list[tuple[int, str]] | None:
         return None
 
 
+# The code of earlier FIXED blocks that engines of earlier runs still have (sha256 of repr(_code_tokens(block))):
+# the block before Sprite.__repr__ printed a sprite as the code that builds it.
+EARLIER_INTERFACES = frozenset({"151799314d0100f0e6a48fe472bcd1fb4bbcf477e0a7063a1b9d305ddb787319"})
+
+
 def same_interface(block: str) -> bool:
     """Whether an engine's fixed block is FIXED_INTERFACE. Comments are ignored, so engines of
-    earlier runs, whose block had other comments, still count as unchanged."""
+    earlier runs, whose block had other comments, still count as unchanged; so does an earlier
+    block's code (EARLIER_INTERFACES), which the harness works with just as well."""
     if _normalise(block) == _normalise(FIXED_INTERFACE):
         return True
     ours = _code_tokens(block)
-    return ours is not None and ours == _code_tokens(FIXED_INTERFACE)
+    if ours is None:
+        return False
+    return ours == _code_tokens(FIXED_INTERFACE) or hashlib.sha256(repr(ours).encode()).hexdigest() in EARLIER_INTERFACES
 
 
 def fixed_block_lines(source: str) -> tuple[int, int] | None:

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 
+from engine_re import segment
 from engine_re.kernel import PRELOADED, PRELOADED_HISTORY, PRELOADED_STEP
 from engine_re.tester import MAX_FAILURES
 from engine_re.trace import Trace
@@ -79,8 +80,8 @@ The recording shows only part of what the game can do, so its real rules cannot 
 it. Your job is to reproduce what was observed, with the simplest general mechanism that explains it:
 one rule that covers many steps rather than special cases, and nothing the recording gives no evidence for.
 Work through the recording in order, one step at a time:
-1. Before your first turn the harness puts auto_sprites(0)'s code into make_level, so that level 0's first
-   frame is drawn, and runs the tests; the first message shows what they report. Start with the first
+1. Before your first turn the harness puts recording[0].pieces_after.code() into make_level, so that level 0's
+   first frame is drawn, and runs the tests; the first message shows what they report. Start with the first
    step that fails there: usually step 1, the first action of level 0.
 2. Make that step pass with the simplest, most logical mechanism, while every earlier step still passes;
    then take the next failing step. Work on the step in front of you, not on later steps or levels.
@@ -90,21 +91,23 @@ Work through the recording in order, one step at a time:
    collision) and describe each level by where those kinds go and how they are shown there: moved,
    turned, mirrored, scaled or recoloured, and the level's grid and view. A new level reuses the kinds
    and rules it shares with earlier levels and only adds what it introduces; the earlier levels' steps
-   must keep passing. auto_sprites(n) recognises pieces that are an existing kind turned, mirrored,
-   scaled or recoloured, and writes them that way.
+   must keep passing. pieces_after.code() recognises pieces that are one of engine.py's kinds turned,
+   mirrored, scaled or recoloured, and writes them that way.
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
 inside step(); the test report and replay_step show it.
 
 # Example: how a session goes
 A made-up game where a blue piece moves on a grid; your game will differ. The reports are shortened.
-Before turn 1 the harness put auto_sprites(0)'s code into make_level and ran the tests; the first message
-showed: step 1 (ACTION4) is the first failure; 1 step passes before it.
+Before turn 1 the harness put recording[0].pieces_after.code() into make_level and ran the tests; the first
+message showed: step 1 (ACTION4) is the first failure; 1 step passes before it.
      [1] your #3 "shape_9_2x2_a1b2" at x=4; the recording shows it one cell to the right.
 From there every round is the same: read the code, look at the failing step, edit, run the tests.
 
 Turn 1, python:
     read_file(offset=330, limit=15)    # the lines of step()
+    print(recording[1].changes)        # what the recorded step 1 changed, piece by piece
     before, after = replay_step(1)     # what your step() did at step 1
+  -> moved: SHAPE_9_2x2_a1b2 colour 9 (blue), (4, 3) -> (5, 3), dx=+1 dy=+0
   -> no sprite changed: step() is still empty.
 Turn 2, python: edit_file() so that in step() ACTION4 moves the blue piece one cell right with
   state.try_move(piece, 1, 0); then run_tests() in the same turn.
@@ -116,8 +119,8 @@ Turn 4, python: edit_file() to make the grey blocks' kind collidable (they are w
   -> steps 0-15 pass; step 16 is the first failure ...
 And so on: take the first failing step, find the simplest rule that explains it and every step before it,
 change the code, test again. (When engine.py changed in a turn and you did not run the tests, the harness
-runs them at the end of the turn.) When the tests reach level 1, call auto_sprites(1) and add level 1 to
-make_level, reusing level 0's sprite kinds. Do not study later levels before the steps in front of you
+runs them at the end of the turn.) When the tests reach level 1, add level 1 to make_level from
+recording[e].pieces_after.code(), e being the step that enters it, reusing level 0's sprite kinds. Do not study later levels before the steps in front of you
 pass: the recording will still be there when you get to them.
 """
 
@@ -173,8 +176,14 @@ _STEP_VIEW = """StepView: a recorded step
   .levels_completed: int  levels completed after the action
   .win_levels: int  the game's number of levels
   .available_actions: list[int]  the action ids the game advertises
-  A recorded step has no State, sprites, grid or vars: frames only; your engine's State comes from
-  replay_step(i) or make_level(n).
+  .grid: GridGuess  the logical grid of its level, guessed from the level's frames loaded so far
+  .pieces_before: Pieces | None  .before split into pieces (below); None for step 0
+  .pieces_after: Pieces  .after split into pieces, on the grid of the level it shows (after a step that solves
+      a level: the next level's first frame, and .pieces_after.code() writes sprites for its make_level)
+  .changes: list[Change] | None  what the step changed, piece by piece, from .pieces_before to .pieces_after
+      (None for step 0); print() shows one line per change
+  The last four are computed from the frames when first read. A recorded step has no State or vars:
+  frames, and pieces guessed from them; your engine's State comes from replay_step(i) or make_level(n).
 The recorded action (a step's .action; it prints as Action(id=6, x=39, y=17) but is not the engine's Action)
   .id: int  0 RESET, 1 up, 2 down, 3 left, 4 right, 5 interact, 6 click, 7 undo
   .x, .y: int | None  a click's screen pixel (column, row); None for other actions
@@ -193,7 +202,9 @@ step(state: State, action: Action) -> None  apply one action to the state, in pl
 After every action the harness draws the state (Drawing) and records the outcome and levels completed;
 the tests compare both with the recording.
 Sprite(pixels, x=0, y=0, layer=0, name="", tags=(), visible=True, collidable=True, blocking="pixel",
-    rotation=0, mirror_ud=False, mirror_lr=False, scale=1, screen=False)  == compares identity
+    rotation=0, mirror_ud=False, mirror_lr=False, scale=1, screen=False)  == compares identity. It prints as
+    the code that builds it, with the fields that differ from their defaults, e.g.
+    Sprite([[9, 9]], x=3, y=1, tags=("player",)), so print(state.sprites) shows code
   .pixels: list[list[int]]  rows of colours 0-15, -1 transparent, -2 invisible but solid; before
       rotation, mirroring and scale
   .x, .y: int  the top-left pixel: a grid cell, or a screen pixel when screen=True
@@ -252,6 +263,43 @@ State(grid, sprites=[], vars={}, status="playing", level=0, view=View())  the cu
   .remove(sprite) -> None  takes this sprite (the same object) out of .sprites
 """
 
+_PIECES = """
+## Pieces: a recorded frame split into sprites (a guess from the pixels, not the game's real sprites)
+Pieces: list[Piece]  a frame split as one border sprite, one background sprite, one sprite per 4-connected
+    region of one colour on the guessed grid, and screen sprites for what the grid cannot draw; drawn in list
+    order they redraw the frame exactly. print() lists them, one line each
+  .grid: GridGuess  the grid they sit on
+  .code() -> str  Python, usable as edit_file lines, for a sprite list that draws the frame exactly: each shape
+      a named constant, one Sprite per piece, in a function level_<n>_sprites (step_<i>_sprites for a frame
+      that does not start a level). Pixel constants engine.py has are reused (as they are, turned, mirrored,
+      scaled or recoloured) and its names are not defined again
+Piece: a Sprite (above, and it prints as one) plus what the segmentation found
+  .shape: str  its shape's name, from the pixels: the same pixels get the same name in every frame, e.g.
+      "SHAPE_9_2x2_7cf8"; "border" and "background" for those two
+  .colour: int  its most common colour
+  .size: int  its pixels: grid cells, or screen pixels for a screen piece
+  .transform: dict  how it is drawn from its shape: rotation, mirror_ud, mirror_lr, scale, recolour ({old:
+      new}); {} when it is the shape as it is
+  .children: list[int]  indices of the pieces it encloses (each under the innermost one only)
+  .role: str  "border" (the 64x64 screen sprite), "background" (the grid-sized one) or "object"
+Change: one piece-level change of a step; it prints as one line
+  .kind: str  "moved" (the same pixels elsewhere, nearest first), "recoloured" (same place and shape, other
+      colours), "reshaped" (overlapping, other pixels or size), "appeared" or "disappeared"
+  .before, .after: Piece | None  the piece in each frame (None: it appeared, disappeared)
+  .dx, .dy: int  how far it moved (moved; reshaped: its top-left corner)
+  .colours: dict  {old: new} colours (recoloured; reshaped in another colour)
+  .note: str  reshaped: how, e.g. "1x31 -> 1x26, lost 5 px at the top"
+GridGuess: the logical grid guessed for a level
+  .width, .height: int  the grid size
+  .grid: tuple[int, int]  (width, height), for State(grid=...)
+  .scale: int  screen pixels per cell
+  .default_scale: bool  whether scale is min(64 // width, 64 // height); if not, the State needs
+      View(scale=scale)
+  .x_offset, .y_offset: int  the screen pixel of cell (0, 0)
+  .border: int  the colour around the grid
+  .frames: int, .note: str  how many frames it was guessed from, and how
+"""
+
 _BUILTINS = """
 ## Built-in functions
 read_file(path="engine.py", offset=None, limit=None) -> None  prints the file, every line as
@@ -267,8 +315,8 @@ edit_file(path="engine.py", edits=[...]) -> None  changes the file at LINE#HASH 
       {"op": "prepend", "pos": "12#MQ", "lines": [...]}  insert before pos (no pos: at the start)
       {"op": "replace_text", "oldText": "...", "newText": "..."}  replace one exact, unique text
     lines is the new content (a list of lines, or one string), with its indentation; [] deletes. It can
-    come straight from your code, e.g. lines=auto_sprites(0) or lines=f"RINGS = {rings!r}", so generated
-    data is never retyped. Edits in one call must not overlap or touch adjacent lines. A stale anchor (the
+    come straight from your code, e.g. lines=pieces.code() (a frame's Pieces) or lines=f"RINGS = {rings!r}",
+    so generated data is never retyped. Edits in one call must not overlap or touch adjacent lines. A stale anchor (the
     file changed since you read it) is rejected: read_file() again. Edits inside the FIXED block are
     rejected. Prints what changed, a syntax check, and fresh anchors around the change.
 undo_edit(n=1, to=None) -> None  puts engine.py back as it was n changes ago; to="best": the version that
@@ -288,17 +336,6 @@ replay_step(i, state=None, action=None, *, level=None) -> tuple[State | None, St
     for step 0. level=L starts at level L's start, as run_tests(level=L) does; replay_step(e, level=L), e
     being the step that entered level L, compares your make_level(L) with the level's recorded first
     frame and returns (None, that State).
-auto_sprites(level=0, grid=None, frame=None, region=None, merge=False) -> str  Python code, usable as
-    edit_file lines, for sprites that draw the first frame of `level` (a level the recording reaches)
-    exactly, or a given frame (e.g. a recorded step's .after), or the region (x0, y0, x1, y1) of it: the
-    frame split into same-colour connected pieces (merge=True: touching pieces of different colours
-    become one sprite), identical pieces sharing one pixel list whose name comes from its content, so the
-    same shape gets the same name in every call; pixel lists engine.py already defines are not repeated,
-    and a piece that is an existing one turned, mirrored, scaled or recoloured is written as that one
-    with the matching rotation, mirror, scale or colour change. Prints whether the code draws the frame
-    exactly. A starting point only: real objects often have several colours, anything hidden or covered
-    is missing, transparency is unknown, layers, tags and collidability are guesses, and the grid size is
-    guessed unless you pass grid=(w, h).
 """
 
 _SHOW_FRAMES = {
@@ -313,12 +350,13 @@ _SHOW_FRAMES = {
 }
 
 _SUMMARIZE = {
-    "single": """summarize_levels() -> None  prints one row per level: its first frame (recording[k].after), the steps
-    played in it and their actions, the animated steps, RESETs and game overs, and the step that solved it.
+    "single": """summarize_levels() -> None  prints one row per level: its first frame (recording[k].after), its
+    grid, the steps played in it and their actions, the animated steps, RESETs and game overs, and the
+    step that solved it.
 """,
     "history": """summarize_levels() -> None  prints one row per level reached so far: its first frame
-    (recording[k].after), the steps played in it and their actions, the animated steps, RESETs and game
-    overs, and how it ended.
+    (recording[k].after), its grid, the steps played in it and their actions, the animated steps, RESETs
+    and game overs, and how it ended.
 """,
     "step": "",
 }
@@ -333,11 +371,11 @@ def _variant(mode: str, history: bool) -> str:
 def objects_reference(mode: str = "single", history: bool = True, images: bool = True) -> str:
     """The "# Objects" section of the system prompt: the recorded steps python holds in this mode, then
     the parts every mode shares (StepView and the recorded action, engine.py's functions and classes,
-    the built-in functions)."""
+    a frame's pieces, the built-in functions)."""
     variant = _variant(mode, history)
     return (
         _OBJECTS_HEAD.replace("__NAMES__", ", ".join(_NAMES[variant]))
-        + _RECORDED[variant] + _STEP_VIEW + _ENGINE
+        + _RECORDED[variant] + _STEP_VIEW + _ENGINE + _PIECES
         + _BUILTINS.replace("__SHOW_FRAMES__", _SHOW_FRAMES[images]) + _SUMMARIZE[variant]
     )
 
@@ -396,8 +434,8 @@ __OBJECTS__
    then call commit_engine(message): what you changed and why. The next step is shown only after a
    commit.
 4. When the step starts a new level (the frame after it shows the next level), make_level must draw
-   that level: auto_sprites(n) gives code for its first frame. Reuse the sprite kinds engine.py already
-   has where they fit.
+   that level: step_to_fix.pieces_after.code() gives code for its first frame. Reuse the sprite kinds
+   engine.py already has where they fit.
 5. Keep engine.py's comments up to date with the rules you found: older parts of this conversation are
    shortened as it grows, and engine.py is what stays.
 Never hard-code recorded frames or anything keyed to the step number. Print whatever helps you debug
@@ -542,29 +580,31 @@ def _first_task(first_fail: int | None) -> str:
     return (
         f"Your first task: make {what}. Work on that step only: read the code it runs, look at the step with "
         f"replay_step({first_fail}), edit, run the tests. Then go on to the next failing step, one step at a time, in "
-        "the order they were played, and add a level with auto_sprites(n) when the tests reach it."
+        "the order they were played, and add a level when the tests reach it, from recording[e].pieces_after.code() "
+        "(e: the step that enters it)."
     )
 
 
 def first_user_message(game: str, trace: Trace, engine_read: str, opening: dict | None = None) -> str:
     """The opening message: the recording in one sentence, what the harness did before the first turn
-    (auto_sprites(0) put into make_level, then run_tests: `opening` holds "sprites", the summary
-    auto_sprites printed, "report", the test report, and "first_fail"), engine.py as read_file() shows it,
-    and the first task. Without `opening` the model is asked to do that first round itself."""
+    (recording[0].pieces_after.code() put into make_level, then run_tests: `opening` holds "sprites", the
+    summary printed with that code, "report", the test report, and "first_fail"), engine.py as
+    read_file() shows it, and the first task. Without `opening` the model is asked to do that first
+    round itself."""
     head = f"Game: {game}. Write engine.py for it.\n\nThe recording: {recording_summary(trace)}\n"
     shown = f"engine.py now, as read_file() shows it (the FIXED block folded):\n\n{engine_read}"
     if opening is None:
         return f"""{head}
 {shown}
 
-Your first task: put auto_sprites(0)'s code into make_level with edit_file(), so that level 0's first frame is drawn,
-and run the tests. Then make the first failing step pass, then the next one, one step at a time, in the order
+Your first task: put recording[0].pieces_after.code() into make_level with edit_file(), so that level 0's first frame
+is drawn, and run the tests. Then make the first failing step pass, then the next one, one step at a time, in the order
 they were played."""
     sprites = "\n".join("   " + line if line else "" for line in opening["sprites"].strip().splitlines())
     return f"""{head}
 Before your first turn the harness did the first round:
-1. auto_sprites(0) wrote sprites that draw level 0's first frame, and make_level now returns them (for every
-   level, for now). What it printed:
+1. recording[0].pieces_after.code() wrote sprites that draw level 0's first frame, and make_level now returns
+   them (for every level, for now). About that code:
 {sprites}
 2. run_tests() then reported:
 
@@ -581,9 +621,19 @@ def _action_text(action) -> str:
     return "RESET" if action.id == 0 else f"ACTION{action.id} ({_ACTION_WORDS.get(action.id, '?')})"
 
 
+def step_objects(trace: Trace, k: int) -> str:
+    """What recorded step k changed, piece by piece and summarised (about 15 lines at most), from steps
+    0..k only: the frames' segmentation (engine_re.segment), as step_to_fix.changes has it."""
+    try:
+        return segment.Segmenter(trace, k).report(k)
+    except Exception as exc:  # noqa: BLE001  (a frame the segmentation cannot read must not stop the run)
+        return f"What the recorded step changed (objects): not available ({type(exc).__name__}: {exc})."
+
+
 def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: str, history: bool = True) -> str:
     """The first message of a stepwise conversation: fix the breaking step k (steps 0..k-1 pass).
-    `trace` holds at least steps 0..k; `report` is the test report of the replay up to step k."""
+    `trace` holds at least steps 0..k; `report` is the test report of the replay up to step k. It shows
+    what the recorded step changed, piece by piece (step_objects)."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     notes = []
@@ -592,7 +642,7 @@ def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: s
     elif s.levels_completed > level:
         notes.append(
             f"This step solves level {level}: the frame after it is level {s.levels_completed}'s first frame, which "
-            f"make_level({s.levels_completed}) must draw (auto_sprites({s.levels_completed}) gives code for it; reuse the "
+            f"make_level({s.levels_completed}) must draw (step_to_fix.pieces_after.code() gives code for it; reuse the "
             "sprite kinds engine.py already has where they fit)."
         )
     if s.state == "GAME_OVER":
@@ -612,6 +662,8 @@ Step {k}: {_action_text(s.action)}, played in level {level}. The game returned {
 the last.{(" " + " ".join(notes)) if notes else ""}
 {shown}
 
+{step_objects(trace, k)}
+
 The test report:
 
 {report.strip()}
@@ -627,7 +679,7 @@ the next steps are shown only after a commit."""
 
 def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool = True) -> str:
     """The user message when a commit of steps 0..fixed was accepted and the harness replayed on to step k, the next that
-    fails (`trace` is the whole recording; the model now sees it up to k)."""
+    fails (`trace` is the whole recording; the model now sees it up to k, and so does step_objects)."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     if k == fixed + 1:
@@ -642,7 +694,7 @@ def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool
     elif s.levels_completed > level:
         notes.append(
             f"It solves level {level}: the frame after it is level {s.levels_completed}'s first frame, which "
-            f"make_level({s.levels_completed}) must draw (auto_sprites({s.levels_completed}) gives code for it; reuse the "
+            f"make_level({s.levels_completed}) must draw (step_to_fix.pieces_after.code() gives code for it; reuse the "
             "sprite kinds engine.py already has where they fit)."
         )
     if s.state == "GAME_OVER":
@@ -652,6 +704,8 @@ def advance_message(trace: Trace, fixed: int, k: int, report: str, history: bool
     return f"""{passed}
 Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}
 {shown}
+
+{step_objects(trace, k)}
 
 The test report:
 

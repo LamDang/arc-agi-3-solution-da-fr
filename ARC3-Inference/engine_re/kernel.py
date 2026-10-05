@@ -43,7 +43,7 @@ from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
 # What the namespace of the model's code starts with (besides np and the fixed-block classes).
-FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "auto_sprites")
+FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step")
 PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels",)
 # Names the model's code may not rebind: the built-in functions, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")

@@ -4,8 +4,8 @@
         --out runs/engine-re/<name>            (--mode stepwise is the default)
 
 The loop:
-  1. Opening (a new run): engine.py from the template, auto_sprites(0) put into make_level, so that
-     level 0's first frame is drawn (agent.EngineAgent.play_opening).
+  1. Opening (a new run): engine.py from the template, recording[0].pieces_after.code() put into
+     make_level, so that level 0's first frame is drawn (agent.EngineAgent.play_opening).
   2. The harness replays the whole recording through engine.py and finds the first step k that fails.
      The conversation starts with "Fix the breaking test: step k": the model sees the recording up to
      step k (`recording`, steps 0..k, in python and on disk, and `step_to_fix`, step k; with
