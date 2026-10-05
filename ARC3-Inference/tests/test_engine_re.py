@@ -1284,7 +1284,7 @@ def test_first_message_shows_engine_py_with_anchors(tmp_path: Path, tiny_trace: 
     assert "Advertised actions: [1, 2, 3, 4]; win_levels: 1" in opening
     assert f"{hashline.anchor(lines, 1)}:" in opening and f"{hashline.anchor(lines, len(lines))}:{lines[-1]}" in opening
     assert "class Sprite:" in opening  # the FIXED block is shown in full here
-    assert opening.rstrip().endswith("then call run_tests.") and "auto_sprites(0)" in opening.splitlines()[-1]
+    assert opening.rstrip().endswith("then test again.") and "auto_sprites(0)" in opening.splitlines()[-2]
     assert agent.messages[0]["content"].startswith("# Goal")
 
 
