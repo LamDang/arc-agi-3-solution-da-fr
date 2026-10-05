@@ -5,8 +5,10 @@ HASH is two characters of the alphabet ZPMQVRWSNKTXJBYH, computed over the line 
 neighbours (prev + "\\0" + line + "\\0" + next, each with "\\r" removed and trailing whitespace
 stripped), so an anchor goes stale when its line or a neighbour changes, and only then.
 
-pi uses xxh32; the `xxhash` package is not installed here, so this uses zlib.crc32 (stable across
-runs and platforms). Anchors are only ever compared with anchors from this module.
+pi uses xxh32. This uses it too when the `xxhash` package is installed, else zlib.crc32 (it is not
+installed in this repo's environment; crc32 is stable across runs and platforms). Either way the
+kernel and the harness share one environment, and anchors are only ever compared with anchors
+from this module.
 
 Edit ops (all validated against the same snapshot, then applied bottom-up):
 
@@ -27,6 +29,11 @@ from __future__ import annotations
 import re
 import zlib
 from dataclasses import dataclass, field
+
+try:  # xxh32 as in pi-hashline-edit when available; crc32 otherwise (see the module docstring)
+    from xxhash import xxh32_intdigest as _digest
+except ImportError:
+    _digest = zlib.crc32
 
 NIBBLES = "ZPMQVRWSNKTXJBYH"
 _ANCHOR_RE = re.compile(r"^([0-9]+)\s*#\s*([^\s:]+)(?:\s*:(.*))?$", re.S)
@@ -51,7 +58,7 @@ def line_hash(lines: list[str], index: int) -> str:
     """The 2-character hash of lines[index] (0-based) in its context."""
     prev = _norm(lines[index - 1]) if index > 0 else ""
     nxt = _norm(lines[index + 1]) if index + 1 < len(lines) else ""
-    h = zlib.crc32((prev + "\0" + _norm(lines[index]) + "\0" + nxt).encode("utf-8"))
+    h = _digest((prev + "\0" + _norm(lines[index]) + "\0" + nxt).encode("utf-8"))
     return NIBBLES[(h >> 4) & 15] + NIBBLES[h & 15]
 
 
