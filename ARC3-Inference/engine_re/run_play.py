@@ -171,6 +171,8 @@ def main() -> int:
     parser.add_argument("--temperature", type=float, default=ModelConfig.temperature)
     parser.add_argument("--top-p", type=float, default=ModelConfig.top_p)
     parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--jobs", type=int, default=None,
+                        help="games played at once (default: all); the others wait their turn, e.g. to stay under a provider's rate limit")
     parser.add_argument("--label", default=None, help="the benchmark.json label (default: the out directory's name)")
     parser.add_argument("--dry-resume", action="store_true",
                         help="restore each game on a copy of its directory as a resume would (conversation, kernel, real game, "
@@ -255,7 +257,7 @@ def main() -> int:
         )
 
     failed = []
-    with ThreadPoolExecutor(max_workers=len(games)) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(args.jobs or len(games), len(games)))) as pool:
         futures = {g: pool.submit(work, g) for g in games}
         for game, future in futures.items():
             try:

@@ -606,6 +606,9 @@ uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/
   --model qwen/qwen3.8-flash --max-turns 300 --max-minutes 240 --max-cost 6 --max-actions 500 --batch-size 10
 ```
 
+All games play at once by default; `--jobs N` plays N at a time (the others wait), e.g. when the provider answers HTTP 429
+(the run log then shows `analyzer endpoint returned HTTP 429; retry ...`).
+
 Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level key game and a click game).
 
 The first run (sp80, ls20 and ft09, qwen3.8-flash, `runs/engine-play/qwen38flash-v10`) is written up in
