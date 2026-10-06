@@ -1502,14 +1502,14 @@ def level_start_text(trace: Trace, images: bool = True) -> str:
 
 
 PLAN_NOTES_LINES = 40  # lines of notes.md a PLAN message shows
-NOTES_TEMPLATE = "Goal model:\nOpen questions:\nPlan:\n"  # notes.md as the play agent creates it
-NOTES_EMPTY = ('notes.md holds nothing yet: keep the goal model, the open questions and the plan there with '
-               'edit_file(path="notes.md", edits=[...]).')
+NOTES_TEMPLATE = ""  # notes.md as the play agent creates it: empty, the model writes its own headings (v11 follow-up 11)
+NOTES_EMPTY = ('notes.md holds nothing yet: keep the goal model, the open questions and the plan there, under those three '
+               'headings, with edit_file(path="notes.md", edits=[{"op": "append", "lines": [...]}]) (the file is empty).')
 
 
 def notes_block(notes: str | None, limit: int = PLAN_NOTES_LINES) -> str:
     """notes.md for a PLAN message: its first `limit` lines, with a note when the rest is cut."""
-    if notes is None or not notes.strip() or notes.split() == NOTES_TEMPLATE.split():
+    if notes is None or not notes.strip():
         return NOTES_EMPTY
     lines = notes.rstrip("\n").splitlines()
     cut = (f'\n  [cut: {len(lines) - limit} more line(s) of notes.md not shown; read_file("notes.md") shows them. Keep it short.]'

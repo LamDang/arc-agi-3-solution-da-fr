@@ -151,7 +151,8 @@ class _CostedModel(_ScriptedModel):
         return response
 
 
-NOTES_1 = "edit_file(path='notes.md', edits=[{'op': 'replace_text', 'oldText': 'Goal model:', 'newText': 'Goal model: reach x >= 4'}])\nprobe = 42"
+NOTES_1 = ("edit_file(path='notes.md', edits=[{'op': 'append', 'lines': ['Goal model: reach x >= 4', 'Open questions:', 'Plan:']}])\n"
+           "probe = 42")  # notes.md starts empty (v11 follow-up 11): the model writes the headings
 NOTES_2 = ("edit_file(path='notes.md', edits=[{'op': 'replace_text', 'oldText': 'Plan:', 'newText': 'Plan: RIGHT x3 (written at turn 4)'}])\n"
            "open('scratch.txt', 'w').write('turn 4')")
 

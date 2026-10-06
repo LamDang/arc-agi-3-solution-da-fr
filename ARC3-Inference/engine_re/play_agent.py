@@ -828,7 +828,7 @@ class PlayAgent(EngineAgent):
             return None
 
     def _init_notes(self) -> None:
-        """notes.md with its three headings, when the workspace has none."""
+        """notes.md (empty: NOTES_TEMPLATE; the model writes its own headings), when the workspace has none."""
         path = self.workspace / NOTES_FILE
         if not path.exists():
             self.workspace.mkdir(parents=True, exist_ok=True)

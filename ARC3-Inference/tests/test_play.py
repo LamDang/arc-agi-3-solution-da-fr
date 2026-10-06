@@ -1913,22 +1913,30 @@ def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
 
 
 def test_notes_md_round_trips_through_the_kernel_and_shows_in_the_plan_message(tmp_path: Path, environments: Path) -> None:
-    notes = ("edit_file(path='notes.md', edits=[{'op': 'replace_text', 'oldText': 'Goal model:', "
-             "'newText': 'Goal model: reach x >= 4'}, {'op': 'replace_text', 'oldText': 'Plan:', 'newText': 'Plan: RIGHT x3'}])\n"
-             "read_file('notes.md')")
+    """notes.md starts empty (v11 follow-up 11: the seeded headings were duplicated by the model's own); the model writes
+    its headings with edit_file, here called as a tool with its edits as a JSON string of one dict (the shim of follow-up
+    6 parses and wraps it, and says so), and the PLAN message shows the file as it is, each heading once."""
+    first = ("edit_file", {"path": "notes.md", "edits": '{"op": "append", "lines": ["Goal model: reach x >= 4", "Open questions:", "Plan: RIGHT x3"]}'})
     many = "edit_file(path='notes.md', edits=[{'op': 'append', 'lines': [f'line {i}' for i in range(50)]}])"
     model = _ScriptedModel(_start() + [
         [("python", {"code": notes}), ("commit_moves", {"actions": ["RIGHT"], "note": "one"})],
         [("python", {"code": many}), ("commit_moves", {"actions": ["RIGHT"], "note": "two"})],
     ])
     agent = _agent(tmp_path, environments, model, turns=4)
+    from engine_re.prompts import NOTES_TEMPLATE
+
+    assert NOTES_TEMPLATE == ""  # seeded empty, no headings
     agent.run()
     users = _texts(agent)
-    assert "notes.md holds nothing yet" in users[0]  # the headings the harness wrote
+    assert "notes.md holds nothing yet" in users[0] and 'edits=[{"op": "append", "lines": [...]}]' in users[0] and "Goal model" not in users[0]
     tools = _texts(agent, "tool")
-    assert "notes.md: " in tools[2] and "Goal model: reach x >= 4" in tools[2]
+    assert tools[2].startswith("[harness] edit_file is a python function, not a tool; this call ran as python: edit_file(path='notes.md', "
+                               "edits=[{'op': 'append', 'lines': ['Goal model: reach x >= 4', 'Open questions:', 'Plan: RIGHT x3']}])\n"
+                               "[harness] edits given as a JSON string: parsed\n[harness] edits given as one dict: wrapped in a list\n")
+    assert "notes.md: " in tools[2] and "Goal model: reach x >= 4" in tools[3]
     plan = users[2]
     assert "notes.md (your goal model, open questions and plan):\n  Goal model: reach x >= 4\n  Open questions:\n  Plan: RIGHT x3" in plan
+    assert plan.count("Goal model:") == 1 and plan.count("Open questions:") == 1 and plan.count("Plan:") == 1  # no duplicated headings
     assert plan.index("notes.md (your goal") < plan.index("Work out the next moves")
     text = (tmp_path / "run" / "workspace" / "notes.md").read_text()
     assert text.startswith("Goal model: reach x >= 4\nOpen questions:\nPlan: RIGHT x3\n") and len(text.splitlines()) == 53

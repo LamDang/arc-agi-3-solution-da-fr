@@ -63,6 +63,8 @@ changed during the run. Ordered by the turns they cost.
     paths are supported by at least 3 steps each".
 11. **notes.md headings duplicate**: the file is seeded with empty headings and the model appends
     its own below them. Seed with no headings, or merge on write.
+    **Done (v12):** seeded empty (`NOTES_TEMPLATE = ""`); the PLAN message's advice names the three
+    headings and the append edit that writes them.
 12. **The 1 px HUD tolerance** hides a constant 1 px offset in sp80's HUD model (steps 13-15,
     32-34); harmless so far, but it can mask a wrong budget guess.
 
