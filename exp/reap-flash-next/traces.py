@@ -131,15 +131,20 @@ def samples_from_log(path: Path, source: str, game: str, pass_: int) -> tuple[li
     return samples, requests
 
 
-def collect_samples(log_dir: Path, source: str) -> list[Sample]:
+def collect_samples(log_dir: Path, source: str, keep=None) -> list[Sample]:
     """All samples of one run directory: per-game logs, then the run-level log
-    with each stretch attributed to the game run sharing most of its messages."""
+    with each stretch attributed to the game run sharing most of its messages.
+
+    `keep(game, pass_)` skips other game logs without reading them; run-level
+    stretches that match none of the kept runs stay attributed to "unknown"."""
     samples: list[Sample] = []
     run_hashes: dict[tuple[str, int], set[str]] = {}
     run_level: list[Path] = []
     for path in sorted(log_dir.iterdir()):
         if m := GAME_LOG_RE.match(path.name):
             game, pass_ = m["game"], int(m["pass_"])
+            if keep is not None and not keep(game, pass_):
+                continue
             found, requests = samples_from_log(path, source, game, pass_)
             samples += found
             run_hashes[(game, pass_)] = {h for r in requests for h in r.hashes[1:]}  # skip the shared system prompt

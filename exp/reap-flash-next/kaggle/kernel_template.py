@@ -20,10 +20,15 @@ def sh(cmd, check=False):
 
 print("config:", json.dumps(CONFIG), flush=True)
 sh("nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv")
+_gpu = subprocess.run("nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits", shell=True,
+                      capture_output=True, text=True).stdout.split()
+if not _gpu or int(_gpu[0]) < 90_000:  # MiB; the int4 experts alone take 62 GB
+    raise SystemExit(f"needs the 96 GB RTX PRO 6000, got {_gpu}: stopping before using quota")
 sh("free -g; nproc; df -h /kaggle/working /tmp | tail -2")
-sh(f"{sys.executable} -m pip install -q --no-warn-conflicts 'transformers=={CONFIG['transformers']}'", check=True)
-for extra in CONFIG.get("extra_pip", []):
-    sh(f"{sys.executable} -m pip install -q --no-deps --no-warn-conflicts '{extra}'")
+# competition-attached notebooks on the RTX PRO 6000 run without internet: install from the wheels dataset
+wheels = Path(glob.glob("/kaggle/input/**/transformers-*.whl", recursive=True)[0]).parent
+sh(f"{sys.executable} -m pip install -q --no-index --find-links {wheels} --no-warn-conflicts "
+   f"'transformers=={CONFIG['transformers']}'", check=True)
 sh(f"{sys.executable} -c \"import torch, transformers; print('torch', torch.__version__, torch.version.cuda, "
    f"torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0), 'transformers', transformers.__version__)\"")
 
@@ -39,7 +44,8 @@ sh(f"ls {model_dir} | head -5; du -sh {model_dir}")
 
 traces = " ".join(f"--traces {s}={d}" for s, d in trace_dirs.items() if s in CONFIG["sources"])
 base = f"{sys.executable} {code_dir}/run_reap.py --model-dir {model_dir} {traces}"
-sh(f"{base} --out {OUT}/plan_all --plan-only")
+if CONFIG.get("plan_all"):
+    sh(f"{base} --out {OUT}/plan_all --plan-only")
 for step in CONFIG["steps"]:
     started = time.time()
     sh(f"{base} --out {OUT}/{step['name']} {step['args']}")

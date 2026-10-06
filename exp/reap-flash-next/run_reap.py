@@ -43,17 +43,27 @@ def precache(paths: list[Path], block: int = 64 << 20):
 
 
 def plan(args) -> list[traces.Sample]:
+    games = set(args.games.split(",")) if args.games else None
+    passes = {int(p) for p in args.passes.split(",")} if args.passes else None
+    wanted_runs = None
+    if args.samples:
+        wanted_runs = {item.split(":")[0] for item in args.samples.split(",")}
     samples = []
     for spec in args.traces:
         source, _, directory = spec.partition("=")
-        found = traces.collect_samples(Path(directory), source)
+
+        def keep(game, pass_, source=source):
+            return ((games is None or game in games) and (passes is None or pass_ in passes)
+                    and (wanted_runs is None or f"{source}/{game}_p{pass_}" in wanted_runs))
+
+        if wanted_runs is not None and not any(r.startswith(source + "/") for r in wanted_runs):
+            continue
+        found = traces.collect_samples(Path(directory), source, keep)
         log(f"[plan] {source}: {len(found)} samples from {directory}")
         samples += found
-    if args.games:
-        games = set(args.games.split(","))
+    if games is not None:
         samples = [s for s in samples if s.game in games]
-    if args.passes:
-        passes = {int(p) for p in args.passes.split(",")}
+    if passes is not None:
         samples = [s for s in samples if s.pass_ in passes]
     if args.samples:
         wanted = set(args.samples.split(","))
