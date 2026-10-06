@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-CODE_FILES = ["traces.py", "render.py", "reap_model.py", "replay.py", "run_reap.py", "analyze.py"]
+CODE_FILES = ["traces.py", "render.py", "reap_model.py", "replay.py", "run_reap.py", "analyze.py", "prune_eval.py"]
 KAGGLE = os.environ.get("KAGGLE_CLI", "kaggle")
 
 

@@ -49,7 +49,8 @@ def truncate(enc: dict, max_tokens: int | None, vision_start_id: int) -> dict:
 
 @torch.no_grad()
 def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens: int = 8192,
-           measure: bool = True, collect_hidden: bool = False, device="cuda", lm_block: int = 2048):
+           measure: bool = True, collect_hidden: bool = False, predictions: bool = False,
+           device="cuda", lm_block: int = 2048):
     base = model.model
     ids = enc["input_ids"].to(device)
     n = ids.shape[1]
@@ -70,7 +71,7 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
     cache = mq.DynamicCache(config=model.config.text_config)
     lm = base.language_model
     result = {"tokens": n, "scored": 0, "nll": 0.0, "correct": 0}
-    hidden = []
+    hidden, argmax, token_nll = [], [], []
     for s in range(0, n, chunk_tokens):
         e = min(n, s + chunk_tokens)
         if recorder is not None:
@@ -94,11 +95,19 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
                 p = positions[b : b + lm_block]
                 logits = model.lm_head(last[0, p - s]).float()
                 target = ids[0, p + 1]
-                result["nll"] += F.cross_entropy(logits, target, reduction="sum").item()
-                result["correct"] += int((logits.argmax(-1) == target).sum())
+                nll = F.cross_entropy(logits, target, reduction="none")
+                best = logits.argmax(-1)
+                result["nll"] += nll.sum().item()
+                result["correct"] += int((best == target).sum())
                 result["scored"] += int(p.shape[0])
+                if predictions:
+                    argmax.append(best.cpu())
+                    token_nll.append(nll.cpu())
     if recorder is not None:
         recorder.categories = None
     if collect_hidden:
         result["hidden"] = torch.cat(hidden, dim=1)
+    if predictions:
+        result["argmax"] = torch.cat(argmax) if argmax else torch.empty(0, dtype=torch.long)
+        result["token_nll"] = torch.cat(token_nll) if token_nll else torch.empty(0)
     return result

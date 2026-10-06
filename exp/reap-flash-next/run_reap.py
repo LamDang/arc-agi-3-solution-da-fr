@@ -31,15 +31,29 @@ def log(*args):
     print(time.strftime("%H:%M:%S"), *args, flush=True)
 
 
-def precache(paths: list[Path], block: int = 64 << 20):
-    """Read files once so later random reads (the n-gram table) hit the page cache."""
-    start, total = time.time(), 0
-    buffer = bytearray(block)
-    for path in paths:
+def precache(paths: list[Path], threads: int = 16, block: int = 32 << 20):
+    """Read files once, in parallel chunks, so later reads hit the page cache
+    (Kaggle's model mount reads faster with many readers)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    start = time.time()
+    jobs = [(p, o) for p in paths for o in range(0, max(p.stat().st_size, 1), block)]
+
+    def read(job):
+        path, offset = job
         with open(path, "rb", buffering=0) as fh:
-            while n := fh.readinto(buffer):
-                total += n
+            fh.seek(offset)
+            return len(fh.read(block))
+
+    with ThreadPoolExecutor(threads) as pool:
+        total = sum(pool.map(read, jobs))
     log(f"[precache] {len(paths)} files, {total / 1e9:.1f} GB in {time.time() - start:.0f}s")
+
+
+def model_files(model_dir: Path) -> list[Path]:
+    """Weights first (read once by the loader), then the n-gram table."""
+    main = sorted(p for p in model_dir.glob("model-*.safetensors") if not p.name.startswith("model-ple-"))
+    return main + sorted(model_dir.glob("model-ple-*.safetensors"))
 
 
 def plan(args) -> list[traces.Sample]:
@@ -131,14 +145,15 @@ def main():
         return
 
     if args.precache:
-        ple = sorted(model_dir.glob("model-ple-*.safetensors"))
-        threading.Thread(target=precache, args=(ple,), daemon=True).start()
+        threading.Thread(target=precache, args=(model_files(model_dir),), daemon=True).start()
 
     import reap_model
 
     t = time.time()
     model, recorder = reap_model.load_model(model_dir, device=args.device, log=log)
     log(f"[load] {time.time() - t:.0f}s, GPU {gpu_gb(torch.cuda.memory_allocated):.1f} GB allocated")
+    if torch.cuda.is_available():
+        reap_model.check_fast_linear_attention(args.device, log=log)
     meta_common = {"model_dir": str(model_dir), "chunk": args.chunk, "max_tokens": args.max_tokens,
                    "fields": list(recorder.FIELDS), "categories": list(render.CATEGORY_NAMES)}
 

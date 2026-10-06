@@ -200,3 +200,33 @@ def test_grouped_matmul_path_matches_loop(models):
     loop = experts._expert_outputs_loop(x, counts, torch.bfloat16)
     grouped = experts._expert_outputs_grouped(x, counts, torch.bfloat16)
     torch.testing.assert_close(grouped.float(), loop.float(), rtol=2e-2, atol=2e-2)
+
+
+def test_pruned_routing_behaves_like_deleted_experts(models):
+    _, ours, recorder = models
+    torch.manual_seed(5)
+    text = ours.config.text_config
+    block = ours.model.language_model.layers[0].mlp
+    hidden = torch.randn(1, 41, text.hidden_size)
+    full = block(hidden)
+    keep_all = torch.ones(text.num_hidden_layers, text.num_experts, dtype=torch.bool)
+    reap_model.set_pruning(ours, keep_all)
+    torch.testing.assert_close(block(hidden), full)
+
+    keep = keep_all.clone()
+    keep[:, ::3] = False
+    reap_model.set_pruning(ours, keep)
+    recorder.reset()
+    pruned = block(hidden)
+    reap_model.set_pruning(ours, None)
+    counts = recorder.data["count"][0].sum(-1)
+    assert counts[~keep[0]].sum() == 0 and counts[keep[0]].sum() == 41 * text.num_experts_per_tok
+    # same as a router whose pruned rows were deleted
+    flat = hidden.view(-1, text.hidden_size)
+    logits = flat @ block.gate.weight[keep[0]].T
+    top, idx = torch.softmax(logits.float(), -1).topk(text.num_experts_per_tok, -1)
+    top = top / top.sum(-1, keepdim=True)
+    expert_ids = keep[0].nonzero().flatten()[idx]
+    expected = block.experts(flat, expert_ids, top) + torch.sigmoid(block.shared_expert_gate(flat)) * block.shared_expert(flat)
+    torch.testing.assert_close(pruned.view(-1, text.hidden_size), expected, rtol=1e-5, atol=1e-5)
+    assert not torch.allclose(pruned, full)

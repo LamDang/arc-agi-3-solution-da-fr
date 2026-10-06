@@ -123,6 +123,7 @@ class Int4Experts(nn.Module):
         self.register_buffer("qweight_down", torch.empty(E, I // 8, H, dtype=torch.int32))
         self.register_buffer("scales_down", torch.empty(E, I // group_size, H, dtype=torch.float16))
         self.filled = None  # [E, 6] bool, set by the loader
+        self.keep = None  # bool [E]: experts left after pruning (None: all)
 
     # -- loading
     _PARTS = {("gate_proj", "qweight"): 0, ("gate_proj", "scales"): 1, ("up_proj", "qweight"): 2,
@@ -238,12 +239,28 @@ def _pick_impl(module: Int4Experts, x, counts, dtype) -> str:
     return choice
 
 
+def pruned_routing(gate, flat: torch.Tensor, keep: torch.Tensor):
+    """The router of a model whose experts outside `keep` were removed: softmax
+    over the kept experts only, then top-k and renormalization as before."""
+    router_logits = F.linear(flat, gate.weight)
+    probs = torch.softmax(router_logits.masked_fill(~keep, float("-inf")), dtype=torch.float, dim=-1)
+    top, selected = torch.topk(probs, gate.top_k, dim=-1)
+    if gate.norm_topk_prob:
+        top = top / top.sum(dim=-1, keepdim=True)
+    return router_logits, top.to(router_logits.dtype), selected
+
+
 def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-    """Qwen4ExpTextSparseMoeBlock.forward plus the soft-probability statistic."""
+    """Qwen4ExpTextSparseMoeBlock.forward plus the soft-probability statistic,
+    and expert pruning when `self.experts.keep` (bool [E]) is set."""
     batch_size, sequence_length, hidden_dim = hidden_states.shape
     flat = hidden_states.view(-1, hidden_dim)
     shared = self.shared_expert(flat)
-    router_logits, routing_weights, selected = self.gate(flat)
+    keep = self.experts.keep
+    if keep is None:
+        router_logits, routing_weights, selected = self.gate(flat)
+    else:
+        router_logits, routing_weights, selected = pruned_routing(self.gate, flat, keep)
     rec = self.experts.recorder
     if rec is not None and rec.enabled:
         probs = torch.softmax(router_logits, dim=-1, dtype=torch.float32)
@@ -253,6 +270,50 @@ def moe_block_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
     out = self.experts(flat, selected, routing_weights)
     out = out + torch.sigmoid(self.shared_expert_gate(flat)) * shared
     return out.reshape(batch_size, sequence_length, hidden_dim)
+
+
+def set_pruning(model, keep: torch.Tensor | None):
+    """keep: bool [layers, experts], or None to restore the full model."""
+    for i, layer in enumerate(model.model.language_model.layers):
+        experts = layer.mlp.experts
+        experts.keep = None if keep is None else keep[i].to(experts.qweight_gate_up.device)
+
+
+def check_fast_linear_attention(device="cuda", log=print) -> bool:
+    """If the flash-linear-attention kernel is in use, compare it with the
+    reference PyTorch chunked delta rule on random input; on a mismatch or an
+    error, switch the model back to the reference. Returns True if fast."""
+    wrapped = mq.torch_chunk_gated_delta_rule
+    reference = wrapped
+    while hasattr(reference, "__wrapped__"):
+        reference = reference.__wrapped__
+    try:
+        import fla  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        log(f"[reap] flash-linear-attention unavailable ({type(exc).__name__}); reference delta rule")
+        return False
+    torch.manual_seed(0)
+    B, T, H, K, V = 1, 1000, 8, 128, 128
+    q, k = (torch.randn(B, T, H, K, device=device, dtype=torch.bfloat16) for _ in range(2))
+    v = torch.randn(B, T, H, V, device=device, dtype=torch.bfloat16)
+    g = -torch.rand(B, T, H, device=device, dtype=torch.float32)
+    beta = torch.rand(B, T, H, device=device, dtype=torch.bfloat16)
+    state = torch.randn(B, H, K, V, device=device, dtype=torch.float32) * 0.1
+    args = dict(g=g, beta=beta, initial_state=state, output_final_state=True, use_qk_l2norm_in_kernel=True)
+    try:
+        fast, fast_state = wrapped(q, k, v, **args)
+        ref, ref_state = reference(q, k, v, **args)
+        err = ((fast.float() - ref.float()).norm() / ref.float().norm()).item()
+        state_err = ((fast_state.float() - ref_state.float()).norm() / ref_state.float().norm()).item()
+    except Exception as exc:  # noqa: BLE001
+        err, state_err = float("inf"), float("inf")
+        log(f"[reap] flash-linear-attention failed ({type(exc).__name__}: {exc})")
+    ok = err < 2e-2 and state_err < 2e-2
+    log(f"[reap] flash-linear-attention check: output error {err:.1e}, state error {state_err:.1e} -> "
+        f"{'fast kernel' if ok else 'reference'}")
+    if not ok:
+        mq.torch_chunk_gated_delta_rule = reference
+    return ok
 
 
 # --------------------------------------------------------------------------- attention
