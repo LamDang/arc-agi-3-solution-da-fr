@@ -50,6 +50,20 @@ def reap_scores(stats: dict) -> np.ndarray:
     return np.divide(stats["gate_norm"], count, out=np.zeros_like(count), where=count > 0)
 
 
+CRITERIA = ("reap", "gate", "count", "prob", "gate_norm")
+
+
+def expert_scores(stats: dict, criterion: str = "reap") -> np.ndarray:
+    """reap: mean g*||f|| over routed tokens. gate: total router weight.
+    count: routing frequency. prob: total softmax probability, routed or not.
+    gate_norm: total g*||f|| (REAP without the mean, favours frequent experts)."""
+    if criterion == "reap":
+        return reap_scores(stats)
+    if criterion not in CRITERIA:
+        raise ValueError(f"unknown criterion {criterion!r}, expected one of {CRITERIA}")
+    return stats[criterion]
+
+
 def keep_mask(scores: np.ndarray, n: int) -> np.ndarray:
     order = np.argsort(-scores, axis=1, kind="stable")[:, :n]
     mask = np.zeros_like(scores, dtype=bool)

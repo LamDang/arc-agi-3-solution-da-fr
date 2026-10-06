@@ -38,11 +38,14 @@ def test_prune_eval_cli(tmp_path):
                     "--traces", f"a={calib}", "--traces", f"b={evals}", "--out", str(out), "--device", "cpu",
                     "--calib-games", calib_game, "--calib-passes", "0", "--calib-max-tokens", "7000",
                     "--eval-games", eval_game, "--eval-passes", "0", "--eval-max-tokens", "7000",
-                    "--keep", "12,8,4", "--chunk", "2048"], check=True, timeout=1800)
+                    "--keep", "12,8,4", "--chunk", "2048", "--noise-check",
+                    "--criterion", "gate"], check=True, timeout=1800)
     report = json.loads((out / "prune_eval.json").read_text())
     (sample,) = report["samples"]
     assert sample["calibrated_on"] == [f"a/{calib_game}_p0"]
-    rows = {r["keep"]: r for r in sample["rows"]}
-    assert set(rows) == {16, 12, 8, 4}
-    assert rows[16]["agree_with_full"] == 1.0 and rows[16]["nll_increase"] == 0.0
-    assert rows[4]["agree_with_full"] < 1.0
+    assert report["criterion"] == "gate"
+    assert [r["keep"] for r in sample["rows"]] == [16, 16, 12, 8, 4]
+    full, repeat, *_, smallest = sample["rows"]
+    assert full["agree_with_full"] == 1.0 and full["nll_increase"] == 0.0
+    assert repeat["agree_with_full"] == 1.0  # CPU replay is deterministic
+    assert smallest["agree_with_full"] < 1.0

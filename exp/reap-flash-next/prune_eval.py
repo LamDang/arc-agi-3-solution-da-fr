@@ -4,7 +4,7 @@ pruned routers.
 
     python prune_eval.py --model-dir MODEL --traces kaggle_v3=DIR --out OUT \\
         --calib-games ar25,bp35 --calib-passes 0 --eval-games ls20,vc33 --eval-passes 1 \\
-        [--stats-dir PREVIOUS_OUT ...] [--keep 448,384,320,256,192]
+        [--stats-dir PREVIOUS_OUT ...] [--keep 448,384,320,256,192] [--criterion reap] [--noise-check]
 
 1. Calibration: the first stretch of each selected game run is replayed with
    the recorder on (truncated to --calib-max-tokens) and saved like run_reap.py
@@ -14,6 +14,9 @@ pruned routers.
    full model, then with each pruned router (softmax over kept experts only,
    as if the others were deleted). Reported per N: next-token top-1 and NLL
    on the logged generated tokens, and agreement with the full model's top-1.
+   --criterion ranks experts by another statistic (see analyze.expert_scores);
+   --noise-check replays the full model twice, since GPU kernels are not
+   bitwise deterministic and near-tied predictions can flip between runs.
 """
 from __future__ import annotations
 
@@ -76,6 +79,9 @@ def main():
     parser.add_argument("--eval-max-tokens", type=int, default=32768)
     parser.add_argument("--keep", default="448,384,320,288,256,192")
     parser.add_argument("--categories", default="context,generated,image", help="tokens used to rank experts")
+    parser.add_argument("--criterion", choices=analyze.CRITERIA, default="reap", help="how experts are ranked")
+    parser.add_argument("--noise-check", action="store_true",
+                        help="replay the full model twice: agreement between identical runs is the floor")
     parser.add_argument("--chunk", type=int, default=8192)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--attention", choices=["einsum", "sdpa"], default="einsum")
@@ -129,21 +135,22 @@ def main():
         runs.update(analyze.load(Path(extra)))
     log(f"[stats] {len(runs)} calibration runs: {sorted(runs)}")
     categories = [analyze.CATEGORIES.index(c) for c in args.categories.split(",")]
-    keep_list = [int(n) for n in args.keep.split(",")]
+    sizes = [n_experts] * (2 if args.noise_check else 1) + [int(n) for n in args.keep.split(",")]
 
     # 2. evaluation
     recorder.enabled = False
-    report = {"calibration_runs": sorted(runs), "categories": args.categories, "samples": []}
+    report = {"calibration_runs": sorted(runs), "categories": args.categories, "criterion": args.criterion,
+              "samples": []}
     for sample in evals:
         train = [k for k in runs if analyze.game_of(k) != sample.game]
         if not train:
             log(f"[eval] {sample.run_key}: no calibration runs from other games, skipped")
             continue
-        scores = analyze.reap_scores(analyze.aggregate(runs, train, categories))
+        scores = analyze.expert_scores(analyze.aggregate(runs, train, categories), args.criterion)
         enc, cats = encode(processor, sample, args.eval_max_tokens)
         rows = []
         full_argmax = None
-        for n in [n_experts] + keep_list:
+        for n in sizes:
             keep = None if n >= n_experts else torch.from_numpy(analyze.keep_mask(scores, n))
             reap_model.set_pruning(model, keep)
             t = time.time()
@@ -166,8 +173,9 @@ def main():
 
     if not report["samples"]:
         return
-    print(f"\n{'keep':>5} {'top1':>7} {'nll':>7} {'+nll':>7} {'agree':>7}   (mean over {len(report['samples'])} held-out samples)")
-    for i, n in enumerate([n_experts] + keep_list):
+    print(f"\n{'keep':>5} {'top1':>7} {'nll':>7} {'+nll':>7} {'agree':>7}   "
+          f"({args.criterion}, {args.categories}; mean over {len(report['samples'])} held-out samples)")
+    for i, n in enumerate(sizes):
         rows = [s["rows"][i] for s in report["samples"]]
         mean = {k: float(np.mean([r[k] for r in rows])) for k in ("top1", "nll", "nll_increase", "agree_with_full")}
         print(f"{n:>5} {mean['top1']:>7.4f} {mean['nll']:>7.4f} {mean['nll_increase']:>7.4f} {mean['agree_with_full']:>7.4f}")

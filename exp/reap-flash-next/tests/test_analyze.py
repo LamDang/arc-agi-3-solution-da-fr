@@ -39,6 +39,14 @@ def test_scores_keep_and_coverage():
     np.testing.assert_allclose(analyze.coverage(stats, mask), 2 / 3)
 
 
+def test_criteria():
+    stats = analyze.aggregate({"a": _stats([0, 1, 5]), "b": _stats([1], tokens=300)}, ["a", "b"], [0, 1, 2])
+    # REAP ignores frequency (expert 5 has the largest outputs); gate and count favour expert 1
+    assert analyze.keep_mask(analyze.expert_scores(stats, "reap"), 1)[0].nonzero()[0].tolist() == [5]
+    for criterion in ("gate", "count", "prob"):
+        assert analyze.keep_mask(analyze.expert_scores(stats, criterion), 1)[0].nonzero()[0].tolist() == [1]
+
+
 def test_leave_one_game_out(tmp_path):
     # game b uses an expert (7) nobody else uses: keeping 3 experts chosen
     # without b misses it, chosen with b keeps it
