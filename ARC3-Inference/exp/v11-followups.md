@@ -161,3 +161,24 @@ changed during the run. Ordered by the turns they cost.
     **Decided (v12):** the base agent's limits (22) with a drop-based drain to 57K (2), and the
     PLAN message carrying every commit message of the game plus the current level's batch notes
     with their outcomes since the latest commit.
+24. **Replace the PLAN message's image with a sprite list.** The PLAN message attaches the current
+    frame as a 512x512 image (`_frame_part`, play_agent.py); the FIT message's test report carries
+    its own picture. Measured on this run: a turn that carries an image grows the prompt by
+    ~1.1-1.4K tokens more than a plain turn (sp80 1,792 vs 404, ls20 1,564 vs 503; the PLAN text is
+    part of that), and the model's reading of it was poor: "the bar is at row 3 (lower)... let me look
+    at the image once more", "the image shows a red block at the left (cols 6-8, row 2) — actually ..."
+    (sp80 turns 17, 64); it read positions reliably only in python (`state_now()` 71 / 34 calls,
+    `pieces_after` 13 / 5, `show_frames` never). Both lists the harness could print already exist:
+    (a) the replica's own sprites, `state_now().sprites` in the engine's names and coordinates
+    (sp80's end: 15 lines, ~200 tokens; ls20's end: 24 lines, ~300 tokens): name, tags, w x h,
+    (x, y), layer, rotation / mirror / scale when set, hidden or inert, screen, plus `vars`;
+    (b) the segmentation's pieces of the real frame, `str(recording[-1].pieces_after)` (~340 / ~540
+    tokens): stable shape names, colour, size, rotation against the shape, enclosures, in the
+    segmentation's grid, which is the screen's, not the engine's (sp80's levels 1-3 use a rotated
+    View, so its bins sit at y=1 on the screen and y=17 in the engine).
+    In the PLAN message the replica is in step, so (a) draws the current frame exactly and is in the
+    coordinates the model plans in: print (a) in place of the image, with `vars` on the first line.
+    Out of step (the replica plays blind) and at a level start before make_level(n+1) is drawn, print
+    (b) instead, since (a) may not match the game. Keep the FIT message's picture: it is the one
+    place the game and the replica disagree, and the comparison image shows where. The image stays
+    available on request (`show_frames(recording[-1].after)`).
