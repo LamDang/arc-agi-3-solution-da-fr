@@ -78,6 +78,8 @@ def main():
     parser.add_argument("--categories", default="context,generated,image", help="tokens used to rank experts")
     parser.add_argument("--chunk", type=int, default=8192)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--attention", choices=["einsum", "sdpa"], default="einsum")
+    parser.add_argument("--compile-dequant", action="store_true", help="fused int4 dequantization (GPU)")
     parser.add_argument("--precache", action="store_true")
     args = parser.parse_args()
 
@@ -97,6 +99,7 @@ def main():
     if args.precache:
         threading.Thread(target=run_reap.precache, args=(run_reap.model_files(model_dir),), daemon=True).start()
     t = time.time()
+    reap_model.OPTIONS.update(attention=args.attention, compile_dequant=args.compile_dequant)
     model, recorder = reap_model.load_model(model_dir, device=args.device, log=log)
     log(f"[load] {time.time() - t:.0f}s")
     if torch.cuda.is_available():

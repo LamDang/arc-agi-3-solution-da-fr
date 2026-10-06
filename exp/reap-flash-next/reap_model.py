@@ -35,6 +35,10 @@ from transformers.activations import ACT2FN
 from transformers.models.qwen4_exp import modeling_qwen4_exp as mq
 
 N_CATEGORIES = 3
+# Speed options, set by the caller (see bench.py). Both keep the math:
+#   compile_dequant  fuse the int4 -> BF16 dequantization into one kernel (torch.compile)
+#   attention        "einsum": gathered keys in fp32; "sdpa": PyTorch's attention kernel on the gathered keys
+OPTIONS = {"compile_dequant": False, "attention": "einsum"}
 GPTQ_ZERO = 8  # symmetric 4-bit: stored qzeros nibble 7, GPTQ v1 adds one
 _ZEROS_WORD = 0x77777777
 
@@ -89,6 +93,23 @@ def dequantize_gptq(qweight: torch.Tensor, scales: torch.Tensor, dtype, out: tor
         return w.to(dtype)
     out.copy_(w)
     return out
+
+
+def _dequantize_into(qweight, scales, out):
+    dequantize_gptq(qweight, scales, out.dtype, out=out)
+
+
+_COMPILED_DEQUANT = None
+
+
+def _dequant_function(device):
+    """The compiled dequantization when enabled and on a GPU, else eager."""
+    global _COMPILED_DEQUANT
+    if not OPTIONS["compile_dequant"] or torch.device(device).type != "cuda":
+        return _dequantize_into, False
+    if _COMPILED_DEQUANT is None:
+        _COMPILED_DEQUANT = torch.compile(_dequantize_into, fullgraph=True, dynamic=False)
+    return _COMPILED_DEQUANT, True
 
 
 class _Workspace:
@@ -156,10 +177,13 @@ class Int4Experts(nn.Module):
         device = self.qweight_gate_up.device
         w1 = _Workspace.get("w1", (E, H, 2 * I), dtype, device)
         w2 = _Workspace.get("w2", (E, I, H), dtype, device)
-        for s in range(0, E, self.dequant_block):
-            e = min(E, s + self.dequant_block)
-            dequantize_gptq(self.qweight_gate_up[s:e], self.scales_gate_up[s:e], dtype, out=w1[s:e])
-            dequantize_gptq(self.qweight_down[s:e], self.scales_down[s:e], dtype, out=w2[s:e])
+        fn, fused = _dequant_function(device)
+        block = E if fused else self.dequant_block  # a fused kernel has no fp32 temporaries to bound
+        with torch.profiler.record_function("reap.dequant"):
+            for s in range(0, E, block):
+                e = min(E, s + block)
+                fn(self.qweight_gate_up[s:e], self.scales_gate_up[s:e], w1[s:e])
+                fn(self.qweight_down[s:e], self.scales_down[s:e], w2[s:e])
         return w1, w2
 
     def _expert_outputs_loop(self, x, counts, dtype):
@@ -192,6 +216,10 @@ class Int4Experts(nn.Module):
         token = order // k
         counts = torch.bincount(flat, minlength=self.num_experts)
         x = hidden_states[token]
+        with torch.profiler.record_function("reap.experts"):
+            return self._forward_sorted(hidden_states, x, flat, order, token, counts, top_k_weights, T, dtype)
+
+    def _forward_sorted(self, hidden_states, x, flat, order, token, counts, top_k_weights, T, dtype):
         if self.impl == "auto":
             self.impl = _pick_impl(self, x, counts, dtype)
         if self.impl == "grouped":
@@ -379,7 +407,34 @@ def select_tokens(indexer, hidden_states, full_cos, full_sin, past_key_values, q
 
 
 def gathered_attention(q, k, v, selected, scaling, query_block: int = 64):
-    """q [Hq, L, d], k/v [Hkv, KV, d], selected [L, S] -> [L, Hq, d] (fp32 math)."""
+    """q [Hq, L, d], k/v [Hkv, KV, d], selected [L, S] -> [L, Hq, d]."""
+    with torch.profiler.record_function("reap.attention"):
+        if OPTIONS["attention"] == "sdpa":
+            return _gathered_attention_sdpa(q, k, v, selected, scaling)
+        return _gathered_attention_einsum(q, k, v, selected, scaling, query_block)
+
+
+def _gathered_attention_sdpa(q, k, v, selected, scaling, query_block: int = 256):
+    """Each query is its own batch item attending to its gathered keys; GQA and
+    the fp32 softmax stay inside PyTorch's attention kernel."""
+    hq, L, d = q.shape
+    out = torch.empty(L, hq, d, dtype=q.dtype, device=q.device)
+    for s in range(0, L, query_block):
+        e = min(L, s + query_block)
+        idx = selected[s:e]
+        valid = idx >= 0
+        idx0 = idx.clamp_min(0)
+        kg = k[:, idx0].transpose(0, 1)  # [q, Hkv, S, d]
+        vg = v[:, idx0].transpose(0, 1)
+        qs = q[:, s:e].transpose(0, 1).unsqueeze(2)  # [q, Hq, 1, d]
+        o = F.scaled_dot_product_attention(qs, kg, vg, attn_mask=valid[:, None, None, :], scale=scaling,
+                                           enable_gqa=True)
+        out[s:e] = o.squeeze(2)
+    return out
+
+
+def _gathered_attention_einsum(q, k, v, selected, scaling, query_block: int = 64):
+    """fp32 math on gathered keys."""
     hq, L, d = q.shape
     hkv = k.shape[0]
     rep = hq // hkv
@@ -404,7 +459,8 @@ def indexed_attention_forward(self, hidden_states, position_embeddings, attentio
                               past_key_values=None, **kwargs):
     """Drop-in for Qwen4ExpTextAttention.forward (batch 1, causal, no padding)."""
     full_cos, full_sin = position_embeddings
-    selected = select_tokens(self.indexer, hidden_states, full_cos, full_sin, past_key_values)
+    with torch.profiler.record_function("reap.indexer"):
+        selected = select_tokens(self.indexer, hidden_states, full_cos, full_sin, past_key_values)
     input_shape = hidden_states.shape[:-1]
     L = input_shape[1]
     hidden_shape = (*input_shape, -1, self.head_dim)
@@ -451,6 +507,10 @@ class MmapEmbedding(nn.Module):
         return int(self.offsets[-1])
 
     def forward(self, ids: torch.Tensor) -> torch.Tensor:
+        with torch.profiler.record_function("reap.ple_lookup"):
+            return self._lookup(ids)
+
+    def _lookup(self, ids: torch.Tensor) -> torch.Tensor:
         flat = ids.reshape(-1).cpu().numpy()
         shard = np.searchsorted(self.offsets, flat, side="right") - 1
         out = np.empty((flat.size, self.embedding_dim), dtype=self.shards[0].dtype)

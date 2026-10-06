@@ -107,6 +107,8 @@ def main():
     parser.add_argument("--no-measure", action="store_true", help="skip the next-token check")
     parser.add_argument("--precache", action="store_true", help="warm the page cache with the n-gram table")
     parser.add_argument("--deadline-minutes", type=float, default=0, help="stop starting new runs after this")
+    parser.add_argument("--attention", choices=["einsum", "sdpa"], default="einsum")
+    parser.add_argument("--compile-dequant", action="store_true", help="fused int4 dequantization (GPU)")
     parser.add_argument("--plan-only", action="store_true", help="write plan.json and stop")
     parser.add_argument("--dry-run", action="store_true", help="plan and render only")
     args = parser.parse_args()
@@ -150,6 +152,7 @@ def main():
     import reap_model
 
     t = time.time()
+    reap_model.OPTIONS.update(attention=args.attention, compile_dequant=args.compile_dequant)
     model, recorder = reap_model.load_model(model_dir, device=args.device, log=log)
     log(f"[load] {time.time() - t:.0f}s, GPU {gpu_gb(torch.cuda.memory_allocated):.1f} GB allocated")
     if torch.cuda.is_available():

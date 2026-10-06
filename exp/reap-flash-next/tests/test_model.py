@@ -230,3 +230,22 @@ def test_pruned_routing_behaves_like_deleted_experts(models):
     expected = block.experts(flat, expert_ids, top) + torch.sigmoid(block.shared_expert_gate(flat)) * block.shared_expert(flat)
     torch.testing.assert_close(pruned.view(-1, text.hidden_size), expected, rtol=1e-5, atol=1e-5)
     assert not torch.allclose(pruned, full)
+
+
+def test_sdpa_attention_matches_einsum_attention(models):
+    """Same model output with either attention kernel (the einsum path is the one
+    checked against the reference above; this input has topk ties at score 0,
+    so the reference itself may pick other, equally scored blocks)."""
+    _, ours, _ = models
+    torch.manual_seed(6)
+    ids = torch.randint(0, 5000, (1, 75))
+    enc = {"input_ids": ids, "mm_token_type_ids": torch.zeros_like(ids)}
+    outputs = {}
+    try:
+        for attention in ("einsum", "sdpa"):
+            reap_model.OPTIONS["attention"] = attention
+            outputs[attention] = replay.replay(ours, None, enc, torch.zeros_like(ids), chunk_tokens=31,
+                                               measure=False, collect_hidden=True, device="cpu")["hidden"]
+    finally:
+        reap_model.OPTIONS["attention"] = "einsum"
+    torch.testing.assert_close(outputs["sdpa"], outputs["einsum"], rtol=1e-5, atol=1e-5)
