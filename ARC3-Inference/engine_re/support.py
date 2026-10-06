@@ -16,7 +16,9 @@ side, from the runs the tests and the predictions already make:
   ``path_support`` reads one position's path against it (its weakest line, the untested lines it runs, the
   compound conditions it evaluates whose operands the recording never separated).
 - ``remap``/``margins`` carry a map over to an edited engine.py: lines are matched by the hash of their
-  text (a line whose text changed is "new", one that only moved keeps its count).
+  text (a line whose text changed is "new", one that only moved keeps its count); ``comments`` gives
+  the trailing ``# support (n): ...`` comment of every line of step() and the functions it calls
+  (``step_functions``), which read_file() and the engine listings show.
 
 The support map (``engine_committed.support.json``, ``TestReport.support``)::
 
@@ -31,7 +33,7 @@ The support map (``engine_committed.support.json``, ``TestReport.support``)::
 
 - ``lines``: every executable line of the model's functions (module-level lines run when the file loads,
   not in a step, and are left out), with ``n`` the number of recorded steps that executed it (0:
-  untested; below ``thin``: thin) and the first and last few of those steps.
+  untested; below ``thin``: thin) and the first and last ``STEPS_KEPT`` (5) of those steps.
 - ``conds``: per condition, how many steps evaluated it True and how many False (a step can count in
   both); ``kind`` is if/while/ifexp for a test, and/or for an operand of that ``group``.
 - ``compound``: per ``and``/``or`` (one per BoolOp node), whether the steps separated its operands: for
@@ -59,7 +61,11 @@ from engine_re import hashline
 
 SCHEMA = 1
 THIN_SUPPORT = 3  # a line run by fewer recorded steps is thin; by none, untested
-STEPS_KEPT = 4  # step indices kept per line: the first and the last this many
+STEPS_KEPT = 5  # step indices kept per line: the first and the last this many (the comments show the last five)
+COMMENT_STEPS = 5  # step indices a support comment names, newest first
+# A support comment as read_file() and the listings append it to a line (never part of the file: edit_file drops it,
+# hashline.strip_support_comments).
+COMMENT_RE = hashline.SUPPORT_COMMENT_RE
 COND_NAME = "__support_cond__"  # the recorder's name in the engine module (not mangled inside a class)
 END_MARKER = "# ==== END OF FIXED INTERFACE ===="
 OUTCOMES = ("level_solved", "game_over")
@@ -552,6 +558,74 @@ def remap(support: dict[str, Any], text: str) -> dict[str, Any]:
 
 def compound_lookup(support: dict[str, Any]) -> dict[tuple[int, str], dict[str, Any]]:
     return {(c["line"], c["text"]): c for c in support.get("compound") or []}
+
+
+# --- Support comments: the step code, line by line -------------------------------------------------------
+
+
+def step_functions(source: str) -> dict[str, tuple[int, int]]:
+    """The top-level functions of the model's part that a step runs: step() and every function it calls,
+    transitively (calls by name, resolved from the AST), make_level and the level/sprite functions left
+    out unless step calls them: name -> (first, last line). Empty when the source does not parse or has
+    no step()."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return {}
+    first = first_model_line(source)
+    defs = {node.name: node for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno >= first}
+    if "step" not in defs:
+        return {}
+    found: dict[str, tuple[int, int]] = {}
+    todo = ["step"]
+    while todo:
+        name = todo.pop()
+        if name in found or name not in defs:
+            continue
+        node = defs[name]
+        found[name] = (node.lineno, node.end_lineno or node.lineno)
+        for child in ast.walk(node):
+            if isinstance(child, ast.Call) and isinstance(child.func, ast.Name) and child.func.id in defs:
+                if child.func.id != "make_level":
+                    todo.append(child.func.id)
+    return found
+
+
+def comment_text(entry: dict[str, Any]) -> str:
+    """The support comment of a line of the map: "# support (31): 42, 41, 39, 37, 36 and 26 other" (the number
+    of passing steps that ran the line, the last COMMENT_STEPS of them newest first), "# support (0): untested",
+    "# support: new" for a line changed since the map was made."""
+    if entry.get("new"):
+        return "# support: new"
+    n = int(entry.get("n") or 0)
+    if not n:
+        return "# support (0): untested"
+    shown = [int(s) for s in (entry.get("steps") or [])][-COMMENT_STEPS:][::-1]
+    other = n - len(shown)
+    return f"# support ({n}): " + ", ".join(str(s) for s in shown) + (f" and {other} other" if other > 0 else "")
+
+
+def comments(support: dict[str, Any] | None, text: str) -> dict[int, str]:
+    """The trailing support comment of each line of `text` (engine.py now) inside step() and the functions it
+    calls (step_functions): comment_text of the line's entry in the map carried over to the text (remap); lines
+    the map does not know (blank, comments, the def line) get none. Empty without a map."""
+    if not support:
+        return {}
+    spans = step_functions(text)
+    if not spans:
+        return {}
+    table = remap(support, text).get("lines") or {}
+    out: dict[int, str] = {}
+    for first, last in spans.values():
+        for n in range(first, last + 1):
+            entry = table.get(str(n))
+            if entry is not None:
+                out[n] = comment_text(entry)
+    return out
+
+
+strip_comments = hashline.strip_support_comments
 
 
 # --- Outcome rules ----------------------------------------------------------------------------------------

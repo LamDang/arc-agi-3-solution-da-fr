@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from engine_re.agent import Budget, ModelConfig
+from engine_re.agent import (
+    IMAGE_NOTE, IMAGE_PLACEHOLDER, IMAGE_TOKENS_FALLBACK, REBUILT_CLOSING, Budget, ModelConfig, TurnMessage, image_part_tokens,
+    is_context_length_error, rebuilt_context, render_request, shrink_step, split_for_estimate,
+)
 from engine_re.live_game import LiveGame, benchmark_json
 from engine_re.play_agent import PlayAgent
 from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, PLAN_CLOSING, elide_engine_listing
@@ -74,7 +77,8 @@ def step(state, action):
 RIGHT_ENGINE = ENGINE.replace("DOWN", "1")
 WRONG_DOWN = ENGINE.replace("DOWN", "-1")  # DOWN moves up: blocked by the wall at y=0 in level 0
 
-# A click game (sp80 advertises keys and clicks): SPACE does nothing; a click on the target cell solves the level.
+# A click game (sp80 advertises keys and clicks): SPACE does nothing; a click on the target cell solves the level; a
+# click on the mark (level 0) pushes it one cell to the right.
 CLICK_GAME = '''
 from arcengine import ARCBaseGame, Camera, GameAction, Level, Sprite
 
@@ -91,8 +95,11 @@ class Clik(ARCBaseGame):
         if self.action.id == GameAction.ACTION6:
             cell = self.camera.display_to_grid(self.action.data.get("x", 0), self.action.data.get("y", 0))
             target = self.current_level.get_sprites_by_name("target")[0]
+            marks = self.current_level.get_sprites_by_name("mark")
             if cell is not None and tuple(cell) == (target.x, target.y):
                 self.next_level()
+            elif cell is not None and marks and tuple(cell) == (marks[0].x, marks[0].y):
+                self.try_move("mark", 1, 0)
         self.complete_action()
 '''
 
@@ -113,8 +120,11 @@ def make_level(n):
 
 
 def step(state, action):
+    mark = state.by_name("mark")
     if action.id == 6 and action.cell == TARGETS[state.level]:
         state.status = "level_solved"
+    elif action.id == 6 and mark is not None and action.cell == (mark.x, mark.y):
+        mark.x += 1
 """
 
 
@@ -308,7 +318,7 @@ def test_a_right_engine_wins_the_game_in_the_baseline_actions(tmp_path: Path, en
 
 def test_a_wrong_prediction_opens_a_fit_round_and_blocks_moves_until_fixed(tmp_path: Path, environments: Path) -> None:
     model = _ScriptedModel(_start(WRONG_DOWN) + [
-        [("commit_moves", {"actions": ["DOWN", "RIGHT"], "note": "down then right"})],  # step 1 differs; RIGHT not sent
+        [("commit_moves", {"actions": ["DOWN"], "note": "down"})],  # step 1 differs (a probe of one: the replica predicts no change)
         [("commit_moves", {"actions": ["RIGHT"], "note": "try anyway"})],  # refused: the tests fail
         [_edit("2: (0, -1)", "2: (0, 1)")],
         [("commit_engine", {"message": "DOWN moves down"})],
@@ -320,8 +330,9 @@ def test_a_wrong_prediction_opens_a_fit_round_and_blocks_moves_until_fixed(tmp_p
     assert result.mismatches == 1 and result.refused_batches == 1 and result.batches == 2
     users = _texts(agent)
     fit = next(u for u in users if u.startswith("Fix your replica: step 1 did not go as your replica predicted."))
-    assert "What differed: the final frame differs. Step 0 matches. The 1 move after it in your batch was not sent." in fit
+    assert "What differed: the final frame differs. Step 0 matches." in fit
     assert "TEST RESULT" in fit and "step 1 is the first failure" in fit
+    assert "\nActions played: 1 of at most 500 (level 0: 1). Turns: 3 of 7;" in fit  # the budget line, after a batch
     tool_outputs = _texts(agent, "tool")
     assert any(o.startswith("Not sent: your replica does not reproduce the game so far (steps 0-1)") for o in tool_outputs)
     assert any("#1 Action(2): differs from your prediction: the final frame differs" in o for o in tool_outputs)
@@ -484,27 +495,30 @@ def test_engine_errors_during_the_prediction(tmp_path: Path, environments: Path)
 def test_a_hud_pixel_difference_matches_with_its_warning(tmp_path: Path, environments: Path) -> None:
     pixel = RIGHT_ENGINE.replace(
         "    if player.x >= 4:", "    if action.id == 1:\n        state.add(Sprite([[7]], x=63, y=0, screen=True, layer=5))\n    if player.x >= 4:")
-    model = _ScriptedModel(_start(pixel) + [[("commit_moves", {"actions": ["UP", "RIGHT"], "note": "UP is blocked"})]])
+    model = _ScriptedModel(_start(pixel) + [[("commit_moves", {"actions": ["UP"], "note": "UP is blocked"})]])
     agent = _agent(tmp_path, environments, model, turns=3)
     result = agent.run()
     out = _texts(agent, "tool")[-1]
     assert "#1 Action(1): matches your prediction (1 px differs at the frame border" in out and "tolerated as HUD-bar rounding" in out
-    assert result.mismatches == 0 and result.actions == 2
+    assert result.mismatches == 0 and result.actions == 1
 
 
 def test_a_click_game(tmp_path: Path, environments: Path) -> None:
     model = _ScriptedModel(_start(CLICK_ENGINE, names=("TARGETS", "make_level", "step")) + [
         [("commit_moves", {"actions": ["UP"], "note": "not accepted"})],
-        [("commit_moves", {"actions": ["SPACE", {"click": [40, 40]}, "MOUSE(row=20, col=20)", {"click": [50, 10]}],
-                           "note": "space, a miss, the target"})],
+        [("commit_moves", {"actions": ["SPACE"], "note": "a probe: the replica predicts nothing"})],
+        [("commit_moves", {"actions": [{"click": [40, 40]}, "MOUSE(row=20, col=20)", {"click": [50, 10]}],
+                           "note": "the mark, the target"})],
         [("commit_moves", {"actions": [{"click": [50, 10]}], "note": "level 1's target at cell (6, 1)"})],
     ])
-    agent = _agent(tmp_path, environments, model, turns=5, game="clik")
+    agent = _agent(tmp_path, environments, model, turns=6, game="clik")
     result = agent.run()
     tools = _texts(agent, "tool")
     assert tools[2].startswith("Not sent: this game does not accept Action(1) (UP). The game accepts: Action(5) SPACE, clicks "
                                "Action(6, x=x, y=y) (x the column, y the row, screen pixels 0-63), Action(0) RESET")
-    assert "#3 Action(6, x=20, y=20): matches your prediction (level 0 solved)" in tools[3]
+    assert tools[3].startswith("Sent 1 of 1 move(s) (steps 1-1):\n  #1 Action(5): matches your prediction")
+    assert "#3 Action(6, x=20, y=20): matches your prediction (level 0 solved)" in tools[4]
+    assert "What the batch changed on the board (steps 1 -> 2" not in tools[4]  # the batch entered level 1: no change summary
     assert "clicks Action(6, x=x, y=y) (x the column, y the row, screen pixels 0-63)" in _texts(agent)[0]
     assert result.status == "won" and result.actions == 4 and result.actions_per_level == [3, 1]
     assert [s.action for s in agent.live.trace.steps][1:] == [Action(5), Action(6, 40, 40), Action(6, 20, 20), Action(6, 50, 10)]
@@ -513,11 +527,11 @@ def test_a_click_game(tmp_path: Path, environments: Path) -> None:
 def test_actions_stepped_on_the_replica_are_sent_as_printed(tmp_path: Path, environments: Path) -> None:
     """A click game played the way the prompt says: moves tried on the replica in python (a click's cell filled
     in by replica.step, as the harness does), the printed list pasted into commit_moves as one string, sent."""
-    plan = ("import copy\nt = copy.deepcopy(state_now())\nmoves = [Action(5), Action(0), Action(6, x=20, y=20)]\n"
+    plan = ("import copy\nt = copy.deepcopy(state_now())\nmoves = [Action(6, x=40, y=40), Action(0), Action(6, x=20, y=20)]\n"
             "replica.step(t, moves[0])\nt = replica.make_level(0)\nreplica.step(t, moves[2])\nprint(t.status)\nprint(moves)")
     model = _ScriptedModel(_start(CLICK_ENGINE, names=("TARGETS", "make_level", "step")) + [
         [("python", {"code": plan})],
-        lambda messages: [("commit_moves", {"actions": _printed_moves(messages), "note": "space, reset, the target"})],
+        lambda messages: [("commit_moves", {"actions": _printed_moves(messages), "note": "the mark, reset, the target"})],
         [("python", {"code": "t = copy.deepcopy(state_now())\nmoves = [Action(6, x=50, y=10)]\nreplica.step(t, moves[0])\n"
                              "print(t.status)\nprint(moves)"})],
         lambda messages: [("commit_moves", {"actions": _printed_moves(messages), "note": "level 1's target"})],
@@ -525,12 +539,12 @@ def test_actions_stepped_on_the_replica_are_sent_as_printed(tmp_path: Path, envi
     agent = _agent(tmp_path, environments, model, turns=6, game="clik")
     result = agent.run()
     tools = _texts(agent, "tool")
-    assert "level_solved\n[Action(5), Action(0), Action(6, x=20, y=20)]" in tools[2]
+    assert "level_solved\n[Action(6, x=40, y=40), Action(0), Action(6, x=20, y=20)]" in tools[2]
     assert tools[3].startswith("Sent 3 of 3 move(s) (steps 1-3):") and "#2 Action(0): matches your prediction" in tools[3]
     assert "#3 Action(6, x=20, y=20): matches your prediction (level 0 solved)" in tools[3]
     assert "level_solved\n[Action(6, x=50, y=10)]" in tools[4] and "#4 Action(6, x=50, y=10): matches your prediction" in tools[5]
     assert result.status == "won" and result.mismatches == 0 and result.actions_per_level == [3, 1]
-    assert [s.action for s in agent.live.trace.steps][1:] == [Action(5), Action(0), Action(6, 20, 20), Action(6, 50, 10)]
+    assert [s.action for s in agent.live.trace.steps][1:] == [Action(6, 40, 40), Action(0), Action(6, 20, 20), Action(6, 50, 10)]
 
 
 def test_the_action_budget_cuts_a_batch_and_ends_the_run_cleanly(tmp_path: Path, environments: Path) -> None:
@@ -710,8 +724,8 @@ def test_a_run_interrupted_in_the_middle_of_a_batch(tmp_path: Path, environments
     agent = _agent(tmp_path, environments, model, turns=5)
     real_play = PlayAgent._play
 
-    def crash(self, acts, note):
-        real_play(self, acts[:1], note)  # the first move is played and saved, then the process dies
+    def crash(self, acts, note, **kw):
+        real_play(self, acts[:1], note, **kw)  # the first move is played and saved, then the process dies
         raise KeyboardInterrupt
 
     monkeypatch.setattr(PlayAgent, "_play", crash)
@@ -753,7 +767,8 @@ def test_compaction_elides_the_listing_of_older_plan_messages(tmp_path: Path, en
     agent.run()
     plans = [m for m in agent.messages if m["role"] == "user" and isinstance(m["content"], list)
              and m["content"][0]["text"].startswith("Plan the next moves")]
-    assert len(plans) == 3 and plans[-1]["content"][-1]["type"] == "image_url"
+    assert len(plans) == 3 and plans[-1]["content"][-2]["type"] == "image_url"
+    assert plans[-1]["content"][-1]["text"].startswith("Your replica's sprites now")  # the sprite list, under the image
     texts = [p["content"][0]["text"] for p in plans]
     assert [ENGINE_HEADER in t for t in texts] == [True, True, False]  # listed when it changed
     agent._compact()
@@ -768,6 +783,314 @@ def test_compaction_elides_the_listing_of_older_plan_messages(tmp_path: Path, en
 def test_the_play_agent_keeps_compaction(tmp_path: Path, environments: Path) -> None:
     with pytest.raises(ValueError, match="compact"):
         PlayAgent("twol", tmp_path / "run", ModelConfig(context="condense"), Budget(), environments, client=_ScriptedModel([]))
+    agent = PlayAgent("twol", tmp_path / "run2", ModelConfig(context="rebuilt"), Budget(), environments, client=_ScriptedModel([]))
+    assert agent.rebuilt and not agent.condense
+
+
+# --- the rebuilt context ----------------------------------------------------------------------------
+
+
+def _synthetic_conversation(turns: int) -> list[TurnMessage]:
+    """A play conversation of `turns` model turns, tagged as the agent tags it: the opening PLAN message (turn 0), a
+    commit_engine at turn 3, a commit_moves at turn 5 followed by a PLAN message with an image (turn 5's tail), an
+    image message at turn 7, a commit_engine at turn 12; every other turn a python call. Every reply has reasoning."""
+    png = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+    messages = [
+        TurnMessage({"role": "system", "content": "SYSTEM PROMPT"}, turn=0),
+        TurnMessage({"role": "user", "content": [{"type": "text", "text": "Plan the next moves. OPENING"}, png]}, turn=0, phase="plan"),
+    ]
+    for t in range(1, turns + 1):
+        if t == 3 or t == 12:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "commit_engine", "arguments": json.dumps({"message": f"COMMIT MESSAGE {t}"})}}
+            output = f"Committed at turn {t}."
+        elif t == 5:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "commit_moves", "arguments": json.dumps({"actions": ["Action(4)"], "note": "NOTE 5"})}}
+            output = "Sent 1 of 1 move(s)."
+        else:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "python", "arguments": json.dumps({"code": f"x = {t}\nprint(x)"})}}
+            output = f"OUTPUT {t}"
+        messages.append(TurnMessage({"role": "assistant", "content": f"TEXT {t}", "reasoning": f"REASONING {t}", "tool_calls": [call]}, turn=t))
+        messages.append(TurnMessage({"role": "tool", "tool_call_id": call["id"], "content": output}, turn=t))
+        if t == 5:
+            messages.append(TurnMessage({"role": "user", "content": [{"type": "text", "text": "Plan the next moves. PHASE 5"}, png]}, turn=t, phase="plan"))
+        if t == 7:
+            messages.append(TurnMessage({"role": "user", "content": [{"type": "text", "text": IMAGE_NOTE}, {"type": "text", "text": "CAPTION 7"}, png]}, turn=t))
+    return messages
+
+
+def _text_of(message: dict) -> str:
+    c = message["content"]
+    return c if isinstance(c, str) else "\n".join(p.get("text", "") for p in c if p.get("type") == "text")
+
+
+def _images_of(message: dict) -> int:
+    c = message["content"]
+    return 0 if isinstance(c, str) else sum(p.get("type") == "image_url" for p in c)
+
+
+def test_the_rebuilt_context_with_the_phase_message_among_the_last_turns() -> None:
+    conversation = _synthetic_conversation(14)  # the window is turns 5-14: the PLAN message of turn 5 is in it
+    view, stats = rebuilt_context(conversation, keep_turns=10)
+    assert view[0] is conversation[0] and view[0]["role"] == "system"
+    compacted = _text_of(view[1])
+    assert view[1]["role"] == "user" and not isinstance(view[1], TurnMessage)
+    assert compacted.endswith(REBUILT_CLOSING)
+    assert "Turn 3 (commit_engine):" in compacted and "COMMIT MESSAGE 3" in compacted and "Committed at turn 3." in compacted
+    assert "Turn 5" not in compacted and "the current PLAN message" not in compacted  # inside the window: sent as it is
+    assert "REASONING" not in compacted and "OUTPUT 1" not in compacted and "Turn 1" not in compacted
+    assert _images_of(view[1]) == 0
+    real = view[2:]
+    assert real == [m for m in conversation if m.turn >= 5] and all(m is n for m, n in zip(real, [m for m in conversation if m.turn >= 5]))
+    assert any(m.phase == "plan" and m.turn == 5 for m in real) and real[0]["role"] == "assistant"  # the window starts at a turn
+    assert [m["reasoning"] for m in real if m["role"] == "assistant"] == [f"REASONING {t}" for t in range(5, 15)]
+    assert stats["commit_turns"] == 1 and stats["phase_turn"] == 5 and stats["older_turns"] == 0 and not stats["phase_compacted"]
+    assert stats["recent_turns"] == 10 and stats["chars"]["phase"] == 0 and stats["chars"]["commits"] == len(compacted.split("\n\n", 1)[1].rsplit("\n\n", 1)[0])
+    assert stats["images"] == 2  # the PLAN message's and the image message's, both real
+
+
+def test_the_rebuilt_context_with_an_older_phase_message() -> None:
+    conversation = _synthetic_conversation(20)  # the window is turns 11-20: the PLAN message of turn 5 is older
+    view, stats = rebuilt_context(conversation, keep_turns=10)
+    assert view[0]["role"] == "system" and view[1]["role"] == "user"
+    parts = view[1]["content"]
+    text = _text_of(view[1])
+    heads = [line for line in text.splitlines() if line.startswith("Turn ")]
+    assert heads == ["Turn 3 (commit_engine):", "Turn 5 (commit_moves):", "Turn 5 (the current PLAN message):",
+                     "Turn 6:", "Turn 7:", "Turn 8:", "Turn 9:", "Turn 10:"]
+    assert text.endswith(REBUILT_CLOSING)
+    assert "REASONING" not in text  # never in the compacted message
+    assert "NOTE 5" in text and "Sent 1 of 1 move(s)." in text and "PHASE 5" in text
+    assert "x = 6\nprint(x)" in text and "OUTPUT 6" in text and "TEXT 6" in text  # an older turn: calls, arguments and outputs
+    assert "CAPTION 7" not in text and IMAGE_NOTE not in text  # an image message is not rendered
+    assert "Turn 1" not in heads and "OUTPUT 2" not in text  # a turn before the phase message without a commit is dropped
+    # The phase message's image is the compacted message's only one, right after its header.
+    assert _images_of(view[1]) == 1
+    i = next(i for i, p in enumerate(parts) if p.get("type") == "image_url")
+    assert parts[i - 1]["text"].endswith("Turn 5 (the current PLAN message):\n\nPlan the next moves. PHASE 5")
+    assert len(parts) == 3 and parts[2]["text"].startswith("The turns since that message")  # text, image, text
+    real = view[2:]
+    assert real == [m for m in conversation if m.turn >= 11] and real[0]["role"] == "assistant"
+    assert [m["reasoning"] for m in real if m["role"] == "assistant"] == [f"REASONING {t}" for t in range(11, 21)]
+    assert "Turn 12" not in text and any("COMMIT MESSAGE 12" in c["function"]["arguments"]  # the commit of turn 12 is real
+                                         for m in real for c in m.get("tool_calls") or [])
+    assert stats["commit_turns"] == 2 and stats["phase_turn"] == 5 and stats["phase_compacted"] and stats["older_turns"] == 5
+    assert stats["recent_turns"] == 10 and stats["images"] == 1 and stats["chars"]["phase"] == len("Plan the next moves. PHASE 5")
+    assert stats["messages"] == 2 + len(real)
+    # Every commit turn is somewhere: the older ones in the compacted message, the recent one real.
+    for t in (3, 5, 12):
+        assert f"Turn {t} (commit_" in text or any(m.turn == t for m in real)
+    # A short conversation needs no compacted message: the request is the conversation.
+    short = _synthetic_conversation(6)
+    view, stats = rebuilt_context(short, keep_turns=10)
+    assert view == short and stats["commit_turns"] == 0 and stats["recent_turns"] == 7  # turns 0-6
+
+
+class _StubCounter:
+    """A tokenizer stub: one token per `chars` characters of the request's json, the images at their vision cost."""
+
+    def __init__(self, chars: float = 4.0):
+        self.chars = chars
+        self.calls = 0
+
+    def count(self, messages, tools=None):
+        self.calls += 1
+        rendered, image_tokens = render_request(messages, tools)
+        text = int(len(rendered) / self.chars)
+        return {"tokens": text + image_tokens, "text_tokens": text, "image_tokens": image_tokens}
+
+    def describe(self) -> str:
+        return "stub"
+
+
+def _png_part(width: int, height: int) -> dict:
+    """An image part whose data URL is a PNG header of that size (enough for png_dimensions)."""
+    import base64
+    import struct
+
+    header = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", width, height) + b"\x08\x02\x00\x00\x00" + b"\x00" * 8
+    return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(header).decode()}}
+
+
+def test_image_parts_count_at_their_vision_cost() -> None:
+    assert image_part_tokens(_png_part(536, 554)) == 17 * 18 + 2 == 308  # the PLAN frame
+    assert image_part_tokens(_png_part(1060, 554)) == 34 * 18 + 2 == 614  # the test comparison
+    assert image_part_tokens({"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}) == IMAGE_TOKENS_FALLBACK
+    scrubbed, tokens = split_for_estimate([{"role": "user", "content": [{"type": "text", "text": "t"}, _png_part(64, 64)]}])
+    assert tokens == 6 and scrubbed[0]["content"][1]["image_url"]["url"] == "<image>"
+    assert is_context_length_error("OpenRouter HTTP 400: This model's maximum context length is 131072 tokens")
+    assert is_context_length_error("HTTP 400: too many tokens") and not is_context_length_error("HTTP 500: internal error")
+
+
+def test_the_shrink_steps_in_order() -> None:
+    conversation = _synthetic_conversation(20)  # window 11-20, the PLAN message of turn 5 older, 2 commit turns before it
+    shrink: dict = {}
+    taken = []
+    for _ in range(20):
+        view, stats = rebuilt_context(conversation, keep_turns=10, shrink=shrink)
+        following = shrink_step(shrink, stats, keep_turns=10)
+        if following is None:
+            break
+        shrink = following
+        taken.append({k: v for k, v in shrink.items()})
+    # reasoning of the window's oldest turns first (7 of the 10, never the last 3), then the older turns, then the
+    # commit turns (only 2 here, under the floor of 5: untouched), then the phase message's image.
+    assert [t.get("reasoning") for t in taken[:7]] == [1, 2, 3, 4, 5, 6, 7]
+    assert taken[7] == {"reasoning": 7, "older": True} and taken[8] == {"reasoning": 7, "older": True, "phase_image": True}
+    assert len(taken) == 9
+    view, stats = rebuilt_context(conversation, keep_turns=10, shrink=taken[-1])
+    real = view[2:]
+    assistants = [m for m in real if m["role"] == "assistant"]
+    assert [bool(m.get("reasoning")) for m in assistants] == [False] * 7 + [True] * 3  # the last 3 keep theirs
+    assert all(m.get("reasoning") for m in conversation if m["role"] == "assistant")  # the conversation is untouched
+    text = _text_of(view[1])
+    assert "The turns since that message" not in text and "Turn 3 (commit_engine):" in text and "PHASE 5" in text
+    assert _images_of(view[1]) == 0 and IMAGE_PLACEHOLDER in text and stats["images"] == 0  # (the turn-7 image message is older)
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True}
+
+
+def test_the_rebuilt_request_is_counted_and_shrunk_to_the_budget(tmp_path: Path, environments: Path) -> None:
+    agent = PlayAgent("twol", tmp_path / "run", ModelConfig(context="rebuilt", context_window=40_000, reply_reserve=1_000),
+                      Budget(), environments, client=_ScriptedModel([]), images=False)
+    assert agent._context_budget() == 40_000 - 1_000 - 512
+    agent.messages = _synthetic_conversation(20)
+    for m in agent.messages:
+        if m["role"] == "assistant":
+            m["reasoning"] = "reasoning " * 1500  # 15K chars a turn: the window alone is far over the budget
+    agent.counter = _StubCounter(chars=4.0)
+    view, stats = agent._rebuilt_view()
+    assert stats["exact"] and stats["budget"] == 38_488 and stats["margin"] == stats["estimated_tokens"] * 2 // 100
+    assert stats["estimated_tokens"] + stats["margin"] <= stats["budget"]
+    assert stats["shrink"]["reasoning"] >= 1 and not stats["shrink"].get("older")  # stopped as soon as it fitted
+    assistants = [m for m in view if m["role"] == "assistant"]
+    assert assistants[-1].get("reasoning") and not assistants[0].get("reasoning")
+    # Too big to ever fit: every step is taken, the request is sent as it is with a warning, nothing truncated.
+    agent.model.context_window = 12_000
+    view, stats = agent._rebuilt_view()
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True} and "warning" in stats
+    assert all(m.get("reasoning") for m in [m for m in view if m["role"] == "assistant"][-3:])
+    assert "PHASE 5" in _text_of(view[1])
+    # Without a counter: the calibrated estimate, no margin, and the same shrink loop.
+    agent.counter = None
+    agent.model.context_window = 40_000
+    view, stats = agent._rebuilt_view()
+    assert not stats["exact"] and stats["chars_per_token"] == 3.0 and stats["margin"] == 0 and stats["estimated_tokens"] <= stats["budget"]
+
+
+def test_the_calibration_clamps_and_logs(tmp_path: Path, environments: Path) -> None:
+    agent = PlayAgent("twol", tmp_path / "run", ModelConfig(context="rebuilt"), Budget(), environments, client=_ScriptedModel([]), images=False)
+    messages = [{"role": "system", "content": "s" * 4000}, {"role": "user", "content": [{"type": "text", "text": "u"}, _png_part(536, 554)]}]
+    rendered, image_tokens = render_request(messages, agent._tools())
+    assert image_tokens == 308
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + len(rendered) // 10})  # 10 chars a token
+    assert agent.chars_per_token == 3.3  # the ceiling
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + len(rendered) * 5})
+    assert agent.chars_per_token == 1.0  # the floor
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + int(len(rendered) / 2.8)})
+    assert abs(agent.chars_per_token - 2.8) < 0.01 and agent._calibrations == 3
+    records = [r["token_calibration"] for r in agent.records if "token_calibration" in r]
+    assert [r["chars_per_token"] for r in records] == [3.3, 1.0, pytest.approx(2.8, abs=0.01)]
+    assert records[0]["measured"] == pytest.approx(10.0, abs=0.01) and records[0]["image_tokens"] == 308
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + int(len(rendered) / 2.82)})
+    assert len([r for r in agent.records if "token_calibration" in r]) == 3  # a move under 0.05 is not logged
+    agent._calibrate_from_usage(messages, agent._tools(), {})  # no usage: nothing changes
+    assert abs(agent.chars_per_token - 2.82) < 0.01
+    # A rejected request lowers the ceiling for the run and the figure in use with it.
+    agent._context_overflow("OpenRouter HTTP 400: maximum context length exceeded")
+    assert agent.chars_ceiling == pytest.approx(2.82 * 0.9, abs=0.01) and agent.chars_per_token == agent.chars_ceiling
+    assert agent.context_overflows == 1 and any("context_overflow" in r for r in agent.records)
+
+
+def test_a_context_length_error_is_retried_once_after_a_further_shrink(tmp_path: Path, environments: Path) -> None:
+    class Rejecting(_ScriptedModel):
+        def __init__(self, turns):
+            super().__init__(turns)
+            self.rejected = False
+
+        def chat(self, messages, tools):
+            if len(self.seen) == 2 and not self.rejected:  # the third request: rejected once
+                self.rejected = True
+                raise RuntimeError('OpenRouter HTTP 400: {"error": "This model\'s maximum context length is 131072 tokens"}')
+            return super().chat(messages, tools)
+
+    model = Rejecting(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})], [NOTHING]])
+    agent = PlayAgent("twol", tmp_path / "run2", ModelConfig(context="rebuilt"), Budget(max_turns=4), environments, client=model,
+                      images=False, batch_size=4)
+    result = agent.run()
+    assert result.status == "budget_turns" and agent.context_overflows == 1 and len(model.seen) == 4
+    records = _records_at(tmp_path / "run2")
+    overflow = [r for r in records if "context_overflow" in r]
+    # (the scripted usage says 10 prompt tokens, so the calibration sits at the 3.3 ceiling: the rejection takes it to 2.97)
+    assert len(overflow) == 1 and overflow[0]["turn"] == 2 and overflow[0]["context_overflow"]["ceiling"] == pytest.approx(2.97, abs=0.01)
+    rebuilt = [r for r in records if "rebuilt" in r]
+    assert [r["turn"] for r in rebuilt] == [0, 1, 2, 2, 3]  # the rejected request's record, then the retry's
+    assert rebuilt[3]["rebuilt"]["chars_per_token"] <= 2.97 and not rebuilt[3]["rebuilt"]["exact"]
+    calibrations = [r for r in records if "token_calibration" in r]
+    assert calibrations and calibrations[0]["turn"] == 1  # from the first response on
+
+
+def _records_at(folder: Path) -> list[dict]:
+    return [json.loads(line) for line in (folder / "transcript.jsonl").read_text().splitlines()]
+
+
+def test_the_real_tokenizer_counts_a_request() -> None:
+    from engine_re.tokens import TokenCounter, tokenizer_folder
+
+    folder = tokenizer_folder(None)
+    if folder is None:
+        pytest.skip("no tokenizer files (ARC3_TOKENIZER unset, the default not cached)")
+    counter = TokenCounter(folder)
+    assert counter.count_text("hello world") == 2
+    messages = [{"role": "system", "content": "Be brief."}, {"role": "assistant", "content": "ok", "reasoning": "why"},
+                {"role": "user", "content": [{"type": "text", "text": "Look:"}, _png_part(536, 554)]}]
+    text, blocks, images = counter.render(messages, None)
+    assert text.startswith("<|im_start|>system\nBe brief.<|im_end|>\n") and text.endswith("<|im_start|>assistant\n")
+    assert "<|im_start|>assistant\nok<|im_end|>" in text and blocks == ["<think>\nwhy\n</think>\n\n"] and len(images) == 1
+    counted = counter.count(messages, None)
+    assert counted["image_tokens"] == 308 and counted["reasoning_tokens"] == counter.count_text(blocks[0]) > 0
+    assert counted["tokens"] == counter.count_text(text) + counted["reasoning_tokens"] + 308
+    tools = [{"type": "function", "function": {"name": "python", "description": "run", "parameters": {"type": "object", "properties": {}}}}]
+    with_tools, _, _ = counter.render(messages, tools)
+    assert "# Tools" in with_tools and '"name": "python"' in with_tools
+    assert TokenCounter(folder, reasoning="template").count(messages, None)["reasoning_tokens"] == 0
+
+
+def test_the_play_agent_in_rebuilt_mode(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})], [NOTHING]])
+    config = ModelConfig(context="rebuilt", compact_prompt_tokens=0, rebuilt_keep_turns=1)
+    agent = PlayAgent("twol", tmp_path / "run", config, Budget(max_turns=4), environments, client=model, images=False, batch_size=4)
+    result = agent.run()
+    assert result.status == "budget_turns" and result.context == "rebuilt"
+    records = _records(tmp_path)
+    assert not any("compact" in r for r in records)  # never compacted, whatever the prompt size
+    rebuilt = [r for r in records if "rebuilt" in r]
+    assert [r["turn"] for r in rebuilt] == [0, 1, 2, 3] and len(model.seen) == 4
+    assert all(set(r["rebuilt"]) >= {"commit_turns", "phase_turn", "older_turns", "chars", "estimated_tokens"} for r in rebuilt)
+    assert rebuilt[-1]["rebuilt"]["commit_turns"] == 1 and rebuilt[-1]["rebuilt"]["phase_turn"] == 3
+    assert rebuilt[-1]["rebuilt"]["chars"]["total"] == sum(rebuilt[-1]["rebuilt"]["chars"][k] for k in ("system", "commits", "phase", "older", "recent"))
+    # Every message knows its turn; the transcript logs plain messages.
+    assert [m.turn for m in agent.messages] == [0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
+    assert [m.phase for m in agent.messages if m.phase] == ["plan", "plan", "plan"]
+    assert all("turn" not in r["message"] and "phase" not in r["message"] for r in records if "message" in r)
+    # The last request: the system prompt, the compacted context with the commit turn, then turn 3 as it is.
+    last = model.seen[-1]
+    assert last[0]["role"] == "system" and last[1]["role"] == "user"
+    text = last[1]["content"]
+    assert text.startswith("Earlier turns of this game in which you committed") and text.endswith(REBUILT_CLOSING)
+    assert "Turn 2 (commit_engine):" in text and "the rules" in text and "Turn 1" not in text and "Turn 3" not in text
+    assert [m["role"] for m in last[2:]] == ["assistant", "tool", "user"] and _texts(agent)[-1] == _text_of(last[-1])
+    # Resumed: the conversation is rebuilt with the same tags, and the next request is rebuilt from it.
+    second = _ScriptedModel([[NOTHING]])
+    agent2 = PlayAgent("twol", tmp_path / "run", config, Budget(max_turns=5), environments, client=second, images=False, batch_size=4)
+    agent2.run()
+    n = len(agent.messages)
+    assert agent2.messages[:n] == agent.messages
+    assert [(m.turn, m.phase) for m in agent2.messages[:n]] == [(m.turn, m.phase) for m in agent.messages]
+    assert agent2.messages[n].turn == 4 and "has now resumed" in agent2.messages[n]["content"]
+    first = second.seen[0]
+    text = first[1]["content"]
+    assert first[0]["role"] == "system" and "Turn 2 (commit_engine):" in text and "Turn 3 (the current PLAN message):" in text
+    assert "Plan the next moves. Steps 0-1 pass" in text and text.endswith(REBUILT_CLOSING)
+    assert [m["role"] for m in first[2:]] == ["assistant", "tool", "user"] and "has now resumed" in first[-1]["content"]
 
 
 def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> None:
@@ -1137,7 +1460,7 @@ def test_commit_moves_says_what_each_prediction_rests_on(tmp_path: Path, environ
 def test_a_mismatch_names_the_untested_lines_and_cut_untested_cuts_the_batch(tmp_path: Path, environments: Path) -> None:
     model = _ScriptedModel(_start(WRONG_DOWN) + [
         [("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "a"})],  # cut after the first: it runs untested code
-        [("commit_moves", {"actions": ["DOWN", "RIGHT"], "note": "b"})],
+        [("commit_moves", {"actions": ["DOWN"], "note": "b"})],
     ])
     agent = _agent(tmp_path, environments, model, turns=5, cut_untested=True)
     result = agent.run()
@@ -1152,7 +1475,10 @@ def test_a_mismatch_names_the_untested_lines_and_cut_untested_cuts_the_batch(tmp
     assert "its path in engine.py" in report and "thin: lines" in report and "(1 step)" in report
 
 
-def test_the_kernel_margin_and_traced_support(tmp_path: Path, environments: Path) -> None:
+def test_the_kernel_margin_and_support_comments(tmp_path: Path, environments: Path) -> None:
+    """read_file() in the play kernel shows the committed engine's support in the margin and, on the lines of step()
+    and the functions it calls, as a trailing comment (the last five steps that ran the line, newest first); an edited
+    line shows as new; edit_file drops a comment pasted back; traced() and support() are gone (free names now)."""
     from engine_re.hashline import MARGIN_NOTE
     from engine_re.kernel import KernelClient
 
@@ -1160,31 +1486,101 @@ def test_the_kernel_margin_and_traced_support(tmp_path: Path, environments: Path
     agent = _agent(tmp_path, environments, model, turns=3)
     agent.run()
     run = tmp_path / "run"
-    engine = (run / "workspace" / "engine.py").read_text()
     kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=2, history=True, play=True,
                           support=run / "engine_committed.support.json")
     try:
         out = kernel.execute("read_file()")
-        assert out.startswith(MARGIN_NOTE)
+        assert out.startswith(MARGIN_NOTE) and "`# support (n): ...` comment" in MARGIN_NOTE
         moves = next(line for line in out.splitlines() if "state.try_move(player" in line)
-        assert moves.startswith("   2| ")  # steps 1 and 2 ran it
-        out = kernel.execute(
-            "import copy\ns = state_now()\nwith traced() as run:\n    t = copy.deepcopy(s)\n    replica.step(t, Action(4))\n"
-            "print(run.weakest, run.untested, run.new)\nsupport()")
-        solved = _line(engine, 'state.status = "level_solved"')
-        assert out.splitlines()[-2] == f"0 [{solved}] []"  # the winning move runs the line no recorded step ran
-        assert out.splitlines()[-1].startswith("traced: ") and f"untested (no recorded step ran them): {solved}" in out
-        # an edited line shows as new, in the margin and in what traced() reports
-        kernel.execute("edit_file(edits=[{'op': 'replace_text', 'oldText': 'if player.x >= 4:', 'newText': 'if player.x >= 5:'}])")
+        assert moves.startswith("   2| ") and moves.endswith("        state.try_move(player, *moves[action.id])  # support (2): 2, 1")
+        solved = next(line for line in out.splitlines() if 'state.status = "level_solved"' in line)
+        assert solved.startswith("   0| ") and solved.endswith("  # support (0): untested")
+        assert not any("# support" in line for line in out.splitlines() if "def make_level" in line or "LAYOUT[n]" in line)
+        # an edited line shows as new, in the margin and in its comment; the fresh anchors of the edit carry the comments too
+        out = kernel.execute("edit_file(edits=[{'op': 'replace_text', 'oldText': 'if player.x >= 4:', 'newText': 'if player.x >= 5:'}])")
+        assert "    if player.x >= 5:  # support: new" in out and "state.try_move(player, *moves[action.id])  # support (2): 2, 1" in out
         out = kernel.execute("read_file()")
         assert next(line for line in out.splitlines() if "player.x >= 5" in line).startswith(" new| ")
+        assert next(line for line in out.splitlines() if "player.x >= 5" in line).endswith("  # support: new")
         assert next(line for line in out.splitlines() if "state.try_move(player" in line).startswith("   2| ")
-        out = kernel.execute("with traced() as run:\n    replica.step(copy.deepcopy(s), Action(4))\nprint(run.new, run.weakest)")
-        assert out.strip() == f"[{_line(engine, 'if player.x >= 4:')}] 0"
+        # a comment copied from the listing into an edit is dropped: it is the harness's, not the file's
+        kernel.execute("edit_file(edits=[{'op': 'replace_text', 'oldText': 'if player.x >= 5:  # support: new', "
+                       "'newText': 'if player.x >= 6:  # support (2): 2, 1'}])")
+        text = (run / "workspace" / "engine.py").read_text()
+        assert "if player.x >= 6:\n" in text and "# support" not in text
         for name in ("traced", "support"):
-            assert "nothing was run" in kernel.execute(f"{name} = 1"), name
+            assert "nothing was run" not in kernel.execute(f"{name} = 1"), name
     finally:
         kernel.stop()
+
+
+def test_support_comments_on_the_step_code() -> None:
+    """support.comments on a small engine with a synthetic map: step() and the helper it calls (transitively) get a
+    comment, make_level and the level function do not; the comment's form; a changed line is new."""
+    from engine_re import hashline
+    from engine_re import support as sup
+
+    source = """# ==== END OF FIXED INTERFACE ====
+def level_0_sprites():
+    return []
+
+
+def make_level(n):
+    return level_0_sprites()
+
+
+def helper(state):
+    state.vars["n"] = state.vars.get("n", 0) + 1
+    return deeper(state)
+
+
+def deeper(state):
+    return state.vars["n"]
+
+
+def step(state, action):
+    helper(state)
+    if action.id == 1:
+        state.status = "level_solved"
+"""
+    lines = source.splitlines()
+    assert sup.step_functions(source) == {"step": (19, 22), "helper": (10, 12), "deeper": (15, 16)}
+    n = {text: next(i for i, line in enumerate(lines, 1) if line.strip() == text) for text in
+         ("helper(state)", "if action.id == 1:", 'state.status = "level_solved"', 'state.vars["n"] = state.vars.get("n", 0) + 1',
+          "return deeper(state)", 'return state.vars["n"]', "return level_0_sprites()", "return []")}
+    table = {
+        str(n["helper(state)"]): {"n": 31, "steps": [1, 2, 3, 4, 5, 36, 37, 39, 41, 42]},
+        str(n["if action.id == 1:"]): {"n": 31, "steps": [1, 2, 3, 4, 5, 36, 37, 39, 41, 42]},
+        str(n['state.status = "level_solved"']): {"n": 0, "steps": []},
+        str(n['state.vars["n"] = state.vars.get("n", 0) + 1']): {"n": 3, "steps": [1, 2, 3]},
+        str(n["return deeper(state)"]): {"n": 3, "steps": [1, 2, 3]},
+        str(n['return state.vars["n"]']): {"n": 3, "steps": [1, 2, 3]},
+        str(n["return level_0_sprites()"]): {"n": 2, "steps": [0, 7]},
+        str(n["return []"]): {"n": 2, "steps": [0, 7]},
+    }
+    import hashlib
+
+    smap = {"schema": 1, "engine_sha": hashlib.sha256(source.encode()).hexdigest(), "steps": 42, "thin": 3, "lines": table,
+            "conds": {}, "compound": [], "keys": [sup.text_key(t) for t in lines]}
+    comments = sup.comments(smap, source)
+    assert comments == {
+        n["helper(state)"]: "# support (31): 42, 41, 39, 37, 36 and 26 other",
+        n["if action.id == 1:"]: "# support (31): 42, 41, 39, 37, 36 and 26 other",
+        n['state.status = "level_solved"']: "# support (0): untested",
+        n['state.vars["n"] = state.vars.get("n", 0) + 1']: "# support (3): 3, 2, 1",
+        n["return deeper(state)"]: "# support (3): 3, 2, 1",
+        n['return state.vars["n"]']: "# support (3): 3, 2, 1",
+    }
+    shown = hashline.render_read(source, margin=sup.margins(smap, source), comments=comments)
+    assert ":    helper(state)  # support (31): 42, 41, 39, 37, 36 and 26 other" in shown
+    assert "return level_0_sprites()\n" in shown and "return level_0_sprites()  #" not in shown
+    # a changed line: new in the margin and in its comment; a moved one keeps its count
+    edited = source.replace("    helper(state)\n", "    helper(state)\n    pass\n").replace("if action.id == 1:", "if action.id == 2:")
+    comments = sup.comments(smap, edited)
+    assert comments[n["if action.id == 1:"] + 1] == "# support: new" and comments[n["helper(state)"]].startswith("# support (31)")
+    assert sup.STEPS_KEPT == 5 and sup._kept(list(range(20))) == [0, 1, 2, 3, 4, 15, 16, 17, 18, 19]
+    assert hashline.strip_support_comments("x = 1  # support (3): 3, 2, 1\ny = 2  # support: new\nz = 3  # mine") == "x = 1\ny = 2\nz = 3  # mine"
+    assert sup.comments(None, source) == {} and sup.comments(smap, "def f():\n    pass\n") == {}
 
 
 def test_the_play_prompt_explains_support_and_its_rules() -> None:
@@ -1192,14 +1588,23 @@ def test_the_play_prompt_explains_support_and_its_rules() -> None:
 
     text = system_prompt(mode="play", images=False)
     assert "# Support: how much of your replica the steps played have tested" in text
-    assert "0 is untested" in text and "fewer than 3 is thin" in text and "Trust these counts over comments in engine.py." in text
+    assert "0 is untested" in text and "fewer than 3 is thin" in text and "Trust these counts over comments of your own in engine.py." in text
     assert "Important rules should be tested in different conditions a few times." in text
     assert "A rule written as `A and B` or `A or B` is only established once the steps separate its parts" in text
     assert "Do not over-engineer your replica on one observation: one step supports one rule, not a general mechanism" in text
     assert "a rule is worth generalising when its support\n   comes from steps in different conditions, not before." in text
-    assert "traced() -> TracedRun" in text and "support(run=None) -> None" in text
+    assert ("on every line of step() and of the functions it calls, in a trailing comment the harness adds to the listing:\n"
+            "`# support (31): 42, 41, 39, 37, 36 and 26 other` is how many steps ran the line and the last five of them, newest\n"
+            "first; `# support (0): untested` a line no step ran; `# support: new` a line changed since the map was made.") in text
+    assert "These comments are not in the file (edit_file drops them from anything you paste)." in text
+    assert "traced" not in text and "support(run" not in text and "TracedRun" not in text
     commit_moves = tools(False, "play", True)[3]["function"]["description"]
     assert "what each move's prediction rested on" in commit_moves
+    python = tools(False, "play", True)[0]["function"]["description"]
+    assert ("A cell has 120 s: a longer one is killed and the kernel\nrestarts without your variables (the harness then re-runs "
+            "your earlier cells, not the one that timed out),\nso bound searches by time (time.time()) and keep the best result "
+            "so far in a variable you print.") in python
+    assert "traced" not in python and "support" not in python
 # --- ported from the base harness's prompt ---------------------------------------------------------
 
 # Two levels of 8x8 as twol; SPACE flashes the wall (5 -> 14 -> 5: an animation of two frames) and moves the player down.
@@ -1335,22 +1740,98 @@ def test_an_animated_step_in_the_play_loop(tmp_path: Path, flash_env: Path) -> N
     assert "[harness] Step 2 (Action(5)) animated over 2 frames: 512 cells changed and changed back" in out
 
 
-def test_commit_moves_warns_of_a_predicted_game_over_and_of_moves_that_change_nothing(tmp_path: Path, environments: Path) -> None:
-    """twol: UP at y=1 is blocked by the wall (nothing changes) and LEFT at x=1 loses. Warnings, never a refusal: the
-    batch is sent up to the game over, and the warnings are in the batch's log entry."""
-    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["UP", "UP", "LEFT", "RIGHT"], "note": "probe"})]])
+def test_a_batch_stops_before_a_predicted_board_noop_and_warns_of_a_predicted_game_over(tmp_path: Path, environments: Path) -> None:
+    """twol: UP at y=1 is blocked by the wall (nothing changes on the board) and LEFT at x=1 loses. A batch of two or
+    more is cut before its first predicted board no-op (nothing sent when that is move 1: a refusal); a single move
+    goes as a probe; a predicted game over is a warning, never a refusal, and the warnings are in the batch's log entry."""
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["RIGHT", "UP", "LEFT", "RIGHT"], "note": "cut before UP"})],
+        [("commit_moves", {"actions": ["UP", "RIGHT"], "note": "refused: UP first"})],
+        [("commit_moves", {"actions": ["UP"], "note": "a probe of one goes"})],
+        [("commit_moves", {"actions": ["LEFT", "LEFT", "RIGHT"], "note": "the second LEFT loses"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=6)
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    cut = ("[harness] Moves 2-4 not sent: your replica predicts move 2 (Action(1)) changes nothing on the board; a probe of that "
+           "rule goes as a batch of one.")
+    assert tools[2].startswith("Sent 1 of 4 move(s) (steps 1-1):\n  #1 Action(4): matches your prediction\nActions played: 1 of at most 500")
+    assert cut in tools[2] and "Every move matched your replica." in tools[2] and result.batch_log[0]["warnings"] == [cut]
+    assert "What the batch changed on the board (steps 0 -> 1; x, y in the screen grid, recording[k].changes has each step):\n" \
+           "  1 moved by (+1, +0) (SHAPE_9_1x1" in tools[2]
+    assert tools[3] == ("Not sent: your replica predicts move 1 (Action(1)) changes nothing on the board, so the batch was cut "
+                        "before it and nothing was sent; a probe of that rule goes as a batch of one.")
+    assert tools[4].startswith("Sent 1 of 1 move(s) (steps 2-2):\n  #2 Action(1): matches your prediction") and "[harness]" not in tools[4]
+    assert "What the batch changed" not in tools[4]  # the frames are equal
+    death = ("[harness] Warning: your replica predicts a game over at move 2 (Action(3)); the 1 move(s) after it would not be "
+             "sent, and the harness then RESETs the level (one more action). Sent anyway: a deliberate probe is fine.")
+    assert tools[5].startswith("Sent 2 of 3 move(s) (steps 3-4):") and death in tools[5]
+    assert result.batch_log[2]["warnings"] == [death] and result.refused_batches == 1 and result.batches == 3
+    assert "warnings" not in result.batch_log[3] and len(result.batch_log) == 4  # the automatic RESET; the refusal is not a batch
+    assert [s.action.id for s in agent.live.trace.steps] == [0, 4, 1, 3, 3, 0]
+    users = _texts(agent)
+    assert "Your last batch: 1 move(s) sent, all as your replica predicted (3 move(s) not sent)." in users[2]
+    assert not any("changes nothing in your replica" in t for t in tools)
+
+
+def test_the_board_noop_rule_on_a_synthetic_prediction() -> None:
+    """A move is a board no-op when its predicted frame equals the previous one outside the screen-layer sprites' boxes
+    (a whole-screen border left in; a HUD_BORDER ring without a summary) with the status and levels unchanged."""
+    import numpy as np
+
+    from engine_re.tester import HUD_BORDER
+
+    acts = [Action(4), Action(1), Action(2)]  # at positions 1, 2, 3 after one recorded step
+    f0 = np.zeros((64, 64), np.int8)
+    f1 = f0.copy()
+    f1[0, :] = 7  # position 1: the HUD strip along the top changed, nothing else
+    f2 = f1.copy()
+    f2[30, 30] = 9  # position 2: the board changed
+    f3 = f2.copy()
+    f3[63, 5] = 4  # position 3: a pixel inside the HUD_BORDER ring only
+    steps = [{"state": "NOT_FINISHED", "levels_completed": 0}] * 4
+    hud = {"name": "hud", "screen": True, "box": [0, 0, 0, 63]}
+    border = {"name": "border", "screen": True, "box": [0, 0, 63, 63]}  # the whole screen: not a HUD, left in the board
+    with_hud = {"sprites": [border, hud]}
+    frames = [np.stack([f0]), np.stack([f1]), np.stack([f2]), np.stack([f3])]
+    prediction = {"steps": steps, "inspect": {"1": {"before": with_hud, "after": with_hud}, "2": {"before": with_hud, "after": with_hud}}}
+    first = PlayAgent._first_board_noop
+    assert first(acts, prediction, frames, 1) == 0  # move 1 changes only the HUD
+    assert HUD_BORDER == 2 and first(acts[1:], prediction, frames, 2) == 1  # move 2 changes the board; move 3 only the ring (no summary)
+    frames[3][0][5, 5] = 4  # now move 3 changes the board too
+    assert first(acts[1:], prediction, frames, 2) is None
+    assert first(acts[:1], prediction, frames, 1) is None  # a single move is a probe, sent regardless
+    solved = {"steps": [steps[0], {"state": "NOT_FINISHED", "levels_completed": 1}] + steps[2:], "inspect": prediction["inspect"]}
+    assert first(acts, solved, frames, 1) is None  # a level solved is never a no-op, whatever the frame
+    assert first(acts, {"steps": steps[:1]}, frames, 1) is None  # no prediction for the move: the raise warning's case
+    assert not PlayAgent._board_mask([with_hud])[0, 10] and PlayAgent._board_mask([with_hud])[1, 10]
+    assert not PlayAgent._board_mask([None])[1, 10] and PlayAgent._board_mask([None])[2, 10]
+
+
+def test_the_raise_warning_and_the_verdict_on_levels(tmp_path: Path, environments: Path) -> None:
+    """Before a batch is sent, a replica that raises at some move is said so (the batch goes as it is); a replica
+    that solves the level when the game does not, or the converse, gets a verdict that says so, in the batch lines
+    and the FIT message, instead of "raised an error" when make_level(n + 1) is what raised."""
+    early = RIGHT_ENGINE.replace("if player.x >= 4:", "if player.x >= 3:").replace("LAYOUT = {0: ((1, 1), 5, 0), 1: ((1, 3), 8, 7)}",
+                                                                                   "LAYOUT = {0: ((1, 1), 5, 0)}")
+    model = _ScriptedModel(_start(early) + [[("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "solve early"})]])
     agent = _agent(tmp_path, environments, model, turns=3)
     result = agent.run()
     out = _texts(agent, "tool")[-1]
-    assert out.startswith("Sent 3 of 4 move(s) (steps 1-3):")
-    noop = ("[harness] Warning: moves 1-2 (Action(1), Action(1)) change nothing in your replica (the same frame and status as "
-            "before): if your replica is right, an action spent for nothing; a deliberate probe of that rule is fine.")
-    death = ("[harness] Warning: your replica predicts a game over at move 3 (Action(3)); the 1 move(s) after it would not be "
-             "sent, and the harness then RESETs the level (one more action). Sent anyway: a deliberate probe is fine.")
-    assert noop in out and death in out
-    assert result.batch_log[0]["warnings"] == [noop, death] and result.refused_batches == 0
-    assert "warnings" not in result.batch_log[1]  # the automatic RESET
-    assert [s.action.id for s in agent.live.trace.steps] == [0, 1, 1, 3, 0]
+    assert ("[harness] Warning: your replica raises at move 2 (Action(4)): KeyError: 1; the batch is sent as it is and a mismatch "
+            "there opens a fit round.") in out
+    verdict = ("your replica predicts level 0 solved; the game did not (levels completed: the game says 0, your replica 1); your "
+               "replica then raised an error starting level 1 (KeyError: 1)")
+    assert f"#2 Action(4): differs from your prediction: {verdict}" in out and result.batch_log[0]["diff"] == verdict
+    fit = _texts(agent)[-1]
+    assert fit.startswith("Fix your replica: step 2 did not go as your replica predicted.") and f"What differed: {verdict}." in fit
+    late = RIGHT_ENGINE.replace("if player.x >= 4:", "if player.x >= 5:")
+    model = _ScriptedModel(_start(late) + [[("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT"], "note": "the game solves first"})]])
+    agent = _agent(tmp_path / "late", environments, model, turns=3)
+    agent.run()
+    out = _texts(agent, "tool")[-1]
+    assert ("#3 Action(4): differs from your prediction: the final frame differs; the game solved level 0; your replica did not "
+            "(levels completed: the game says 1, your replica 0)") in out
 
 
 def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
@@ -1389,10 +1870,21 @@ def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
             "rule, not that the level is hard.",
             "Levels usually build on mechanics learned in earlier levels, especially the most recent one.",
             "they are your starting hypothesis on a new level, while you re-check anything contradicted by new evidence.",
-            "New levels often introduce additional mechanics, sometimes through unfamiliar board elements. These additions "
-            "are often important for solving the level. The goal may remain the same but require new mechanics to reach it, "
-            "or the goal itself may change.",
+            "New levels often introduce additional mechanics, sometimes through an unfamiliar board element or a visual "
+            "change. These additions are often important for solving the level. The goal may remain the same but require "
+            "new mechanics to reach it, or the goal itself may change.",
             "Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.",
+            # the v12 rules: stuck means a missing or wrong rule; plan from the end state; colour is part of a comparison
+            "6. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal "
+            "twice), you are probably missing a rule or one of your written rules is wrong: explore more of the game's "
+            "mechanics (touch what you have not touched, repeat a refused move under a changed condition) rather than "
+            "searching harder on the rules you have.",
+            "7. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often "
+            "a few lines over the replica's State), then plan the route to the nearest one; search over moves only when the "
+            "end state is unknown.",
+            "A comparison the game makes (a piece against a legend, a key against a lock, a pattern against a target) may "
+            "involve colour as well as shape and rotation; \"recoloured\" in an object diff is a change in its own right, not "
+            "a rotation.",
             "Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do "
             "not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board "
             "configuration.",
@@ -1438,8 +1930,8 @@ def test_notes_md_round_trips_through_the_kernel_and_shows_in_the_plan_message(t
 
 
 def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Path) -> None:
-    """The level-start paragraph (the base harness's LEVEL_START_USER_PROMPT) and the new board's pieces whose shapes the
-    previous level never showed (level 1's wall, red and at the bottom)."""
+    """The level-start paragraph (the base harness's LEVEL_START_USER_PROMPT, without its list of unfamiliar pieces) and,
+    under the frame, the replica's sprites of the new level (level 1's wall, red and at the bottom)."""
     model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"] * 3, "note": "solve level 0"})]])
     agent = _agent(tmp_path, environments, model, turns=3)
     agent.run()
@@ -1449,9 +1941,152 @@ def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Pat
     assert ("You have completed the previous level. recording[-1].after now contains the starting board of the next level; "
             "show_frames(recording[-1].after) shows this new board.\nBuild a new plan for this layout rather than continuing the "
             "previous level's action sequence.") in plan
+    assert "Inspect the new board for an unfamiliar element, a visual change (a colour, a frame, a legend), a changed" in plan
     assert "Reassess the goal: does the previous objective still apply, now requiring the new mechanics" in plan
-    head = "Unfamiliar elements to test first: the pieces of the new board (recording[-1].pieces_after; x, y in grid cells)"
-    listed = plan[plan.index(head):].split("\n")[1:]
-    assert listed[0].startswith("  [") and ", colour 8 (red), 8x1 at (0, 7)" in listed[0]
-    assert not any("colour 9" in line for line in listed[:3])  # the player has the same shape as in level 0
-    assert "You have completed the previous level" not in users[1]
+    assert "Unfamiliar elements" not in plan and "You have completed the previous level" not in users[1]
+    sprites = plan[plan.index("Your replica's sprites now"):]
+    assert sprites == ("Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={'player': #2}:\n"
+                       '  [0] "border" tags=[] 64x64 colour 3 (dark grey) at (0, 0) layer -2 inert screen\n'
+                       '  [1] "background" tags=[] 8x8 colour 0 (white) at (0, 0) layer -1 inert\n'
+                       '  [2] "player" tags=[\'player\'] 1x1 colour 9 (blue) at (1, 3) layer 0\n'
+                       '  [3] "wall" tags=[\'wall\'] 8x1 colour 8 (red) at (0, 7) layer 0')
+    assert plan.index("Work out the next moves") < plan.index("Your replica's sprites now")  # under the frame, after the text
+
+
+# --- v12: the kernel restart replay, the sprite list and the reconciliation on the v11 sp80 fixture ----------------
+
+SP80 = Path(__file__).with_name("fixtures") / "sp80_v11"  # the v11 run's committed engine, support map and trace (steps 0-122)
+
+
+def test_a_timed_out_cell_restarts_the_kernel_and_the_earlier_cells_are_replayed(tmp_path: Path, environments: Path) -> None:
+    """A cell past the kernel's time is killed; the message names what was lost (the names the kernel held), the cell
+    (its first line), that the built-ins are back, which cells were re-run and what the kernel keeps now; the cell
+    that timed out is not re-run, now or when the run resumes."""
+    from engine_re.prompts import KERNEL_KEEPS
+
+    model = _ScriptedModel(_start() + [
+        [("python", {"code": "def helper(s):\n    return s.level\nDATA = [1, 2]"})],
+        [("python", {"code": "import time\ntime.sleep(4)\nlate = 1"})],
+        [("python", {"code": "print(helper(state_now()), DATA)"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5)
+    agent.kernel.timeout = 1.5
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    out = tools[3]
+    assert out.startswith("Timed out after 1.5s. The kernel was restarted and all variables were lost.\n\n[harness] This cell ran "
+                          "longer than 1.5 s, so it was killed and the kernel was restarted. Lost: helper: function, DATA: list[2] "
+                          "(2 names). The cell that timed out (starting `import time`) was not re-run: bound searches by time "
+                          "(time.time()) and keep the best result so far in a variable you print. The harness built-ins and "
+                          "`recording` are back. Your earlier 2 python cells were re-run in order with file edits disabled, so what "
+                          "they defined is back.\n" + KERNEL_KEEPS + "helper: function, DATA: list[2]")
+    assert tools[4].strip().endswith("0 [1, 2]") and result.kernel_restarts == 1
+    records = _records(tmp_path)
+    restart = next(r["kernel_restart"] for r in records if "kernel_restart" in r)
+    assert restart["reason"] == "timeout" and restart["lost"] == ["helper: function", "DATA: list[2]"] and restart["replayed"] == 2
+    assert [c["turn"] for c in agent.cells] == [1, 3, 5]  # the install cell, the helper cell, the print; not the sleep
+    # a resumed run re-runs the same cells: the one that timed out is left out of them
+    second = _ScriptedModel([[("python", {"code": "print(helper(state_now()), DATA)"})]])
+    agent2 = _agent(tmp_path, environments, second, turns=6)
+    agent2.run()
+    assert [c["turn"] for c in agent2.cells] == [1, 3, 5, 6] and _texts(agent2, "tool")[-1].strip().endswith("0 [1, 2]")
+    assert any("re-ran your 3 python cells" in u for u in _texts(agent2))
+
+
+def test_the_plan_messages_sprite_list_on_the_sp80_engine() -> None:
+    """The replica's sprite list (24) from the v11 sp80 committed engine after steps 0-121 (level 3, in step): one line per
+    sprite in the engine's grid with its flags, vars first; out of step, the segmentation's list of the game's frame."""
+    from engine_re.prompts import PIECES_HEAD, pieces_list_text, sprite_list_text
+    from engine_re.tester import replica_state
+    from engine_re.trace import Trace
+
+    trace = Trace.load(SP80 / "trace")
+    sub = Trace(trace.game_id, trace.steps[:122], trace.meta)  # steps 0-121: the last the committed engine reproduces
+    summary = replica_state(SP80 / "engine_committed.py", sub)
+    text = sprite_list_text(summary)
+    assert text.splitlines()[:3] == [
+        "Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={'budget': 120, 'moves': 70}:",
+        '  [0] "border" tags=[] 64x64 colour 1 (light grey) at (0, 0) layer -2 inert screen',
+        '  [1] "background" tags=[] 20x20 colour 12 (orange) at (0, 0) layer -1 inert',
+    ]
+    assert "  [8] \"\" tags=['player'] 4x1 colour 9 (blue) at (0, 10) layer 0" in text
+    assert "  [9] \"\" tags=['bin'] 3x2 colour 11 (yellow) at (2, 17) layer 0" in text
+    assert text.splitlines()[-1] == '  [14] "hud" tags=[\'hud\'] 64x1 multi (0 white, 14 green) at (0, 0) layer 1 inert screen'
+    assert len(text.splitlines()) == 16
+    flags = sprite_list_text({"vars": {}, "sprites": [{"name": "k", "tags": ["a", "b"], "w": 2, "h": 3, "x": 4, "y": 5, "layer": 1,
+                                                       "rotation": 90, "mirror_ud": True, "mirror_lr": True, "scale": 2, "visible": False,
+                                                       "collidable": False, "screen": True, "colours": {"12": 3, "9": 2, "5": 1}}]})
+    assert flags.splitlines()[1] == ("  [0] \"k\" tags=['a', 'b'] 2x3 multi (12 orange, 9 blue) at (4, 5) layer 1 rot=90 mirror_ud "
+                                     "mirror_lr scale=2 hidden inert screen")
+    from engine_re.diff_report import colour_text
+
+    assert colour_text({"12": 6, "9": 4}) == "colour 12 (orange)" and colour_text({"12": 5, "9": 4, "5": 1}) == "multi (12 orange, 9 blue)"
+    assert colour_text({}) == "" and colour_text(None) == ""
+    pieces = pieces_list_text(sub)
+    assert pieces.startswith(PIECES_HEAD + "\n  ") and "pieces on a 20x20 grid at scale 3, offset (2, 2)" in pieces.splitlines()[1]
+
+
+def test_the_fit_reports_sprite_by_sprite_reconciliation_on_the_sp80_engine(tmp_path: Path) -> None:
+    """The reconciliation (25) on a constructed mismatch at sp80 step 121: the game's frame with the player one row lower,
+    a block recoloured, a bin missing and an extra 2x2 piece, against the committed engine's prediction."""
+    import numpy as np
+
+    from engine_re.diff_report import RECONCILE_HEAD
+    from engine_re.tester import describe_step, predict
+    from engine_re.trace import Step, Trace
+
+    trace = Trace.load(SP80 / "trace")
+    sub = Trace(trace.game_id, trace.steps[:121], trace.meta)
+    step = trace[121]
+    prediction, frames = predict(SP80 / "engine_committed.py", sub, [step.action], scratch_root=tmp_path)
+    got, states = prediction["steps"][121], prediction["inspect"]["121"]
+    assert np.array_equal(frames[121][-1], step.last)  # the replica reproduces the step as played
+    sprites = states["after"]["sprites"]
+    expected = step.last.copy()
+
+    def cells(x: int, y: int, w: int, h: int, colour: int) -> None:  # the level's 20x20 grid at scale 3, offset (2, 2)
+        expected[2 + y * 3: 2 + (y + h) * 3, 2 + x * 3: 2 + (x + w) * 3] = colour
+
+    player, block, bin_ = sprites[8], sprites[5], sprites[9]
+    assert (player["tags"], block["tags"], bin_["tags"]) == (["player"], ["block"], ["bin"])
+    cells(player["x"], player["y"], 4, 1, 12)
+    cells(player["x"], player["y"] + 1, 4, 1, 9)  # the blue bar one row lower
+    cells(block["x"], block["y"], 5, 1, 11)  # the red block yellow
+    cells(bin_["x"], bin_["y"], 3, 2, 12)  # the bin gone
+    cells(10, 3, 2, 2, 9)  # a blue 2x2 nothing draws
+    fake = Step(index=121, action=step.action, frames=np.stack([expected]), state=step.state, levels_completed=step.levels_completed,
+                win_levels=step.win_levels, available_actions=step.available_actions)
+    text, regions = describe_step(fake, got, frames[121], 3, states=states, crops=False)
+    assert len(regions) == 3 and "px differ in 3 region(s)" in text
+    tail = text[text.index(RECONCILE_HEAD):].splitlines()
+    assert tail == [
+        "    sprite by sprite (your replica's sprites against the game's frame; x, y in your grid):",
+        '      #5 "" 5x1 colour 8 (red): yours colour 8; the game shows it colour 11 (yellow) at the same place',
+        '      #8 "" 4x1 colour 9 (blue): yours at (0, 10); the game shows this shape at (0, 11)',
+        '      #9 "" 3x2 colour 11 (yellow): yours visible at (2, 17); the game shows nothing there',
+        "      the game shows a 2x2 piece (blue, 4 cells) at (10, 3) that none of your sprites draws",
+    ]
+    same, _ = describe_step(step, got, frames[121], 3, states=states, crops=False)
+    assert RECONCILE_HEAD not in same and "final frame: matches" in same
+
+
+def test_support_comments_on_the_sp80_engine() -> None:
+    """The committed engine's listing with the v11 map: step() and the functions it calls carry the comments; the
+    level functions and make_level do not. (The v11 map kept four steps at each end, so the fifth named is the
+    fourth of the first ones; a v12 map keeps five.)"""
+    from engine_re import hashline
+    from engine_re import support as sup
+    from engine_re.game_api import fixed_block_lines
+
+    text = (SP80 / "engine_committed.py").read_text()
+    smap = json.loads((SP80 / "engine_committed.support.json").read_text())
+    spans = sup.step_functions(text)
+    assert set(spans) == {"step", "cells_of", "erode", "shape_pixels", "absorb", "cavities", "pour", "hud_pixels", "grid_dir"}
+    comments = sup.comments(smap, text)
+    listing = hashline.render_read(text, max_chars=30000, fold=fixed_block_lines(text), margin=sup.margins(smap, text), comments=comments)
+    lines = listing.splitlines()
+    assert next(line for line in lines if "if action.id in (1, 2, 3, 4):" in line) == \
+        " 121| 453#VSX:    if action.id in (1, 2, 3, 4):  # support (121): 121, 120, 119, 118, 4 and 116 other"
+    assert next(line for line in lines if 'state.status = "level_solved"' in line).endswith("  # support (3): 51, 30, 11")
+    assert not any("# support" in line for line in lines if "level_3_sprites" in line or "obj(BIN, 2, 17" in line)
+    assert sum("# support" in line for line in lines[1:]) == len(comments) == 116  # (the margin note names the comment too)

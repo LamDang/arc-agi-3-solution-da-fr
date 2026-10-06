@@ -26,8 +26,16 @@ recording replaced by the game being played (engine_re.live_game):
   the steps separated its operands) is saved beside it (engine_committed.support.json); each move of a batch is
   read against it (its weakest line, the untested lines it runs, the conditions it relies on that were never
   separated), computed before anything is sent: in commit_moves' output, in the batch's `support` entry of batch_log, in the
-  mismatch message, and the thin rules of the last batch's path and the outcome rules in the PLAN message.
-  `cut_untested` (off by default) cuts a batch after the first move that runs untested code.
+  mismatch message, and the thin rules of the last batch's path and the outcome rules in the PLAN message. The engine
+  listings (read_file() in the kernel, the PLAN and FIT messages) show the map as a margin and, on the step code, as
+  trailing `# support (n): ...` comments (support.comments). `cut_untested` (off by default) cuts a batch after the
+  first move that runs untested code.
+- A batch of two or more moves is cut before its first predicted board no-op (_first_board_noop: the predicted frame
+  equal to the one before outside the screen-layer sprites, status and levels unchanged); a single move is a probe and
+  goes. commit_moves' output has, after the Sent lines, the budget line and what the batch changed on the board (the
+  segmentation's change summary); the FIT message that follows a batch carries the budget line too, and its test
+  report a sprite-by-sprite reconciliation (diff_report.reconcile_lines). The PLAN message lists the replica's sprites
+  under the frame (tester.replica_state, or the batch's prediction run), the segmentation's pieces when out of step.
 - After a game over the harness sends RESET itself (auto_reset), checked like any move. A WIN ends the run.
 - Nudges: after `plan_turns` turns of a plan round without commit_moves, a reminder to send a short batch
   (PLAN_NUDGE, every as many turns; result.json plan_nudges). The test nudge of the stepwise harness only
@@ -77,22 +85,24 @@ from engine_re import diff_report, hashline
 from engine_re import animation  # transient cells of a batch's animated moves
 from engine_re import support as sup
 from engine_re.agent import (
-    READ_CHARS_IN_MESSAGES, REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate,
+    REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate,
 )
 from engine_re.game_api import fixed_block_lines, sync_points
 from engine_re.helpers import PLAY_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.live_game import LiveGame
 from engine_re.prompts import (
-    COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, accepted_actions_text, advance_message, batch_lines, commit_moves_description,
-    kernel_names_text, mismatch_message, move_text, plan_message, tools,
+    COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, RAISE_WARNING, accepted_actions_text, advance_message, batch_changes_text, batch_lines,
+    commit_moves_description, kernel_names_text, mismatch_message, move_text, noop_cut_text, pieces_list_text, plan_message,
+    sprite_list_text, tools,
 )
 from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, plan_additions
 from engine_re.skeleton import render_skeleton
-from engine_re.tester import StepCheck, check_step, predict, replay_test
+from engine_re.tester import HUD_BORDER, StepCheck, check_step, predict, replay_test, replica_state
 from engine_re.trace import Action, Trace, action_code, parse_moves
 
 CURRENT_FRAME_NOTE = "The game's current frame (after step {k}), upscaled 8x:"
+LISTING_CHARS = 20000  # engine.py in a PLAN or FIT message: with the support margin and comments it is longer than a listing
 # After a game over the harness restarts the level itself, as the base harness does; the RESET is a real step.
 AUTO_RESET_NOTE = "[harness] automatic RESET after the game over"
 PLAN_TURNS = 6  # turns of a plan round without commit_moves before the reminder (PLAN_NUDGE)
@@ -170,9 +180,9 @@ class PlayAgent(EngineAgent):
         plan_turns: int = PLAN_TURNS,
         cut_untested: bool = False,
     ):
-        if model.context != "compact":
-            raise ValueError("the play agent bounds its context by compaction (ModelConfig.context='compact'); "
-                             "engine_re.condense does not know its plan rounds")
+        if model.context not in ("compact", "rebuilt"):
+            raise ValueError("the play agent bounds its context by compaction (ModelConfig.context='compact') or rebuilds it "
+                             "every request ('rebuilt'); engine_re.condense does not know its plan rounds")
         self.phase = "plan"  # before EngineAgent.__init__: every transcript record carries the phase
         game_dir = Path(game_dir).resolve()
         trace_dir = game_dir / "trace"
@@ -213,8 +223,12 @@ class PlayAgent(EngineAgent):
         self.support: dict[str, Any] | None = None  # the committed engine's support map (saved as SUPPORT_FILE)
         self.batch_support: list[str] = []  # the support lines of this turn's batch (commit_moves' output)
         self.batch_cut = 0  # moves of this turn's batch cut by cut_untested
+        self.noop_cut = 0  # moves of this turn's batch cut before its first predicted board no-op
         self.last_path: tuple[list[int], list[list[int]]] | None = None  # lines and conditions the last batch ran
         self.warnings: list[str] = []  # the last batch's prediction warnings (_prediction_warnings)
+        # The replica's state after everything played (game_api.state_summary): (engine sha, steps, summary), from
+        # the last batch's prediction run, or a replay when a PLAN message needs it (the sprite list).
+        self.replica_summary: tuple[str, int, dict[str, Any]] | None = None
         self.fork: dict[str, Any] | None = None  # the FORK_FILE marker of a fork not resumed yet (read by _restore)
 
     # --- the trace's out-of-step bookkeeping (kept in its meta: the tests and the kernel read it there) ---------
@@ -366,16 +380,27 @@ class PlayAgent(EngineAgent):
             self._record_commit(commit["message"])
         elif sha != self.committed_sha:  # an engine that passes everything, submitted by the batch itself
             self._record_commit(f"(commit_moves) {note}", implicit=True)
+        prediction, frames = self._predict(acts)
+        noop = self._first_board_noop(acts, prediction, frames, n)
+        if noop == 0:  # the batch would be cut before its first move: nothing to send (a probe goes as a batch of one)
+            self._log({"turn": self.result.turns, "refused_batch": {"reason": "predicted no-op", "move": 1, "note": note}})
+            return self._refuse(noop_cut_text(1, len(acts), acts[0]))
         self.batches_this_turn += 1
         self.result.batches += 1
-        outcomes, dropped = self._play(acts, note)
+        outcomes, dropped = self._play(acts, note, prediction=(prediction, frames), keep=noop)
         self.pending = {"outcomes": outcomes, "dropped": dropped + cut, "note": note}
         first_step = outcomes[0]["index"] if outcomes else n
         lines = [f"Sent {len(outcomes)} of {len(acts) + cut} move(s) (steps {first_step}-{first_step + len(outcomes) - 1}):"] if outcomes else []
         lines += batch_lines(self.full_trace, first_step, outcomes)
+        lines.append(self._budget_line())  # the state line, after a batch only
+        if outcomes:
+            changed = batch_changes_text(self.full_trace, first_step, outcomes[-1]["index"])
+            if changed:
+                lines.append(changed)
         lines += self.batch_support  # what each planned move's prediction rested on, computed before anything was sent
+        dropped -= self.noop_cut  # (the moves cut before a predicted no-op have their own note, among the warnings)
         if self.batch_cut:
-            j = len(acts) - self.batch_cut
+            j = len(acts) - self.noop_cut - self.batch_cut
             lines.append(f"The batch was cut after move {j}, the first to run code no recorded step has run: it is the experiment "
                          f"(the harness's cut-untested rule); the {self.batch_cut} move(s) after it were not sent.")
             dropped -= self.batch_cut
@@ -411,6 +436,10 @@ class PlayAgent(EngineAgent):
         lines = [f"Sent {len(outcomes)} of {len(acts) + cut} move(s) (steps {first_step}-{first_step + len(outcomes) - 1}), not "
                  f"checked: your replica is out of step with the game since step {since}."]
         lines += batch_lines(self.full_trace, first_step, outcomes)
+        lines.append(self._budget_line())
+        changed = batch_changes_text(self.full_trace, first_step, outcomes[-1]["index"])
+        if changed:
+            lines.append(changed)
         last = outcomes[-1]
         if last.get("resync"):
             lines.append(f"Your replica is back in step with the game at step {last['index']}" + (f" ({dropped} move(s) not sent)" if dropped else "")
@@ -536,15 +565,36 @@ class PlayAgent(EngineAgent):
         return lines
 
     @staticmethod
-    def _verdict(check: StepCheck, real: Any, got: dict[str, Any] | None, error: str | None) -> str:
+    def _levels_verdict(game: int, replica: int) -> str:
+        """The levels-completed disagreement in words: the replica predicted the level solved and the game did
+        not, or the converse (`game`, `replica`: the levels completed after the step on each side)."""
+        counts = f"levels completed: the game says {game}, your replica {replica}"
+        if replica > game:
+            return f"your replica predicts level {game} solved; the game did not ({counts})"
+        return f"the game solved level {replica}; your replica did not ({counts})"
+
+    @classmethod
+    def _verdict(cls, check: StepCheck, real: Any, got: dict[str, Any] | None, error: str | None,
+                 error_state: dict[str, Any] | None = None) -> str:
+        """One line on what differed at a step. `error_state`: the runner's counts when the replica raised
+        (candidate_runner): a replica that solved the level and then raised starting the next one (make_level(n + 1)
+        not drawn) is said so, not only "raised an error"."""
         if got is None:
             last = (error or "").strip().splitlines()[-1][:160] if error else "no prediction"
+            predicted_levels = int(error_state.get("levels_completed") or 0) if error_state else None
+            if predicted_levels is not None and predicted_levels > real.levels_completed:
+                return (f"{cls._levels_verdict(int(real.levels_completed), predicted_levels)}; your replica then raised an "
+                        f"error starting level {predicted_levels} ({last})")
             return f"your replica raised an error ({last})"
         parts = []
         if "final frame" in check.problems:
             parts.append("the final frame differs")
         for name, shown in (("state", "outcome"), ("levels_completed", "levels completed"), ("win_levels", "win levels"), ("available_actions", "available actions")):
-            if name in check.problems:
+            if name not in check.problems:
+                continue
+            if name == "levels_completed":
+                parts.append(cls._levels_verdict(int(real.levels_completed), int(got.get(name) or 0)))
+            else:
                 parts.append(f"{shown}: the game says {getattr(real, name)!r}, your replica {got.get(name)!r}")
         return "; ".join(parts) if parts else "; ".join(check.problems)
 
@@ -553,24 +603,32 @@ class PlayAgent(EngineAgent):
         self.result.step_tokens.append(int(self.result.usage.completion_tokens))
         self.live.save(self.dir / "trace")
 
-    def _play(self, acts: list[Action], note: str) -> tuple[list[dict[str, Any]], int]:
+    def _play(self, acts: list[Action], note: str, prediction: tuple[dict[str, Any], list[Any]] | None = None,
+              keep: int | None = None) -> tuple[list[dict[str, Any]], int]:
         """Send `acts` one at a time, each checked against the committed engine's prediction; stop at the first
-        difference, a solved level or the end of the game. Returns the outcomes and how many were not sent."""
+        difference, a solved level or the end of the game. Returns the outcomes and how many were not sent.
+        `prediction`: the committed engine's prediction when the caller made it (tester.predict); `keep`: the
+        batch is cut to its first `keep` moves, before its first predicted board no-op (_first_board_noop)."""
         n = len(self.full_trace)
-        prediction, frames = self._predict(acts)
+        prediction, frames = prediction if prediction is not None else self._predict(acts)
         predicted = prediction.get("steps") or []
         error = prediction.get("error")
         smap = self._fold(prediction, n)
         paths = self._move_paths(prediction, smap, n, len(acts))
         planned = list(acts)
         self.batch_support = self._support_lines(acts, paths, smap)
-        self.batch_cut = 0
+        self.batch_cut = self.noop_cut = 0
+        self.warnings = self._prediction_warnings(acts, prediction, frames, n) if note != AUTO_RESET_NOTE else []
+        if keep is not None and 0 < keep < len(acts):  # cut before the first predicted board no-op (a probe goes alone)
+            self.warnings.append(noop_cut_text(keep + 1, len(acts), acts[keep]))
+            self.noop_cut = len(acts) - keep
+            acts = acts[:keep]
         if self.cut_untested:  # the first move that runs untested code is the experiment: the batch ends there
-            j = next((j for j, ps in enumerate(paths) if ps is not None and ps["untested"]), None)
+            j = next((j for j, ps in enumerate(paths[: len(acts)]) if ps is not None and ps["untested"]), None)
             if j is not None and j + 1 < len(acts):
                 self.batch_cut = len(acts) - j - 1
                 acts = acts[: j + 1]
-        self.warnings = self._prediction_warnings(acts, predicted, frames, n) if note != AUTO_RESET_NOTE else []
+        inspected = prediction.get("inspect") or {}
         outcomes: list[dict[str, Any]] = []
         for i, act in enumerate(acts):
             pos = n + i
@@ -585,7 +643,7 @@ class PlayAgent(EngineAgent):
                 check = check_step(real, got, got_frames, self.match)
             outcome = {
                 "index": real.index, "label": action_code(act), "ok": check.ok, "warning": check.warning,
-                "verdict": "" if check.ok else self._verdict(check, real, got, error),
+                "verdict": "" if check.ok else self._verdict(check, real, got, error, prediction.get("error_state")),
                 "frames": real.n_frames, "level": level_before, "state": real.state,
                 "level_solved": real.levels_completed > self.full_trace[pos - 1].levels_completed,
                 "levels_completed": real.levels_completed, "auto": note == AUTO_RESET_NOTE,
@@ -597,6 +655,10 @@ class PlayAgent(EngineAgent):
             if not check.ok:
                 self.result.mismatches += 1
             self._log({"turn": self.result.turns, "move": outcome})
+            if check.ok:  # the replica's state after this step, for the PLAN message's sprite list
+                after = (inspected.get(str(pos)) or {}).get("after")
+                if after and "sprites" in after and self.committed_sha is not None:
+                    self.replica_summary = (self.committed_sha, len(self.full_trace), after)
             if not check.ok or real.state in ("WIN", "GAME_OVER") or outcome["level_solved"]:
                 break
         self._focus_on(len(self.full_trace) - 1)
@@ -622,7 +684,7 @@ class PlayAgent(EngineAgent):
         if note != AUTO_RESET_NOTE:  # (the harness's RESET is not the model's plan)
             self.last_path = (sorted({line for k in keys for line in executed[k]}),
                               [c for k in keys for c in evaluated.get(k) or []]) if keys else None
-        return outcomes, len(acts) - len(outcomes) + self.batch_cut
+        return outcomes, len(planned) - len(outcomes)  # not sent: after a difference, or cut (noop_cut, batch_cut)
 
     def _play_blind(self, acts: list[Action], note: str) -> list[dict[str, Any]]:
         """Out of step: send `acts` unchecked, each step unexplained, up to the first resync point (a RESET or a
@@ -657,45 +719,73 @@ class PlayAgent(EngineAgent):
 
     # --- ported from the base harness: warnings from the prediction, notes.md ----------------------------------
 
-    def _prediction_warnings(self, acts: list[Action], predicted: list[Any], frames: list[Any], n: int) -> list[str]:
+    def _prediction_warnings(self, acts: list[Action], prediction: dict[str, Any], frames: list[Any], n: int) -> list[str]:
         """What the committed replica predicts for the batch that is worth a word before it is sent (warnings only:
-        the batch is sent as it is, since a deliberate probe is legitimate; the base harness's DEATH_GUARD_ADDENDUM and
-        NOOP_GUARD_ADDENDUM, without their refusals): a game over at some move, and runs of moves that change nothing
-        in the replica (the same final frame and status as before the move)."""
+        the batch is sent as it is, since a deliberate probe is legitimate; the base harness's DEATH_GUARD_ADDENDUM
+        without its refusal): a game over at some move, and the move at which the replica raises (the batch goes
+        on as it is; a mismatch there opens a fit round). A predicted board no-op cuts the batch instead
+        (_first_board_noop)."""
         out: list[str] = []
-        noop: list[int] = []  # 0-based positions in the batch
-
-        def flush() -> None:
-            if not noop:
-                return
-            which = f"move {noop[0] + 1}" if len(noop) == 1 else f"moves {noop[0] + 1}-{noop[-1] + 1}"
-            shown = ", ".join(action_code(acts[i]) for i in noop)
-            verb = "changes" if len(noop) == 1 else "change"
-            out.append(f"[harness] Warning: {which} ({shown}) {verb} nothing in your replica (the same frame and status as "
-                       "before): if your replica is right, an action spent for nothing; a deliberate probe of that rule is fine.")
-            noop.clear()
-
+        predicted = prediction.get("steps") or []
         for i, act in enumerate(acts):
             pos = n + i
             got = predicted[pos] if pos < len(predicted) else None
             if got is None:
+                if prediction.get("error") and prediction.get("error_step") == pos:
+                    last = str(prediction["error"]).strip().splitlines()[-1][:160]
+                    out.append(RAISE_WARNING.format(k=i + 1, action=action_code(act), error=last))
                 break
-            prev = predicted[pos - 1] if pos - 1 < len(predicted) else None
-            frame = frames[pos][-1] if pos < len(frames) and len(frames[pos]) else None
-            prev_frame = frames[pos - 1][-1] if 0 < pos <= len(frames) and len(frames[pos - 1]) else None
-            same = (prev is not None and frame is not None and prev_frame is not None and np.array_equal(frame, prev_frame)
-                    and all(got.get(k) == prev.get(k) for k in ("state", "levels_completed")))
-            if same:
-                noop.append(i)
-            else:
-                flush()
             if got.get("state") == "GAME_OVER":
                 after = (f"; the {len(acts) - i - 1} move(s) after it would not be sent" if i < len(acts) - 1 else "")
                 out.append(f"[harness] Warning: your replica predicts a game over at move {i + 1} ({action_code(act)}){after}, and "
                            "the harness then RESETs the level (one more action). Sent anyway: a deliberate probe is fine.")
                 break
-        flush()
         return out
+
+    @staticmethod
+    def _board_mask(summaries: list[dict[str, Any] | None]) -> np.ndarray:
+        """The screen pixels that count as the board: everything but the boxes of the screen-layer sprites
+        (screen=True: the HUD) of the state summaries given, a border covering the whole screen left in;
+        without a summary, everything but a HUD_BORDER ring."""
+        mask = np.ones((64, 64), bool)
+        known = [s for s in summaries if s and "sprites" in s]
+        if not known:
+            mask[:HUD_BORDER, :] = mask[-HUD_BORDER:, :] = mask[:, :HUD_BORDER] = mask[:, -HUD_BORDER:] = False
+            return mask
+        for s in known:
+            for e in s["sprites"]:
+                if e.get("screen") is True and e.get("box") and list(e["box"]) != [0, 0, 63, 63]:
+                    r0, c0, r1, c1 = e["box"]
+                    mask[r0 : r1 + 1, c0 : c1 + 1] = False
+        return mask
+
+    @classmethod
+    def _first_board_noop(cls, acts: list[Action], prediction: dict[str, Any], frames: list[Any], n: int) -> int | None:
+        """The 0-based position of the first move of a batch of two or more that the replica predicts changes
+        nothing on the board: its predicted final frame equals the one before it outside the screen-layer sprites
+        (the HUD; _board_mask), with the status and levels completed unchanged. None for a single move (a probe)
+        and when no move is a board no-op."""
+        if len(acts) < 2:
+            return None
+        predicted = prediction.get("steps") or []
+        inspected = prediction.get("inspect") or {}
+        for i in range(len(acts)):
+            pos = n + i
+            got = predicted[pos] if pos < len(predicted) else None
+            prev = predicted[pos - 1] if 0 < pos <= len(predicted) else None
+            if got is None or prev is None:
+                return None
+            frame = frames[pos][-1] if pos < len(frames) and len(frames[pos]) else None
+            prev_frame = frames[pos - 1][-1] if pos <= len(frames) and len(frames[pos - 1]) else None
+            if frame is None or prev_frame is None:
+                return None
+            if any(got.get(k) != prev.get(k) for k in ("state", "levels_completed")):
+                continue
+            found = inspected.get(str(pos)) or {}
+            board = cls._board_mask([found.get("before"), found.get("after")])
+            if np.array_equal(np.asarray(frame)[board], np.asarray(prev_frame)[board]):
+                return i
+        return None
 
     ANIMATION_LINES = 3  # animated moves of a batch whose transient cells commit_moves' output names
 
@@ -746,10 +836,13 @@ class PlayAgent(EngineAgent):
 
     def _read_engine(self, fold: bool, max_chars: int) -> str:
         """engine.py with anchors and, once the committed engine has a support map, each line's support in the margin
-        (support.margins: the count, 0 untested, "new" for a line changed since the commit), as read_file() shows it."""
+        (support.margins: the count, 0 untested, "new" for a line changed since the commit) and, on the step code, as
+        a trailing comment (support.comments), as read_file() shows it."""
         text = self.engine_path.read_text(encoding="utf-8")
         margin = sup.margins(self.support, text) if self.support else None
-        return hashline.render_read(text, max_chars=max_chars, fold=fixed_block_lines(text) if fold else None, margin=margin)
+        comments = sup.comments(self.support, text) if self.support else None
+        return hashline.render_read(text, max_chars=max_chars, fold=fixed_block_lines(text) if fold else None, margin=margin,
+                                    comments=comments)
 
     def _plan_support(self) -> str:
         """The PLAN message's support items (support.plan_items): the thin rules on the last batch's path and the
@@ -764,7 +857,7 @@ class PlayAgent(EngineAgent):
         if sha == self.listed_sha:
             return ""
         self.listed_sha = sha
-        return self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES)
+        return self._read_engine(fold=True, max_chars=LISTING_CHARS)
 
     def _engine_note(self, report: bool = False) -> str:
         """A sentence when engine.py is not the committed engine (it changed after the last commit or batch)."""
@@ -792,6 +885,35 @@ class PlayAgent(EngineAgent):
         self.result.image_messages += 1
         return [{"type": "text", "text": CURRENT_FRAME_NOTE.format(k=k)}, self._image_part(png, path)]
 
+    def _replica_summary(self) -> dict[str, Any] | None:
+        """The replica's state after everything played (game_api.state_summary): the last batch's prediction run
+        already has it when the committed engine and the trace are unchanged since; else one sandboxed replay of
+        the committed engine (tester.replica_state). None when it raises."""
+        n = len(self.full_trace)
+        sha = self.committed_sha
+        if self.replica_summary is not None and self.replica_summary[0] == sha and self.replica_summary[1] == n:
+            return self.replica_summary[2]
+        engine = self._predicting_engine()
+        try:
+            summary = replica_state(engine, self.full_trace, scratch_root=self.dir)
+        except Exception:  # noqa: BLE001  (the sprite list is help, not the loop)
+            summary = None
+        if summary is not None and sha is not None:
+            self.replica_summary = (sha, n, summary)
+        return summary
+
+    def _sprites_part(self) -> list[dict[str, Any]]:
+        """The PLAN message's list under the frame: the replica's sprites (state_now().sprites, in the engine's
+        grid) when it is in step with the game, else the segmentation of the game's frame (recording[-1].pieces_after)."""
+        text = ""
+        if self.out_of_sync is None:
+            summary = self._replica_summary()
+            if summary is not None:
+                text = sprite_list_text(summary)
+        if not text:
+            text = pieces_list_text(self.full_trace)
+        return [{"type": "text", "text": text}] if text else []
+
     def _hide_old_images(self) -> None:
         """A phase message carries the latest images: the earlier ones become placeholders (logged, for a resume)."""
         if self.images:
@@ -818,10 +940,10 @@ class PlayAgent(EngineAgent):
                                                         "out_of_sync": self.out_of_sync}})
         if say:
             self._hide_old_images()
-        parts: list[dict[str, Any]] = [{"type": "text", "text": text}, *self._frame_part()]
+        parts: list[dict[str, Any]] = [{"type": "text", "text": text}, *self._frame_part(), *self._sprites_part()]
         content: str | list[dict[str, Any]] = parts if len(parts) > 1 else text
         if say:
-            self._say("user", content)
+            self._say("user", content, phase="plan")
         return content
 
     def _close_fit_round(self, how: str) -> None:
@@ -841,9 +963,10 @@ class PlayAgent(EngineAgent):
         self.result.fit_rounds.append(self.fit_round)
 
     def _enter_fit(self, k: int, verdict: str, dropped: int, say: bool = True, predicted: bool = True,
-                   path: dict[str, Any] | None = None) -> str | list[dict[str, Any]]:
+                   path: dict[str, Any] | None = None, after_batch: bool = False) -> str | list[dict[str, Any]]:
         """Step k differs (from the prediction, or, `predicted` False, from what the engine now gives): the FIT
-        message with the test report on steps 0..k. `path`: the move's path support (its outcome's "support")."""
+        message with the test report on steps 0..k. `path`: the move's path support (its outcome's "support");
+        `after_batch`: the message follows a batch (the budget line goes in)."""
         self.phase = "fit"
         self.passed = False
         self._focus_on(k)
@@ -855,14 +978,18 @@ class PlayAgent(EngineAgent):
             kernel_names=kernel_names_text(*self.kernel.names()), auto_reset=self.auto_reset,
             engine_note=self._engine_note(report=True), predicted=predicted,
             support_note=sup.mismatch_support_text(path, (self.support or {}).get("lines")),
+            budget_line=self._budget_line() if after_batch else "",
         )
         self._log({"turn": self.result.turns, "step_start": {"step": k, "steps": len(self.full_trace), "report": report, "verdict": verdict}})
         if say:
             self._hide_old_images()
         content = self._opening_content(text)
         if say:
-            self._say("user", content)
+            self._say("user", content, phase="fit")
         return content
+
+    def _opening_phase(self) -> str | None:
+        return self.phase  # set by _enter_plan / _enter_fit when the opening message was made (_stepwise_start)
 
     def _after_sync(self, last_batch: str, say: bool = True) -> str | list[dict[str, Any]] | None:
         """The engine reproduces everything played (or is out of step): a RESET after a game over, then the next
@@ -879,7 +1006,7 @@ class PlayAgent(EngineAgent):
             outcomes, _ = self._play([Action(0)], AUTO_RESET_NOTE)
             o = outcomes[0]
             if not o["ok"]:
-                return self._enter_fit(o["index"], o["verdict"], 0, say=say, path=o.get("support"))
+                return self._enter_fit(o["index"], o["verdict"], 0, say=say, path=o.get("support"), after_batch=True)
             last_batch += f" The game was over, so the harness sent a RESET (step {o['index']}, an action): the level restarted as your replica predicted."
         elif self.live.game_over:
             last_batch += " The game is over: only RESET is accepted now."
@@ -926,7 +1053,7 @@ class PlayAgent(EngineAgent):
                 return self._after_resync(self._batch_summary(pending), dropped) is not None
             return self._after_sync(self._batch_summary(pending)) is not None
         if last is not None and not last["ok"]:
-            self._enter_fit(last["index"], last["verdict"], dropped, path=last.get("support"))
+            self._enter_fit(last["index"], last["verdict"], dropped, path=last.get("support"), after_batch=True)
             return True
         return self._after_sync(self._batch_summary(pending)) is not None
 
@@ -953,7 +1080,7 @@ class PlayAgent(EngineAgent):
             engine_read = self._engine_listing_if_changed()
             names = kernel_names_text(*self.kernel.names())
             self._hide_old_images()
-            self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, True, engine_read, names)))
+            self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, True, engine_read, names)), phase="fit")
             return True
         self._keep_committed(commit["engine_sha"])
         self._focus_on(n - 1)

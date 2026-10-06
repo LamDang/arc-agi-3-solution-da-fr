@@ -39,7 +39,10 @@ The process never sees the expected observations: it gets only the actions,
 and after loading the engine source it can read no files at all (only the
 Python installation) and write only to OUT_DIR. It writes ``OUT_DIR/frames.npz``
 and ``OUT_DIR/result.json``; an exception or a step timeout ends the run at
-that step, with the traceback in the result.
+that step, with the traceback in the result and, for the simple interface, the
+runner's counts when it struck (``error_state``: status, levels_completed,
+level, the State's status), so a step that solved a level in the engine and
+then raised in ``make_level(n + 1)`` can be told from a plain error.
 """
 
 from __future__ import annotations
@@ -175,6 +178,7 @@ def main() -> int:
     started = time.time()
     step_index = None
     simple = False
+    game = None
     try:
         signal.setitimer(signal.ITIMER_REAL, args.step_timeout * 4)
         capture = game_api.PrintCapture()
@@ -269,6 +273,10 @@ def main() -> int:
         signal.setitimer(signal.ITIMER_REAL, 0)
         result["error"] = _short_traceback(exc, engine_path)
         result["error_step"] = step_index
+        if simple and game is not None:  # the runner's own counts when the error struck: a level solved and make_level(n + 1) raising shows here
+            state = getattr(game, "state", None)
+            result["error_state"] = {"status": game.status, "levels_completed": int(game.score), "level": int(game.level),
+                                     "state_status": getattr(state, "status", None)}
     if tracer is not None:
         tracer.stop()
     result["seconds"] = round(time.time() - started, 2)

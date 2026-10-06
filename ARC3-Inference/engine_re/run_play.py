@@ -29,6 +29,7 @@ from pathlib import Path
 from engine_re.agent import Budget, ModelConfig
 from engine_re.live_game import benchmark_json
 from engine_re.play_agent import PLAN_TURNS, PlayAgent
+from engine_re.tokens import DEFAULT_TOKENIZER, ENV_TOKENIZER, load_counter
 
 
 def summarize(out: Path, games: list[str]) -> None:
@@ -119,6 +120,22 @@ def main() -> int:
     parser.add_argument("--cut-untested", action="store_true",
                         help="cut each batch after its first move whose predicted path runs engine code no recorded step has "
                              "run (PLAY_DESIGN.md 3.11; default: off, the model sees each move's support and decides)")
+    parser.add_argument("--context", choices=("compact", "rebuilt"), default="compact",
+                        help="how the conversation is bounded: 'compact' shortens it in place once a request passes 140K prompt "
+                             "tokens (the default); 'rebuilt' keeps it in full and rebuilds every request from it (the system "
+                             "prompt, one compacted-context message with the commit turns, the current PLAN or FIT message and the "
+                             "older turns since it, then the last 10 turns as they are)")
+    parser.add_argument("--context-window", type=int, default=ModelConfig.context_window,
+                        help="rebuilt: the model's context window in tokens; a request is kept under the window minus the reply "
+                             "reserve minus 512 (the estimate is calibrated from each response's prompt_tokens)")
+    parser.add_argument("--reply-reserve", type=int, default=None,
+                        help="rebuilt: tokens reserved for the model's reply (default: its max_tokens)")
+    parser.add_argument("--tokenizer", default=None,
+                        help=f"rebuilt: the tokenizer that counts each request exactly (engine_re.tokens): a directory with "
+                             f"tokenizer.json and tokenizer_config.json, or a Hugging Face model id (default: ${ENV_TOKENIZER}, "
+                             f"else {DEFAULT_TOKENIZER}); without one the request is estimated from calibrated characters per token")
+    parser.add_argument("--tokenizer-endpoint", default=None,
+                        help="rebuilt: a vLLM server's /tokenize URL, which counts the chat messages itself (preferred over the files)")
     parser.add_argument("--no-images", action="store_true", help="text-only feedback (no pictures)")
     parser.add_argument("--providers", default=None, help="comma-separated OpenRouter providers, in order, no fallback")
     parser.add_argument("--reasoning-effort", default=None)
@@ -137,13 +154,22 @@ def main() -> int:
     games = [g.strip() for g in args.games.split(",") if g.strip()]
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
     model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
-                        top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget)
+                        top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget,
+                        context=args.context, context_window=args.context_window, reply_reserve=args.reply_reserve)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
 
+    # Rebuilt: one counter for every game (tokenizers and jinja2 are safe to share across the threads); without one the
+    # agents estimate from calibrated characters per token, and the run says so.
+    counter = load_counter(args.tokenizer, args.tokenizer_endpoint, model=args.model) if args.context == "rebuilt" else None
+    if args.context == "rebuilt":
+        print(f"token counting: {counter.describe() if counter else 'no tokenizer found; the calibrated estimate is used'}", flush=True)
+
     def agent_for(game: str, game_dir: Path | None = None) -> PlayAgent:
-        return PlayAgent(game, game_dir or args.out / game, model, budget, args.environments_dir, images=not args.no_images,
-                         batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset,
-                         fit_turns=args.fit_turns, plan_turns=args.plan_turns, cut_untested=args.cut_untested)
+        agent = PlayAgent(game, game_dir or args.out / game, model, budget, args.environments_dir, images=not args.no_images,
+                          batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset,
+                          fit_turns=args.fit_turns, plan_turns=args.plan_turns, cut_untested=args.cut_untested)
+        agent.counter = counter
+        return agent
 
     if args.dry_resume:  # on a copy: a resume writes its records, visible_trace/ and (a fork) notes.md
         failed = []
@@ -167,6 +193,7 @@ def main() -> int:
     config = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
     config["started"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     config["harness"] = "engine_re.play_agent (v10)"
+    config["token_counter"] = counter.describe() if counter else None
     previous_config = args.out / "config.json"
     if previous_config.exists():  # forks keep their provenance (engine_re.tools.fork_run writes it)
         try:

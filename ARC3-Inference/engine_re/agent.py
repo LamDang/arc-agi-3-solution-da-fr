@@ -26,13 +26,21 @@ test report (with its picture) and engine.py, and sets the first task: the first
 usually step 1. That edit and test are not counted as the model's
 (engine_changes, tests_run); tests.jsonl marks the test "auto": "opening".
 
-Context (ModelConfig.context): both schemes act at the same moments, after a turn whose request went over
-compact_prompt_tokens, and leave the conversation alone in between, so the prompt's prefix stays the same
+Context (ModelConfig.context): "compact" and "condense" act at the same moments, after a turn whose request went
+over compact_prompt_tokens, and leave the conversation alone in between, so the prompt's prefix stays the same
 from one request to the next and the provider's prompt cache hits. "compact" shortens the conversation in
 place by age (old tool outputs, old reasoning, long old arguments, older engine.py listings; a "compact"
 record). "condense" keeps the full conversation and condenses it by iteration (engine_re.condense) into a
 view that becomes the prefix of every request until the next firing, the messages added since following it
-as they are (a "condense" record with the estimate marks each firing).
+as they are (a "condense" record with the estimate marks each firing). "rebuilt" (the play agent's, see
+rebuilt_context) never shortens the conversation: every request is rebuilt from it as the system prompt, one
+user message with the compacted context (the commit turns, the current phase message, the older turns since
+it) and the last rebuilt_keep_turns turns as they are (a "rebuilt" record per request gives the composition).
+
+A turn is one model reply with everything said before the next reply: its tool outputs (with the text the harness
+appends to them), its image message and the user messages the harness adds after it (the next phase message, the
+"continue" line, the resume note). Turn 0 is the system prompt and the opening message. Every message in
+self.messages is a TurnMessage that knows its turn, and the transcript logs the same number on every record.
 
 Feedback the harness adds on its own: when engine.py changed during a turn and was not tested
 since, run_tests runs automatically with its defaults (a full replay, reported up to the first
@@ -68,6 +76,7 @@ the kernel keeps; a single-mode run with a fresh conversation.
 
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -89,7 +98,7 @@ from engine_re.helpers import FUNCTIONS as BUILTIN_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.prompts import (
     ENGINE_HEADER, advance_message, elide_engine_listing, episode_message, first_user_message, kernel_names_text,
-    resume_user_message, system_prompt, tools,
+    restart_note, resume_user_message, system_prompt, tools,
 )
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import MAX_FAILURES, replay_test
@@ -243,14 +252,21 @@ class ModelConfig:
     # OpenRouter providers to use, in order, with no fallback to others (e.g. ["z-ai"]);
     # None lets OpenRouter route each request.
     providers: list[str] | None = None
-    # How the conversation is kept within bounds, both applied after a request went over compact_prompt_tokens:
-    # "compact" (the settings above, applied in place) or "condense" (engine_re.condense: the full conversation is
-    # kept and condensed by iteration into the prefix of every request until the next firing; the turns since
-    # follow it as they are). The condenser keeps the reasoning and failed commands of the current iteration's last
-    # condense_keep_turns turns; its safety cap estimates tokens with condense_chars_per_token.
+    # How the conversation is kept within bounds. "compact" (the settings above, applied in place) and "condense"
+    # (engine_re.condense: the full conversation is kept and condensed by iteration into the prefix of every request
+    # until the next firing; the turns since follow it as they are) both apply after a request went over
+    # compact_prompt_tokens. The condenser keeps the reasoning and failed commands of the current iteration's last
+    # condense_keep_turns turns; its safety cap estimates tokens with condense_chars_per_token. "rebuilt" (the play
+    # agent) has no threshold: every request is rebuilt from the full conversation (rebuilt_context), the last
+    # rebuilt_keep_turns turns sent as they are and the rest compacted into one user message.
     context: str = "compact"
     condense_keep_turns: int = 10
     condense_chars_per_token: float = 3.0
+    rebuilt_keep_turns: int = 10
+    # "rebuilt": the model's context window and the tokens reserved for its reply (None: max_tokens); the request budget
+    # is the window minus the reserve minus REQUEST_SAFETY_TOKENS, and a rebuilt request over it is shrunk (shrink_step).
+    context_window: int = 131_072
+    reply_reserve: int | None = None
 
     def __post_init__(self) -> None:
         if self.thinking_budget is not None:
@@ -332,6 +348,344 @@ def _elide_arguments(arguments: str) -> str:
         if isinstance(value, str) and len(value) > 600:
             args[key] = f"{value[:300]}\n# [... {len(value) - 300} more characters elided to save context]"
     return json.dumps(args)
+
+
+class TurnMessage(dict):
+    """A message of the conversation that knows the turn it belongs to (see the module docstring: a turn is one
+    model reply with its tool outputs and the harness's messages before the next reply; turn 0 the system prompt and
+    the opening) and, for a PLAN or FIT message (the stepwise step messages too), which phase it opens. The tags live
+    outside the dict, so the request (json) and the transcript ("message" records) see a plain message, and a
+    comparison with a plain dict holds."""
+
+    __slots__ = ("turn", "phase")
+
+    def __init__(self, message: dict[str, Any], turn: int | None = None, phase: str | None = None):
+        super().__init__(message)
+        self.turn = turn
+        self.phase = phase
+
+
+def message_turn(message: dict[str, Any], default: int = 0) -> int:
+    turn = getattr(message, "turn", None)
+    return default if turn is None else int(turn)
+
+
+def message_chars(message: dict[str, Any]) -> int:
+    """The characters the model reads in a message: its text (every text part), its reasoning and its tool calls'
+    arguments; images count for none (the "rebuilt" record counts them apart)."""
+    content = message.get("content")
+    n = len(content) if isinstance(content, str) else sum(len(p.get("text") or "") for p in content or [] if p.get("type") == "text")
+    n += len(message.get("reasoning") or "")
+    n += sum(len(c["function"].get("arguments") or "") for c in message.get("tool_calls") or [])
+    return n
+
+
+def message_images(message: dict[str, Any]) -> int:
+    content = message.get("content")
+    return sum(p.get("type") == "image_url" for p in content) if isinstance(content, list) else 0
+
+
+def _message_text(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    return "\n".join(p.get("text") or "" for p in content or [] if p.get("type") == "text")
+
+
+REBUILT_CLOSING = "The context has been compacted. Continue from the context above."
+# The token estimate of a request (the base harness's, inference/agent/tool_agent.py): the payload rendered as json
+# (ensure_ascii=False) with every image replaced by a placeholder, divided by a characters-per-token figure calibrated
+# from each response's prompt_tokens (seed 3, clamped to [1.0, 3.3]: under-counting overflows the context, the
+# dangerous direction), plus the images at their vision cost: one token per 32x32 patch plus two sentinels.
+CHARS_PER_TOKEN_SEED = 3.0
+CHARS_PER_TOKEN_MIN = 1.0
+CHARS_PER_TOKEN_MAX = 3.3
+VISION_PATCH_PIXELS = 32
+VISION_SENTINEL_TOKENS = 2
+IMAGE_TOKENS_FALLBACK = 402
+REQUEST_SAFETY_TOKENS = 512  # the budget is the window minus the reply reserve minus this
+COUNT_MARGIN_PERCENT = 2  # an exact count's margin on top: its residual against the reported prompt_tokens (engine_re.tokens)
+REBUILT_MIN_REASONING_TURNS = 3  # the last turns that always keep their reasoning (and are never touched)
+REBUILT_MIN_COMMIT_TURNS = 5  # the commit turns the compacted message always keeps
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def png_dimensions(data_url: str) -> tuple[int, int] | None:
+    """(width, height) from the IHDR of a PNG data URL, decoding only its head; None when it is not a readable PNG."""
+    marker = "base64,"
+    index = data_url.find(marker)
+    if index < 0:
+        return None
+    head = data_url[index + len(marker): index + len(marker) + 32]
+    if len(head) < 32:
+        return None
+    try:
+        raw = base64.b64decode(head, validate=True)
+    except (ValueError, TypeError):
+        return None
+    if len(raw) < 24 or not raw.startswith(_PNG_SIGNATURE) or raw[12:16] != b"IHDR":
+        return None
+    width, height = int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def image_part_tokens(part: dict[str, Any]) -> int:
+    """The vision tokens of an image part: one per merged 32x32 patch plus the two sentinels (a 536x554 PLAN frame is
+    308, a 1060x554 test comparison 614); IMAGE_TOKENS_FALLBACK when the PNG header cannot be read."""
+    url = (part.get("image_url") or {}).get("url") or ""
+    dims = png_dimensions(url) if url else None
+    if dims is None:
+        return IMAGE_TOKENS_FALLBACK
+    width, height = dims
+    return -(-width // VISION_PATCH_PIXELS) * -(-height // VISION_PATCH_PIXELS) + VISION_SENTINEL_TOKENS
+
+
+def split_for_estimate(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """The messages with every image replaced by a short placeholder (the originals untouched), and the images' vision
+    tokens."""
+    image_tokens = 0
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            out.append(message)
+            continue
+        parts: list[Any] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                image_tokens += image_part_tokens(part)
+                parts.append({"type": "image_url", "image_url": {"url": "<image>"}})
+            else:
+                parts.append(part)
+        out.append({**message, "content": parts})
+    return out, image_tokens
+
+
+def render_request(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> tuple[str, int]:
+    """The request's text as the estimate and the calibration both count it (the same rendering, so an image's cost
+    cancels out between them): the payload's messages (images as placeholders), tools and tool_choice as json without
+    \\u escapes; and the images' vision tokens."""
+    scrubbed, image_tokens = split_for_estimate(messages)
+    payload: dict[str, Any] = {"messages": scrubbed}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), image_tokens
+
+
+def estimate_request_tokens(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, chars_per_token: float) -> dict[str, int]:
+    """The estimate of a request: {"tokens", "text_tokens", "image_tokens", "text_chars"}."""
+    rendered, image_tokens = render_request(messages, tools)
+    text_tokens = -(-len(rendered) // max(0.1, chars_per_token))
+    return {"tokens": int(text_tokens) + image_tokens, "text_tokens": int(text_tokens), "image_tokens": image_tokens,
+            "text_chars": len(rendered)}
+
+
+def is_context_length_error(error: str) -> bool:
+    """A request the provider rejected as too long (the base harness's _is_context_length_error, with OpenRouter's
+    wordings)."""
+    text = error.lower().replace("’", "'")
+    return any(s in text for s in (
+        "context length", "maximum context", "too many tokens", "context_length_exceeded",
+        "reduce the length of the input prompt", "parameter=input_tokens", '"param":"input_tokens"',
+    ))
+
+
+def _render_call(call: dict[str, Any]) -> str:
+    """A tool call as the compacted context shows it: its name and its arguments as the model wrote them (the python
+    code, the commit message, the actions and the note), one argument per line."""
+    name = call["function"]["name"]
+    raw = call["function"].get("arguments") or "{}"
+    try:
+        args = json.loads(raw)
+    except json.JSONDecodeError:
+        args = None
+    if not isinstance(args, dict):
+        return f"[call {name}] {raw}"
+    lines = [f"[call {name}]"]
+    for key, value in args.items():
+        text = value if isinstance(value, str) else json.dumps(value)
+        lines.append(f"{key}: {text}" if "\n" not in text else f"{key}:\n{text}")
+    return "\n".join(lines)
+
+
+def render_turn(turn: int, messages: list[dict[str, Any]], calls: tuple[str, ...] | None = None, header: str | None = None) -> str:
+    """One turn of the conversation as the compacted context shows it: a header ("Turn 61:", or "Turn 57
+    (commit_moves):" when `calls` names the tools it is rendered for), the assistant's text, its tool calls with their
+    arguments and their outputs (the harness's appends included, since they are part of the output), and the harness's
+    user messages of the turn (image messages left out). Without `calls` every call is rendered; with it only the
+    calls to those tools. The reasoning is never rendered."""
+    assistant = next((m for m in messages if m["role"] == "assistant"), None)
+    tool_calls = (assistant or {}).get("tool_calls") or []
+    chosen = [c for c in tool_calls if calls is None or c["function"]["name"] in calls]
+    if header is None:
+        named = ", ".join(dict.fromkeys(c["function"]["name"] for c in chosen)) if calls is not None else ""
+        header = f"Turn {turn} ({named}):" if named else f"Turn {turn}:"
+    parts = [header]
+    text = (assistant or {}).get("content") or ""
+    if isinstance(text, str) and text.strip():
+        parts.append(text.strip())
+    outputs = {m.get("tool_call_id"): m for m in messages if m["role"] == "tool"}
+    for call in chosen:
+        parts.append(_render_call(call))
+        answer = outputs.get(call["id"])
+        if answer is not None:
+            parts.append("[output]\n" + (answer.get("content") or "").rstrip())
+    for m in messages:
+        if m["role"] == "user" and not getattr(m, "phase", None) and not _is_image_message(m):
+            parts.append("[harness] " + _message_text(m).strip())
+    return "\n".join(parts)
+
+
+def _is_image_message(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    return isinstance(content, list) and bool(content) and content[0].get("type") == "text" and content[0].get("text") == IMAGE_NOTE
+
+
+SHRINK_STEPS = ("reasoning", "older", "commits", "phase_image")  # the order the shrink of a rebuilt request takes
+
+
+def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
+                    commit_tools: tuple[str, ...] = ("commit_engine", "commit_moves"),
+                    shrink: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The messages of a request in the "rebuilt" context mode, from the full conversation (TurnMessage-tagged), and
+    the composition for the "rebuilt" record. With T the latest turn and the window the last `keep_turns` turns
+    (T - keep_turns < t <= T):
+
+    1. the system prompt;
+    2. one user message, the compacted context, holding in order: (a) every turn older than the window and before
+       the current phase message (the latest PLAN or FIT message, by its tag) in which the model called a commit
+       tool, rendered as its text, those calls and their outputs; (b) the phase message in full (its image parts as
+       the conversation holds them) when it is older than the window; (c) the turns after it that are older than the
+       window, each rendered with every call and output but no reasoning; then REBUILT_CLOSING. The message is left
+       out when it would hold nothing;
+    3. the messages of the window as they are (reasoning, tool calls, outputs, images, a phase message at its place).
+
+    Turns older than the window and before the phase message in which nothing was committed are not sent.
+
+    `shrink` (what shrink_step adds, when a request is over budget): "reasoning": the oldest N turns of the window are
+    sent without their reasoning (never the last REBUILT_MIN_REASONING_TURNS); "older": the older turns (c) are left
+    out; "commits": the oldest N commit turns are left out (never the last REBUILT_MIN_COMMIT_TURNS); "phase_image":
+    the phase message's images are replaced by IMAGE_PLACEHOLDER, wherever it is. The phase message's text and the
+    last REBUILT_MIN_REASONING_TURNS turns are never touched."""
+    shrink = shrink or {}
+    if not messages:
+        return [], {"commit_turns": 0, "phase_turn": None, "older_turns": 0, "chars": {"commits": 0, "phase": 0, "older": 0, "recent": 0}}
+    system = [m for m in messages if m["role"] == "system"]
+    rest = [m for m in messages if m["role"] != "system"]
+    latest = max((message_turn(m) for m in messages), default=0)
+    cut = latest - keep_turns  # turns <= cut are older than the window
+    phase_index = next((i for i in range(len(rest) - 1, -1, -1) if getattr(rest[i], "phase", None)), None)
+    if phase_index is None:  # no tagged phase message: the opening message stands for it
+        phase_index = next((i for i, m in enumerate(rest) if m["role"] == "user"), 0)
+    phase_turn = message_turn(rest[phase_index]) if rest else 0
+    phase_kind = (getattr(rest[phase_index], "phase", None) or "phase").upper() if rest else "PHASE"
+    # The turns before the phase message, the phase message, the turns after it: (turn, messages) in order.
+    before: dict[int, list[dict[str, Any]]] = {}
+    after: dict[int, list[dict[str, Any]]] = {}
+    for i, m in enumerate(rest):
+        if i != phase_index:
+            (before if i < phase_index else after).setdefault(message_turn(m), []).append(m)
+    commits: list[str] = []
+    for turn, group in before.items():
+        if turn > cut:
+            continue
+        assistant = next((m for m in group if m["role"] == "assistant"), None)
+        if assistant and any(c["function"]["name"] in commit_tools for c in assistant.get("tool_calls") or []):
+            commits.append(render_turn(turn, group, calls=commit_tools))
+    commits_dropped = min(int(shrink.get("commits") or 0), max(0, len(commits) - REBUILT_MIN_COMMIT_TURNS))
+    commits = commits[commits_dropped:]
+    older: list[str] = []
+    for turn, group in after.items():
+        if turn > cut:
+            continue
+        older.append(render_turn(turn, group, header=f"Turn {turn} (continued):" if turn == phase_turn else None))
+    older_dropped = bool(shrink.get("older")) and bool(older)
+    if older_dropped:
+        older = []
+    phase_in_compacted = phase_turn <= cut
+    recent = [m for i, m in enumerate(rest) if message_turn(m) > cut and (i != phase_index or not phase_in_compacted)]
+    # The window's oldest turns without their reasoning (copies; the conversation keeps it).
+    window_turns = sorted({message_turn(m) for m in recent if m["role"] == "assistant"})
+    stripped = set(window_turns[: max(0, min(int(shrink.get("reasoning") or 0), len(window_turns) - REBUILT_MIN_REASONING_TURNS))])
+    if stripped:
+        recent = [TurnMessage({k: v for k, v in m.items() if k != "reasoning"}, turn=message_turn(m), phase=getattr(m, "phase", None))
+                  if m["role"] == "assistant" and message_turn(m) in stripped and m.get("reasoning") else m for m in recent]
+    phase_image_dropped = False
+    if shrink.get("phase_image") and rest and message_images(rest[phase_index]):
+        phase_message = rest[phase_index]
+        hidden = TurnMessage({**phase_message, "content": [
+            {"type": "text", "text": IMAGE_PLACEHOLDER} if p.get("type") == "image_url" else p for p in phase_message["content"]]},
+            turn=phase_turn, phase=getattr(phase_message, "phase", None))
+        rest = [hidden if i == phase_index else m for i, m in enumerate(rest)]
+        recent = [hidden if m is phase_message else m for m in recent]
+        phase_image_dropped = True
+    parts: list[dict[str, Any]] = []
+    sections: list[str] = []
+    if commits:
+        sections.append("Earlier turns of this game in which you committed (your text, the call and its result):\n\n" + "\n\n".join(commits))
+    phase_chars = 0
+    if phase_in_compacted:
+        phase_message = rest[phase_index]
+        if sections:
+            parts.append({"type": "text", "text": "\n\n".join(sections)})
+            sections = []
+        parts.append({"type": "text", "text": f"Turn {phase_turn} (the current {phase_kind} message):"})
+        content = phase_message.get("content")
+        if isinstance(content, str):
+            parts.append({"type": "text", "text": content})
+        else:
+            parts.extend(dict(p) for p in content or [])
+        phase_chars = message_chars(phase_message)
+    if older:
+        sections.append("The turns since that message, before the last ones:\n\n" + "\n\n".join(older))
+    if commits or phase_in_compacted or older:
+        sections.append(REBUILT_CLOSING)
+        parts.append({"type": "text", "text": "\n\n".join(sections)})
+    merged: list[dict[str, Any]] = []  # adjacent text parts as one, so the message is one text unless it has images
+    for part in parts:
+        if part.get("type") == "text" and merged and merged[-1].get("type") == "text":
+            merged[-1] = {"type": "text", "text": merged[-1]["text"] + "\n\n" + part["text"]}
+        else:
+            merged.append(part)
+    compacted: list[dict[str, Any]] = []
+    if merged:
+        content = merged[0]["text"] if len(merged) == 1 else merged
+        compacted = [{"role": "user", "content": content}]
+    out = list(system[:1]) + compacted + recent
+    chars = {
+        "commits": sum(len(t) for t in commits), "phase": phase_chars, "older": sum(len(t) for t in older),
+        "recent": sum(message_chars(m) for m in recent),
+    }
+    stats = {
+        "turn": latest, "commit_turns": len(commits), "phase_turn": phase_turn, "phase_compacted": phase_in_compacted,
+        "older_turns": len(older), "recent_turns": len({message_turn(m) for m in recent}), "chars": chars,
+        "images": sum(message_images(m) for m in out), "messages": len(out),
+    }
+    applied = {"reasoning": len(stripped), "older": older_dropped, "commits": commits_dropped, "phase_image": phase_image_dropped}
+    if any(applied.values()):
+        stats["shrink"] = applied
+    return out, stats
+
+
+def shrink_step(shrink: dict[str, Any], stats: dict[str, Any], keep_turns: int = 10) -> dict[str, Any] | None:
+    """The next shrink state after `shrink` gave the view with `stats`, in the order of SHRINK_STEPS: one more turn of
+    the window without reasoning (while more than REBUILT_MIN_REASONING_TURNS turns keep it), then the older turns
+    out, then one more commit turn out (while more than REBUILT_MIN_COMMIT_TURNS stay), then the phase message's
+    image out; None when every step is taken."""
+    applied = stats.get("shrink") or {}
+    reasoning = int(shrink.get("reasoning") or 0)
+    # (one more only when the last one took effect: rebuilt_context caps the count at the turns the window has)
+    if reasoning < keep_turns - REBUILT_MIN_REASONING_TURNS and applied.get("reasoning", 0) == reasoning:
+        return {**shrink, "reasoning": reasoning + 1}
+    if not shrink.get("older") and stats.get("older_turns"):
+        return {**shrink, "older": True}
+    commits = int(shrink.get("commits") or 0)
+    if applied.get("commits", 0) == commits and int(stats.get("commit_turns") or 0) > REBUILT_MIN_COMMIT_TURNS:
+        return {**shrink, "commits": commits + 1}
+    if not shrink.get("phase_image") and stats.get("images"):
+        return {**shrink, "phase_image": True}
+    return None
 
 
 class OpenRouterClient:
@@ -448,6 +802,7 @@ class AgentResult:
     auto_tests: int = 0
     python_paused: int = 0
     engine_changes: int = 0
+    kernel_restarts: int = 0  # cells that timed out or crashed the kernel; the earlier cells were re-run after each
     match: str = "final"
     interface: str = "simple"
     images: bool = True
@@ -509,9 +864,20 @@ class EngineAgent:
             game=game, model=model.model, trace_steps=len(self.trace), match=match, interface=interface, images=images,
             mode="stepwise" if stepwise else "single", context=model.context, thinking_budget=model.thinking_budget,
         )
-        if model.context not in ("compact", "condense"):
-            raise ValueError(f"ModelConfig.context must be 'compact' or 'condense', got {model.context!r}")
+        if model.context not in ("compact", "condense", "rebuilt"):
+            raise ValueError(f"ModelConfig.context must be 'compact', 'condense' or 'rebuilt', got {model.context!r}")
         self.condense = model.context == "condense"
+        # "rebuilt": the conversation is never shortened; every request is rebuilt from it (rebuilt_context) and kept under
+        # the budget by its estimate, whose characters-per-token figure is calibrated from every response (seed 3; the
+        # ceiling is lowered for the run when the provider rejects a request as too long).
+        self.rebuilt = model.context == "rebuilt"
+        self.chars_per_token = CHARS_PER_TOKEN_SEED
+        self.chars_ceiling = CHARS_PER_TOKEN_MAX
+        self._calibrations = 0
+        self.context_overflows = 0  # requests the provider rejected as too long (each retried once after a further shrink)
+        # The exact count, when a tokenizer is at hand (engine_re.tokens.TokenCounter: the chat template and the model's
+        # tokenizer, or the server's /tokenize); the calibrated estimate otherwise.
+        self.counter: Any = None
         # Every message the model is sent, in full. With context "condense" nothing is ever shortened in place: each
         # request gets self._condensed (the condensed view of self.messages[:self._condensed_from], computed the last
         # time the condenser fired; empty before) followed by the messages added since (see _context).
@@ -534,6 +900,9 @@ class EngineAgent:
         self.pending_test: list[tuple[str, Path, bytes]] = []
         self.image_files: dict[str, str] = {}  # an image's data URL -> its saved file, for the transcript
         self.commit: dict[str, Any] | None = None  # stepwise: an accepted commit_engine, applied after the turn
+        # The python cells that ran in this run, in order ({"turn", "code"}; a resumed run collects them from the
+        # transcript): re-run in the kernel after a restart (_restart_kernel), the cell that killed it left out.
+        self.cells: list[dict[str, Any]] = []
         # A resume's kernel replay applies the cells' edits to files other than engine.py (a fork: engine_re.tools.fork_run)
         self.replay_files = False
 
@@ -551,7 +920,26 @@ class EngineAgent:
         self.python_since_change += 1
         output = self.kernel.execute(code)
         self._keep_shown(self.kernel.last_images)
+        if self.kernel.restarted:
+            return _truncate(output) + "\n\n" + self._restart_kernel(code)
+        self.cells.append({"turn": self.result.turns, "code": code})
         return _truncate(output)
+
+    def _restart_kernel(self, code: str) -> str:
+        """The kernel was killed on `code` (a timeout, a crash) and restarts empty: re-run the earlier cells of this
+        run in it (KernelClient.replay: edits and images off, the cell itself left out) and say what was lost (the
+        names the kernel held before the cell), which cells came back and what the kernel keeps now (prompts.restart_note)."""
+        reason = self.kernel.restarted or "crash"
+        lost = self.kernel.last_names
+        replay = self.kernel.replay(list(self.cells))
+        self.result.kernel_restarts += 1
+        self._log({"turn": self.result.turns, "kernel_restart": {
+            "reason": reason, "lost": list(lost[0]), "lost_more": lost[1], "cells": len(self.cells),
+            "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []), "skipped": replay.get("skipped", 0),
+            "seconds": replay.get("seconds", 0.0), **({"error": replay["error"]} if "error" in replay else {}),
+        }})
+        head = next((line.strip() for line in code.splitlines() if line.strip()), "")[:80]
+        return restart_note(reason, self.kernel.timeout, lost, head, replay, kernel_names_text(*self.kernel.names()))
 
     def _engine_hash(self) -> str:
         return hashlib.sha256(self.engine_path.read_bytes()).hexdigest()
@@ -756,11 +1144,115 @@ class EngineAgent:
         made the last time the condenser fired (nothing before the first firing) followed by the messages added since, as
         they are but for their images: only the latest message with images keeps them (as _hide_images does for
         "compact"). The view itself never changes between two firings."""
+        if self.rebuilt:
+            return self._rebuilt_request()
         if not self.condense:
             return self.messages
         from engine_re.condense import hide_but_latest  # (condense imports this module's constants)
 
         return self._condensed + hide_but_latest(self.messages[self._condensed_from :])
+
+    def _context_budget(self) -> int:
+        """Context "rebuilt": the tokens a request may take, the window minus the reply reserve minus the safety margin."""
+        reserve = self.model.max_tokens if self.model.reply_reserve is None else int(self.model.reply_reserve)
+        return max(1024, int(self.model.context_window) - reserve - REQUEST_SAFETY_TOKENS)
+
+    def _rebuilt_view(self, messages: list[dict[str, Any]] | None = None, extra_steps: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Context "rebuilt": the messages of the next request (rebuilt_context over the conversation, or over `messages`)
+        and the composition record: the counts, the characters of each part (and of the system prompt), the estimate
+        (estimate_request_tokens with the calibrated chars_per_token, the images at their vision cost), the budget, and
+        the shrink steps taken (shrink_step, in order) while the estimate was over the budget, plus `extra_steps` more
+        (after a rejected request). A warning when it is still over after every step; nothing is ever truncated."""
+        messages = self.messages if messages is None else messages
+        tools = self._tools()
+        budget = self._context_budget()
+        shrink: dict[str, Any] = {}
+        forced = 0
+        while True:
+            view, stats = rebuilt_context(messages, keep_turns=self.model.rebuilt_keep_turns, commit_tools=self._commit_tools(), shrink=shrink)
+            estimate = self._count_request(view, tools)
+            if estimate["tokens"] + estimate["margin"] <= budget:
+                if forced >= extra_steps:
+                    break
+                forced += 1
+            following = shrink_step(shrink, stats, self.model.rebuilt_keep_turns)
+            if following is None:
+                break
+            shrink = following
+        system_chars = sum(message_chars(m) for m in view if m["role"] == "system")
+        stats["chars"]["system"] = system_chars
+        stats["chars"]["total"] = system_chars + sum(stats["chars"][k] for k in ("commits", "phase", "older", "recent"))
+        stats.update({k: v for k, v in estimate.items() if k != "tokens"}, estimated_tokens=estimate["tokens"], budget=budget)
+        if estimate["tokens"] + estimate["margin"] > budget:
+            stats["warning"] = (f"the rebuilt request is {'counted' if estimate['exact'] else 'estimated'} at {estimate['tokens']:,} "
+                                f"tokens (+{estimate['margin']} margin), over the budget of {budget:,}, after every shrink step; sent as it is")
+        return view, stats
+
+    def _count_request(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+        """The tokens of a request: counted exactly with self.counter (engine_re.tokens.TokenCounter) when there is one,
+        with a margin of COUNT_MARGIN_PERCENT (the counter's residual against the reported prompt_tokens, 1.5-2.3%
+        under on the v11 run; REQUEST_SAFETY_TOKENS is in the budget already); otherwise estimated at the calibrated
+        chars_per_token (estimate_request_tokens), with no margin beyond the clamp's haircut. "exact" says which."""
+        if self.counter is not None:
+            try:
+                counted = self.counter.count(messages, tools)
+            except Exception as exc:  # noqa: BLE001  (a counter that fails falls back to the estimate, once noted)
+                print(f"[{self.game}] the tokenizer failed ({type(exc).__name__}: {exc}); the estimate is used from here on", flush=True)
+                self._log({"turn": self.result.turns, "tokenizer_error": f"{type(exc).__name__}: {exc}"[:300]})
+                self.counter = None
+            else:
+                return {"tokens": counted["tokens"], "text_tokens": counted["text_tokens"], "image_tokens": counted["image_tokens"],
+                        "reasoning_tokens": counted.get("reasoning_tokens", 0),
+                        "margin": counted["tokens"] * COUNT_MARGIN_PERCENT // 100, "exact": True}
+        estimate = estimate_request_tokens(messages, tools, self.chars_per_token)
+        return {"tokens": estimate["tokens"], "text_tokens": estimate["text_tokens"], "image_tokens": estimate["image_tokens"],
+                "text_chars": estimate["text_chars"], "chars_per_token": round(self.chars_per_token, 3), "margin": 0, "exact": False}
+
+    def _commit_tools(self) -> tuple[str, ...]:
+        """The tools whose turns the rebuilt context keeps from before the current phase message."""
+        return tuple(t for t in self.TOOLS if t.startswith("commit_"))
+
+    def _rebuilt_request(self, extra_steps: int = 0) -> list[dict[str, Any]]:
+        view, stats = self._rebuilt_view(extra_steps=extra_steps)
+        self._log({"turn": self.result.turns, "rebuilt": {k: v for k, v in stats.items() if k != "turn"}})
+        if stats.get("warning"):
+            print(f"[{self.game}] turn {self.result.turns}: warning: {stats['warning']}", flush=True)
+        return view
+
+    def _calibrate_from_usage(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, usage: dict[str, Any] | None) -> None:
+        """The characters-per-token figure of the next estimate, from the request just served: its text as the estimate
+        renders it (render_request, the images subtracted at the same cost the estimate adds) over its prompt_tokens; the
+        last measurement, clamped to [CHARS_PER_TOKEN_MIN, chars_ceiling]. A "token_calibration" record when it moves by
+        0.05 or more (or the first time)."""
+        try:
+            prompt_tokens = int((usage or {}).get("prompt_tokens") or 0)
+        except (TypeError, ValueError):
+            return
+        if prompt_tokens <= 0 or not messages:
+            return
+        rendered, image_tokens = render_request(messages, tools)
+        text_tokens = prompt_tokens - image_tokens
+        if text_tokens <= 0 or not rendered:
+            return
+        measured = len(rendered) / text_tokens
+        clamped = min(self.chars_ceiling, max(CHARS_PER_TOKEN_MIN, measured))
+        previous, self.chars_per_token = self.chars_per_token, clamped
+        if abs(clamped - previous) >= 0.05 or self._calibrations == 0:
+            self._log({"turn": self.result.turns, "token_calibration": {
+                "chars_per_token": round(clamped, 4), "measured": round(measured, 4), "ceiling": self.chars_ceiling,
+                "prompt_tokens": prompt_tokens, "image_tokens": image_tokens, "text_chars": len(rendered)}})
+        self._calibrations += 1
+
+    def _context_overflow(self, error: str) -> None:
+        """The provider rejected the request as too long: the divisor's ceiling comes down for the run (to the figure in
+        use less a tenth, so every later estimate is higher) and the request is rebuilt with one more shrink step."""
+        self.context_overflows += 1
+        self.chars_ceiling = max(CHARS_PER_TOKEN_MIN, min(self.chars_ceiling, self.chars_per_token) * 0.9)
+        self.chars_per_token = min(self.chars_per_token, self.chars_ceiling)
+        self._log({"turn": self.result.turns, "context_overflow": {
+            "error": error[:300], "ceiling": round(self.chars_ceiling, 4), "chars_per_token": round(self.chars_per_token, 4)}})
+        print(f"[{self.game}] turn {self.result.turns}: the provider rejected the request as too long; retrying with a further "
+              f"shrink step and the chars-per-token ceiling at {self.chars_ceiling:.2f}", flush=True)
 
     def _condensed_view(self, messages: list[dict[str, Any]], records: list[dict[str, Any]]) -> Any:
         """engine_re.condense over a full conversation and the transcript records logged up to that point; a copy of
@@ -821,6 +1313,11 @@ class EngineAgent:
                 advances.append({"turn": record["turn"], "fixed": record["advance"]["fixed"], "next": record["advance"]["next"]})
             self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
         self.result.advances = commits or advances
+        calibration = next((r["token_calibration"] for r in reversed(self.records) if "token_calibration" in r), None)
+        if calibration:  # the last figure of the interrupted run, so the first estimate is not the seed again
+            self.chars_ceiling = float(calibration.get("ceiling") or self.chars_ceiling)
+            self.chars_per_token = min(self.chars_ceiling, float(calibration.get("chars_per_token") or self.chars_per_token))
+            self._calibrations = 1
         if commits:
             self.result.commit_message = commits[-1].get("message")
             if commits[-1].get("next") is None:  # that commit made the whole recording pass (run() replays to confirm)
@@ -865,11 +1362,16 @@ class EngineAgent:
             ]
         self._log({"turn": self.result.turns, "message": {**message, "content": content}})
 
-    def _say(self, role: str, content: Any) -> None:
-        """Send the model a system or user message (and log it as sent)."""
-        message = {"role": role, "content": content}
+    def _say(self, role: str, content: Any, phase: str | None = None) -> None:
+        """Send the model a system or user message (and log it as sent), tagged with the current turn; `phase` marks
+        a PLAN or FIT message ("plan" / "fit"), the one the rebuilt context keeps in full."""
+        message = TurnMessage({"role": role, "content": content}, turn=self.result.turns, phase=phase)
         self.messages.append(message)
         self._log_message(message)
+
+    def _opening_phase(self) -> str | None:
+        """The phase the opening message opens: stepwise, a step to fix ("fit"); the play agent says which."""
+        return "fit" if self.stepwise else None
 
     def _add_to_last(self, text: str) -> None:
         """Add the harness's text to the last message (a tool output), and log it."""
@@ -901,8 +1403,17 @@ class EngineAgent:
         cells: list[dict[str, Any]] = []  # the python cells that ran, in order: {"turn", "code"}
         last_turn = None  # of the last assistant record (its cells go when its turn is left out)
         fired: tuple[int, int] | None = None  # the last "condense" record: (its index, the messages before it)
+        phase: str | None = None  # a "plan" / "step_start" / "advance" record was logged: the next user message opens it
+        for r in reversed(records[: starts[-1]]):  # the opening's phase record comes before the system message
+            if "message" in r:
+                break
+            if "plan" in r or "step_start" in r or "advance" in r:
+                phase = "plan" if "plan" in r else "fit"
+                break
+        killed = False  # a "kernel_restart" record: the next python cell is the one that killed the kernel (not re-run)
         for index in range(starts[-1], len(records)):
             r = records[index]
+            turn = int(r.get("turn") or 0)
             if "message" in r:
                 message = dict(r["message"])
                 if isinstance(message.get("content"), list):
@@ -911,7 +1422,10 @@ class EngineAgent:
                         if part.get("type") == "image_file" else part
                         for part in message["content"]
                     ]
-                messages.append(message)
+                opens = phase if message.get("role") == "user" else None
+                if opens:
+                    phase = None
+                messages.append(TurnMessage(message, turn=turn, phase=opens))
             elif "finish_reason" in r:
                 assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
                 if r.get("reasoning"):
@@ -920,29 +1434,38 @@ class EngineAgent:
                     assistant["tool_calls"] = r["tool_calls"]
                 calls = iter(r.get("tool_calls") or [])
                 last_turn = r.get("turn")
-                messages.append(assistant)
+                messages.append(TurnMessage(assistant, turn=turn))
             elif "tool" in r:
                 call = next(calls, None)
-                messages.append({"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]})
+                messages.append(TurnMessage(
+                    {"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]}, turn=turn))
                 code = cell_code(call) if call and r["tool"] == "python" else None
-                if code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):  # a paused call never ran
+                if code is not None and killed:  # the cell that timed out or crashed the kernel
+                    killed = False
+                elif code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):  # a paused call never ran
                     cells.append({"turn": r.get("turn"), "code": code})
+            elif "kernel_restart" in r:
+                killed = True
             elif "append" in r:
                 messages[-1]["content"] += r["append"]
             elif "hide_images" in r:
                 self._hide_images(messages)
             elif "compact" in r:
-                self._compact()
+                if not self.rebuilt:  # (rebuilt: the conversation is kept in full, a run that compacted included)
+                    self._compact()
             elif "condense" in r:
                 fired = (index, len(messages))
             elif "step_start" in r:
                 focus = r["step_start"]["step"]
+                phase = "fit"
             elif "advance" in r:
                 focus = r["advance"]["next"]
+                phase = "fit"
             elif "resumed" in r:
                 focus = r["resumed"]["step"]
             elif "plan" in r:  # the play-and-model agent (engine_re.play_agent): a PLAN message on the last step played
                 focus = r["plan"]["step"]
+                phase = "plan"
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
         if self.condense and fired is not None:
@@ -984,6 +1507,7 @@ class EngineAgent:
         self.tested_hash = self.engine_hash_seen = self._engine_hash()
         # The kernel restarted empty: re-run the conversation's python cells (edits disabled), then say what it keeps.
         cells = state.get("cells") or []
+        self.cells = list(cells)
         replay = self.kernel.replay(cells, files=self.replay_files)
         self._log({"turn": self.result.turns, "replay": {
             "cells": len(cells), "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []),
@@ -1017,7 +1541,8 @@ class EngineAgent:
         read = hashline.render_read(engine, max_chars=READ_CHARS_IN_MESSAGES, fold=fixed_block_lines(engine))
         first = episode_message(self.game, visible, k, records[begin]["step_start"]["report"], read, self.history)
         system = system_prompt(self.match, self.interface, self.images, self.mode, self.history)
-        messages: list[dict[str, Any]] = [{"role": "system", "content": system}, {"role": "user", "content": first}]
+        messages: list[dict[str, Any]] = [TurnMessage({"role": "system", "content": system}, turn=0),
+                                          TurnMessage({"role": "user", "content": first}, turn=0, phase="fit")]
         auto_passed = {}
         tests = self.dir / "tests.jsonl"
         if tests.exists():
@@ -1049,7 +1574,9 @@ class EngineAgent:
             content = message["content"]
             return content if isinstance(content, list) else [{"type": "text", "text": content}]
 
+        turn = 0
         for r in records[begin + 1 :]:
+            turn = int(r.get("turn") or turn)
             if "finish_reason" in r:
                 prompt_tokens = max(prompt_tokens, (r.get("usage") or {}).get("prompt_tokens") or 0)  # ever over: compacted
                 assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
@@ -1059,12 +1586,12 @@ class EngineAgent:
                     assistant["tool_calls"] = r["tool_calls"]
                     calls = iter(r["tool_calls"])
                 last_turn = r.get("turn")
-                messages.append(assistant)
+                messages.append(TurnMessage(assistant, turn=turn))
                 if not r.get("tool_calls"):
-                    messages.append({"role": "user", "content": CONTINUE})
+                    messages.append(TurnMessage({"role": "user", "content": CONTINUE}, turn=turn))
             elif "tool" in r:
                 call = next(calls, None)
-                last_tool = {"role": "tool", "tool_call_id": call["id"] if call else "", "content": r["output"]}
+                last_tool = TurnMessage({"role": "tool", "tool_call_id": call["id"] if call else "", "content": r["output"]}, turn=turn)
                 messages.append(last_tool)
                 code = cell_code(call) if call and r["tool"] == "python" else None
                 if code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):
@@ -1081,19 +1608,19 @@ class EngineAgent:
                     messages[-1]["content"] = with_text(messages[-1]) + pictures(r, None, True)
                 else:
                     self._hide_images(messages)
-                    messages.append({"role": "user", "content": pictures(r, IMAGE_NOTE, True)})
+                    messages.append(TurnMessage({"role": "user", "content": pictures(r, IMAGE_NOTE, True)}, turn=turn))
             elif isinstance(r.get("engine_change"), dict) and r["engine_change"].get("version"):
                 version = r["engine_change"]["version"]
             elif "advance" in r:
                 a = r["advance"]
                 focus = a["next"]
-                messages.append({"role": "user", "content": advance_message(
-                    self.full_trace, a["fixed"], a["next"], a["report"], self.history, engine_listing())})
+                messages.append(TurnMessage({"role": "user", "content": advance_message(
+                    self.full_trace, a["fixed"], a["next"], a["report"], self.history, engine_listing())}, turn=turn, phase="fit"))
         if self._drop_unanswered(messages):
             cells = [c for c in cells if c["turn"] != last_turn]
         self.messages = messages
         over = prompt_tokens > self.model.compact_prompt_tokens
-        if over and not self.condense:
+        if over and not self.condense and not self.rebuilt:
             self._compact()
         # With context "condense" the condenser fires once the conversation is written back (_resume_conversation),
         # so its record follows the messages it covers.
@@ -1276,7 +1803,7 @@ class EngineAgent:
         self._log({"turn": self.result.turns, "advance": {"fixed": fixed, "next": k, "report": text}})
         engine_read = self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES)
         names = kernel_names_text(*self.kernel.names())
-        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history, engine_read, names)))
+        self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, self.history, engine_read, names)), phase="fit")
         return True
 
     def setup(self) -> None:
@@ -1329,7 +1856,7 @@ class EngineAgent:
         if not resumed:
             self.messages = []
             self._say("system", system)
-            self._say("user", opening)
+            self._say("user", opening, phase=self._opening_phase())
         # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.
         if not resumed:
             self.tested_hash = self._engine_hash()
@@ -1342,11 +1869,22 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self._context(), self._tools())
+                request, tools = self._context(), self._tools()
+                try:
+                    response = self.client.chat(request, tools)
+                except RuntimeError as exc:
+                    # Rejected as too long (rebuilt: the count or the estimate was wrong): once more, shrunk one step further.
+                    if not self.rebuilt or not is_context_length_error(str(exc)):
+                        raise
+                    self._context_overflow(str(exc))
+                    request = self._rebuilt_request(extra_steps=1)
+                    response = self.client.chat(request, tools)
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
                 self.result.usage.add(usage)
+                if self.rebuilt:
+                    self._calibrate_from_usage(request, tools, usage)
                 choice = response["choices"][0]
                 message = choice["message"]
                 tool_calls = message.get("tool_calls") or []
@@ -1358,7 +1896,7 @@ class EngineAgent:
                         {"id": c["id"], "type": "function", "function": {"name": c["function"]["name"], "arguments": c["function"].get("arguments") or "{}"}}
                         for c in tool_calls
                     ]
-                self.messages.append(assistant)
+                self.messages.append(TurnMessage(assistant, turn=self.result.turns))
                 self._log(
                     {
                         "turn": self.result.turns,
@@ -1386,7 +1924,7 @@ class EngineAgent:
                     self.result.tool_calls[counted] = self.result.tool_calls.get(counted, 0) + 1
                     t0 = time.time()
                     output = self._dispatch(name, call["function"]["arguments"])
-                    self.messages.append({"role": "tool", "tool_call_id": call["id"], "content": output})
+                    self.messages.append(TurnMessage({"role": "tool", "tool_call_id": call["id"], "content": output}, turn=self.result.turns))
                     record = {"turn": self.result.turns, "tool": counted, "id": call["id"], "seconds": round(time.time() - t0, 2), "output": output}
                     if counted != name:
                         record["called_as"] = name
@@ -1415,7 +1953,7 @@ class EngineAgent:
                 self._attach_images()
                 if not self._end_of_turn():
                     break
-                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens:
+                if (usage.get("prompt_tokens") or 0) > self.model.compact_prompt_tokens and not self.rebuilt:
                     if self.condense:
                         self._condense_now()
                     else:

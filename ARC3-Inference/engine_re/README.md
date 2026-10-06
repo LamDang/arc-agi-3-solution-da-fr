@@ -477,8 +477,10 @@ operands), saved beside the committed engine (`engine_committed.support.json`) a
 weakest line, the untested lines it runs, the never-separated conditions it relies on, in the
 `commit_moves` output, `batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
 lists the thin rules on the last batch's path and among the outcome rules; listings and `read_file()`
-show the counts in a margin; `traced()`/`support()` read what python ran on the replica.
-`--cut-untested` (off) cuts a batch after the first move that runs untested code.
+show the counts in a margin and, on every line of `step()` and the functions it calls, as a trailing
+`# support (n): ...` comment naming the last five steps that ran the line (`support.comments`; the comments
+are stripped from anything pasted into an edit). `--cut-untested` (off) cuts a batch after the first move
+that runs untested code.
 `engine_re/tools/support_check.py` measures the mismatch rate by support on an archived run.
 
 `run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`
@@ -492,7 +494,50 @@ moves, batches and phase messages. Running the command again resumes interrupted
 is replayed from `trace/`, the conversation rebuilt from `transcript.jsonl`, and moves played after the
 last message the model got (an interruption during a batch) are tested and lead to the next message;
 finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
-(`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
+(`ModelConfig.context = "compact"`, the default); a PLAN message's engine.py listing is elided like a fit message's.
+
+`--context rebuilt` (`ModelConfig.context = "rebuilt"`, v11 follow-up 23) never shortens the conversation: the
+one kept in memory and logged in the transcript is the full one (so a resume works as before), and every request is
+rebuilt from it by `agent.rebuilt_context`: the system prompt; one user message, the compacted context, holding in
+order (a) every turn older than the last 10 and before the current phase message in which the model called
+`commit_engine` or `commit_moves` (its text, the call with its arguments as the model wrote them and the result,
+no reasoning), (b) the current PLAN or FIT message in full (its image as the conversation holds it, the only image
+of that message) when it is older than the last 10 turns, (c) the turns after it that are older than the last 10,
+each with every call, its arguments and its output but no reasoning, then the line "The context has been
+compacted. Continue from the context above."; and the last 10 turns as they are (reasoning, calls, outputs, images,
+a phase message at its place). Each part is headed "Turn 57 (commit_moves):" / "Turn 61:". A turn is one model
+reply with everything said before the next one (its tool outputs with the harness's appends, its image message, the
+phase message, the "continue" line, the resume note); turn 0 is the system prompt and the opening message. Older
+images are still hidden as in the compact mode, `_compact` never runs (`compact` records of an earlier compact run
+are ignored on a resume in this mode) and nothing is truncated. One `rebuilt` record per request logs the
+composition (`commit_turns`, `phase_turn`, `older_turns`, the characters of each part, the count, the budget and
+the shrink steps). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at turn 185 (29 commit turns,
+the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
+
+The request is kept under the model's window (`--context-window`, 131,072) minus the reply reserve
+(`--reply-reserve`, the model's `max_tokens` by default) minus 512. Before each request the rebuilt view is
+counted exactly (`engine_re/tokens.py`, `TokenCounter`): the messages and the tool schemas rendered through the
+model's chat template (jinja2 on tokenizer_config.json's `chat_template`, as transformers renders it; the
+assistant `reasoning` of every turn counted as the `<think>` block the template writes, since the provider keeps
+every turn's reasoning in the prompt while Qwen3's template alone keeps only the last round's), tokenized with
+`tokenizers`, every image at its vision cost ((w/32)·(h/32)+2 at the PNG's real size: 308 for a PLAN frame, 614
+for a test comparison), plus a margin of 2% (`COUNT_MARGIN_PERCENT`, the counter's residual). The tokenizer files
+come from `--tokenizer <dir or Hugging Face id>` (else `$ARC3_TOKENIZER`, else `Qwen/Qwen3-8B` through
+`huggingface_hub`, cached under `~/.cache/huggingface`); `--tokenizer-endpoint <url>` posts the chat messages to
+a vLLM server's `/tokenize` instead (exact, template included). Without a tokenizer the request is estimated from
+its json (`estimate_request_tokens`: images as placeholders, divided by a characters-per-token figure calibrated
+from each response's `prompt_tokens` as the base harness does: the last measurement, seed 3, clamped to [1.0,
+3.3]; a `token_calibration` record when it moves by 0.05). While the count (or estimate) is over the budget the
+view is shrunk in this order (`shrink_step`): the reasoning of the window's oldest turns, one at a time, never
+the last 3; the older turns since the phase message; the oldest commit turns one by one, never the last 5; the
+phase message's image; the phase message's text and the last 3 turns are never touched, and a request still over
+after every step is sent as it is with a `warning`. A request the provider rejects as too long (an HTTP 400
+naming the context length) is retried once with one more shrink step, after the calibration's ceiling comes down
+to 0.9 of the figure in use (`context_overflow` record). `engine_re/tools/count_check.py` checks the counter
+against a run's reported `prompt_tokens`: on the v11 sp80 run (compact mode, before its first compaction, so the
+request is the conversation) the count is 1.5-2.3% under at turns 5-34 (21.9K-141.6K tokens); on the v12a-ls20
+fork's own rebuilt turns (101-199) 1.5-2.2% under (median -1.8%), where the calibrated estimate gives real/estimate
+median 1.001, 0.91-1.04, against 1.18-1.35 (median 1.26) for the earlier chars/3.5 estimate.
 
 A finished run can be forked at a turn and resumed from there with a changed harness
 (`engine_re/tools/fork_run.py`, the v12 experiments of `exp/v11-followups.md`): the fork is a copy of the
@@ -509,15 +554,22 @@ each game directory, prints a summary (turn, step, phase, budget, tests of engin
 engine, the kernel replay and its names, the last message, notes.md) and exits without any model call.
 
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
-legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5-9 (the game
-is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
-code over reasoning, `notes.md`). An animated step has a digest (`engine_re/animation.py`,
+legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5 and 8-11 (the
+game is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
+code over reasoning, `notes.md`); rules 6 and 7 (v12: being stuck means a missing or wrong rule; plan from the
+winning end states) are ours. An animated step has a digest (`engine_re/animation.py`,
 `StepView.animation`): its transient cells (changed and changed back, so in no frame the model can otherwise
 reach) and a diff timeline of its frames, printed in two lines by the test report and the step messages, and
 named in `commit_moves`' output for a matched move. `commit_moves` warns, without refusing, when the replica
-predicts a game over or moves that change nothing (`batch_log[i]["warnings"]`). Each PLAN message shows
-`notes.md` (the model's goal model, open questions and plan; 40 lines at most) and, after a solved level, the
-base's level-start paragraph with the new board's unfamiliar pieces (shapes the previous level never showed).
+predicts a game over or raises at some move (`batch_log[i]["warnings"]`), and cuts a batch of two or more
+before its first predicted board no-op (the frame unchanged outside the screen-layer sprites; a single move
+goes as a probe). After a batch its output carries the budget line and what the batch changed on the board;
+the FIT message that follows a batch has the budget line too, and its report a sprite-by-sprite reconciliation
+of the replica's sprites with the game's frame (moved, recoloured, absent, or a piece no sprite draws). Each
+PLAN message shows `notes.md` (the model's goal model, open questions and plan; 40 lines at most), the
+replica's sprite list under the frame (the segmentation's pieces when out of step) and, after a solved level,
+the base's level-start paragraph. A python cell has 120 s; after a timeout the kernel restarts and the
+earlier cells are re-run in it, the message naming what was lost and what is back.
 
 ```bash
 uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
