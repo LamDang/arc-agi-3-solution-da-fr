@@ -277,3 +277,36 @@ model computes with the same experts masked out of the router. SGLang's
 loader reads `num_experts` from the config and maps expert tensors by index.
 256 experts takes its power-of-two top-k fast path; 320 and 384 use the
 generic one. Only a GPU run shows whether its kernels accept the pruned shapes.
+
+## Overnight interactive session (RTX PRO 6000, 2026-10-06)
+
+Calibration, stream benchmark and one game run in a single interactive
+session (`kaggle/session_scripts.py`, `kaggle/session_pipeline.sh`).
+Results in `results/kaggle-20261006/` (DVC; `dvc pull` to fetch).
+
+### Calibration statistics
+
+`calib/`: pass 0 of all 25 games, each replayed up to the first history trim
+(2.93M tokens, 1.60M of them generated). 54 minutes at 905 tok/s; generated
+top-1 0.881, NLL 0.337. The run log, the analysis and the 256-expert mask
+served afterwards (`keep_256_calib.json`, `gate_norm`, all 25 games) are next
+to the statistics.
+
+Router weight kept (`gate_norm`; leave-one-game-out held-out, worst game):
+
+| keep | in-sample | held-out | worst |
+|---:|---:|---:|---:|
+| 448 | 0.995 | 0.995 | 0.980 |
+| 384 | 0.979 | 0.979 | 0.929 |
+| 320 | 0.949 | 0.949 | 0.866 |
+| 256 | 0.899 | 0.898 | 0.780 |
+| 192 | 0.820 | 0.819 | 0.664 |
+
+Held-out is within 0.001 of in-sample, so 25 games are enough to rank.
+
+Long context: the experts preferred at 96K+ tokens overlap 88% with those
+preferred under 32K (256 kept). The overall ranking, which is what is
+served, keeps a similar share of router weight in every band: 0.908 (0-32K),
+0.919, 0.914 and 0.913 (96K+). Some experts are more active at long context,
+but the ranking over all positions covers long context as well as short
+context.
