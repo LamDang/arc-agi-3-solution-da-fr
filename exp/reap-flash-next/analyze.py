@@ -1,0 +1,139 @@
+"""Expert selection and game-level cross-validation from saved REAP statistics.
+
+    python analyze.py OUT_DIR [--keep 448,384,320,288,256,192] [--categories context,generated,image]
+
+REAP score of expert j in a layer: sum(g_j * ||f_j||) / count_j over the
+tokens routed to it (0 if never routed). The kept set of a layer is its top-N
+experts by score; every layer keeps the same N.
+
+Cross-validation leaves one game out: experts are chosen from the other
+games' statistics, then measured on the held-out game by coverage, the share
+of its router weight (sum of g over routed tokens) that lands on kept
+experts. The gap to in-sample coverage estimates what an unseen game loses.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from collections import defaultdict
+from pathlib import Path
+
+import numpy as np
+
+CATEGORIES = ("context", "generated", "image")
+
+
+def load(out_dir: Path) -> dict[str, dict[str, np.ndarray]]:
+    runs = {}
+    for path in sorted((out_dir / "stats").glob("*/*.npz")):
+        key = f"{path.parent.name}/{path.stem}"
+        with np.load(path) as data:
+            runs[key] = {k: data[k] for k in data.files}
+    return runs
+
+
+def game_of(run_key: str) -> str:
+    return run_key.split("/")[-1].rsplit("_p", 1)[0]
+
+
+def aggregate(runs: dict, keys, categories) -> dict[str, np.ndarray]:
+    """Sum the fields over runs and the chosen category indexes -> [L, E]."""
+    total = None
+    for key in keys:
+        part = {f: v[..., categories].sum(-1) for f, v in runs[key].items()}
+        total = part if total is None else {f: total[f] + part[f] for f in total}
+    return total
+
+
+def reap_scores(stats: dict) -> np.ndarray:
+    count = stats["count"]
+    return np.divide(stats["gate_norm"], count, out=np.zeros_like(count), where=count > 0)
+
+
+def keep_mask(scores: np.ndarray, n: int) -> np.ndarray:
+    order = np.argsort(-scores, axis=1, kind="stable")[:, :n]
+    mask = np.zeros_like(scores, dtype=bool)
+    np.put_along_axis(mask, order, True, axis=1)
+    return mask
+
+
+def coverage(stats: dict, mask: np.ndarray, field: str = "gate") -> np.ndarray:
+    """Per-layer share of `field` mass on kept experts."""
+    mass = stats[field]
+    total = mass.sum(1)
+    return np.divide((mass * mask).sum(1), total, out=np.ones_like(total), where=total > 0)
+
+
+def usage_summary(stats: dict) -> dict:
+    """How concentrated routing is: experts needed for 50/90/99% of router weight."""
+    gate = stats["gate"]
+    ranked = -np.sort(-gate, axis=1)
+    cumulative = ranked.cumsum(1) / np.maximum(ranked.sum(1, keepdims=True), 1e-12)
+    out = {f"experts_for_{int(q * 100)}pct": np.argmax(cumulative >= q, axis=1) + 1 for q in (0.5, 0.9, 0.99)}
+    out["never_routed"] = (stats["count"] == 0).sum(1)
+    return {k: {"min": int(v.min()), "median": float(np.median(v)), "max": int(v.max())} for k, v in out.items()}
+
+
+def cross_validate(runs: dict, keep: list[int], categories) -> dict:
+    by_game = defaultdict(list)
+    for key in runs:
+        by_game[game_of(key)].append(key)
+    games = sorted(g for g in by_game if g != "unknown")
+    all_keys = list(runs)
+    result = {}
+    for n in keep:
+        rows = []
+        for game in games:
+            train = [k for k in all_keys if game_of(k) != game]
+            held = aggregate(runs, by_game[game], categories)
+            mask_out = keep_mask(reap_scores(aggregate(runs, train, categories)), n)
+            mask_in = keep_mask(reap_scores(aggregate(runs, all_keys, categories)), n)
+            cov_out, cov_in = coverage(held, mask_out), coverage(held, mask_in)
+            rows.append({"game": game, "held_out_worst_layer": float(cov_out.min()),
+                         "held_out_mean": float(cov_out.mean()), "in_sample_mean": float(cov_in.mean()),
+                         "gap_mean": float(cov_in.mean() - cov_out.mean())})
+        result[n] = {
+            "games": rows,
+            "held_out_mean": float(np.mean([r["held_out_mean"] for r in rows])) if rows else None,
+            "held_out_worst": float(np.min([r["held_out_worst_layer"] for r in rows])) if rows else None,
+            "gap_mean": float(np.mean([r["gap_mean"] for r in rows])) if rows else None,
+        }
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("out_dir")
+    parser.add_argument("--keep", default="448,384,320,288,256,192")
+    parser.add_argument("--categories", default=",".join(CATEGORIES))
+    args = parser.parse_args()
+    out = Path(args.out_dir)
+    runs = load(out)
+    if not runs:
+        raise SystemExit(f"no statistics under {out / 'stats'}")
+    categories = [CATEGORIES.index(c) for c in args.categories.split(",")]
+    keep = [int(n) for n in args.keep.split(",")]
+    everything = aggregate(runs, list(runs), categories)
+    report = {
+        "runs": list(runs),
+        "games": sorted({game_of(k) for k in runs}),
+        "categories": args.categories,
+        "usage": usage_summary(everything),
+        "in_sample_coverage": {n: float(coverage(everything, keep_mask(reap_scores(everything), n)).mean())
+                               for n in keep},
+        "cross_validation": cross_validate(runs, keep, categories),
+    }
+    (out / "analysis.json").write_text(json.dumps(report, indent=1))
+    print(f"{len(runs)} runs, games: {', '.join(report['games'])}")
+    print("routing concentration per layer:", json.dumps(report["usage"]))
+    print(f"{'keep':>5} {'in-sample':>10} {'held-out':>9} {'worst':>7} {'gap':>7}")
+    for n in keep:
+        cv = report["cross_validation"][n]
+        held = "-" if cv["held_out_mean"] is None else f"{cv['held_out_mean']:.4f}"
+        worst = "-" if cv["held_out_worst"] is None else f"{cv['held_out_worst']:.4f}"
+        gap = "-" if cv["gap_mean"] is None else f"{cv['gap_mean']:.4f}"
+        print(f"{n:>5} {report['in_sample_coverage'][n]:>10.4f} {held:>9} {worst:>7} {gap:>7}")
+
+
+if __name__ == "__main__":
+    main()

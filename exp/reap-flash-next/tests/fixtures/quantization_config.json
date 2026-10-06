@@ -1,0 +1,9 @@
+{
+ "bits": 4,
+ "data_type": "int",
+ "group_size": 128,
+ "packing_format": "auto_round:auto_gptq",
+ "quant_method": "auto-round",
+ "sym": true,
+ "autoround_version": "0.15.0"
+}

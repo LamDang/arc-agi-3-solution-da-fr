@@ -1,0 +1,11 @@
+{
+ "transformers": "5.18.0",
+ "extra_pip": [],
+ "sources": ["kaggle_v3", "openrouter"],
+ "steps": [
+  {
+   "name": "smoke",
+   "args": "--samples kaggle_v3/sk48_p0:0,kaggle_v3/sk48_p0:1,openrouter/ft09_p0:0 --chunk 8192 --precache"
+  }
+ ]
+}
