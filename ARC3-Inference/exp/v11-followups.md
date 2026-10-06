@@ -174,6 +174,10 @@ changed during the run. Ordered by the turns they cost.
     turns, 19K tokens (11K outputs, 8K arguments); ls20 56 turns, 24K (13K / 11K). The gap since the
     last phase message was at most 32 / 41 turns, median 5. Never above 73K, so it fits the 128K cap
     with room, and most turns are under 40K.
+    **Form:** one user message holds the rebuilt context (the commit turns, the current PLAN or FIT
+    message at its place, the older turns since it) and ends with "The context has been compacted.
+    Continue from the context above."; the last 10 turns follow it as real turns with their full
+    reasoning.
 24. **Add a sprite list to the PLAN message (the image stays).** The PLAN message attaches the current
     frame as a 512x512 image (`_frame_part`, play_agent.py); the FIT message's test report carries
     its own picture. Measured on this run: a turn that carries an image grows the prompt by
@@ -307,8 +311,8 @@ sampling, for reference: temperature 0.7, top-p 0.95, top-k 20 (the Kaggle confi
   148-248, in which v11 never solved level 2. Changes: prompt 13 (support comments), 14, 16, 18, 19,
   20, 21; messages 4, 5, 18's restart message, 24, 25, 27 and 28 (after a batch only); harness 26, 30.
   Forking at 127 instead (the FIT message that opens level 2) would also test the drawing, with 1.
-- **C. temperature:** the two forks of A with the v11 code at temperature 0, top-p 1 (v11 and the
-  base agent: 0.7 / 0.95); rerun at 0.2 if a fork loops.
+- ~~C. temperature~~: dropped (the base agent runs at 0.7 / 0.95 / top-k 20, the same as v11).
 
-Five forks of 100 turns: about a third of a game each, roughly $2 and 80 minutes per fork at v11's
-pace.
+Three forks of 100 turns: about a third of a game each, roughly $2 and 80 minutes per fork at v11's
+pace. One subagent implements each experiment on its own worktree branch; a fork tool
+(`engine_re/tools/fork_run.py`) is shared.
