@@ -13,6 +13,10 @@ changed during the run. Ordered by the turns they cost.
    level 1). At a level change the harness should insert a `make_level(n + 1)` branch from the
    generated code, check it passes the level's first-frame test, and say so in the PLAN message
    ("level n+1's first frame is drawn from these kinds; rename and restructure as you like").
+   **Decided (v12):** not the seeding: the new level's objects and pixels can differ too much from
+   the generator's cut. Instead a nudge in the level-start message naming where the shapes already
+   are ("the board's pieces match these engine.py constants: BAR, BIN (turned), ...; combine them
+   into the new sprites, and draw what is left from recording[-1].pieces_after.code()").
 2. **Compaction has a floor that rises with the turns.** `_compact` trims in place and never
    drops anything: a 1,200-char tail of every old reasoning block (172 turns = ~42K tokens on
    sp80), a 200-char stub of every old tool output (~10K), the shortened arguments of every past
@@ -23,6 +27,7 @@ changed during the run. Ordered by the turns they cost.
 3. **Plan nudges never escalate.** sp80 spent 24 plan turns (4 nudges) before its first level-2
    batch and 26+ before its first level-3 batch, rewriting searches that crashed on its own code.
    After the second nudge, require a batch of 1-3 moves before any further search.
+   **Dropped (user's call).**
 4. **Verdict when the replica predicts a level solve and the game does not.** `fresh()` calls
    `make_level(n + 1)`, which raises `IndexError` when the level is not drawn, and the mismatch
    message says "your replica raised an error". It cost ls20 ~9 turns looking for a "level 2
@@ -34,6 +39,9 @@ changed during the run. Ordered by the turns they cost.
    (`[E_BAD_OP] edits must be a non-empty list`, 16 times on sp80); with `oldText`/`newText` but
    no `op` it fails ("Edit 0 has op None", 9 turns lost on sp80). Parse the string and infer
    `replace_text` in `_dispatch` / `builtin_call_code` (engine_re/agent.py).
+   Still relevant on the v12 forks: the A forks (v11 prompt) called edit_file as a tool 16 and 7
+   times, 4 and 2 of them failing this way; the B fork (v12 prompt) never called it as a tool.
+   **Decided (v12):** fix the shim (cheap).
 7. **"Unfamiliar elements" in screen coordinates** while the engine may use a rotated grid
    (sp80 level 1: the 4x1 at (2,5) is (10,10) in grid terms); the bins were listed as unfamiliar
    on level 3 because of it. Superseded by 19: the list goes.
@@ -85,6 +93,7 @@ changed during the run. Ordered by the turns they cost.
     the State hit the 120 s kernel timeout twice, so the model rewrote the level's rules as a
     set-based fast model that diverged from the engine twice. A cheaper State copy, or a built-in
     move search over `replica.step`, would remove the rewrite.
+    **Dropped (user's call).**
 18. **The python cell timeout is not in the prompt.** A cell may run 120 s (`kernel.py`, the
     `timeout` of the kernel parent); past that the kernel is restarted and every variable is lost,
     and the model learns this only from the "Timed out after 120s" message after a search is gone
@@ -332,6 +341,8 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     in the A windows against 0 in v11's. Candidates: list the kernel's user names with their defining
     turn in the compacted message, and keep the latest engine listing in it when the current phase
     message does not carry one.
+    **Decided (v12):** the compacted message carries the current engine.py listing with its support
+    comments (as read_file shows it) whenever the current phase message does not already carry it.
 35. **A fork's first plan round runs on v11's text.** The fork resumes at v11's last PLAN message, so
     B's first v12 PLAN message came only at turn 165 (fork at 148). Inherent to forking at a PLAN
     message; fork at the FIT message that opens the level, or regenerate the last phase message
