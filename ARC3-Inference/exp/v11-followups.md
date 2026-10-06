@@ -36,7 +36,7 @@ changed during the run. Ordered by the turns they cost.
    `replace_text` in `_dispatch` / `builtin_call_code` (engine_re/agent.py).
 7. **"Unfamiliar elements" in screen coordinates** while the engine may use a rotated grid
    (sp80 level 1: the 4x1 at (2,5) is (10,10) in grid terms); the bins were listed as unfamiliar
-   on level 3 because of it. Give grid coordinates in the engine's view when there is one.
+   on level 3 because of it. Superseded by 19: the list goes.
 8. **Piece name vs description** in object diffs: a disappeared piece named
    `SHAPE_9_3x3_710a` described as "colour 12 (orange), 6x6" (stale identity carried over).
 9. **`run_play.py` writes "(v10)"** into config.json for every run.
@@ -94,3 +94,18 @@ changed during the run. Ordered by the turns they cost.
     STATIC, ... 14 names; the harness built-ins and `recording` are back; re-run the cells that
     defined them") and say which cell timed out and roughly where it was (the search's own
     progress prints are lost with it).
+19. **Drop the "Unfamiliar elements to test first" list.** It is noise: the segmentation is one
+    piece per colour, so ls20's one multi-colour 3x3 patch arrived as five single-colour fragments
+    plus "and 4 more", mixed with the new maze floor and two grey bars, in screen coordinates
+    (7). The model drew the lot as inert sprites. Remove the list; the level-start message and
+    the image are enough.
+20. **Rule 6 wording.** "New levels often introduce additional mechanics, sometimes through
+    unfamiliar board elements" becomes "... sometimes through an unfamiliar board element or a
+    visual change" (ls20 level 2: the legend's colour; sp80 level 0 in v10: the floor blink).
+21. **Guaranteed solvable, so being stuck means a missing or wrong rule.** Add to the plan
+    rules: every game is solvable. When you are stuck (no plan, or a plan far above the human
+    baseline, or the same refusal twice), you are probably missing a rule or one of the written
+    rules is wrong; explore more of the game's mechanics (touch what you have not touched, repeat
+    a refused move in a changed condition) rather than searching harder on the rules you have.
+    ls20 level 2 was refused three times with the dial matched and spent 100 actions on a
+    fake-board theory before touching the one object it had never touched.
