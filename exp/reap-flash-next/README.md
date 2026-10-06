@@ -72,7 +72,7 @@ kept-expert count.
 
 ## Validation done
 
-Local, CPU (`pytest tests`, 14 tests):
+Local, CPU (`pytest tests`, 18 tests):
 
 - **Tiny model** with the same architecture and a fake Intel-format checkpoint
   (`tests/tiny.py`):
@@ -111,6 +111,81 @@ KAGGLE_CLI=kaggle python kaggle/push.py --config kaggle/smoke.json --traces-dir 
 truncates them, `--deadline-minutes` stops before Kaggle's 12-hour limit, and
 finished game runs are skipped on restart.
 
-## Smoke test
+`prune_eval.py` calibrates and then replays held-out games with pruned routers
+(softmax over kept experts only, as if the others were deleted).
+`bench.py` times the speed options (`--compile-dequant`, `--attention sdpa`)
+against each other; not yet run on a GPU.
 
-Pending.
+### Kaggle constraints
+
+- The RTX PRO 6000 (97.9 GB, 176 GB RAM) is only offered to notebooks attached
+  to the `arc-prize-2026-arc-agi-3` competition, and those must run with the
+  internet off. A kernel pushed without both silently gets T4 x2.
+  `kaggle/push.py` sets both and passes `--accelerator NvidiaRtxPro6000`.
+- With no internet, dependencies come from the private dataset
+  `lamdang/reap-flash-next-wheels` (transformers 5.18 and its dependencies,
+  flash-linear-attention 0.5.2). `causal_conv1d` has no sm_120 wheel; its
+  PyTorch fallback is cheap and used on purpose.
+- `/kaggle/working` is lost when an interactive session stops and cannot be
+  uploaded from it; zip it and download it from the Output panel.
+  `kaggle/interactive_session.ipynb` is the notebook used for the runs below.
+
+## Results (interactive RTX PRO 6000 session, 2026-10-06)
+
+### Smoke test
+
+Three samples from two game runs, full length:
+
+| Sample | Tokens | Images | tok/s | Top-1 on own generations | Peak GPU |
+|---|---:|---:|---:|---:|---:|
+| `kaggle_v3/sk48_p0:0` | 117,582 | 40 | 845 | 0.879 | 88.1 GB |
+| `kaggle_v3/sk48_p0:1` | 51,796 | 13 | 848 | 0.835 | 86.0 GB |
+| `openrouter/ft09_p0:0` | 116,610 | 27 | 863 | 0.884 | 88.0 GB |
+
+Overall top-1 0.874, NLL 0.363. Loading took 730 s from a cold disk and
+12-21 s once the files were in the page cache. With flash-linear-attention
+the replay runs at about 950 tok/s, so all 100 `kaggle_v3` runs (45-50M
+tokens) would take about 15 hours: two sessions, or the speed options.
+
+Routing is spread out: per layer, the median number of experts carrying
+50 / 90 / 99% of the router weight is 68 / 260 / 416.
+
+### Pruned routers on held-out games
+
+Calibration: the first stretch (up to 64K tokens) of 8 `kaggle_v3` pass-0
+runs plus the two smoke runs, 10 runs and 9 games. Evaluation: the first
+stretch (up to 32K tokens) of pass 1 of ls20, sb26 and vc33, none of them in
+calibration; 35,514 generated tokens scored. Mean over the three games of the
+next-token NLL increase over the full model (lower is better):
+
+| Experts kept | REAP (mean g\|\|f\|\|) | REAP, generated tokens only | `gate` (sum g) | **`gate_norm` (sum g\|\|f\|\|)** |
+|---:|---:|---:|---:|---:|
+| 448 | +0.010 | | | |
+| 384 | +0.034 | +0.022 | +0.015 | **+0.012** |
+| 320 | +0.065 | +0.036 | +0.039 | **+0.035** |
+| 288 | +0.090 | | | |
+| 256 | +0.114 | +0.080 | +0.085 | **+0.067** |
+| 192 | +0.204 | | | |
+| Top-1 at 256 (full model 0.856) | 0.821 | 0.830 | 0.830 | **0.835** |
+| Agreement with the full model at 256 | 0.878 | 0.894 | 0.895 | **0.901** |
+
+- `gate_norm` wins at every size and on each game (at 256: ls20 0.084 vs
+  0.106 for `gate`, sb26 0.054 vs 0.068, vc33 0.062 vs 0.081). It is REAP's
+  quantity summed instead of averaged: the average lets rarely routed experts
+  with large outputs outrank experts the router uses constantly. It is now
+  the default in `analyze.py` and `prune_eval.py`.
+- With `gate_norm`, 256 experts cost what 320 cost with REAP; 384 is nearly
+  free (+0.012 NLL, about 3%). Mean full-model NLL is 0.417.
+- Ranking on generated tokens only helped REAP (0.080 vs 0.114 at 256);
+  `gate_norm` with generated or context+generated tokens is the next test.
+- Noise floor: replaying the full model twice gives 96-100% top-1 agreement
+  (GPU kernels are not bitwise deterministic) and NLL within 0.0007. Compare
+  agreement figures with that, not with 1.0; NLL is the reliable measure.
+- Router-weight coverage on the smoke statistics, leave one game out:
+  `gate_norm` keeps 0.871 at 256 experts (worst layer 0.757) against 0.752
+  (0.627) for REAP. Its in-sample/held-out gap is larger (0.025 vs 0.011), so
+  it should gain more from the full 100-run statistics.
+
+Statistics from these runs (`kaggle_v3` ar25, bp35, cd82, dc22, g50t, re86,
+tn36, tu93, plus the smoke runs) are in `reap_results.zip` from the session,
+not in git.

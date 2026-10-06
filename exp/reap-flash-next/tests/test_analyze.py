@@ -52,7 +52,7 @@ def test_leave_one_game_out(tmp_path):
     # without b misses it, chosen with b keeps it
     _write(tmp_path, {"k/aaaa_p0": _stats([0, 1, 2]), "k/aaaa_p1": _stats([0, 1, 2]), "k/bbbb_p0": _stats([1, 7])})
     runs = analyze.load(tmp_path)
-    cv = analyze.cross_validate(runs, [3], [0, 1, 2])[3]
+    cv = analyze.cross_validate(runs, [3], [0, 1, 2], "reap")[3]
     by_game = {r["game"]: r for r in cv["games"]}
     assert by_game["bbbb"]["held_out_mean"] == 0.5  # expert 1 kept, expert 7 not
     assert by_game["bbbb"]["in_sample_mean"] == 1.0

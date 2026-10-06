@@ -4,13 +4,14 @@ pruned routers.
 
     python prune_eval.py --model-dir MODEL --traces kaggle_v3=DIR --out OUT \\
         --calib-games ar25,bp35 --calib-passes 0 --eval-games ls20,vc33 --eval-passes 1 \\
-        [--stats-dir PREVIOUS_OUT ...] [--keep 448,384,320,256,192] [--criterion reap] [--noise-check]
+        [--stats-dir PREVIOUS_OUT ...] [--keep 448,384,320,256,192] [--criterion gate_norm] [--noise-check]
 
 1. Calibration: the first stretch of each selected game run is replayed with
    the recorder on (truncated to --calib-max-tokens) and saved like run_reap.py
    does, under OUT/stats. --stats-dir adds statistics from earlier runs.
-2. Evaluation: for each held-out sample, experts are ranked by REAP score
-   from every calibration run of other games. The sample is replayed with the
+2. Evaluation: for each held-out sample, experts are ranked (by default by
+   summed g*||f||, see analyze.expert_scores) from every calibration run of
+   other games. The sample is replayed with the
    full model, then with each pruned router (softmax over kept experts only,
    as if the others were deleted). Reported per N: next-token top-1 and NLL
    on the logged generated tokens, and agreement with the full model's top-1.
@@ -79,7 +80,7 @@ def main():
     parser.add_argument("--eval-max-tokens", type=int, default=32768)
     parser.add_argument("--keep", default="448,384,320,288,256,192")
     parser.add_argument("--categories", default="context,generated,image", help="tokens used to rank experts")
-    parser.add_argument("--criterion", choices=analyze.CRITERIA, default="reap", help="how experts are ranked")
+    parser.add_argument("--criterion", choices=analyze.CRITERIA, default="gate_norm", help="how experts are ranked")
     parser.add_argument("--noise-check", action="store_true",
                         help="replay the full model twice: agreement between identical runs is the floor")
     parser.add_argument("--chunk", type=int, default=8192)
