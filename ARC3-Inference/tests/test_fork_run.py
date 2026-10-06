@@ -73,6 +73,11 @@ TESTS = [{"turn": 0, "auto": "opening", "engine_sha": "A", "level": None, "from_
          {"turn": 4, "auto": False, "engine_sha": "C", "level": None, "from_level": None, "passed": True, "exact": 3, "total": 3, "passing_prefix": 3}]
 
 
+def _text(content) -> str:
+    """A message's text: the string, or the text parts of a list (a PLAN message carries the sprite list as a part)."""
+    return content if isinstance(content, str) else "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+
+
 def _kinds(records: list[dict]) -> list[tuple[int, str]]:
     return [(r["turn"], next(k for k in r if k not in ("turn", "phase", "step", "elapsed_min"))) for r in records]
 
@@ -188,7 +193,7 @@ def test_a_fork_holds_the_state_after_its_turn_and_nothing_later(tmp_path: Path,
     assert len(Trace.load(out / "trace")) == 2 and len(Trace.load(out / "visible_trace")) == 2
     records = [json.loads(line) for line in (out / "transcript.jsonl").read_text().splitlines()]
     assert all(r["turn"] <= 3 for r in records) and "fork" in records[-1] and records[-1]["fork"]["turn"] == 3
-    assert records[-2]["message"]["content"].startswith("Plan the next moves. Steps 0-1 pass")
+    assert _text(records[-2]["message"]["content"]).startswith("Plan the next moves. Steps 0-1 pass")
     assert all(json.loads(line)["turn"] <= 3 for line in (out / "tests.jsonl").read_text().splitlines())
     assert sorted(p.name for p in (out / "workspace").iterdir()) == ["engine.py", "notes.md"]
     assert (out / "workspace" / "notes.md").read_text() == NOTES_TEMPLATE
@@ -229,7 +234,7 @@ def test_a_dry_resume_of_a_fork_rebuilds_the_notes_from_the_kept_cells(tmp_path:
     agent = _play_agent(out, environments, _ScriptedModel([]), turns=8)
     state = agent._rebuild_conversation()
     users = [m for m in state["messages"] if m["role"] == "user"]
-    assert users[-2]["content"].startswith("Plan the next moves. Steps 0-1 pass")
+    assert _text(users[-2]["content"]).startswith("Plan the next moves. Steps 0-1 pass")
 
 
 def test_a_fork_resumes_with_its_own_budget_and_plays_on(tmp_path: Path, environments: Path) -> None:

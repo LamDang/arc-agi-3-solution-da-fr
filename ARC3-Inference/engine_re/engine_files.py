@@ -62,12 +62,25 @@ def syntax_check(text: str, name: str = "engine.py") -> str:
 
 
 class EngineEditor:
-    def __init__(self, engine_path: Path, versions_dir: Path, game_dir: Path | None = None, log: Callable[[dict], None] | None = None):
+    def __init__(self, engine_path: Path, versions_dir: Path, game_dir: Path | None = None, log: Callable[[dict], None] | None = None,
+                 support: Path | None = None):
         self.engine_path = Path(engine_path)
         self.versions_dir = Path(versions_dir)
         self.game_dir = Path(game_dir) if game_dir else self.engine_path.parent.parent
         self.log = log
+        self.support = Path(support) if support else None  # the committed engine's support map (play mode): comments on the fresh anchors
         self.index_path = self.versions_dir / "versions.jsonl"
+
+    def _comments(self, text: str) -> dict[int, str] | None:
+        """The support comments of `text`'s step code (engine_re.support.comments), when a map is there."""
+        if self.support is None or not self.support.exists():
+            return None
+        from engine_re import support as sup
+
+        try:
+            return sup.comments(json.loads(self.support.read_text(encoding="utf-8")), text)
+        except (OSError, ValueError):
+            return None
 
     # --- versions ---------------------------------------------------------------------------
 
@@ -171,7 +184,7 @@ class EngineEditor:
         applied = f"applied {result.total - len(result.failed)} of {result.total} edits: " if result.failed else ""
         out = [f"engine.py: {applied}{summary}. {syntax_check(result.text)}. (version {version}; undo_edit() reverts it)"]
         out += result.failed + notes
-        anchors = hashline.fresh_anchors(result.text, result.regions)
+        anchors = hashline.fresh_anchors(result.text, result.regions, comments=self._comments(result.text))
         if anchors:
             out += ["Fresh anchors around the change:"] + anchors
         return "\n".join(out)

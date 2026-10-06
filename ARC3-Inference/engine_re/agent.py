@@ -98,7 +98,7 @@ from engine_re.helpers import FUNCTIONS as BUILTIN_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.prompts import (
     ENGINE_HEADER, advance_message, elide_engine_listing, episode_message, first_user_message, kernel_names_text,
-    resume_user_message, system_prompt, tools,
+    restart_note, resume_user_message, system_prompt, tools,
 )
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import MAX_FAILURES, replay_test
@@ -802,6 +802,7 @@ class AgentResult:
     auto_tests: int = 0
     python_paused: int = 0
     engine_changes: int = 0
+    kernel_restarts: int = 0  # cells that timed out or crashed the kernel; the earlier cells were re-run after each
     match: str = "final"
     interface: str = "simple"
     images: bool = True
@@ -899,6 +900,9 @@ class EngineAgent:
         self.pending_test: list[tuple[str, Path, bytes]] = []
         self.image_files: dict[str, str] = {}  # an image's data URL -> its saved file, for the transcript
         self.commit: dict[str, Any] | None = None  # stepwise: an accepted commit_engine, applied after the turn
+        # The python cells that ran in this run, in order ({"turn", "code"}; a resumed run collects them from the
+        # transcript): re-run in the kernel after a restart (_restart_kernel), the cell that killed it left out.
+        self.cells: list[dict[str, Any]] = []
         # A resume's kernel replay applies the cells' edits to files other than engine.py (a fork: engine_re.tools.fork_run)
         self.replay_files = False
 
@@ -916,7 +920,26 @@ class EngineAgent:
         self.python_since_change += 1
         output = self.kernel.execute(code)
         self._keep_shown(self.kernel.last_images)
+        if self.kernel.restarted:
+            return _truncate(output) + "\n\n" + self._restart_kernel(code)
+        self.cells.append({"turn": self.result.turns, "code": code})
         return _truncate(output)
+
+    def _restart_kernel(self, code: str) -> str:
+        """The kernel was killed on `code` (a timeout, a crash) and restarts empty: re-run the earlier cells of this
+        run in it (KernelClient.replay: edits and images off, the cell itself left out) and say what was lost (the
+        names the kernel held before the cell), which cells came back and what the kernel keeps now (prompts.restart_note)."""
+        reason = self.kernel.restarted or "crash"
+        lost = self.kernel.last_names
+        replay = self.kernel.replay(list(self.cells))
+        self.result.kernel_restarts += 1
+        self._log({"turn": self.result.turns, "kernel_restart": {
+            "reason": reason, "lost": list(lost[0]), "lost_more": lost[1], "cells": len(self.cells),
+            "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []), "skipped": replay.get("skipped", 0),
+            "seconds": replay.get("seconds", 0.0), **({"error": replay["error"]} if "error" in replay else {}),
+        }})
+        head = next((line.strip() for line in code.splitlines() if line.strip()), "")[:80]
+        return restart_note(reason, self.kernel.timeout, lost, head, replay, kernel_names_text(*self.kernel.names()))
 
     def _engine_hash(self) -> str:
         return hashlib.sha256(self.engine_path.read_bytes()).hexdigest()
@@ -1387,6 +1410,7 @@ class EngineAgent:
             if "plan" in r or "step_start" in r or "advance" in r:
                 phase = "plan" if "plan" in r else "fit"
                 break
+        killed = False  # a "kernel_restart" record: the next python cell is the one that killed the kernel (not re-run)
         for index in range(starts[-1], len(records)):
             r = records[index]
             turn = int(r.get("turn") or 0)
@@ -1416,8 +1440,12 @@ class EngineAgent:
                 messages.append(TurnMessage(
                     {"role": "tool", "tool_call_id": r.get("id") or (call["id"] if call else ""), "content": r["output"]}, turn=turn))
                 code = cell_code(call) if call and r["tool"] == "python" else None
-                if code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):  # a paused call never ran
+                if code is not None and killed:  # the cell that timed out or crashed the kernel
+                    killed = False
+                elif code is not None and not str(r["output"]).startswith(PYTHON_PAUSED[:40]):  # a paused call never ran
                     cells.append({"turn": r.get("turn"), "code": code})
+            elif "kernel_restart" in r:
+                killed = True
             elif "append" in r:
                 messages[-1]["content"] += r["append"]
             elif "hide_images" in r:
@@ -1479,6 +1507,7 @@ class EngineAgent:
         self.tested_hash = self.engine_hash_seen = self._engine_hash()
         # The kernel restarted empty: re-run the conversation's python cells (edits disabled), then say what it keeps.
         cells = state.get("cells") or []
+        self.cells = list(cells)
         replay = self.kernel.replay(cells, files=self.replay_files)
         self._log({"turn": self.result.turns, "replay": {
             "cells": len(cells), "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []),

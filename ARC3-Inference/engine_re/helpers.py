@@ -14,7 +14,11 @@ private. In the stepwise harness (the kernel's --focus K) the recording on disk 
     replay_step(i, state=None, action=None)                run one step of engine.py and explain it
     summarize_levels()                                     each level's first frame, steps and end
     replica                                                engine.py as it is now, reloaded after a change
-    traced(), support(run=None)                            (play) what code on the replica ran, against the evidence
+    state_now(), click_cell(state, x, y)                   (play) the replica's state now; a click's grid cell
+
+In the play mode read_file() shows engine.py with each line's support in a margin and, on the lines of step()
+and the functions it calls, a trailing `# support (n): ...` comment (engine_re.support.comments), read from the
+committed engine's support map (SUPPORT_PATH).
 
 The kernel's replay mode (REPLAY, set while the harness re-runs the python cells of a resumed
 conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image. With REPLAY_FILES
@@ -37,7 +41,6 @@ import base64
 import contextlib
 import copy
 import json
-import weakref
 import hashlib
 import re
 import sys
@@ -67,7 +70,7 @@ FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames
 # The play-and-model agent (engine_re.play_agent) adds two: the replica's state after everything played, and
 # the grid cell a click lands on (the Action.cell the harness computes for a click). Moves are played by
 # calling replica.step on copies of a State directly.
-PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "click_cell", "traced", "support")
+PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "click_cell")
 
 # Set by the kernel (load_trace).
 trace: Trace = None  # type: ignore[assignment]
@@ -80,8 +83,7 @@ _RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the ha
 _SHOWN: list[dict[str, str]] = []  # images made by show_frames() during the current request
 REPLAY = False  # the kernel is re-running earlier cells: no edits, no images (engine_re.kernel.replay_cells)
 REPLAY_FILES = False  # in replay mode: edits to files other than engine.py are applied (a fork rebuilds notes.md)
-SUPPORT_PATH: Path | None = None  # the committed engine's support map (the play kernel's --support): margins, traced()
-_INSTRUMENTED: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()  # module loaded from engine.py -> its support.Instrumented
+SUPPORT_PATH: Path | None = None  # the committed engine's support map (the play kernel's --support): read_file's margin and comments
 
 _API = game_api.canonical()
 Sprite, Action, View, State = _API.Sprite, _API.Action, _API.View, _API.State
@@ -105,8 +107,9 @@ def read_file(path: str = "engine.py", offset: int | None = None, limit: int | N
     fold = game_api.fixed_block_lines(text) if _is_engine(path) else None
     smap = _support_map() if _is_engine(path) else None
     margin = _support.margins(smap, text) if smap else None
+    comments = _support.comments(smap, text) if smap else None
     try:
-        print(hashline.render_read(text, offset, limit, fold=fold, name=str(path), margin=margin))
+        print(hashline.render_read(text, offset, limit, fold=fold, name=str(path), margin=margin, comments=comments))
     except hashline.EditError as exc:
         print(exc)
 
@@ -169,18 +172,13 @@ def undo_edit(n: int = 1, to: Any = None) -> None:
 
 
 def _load_engine() -> types.ModuleType:
-    """engine.py loaded fresh, as a module: compiled with its conditions wrapped in a recorder that does nothing
-    outside traced() (support.instrument; line numbers and behaviour unchanged), or as it is when that fails."""
+    """engine.py loaded fresh, as a module."""
     name = "candidate_engine_dev"
     source = ENGINE_PATH.read_text(encoding="utf-8")
     module = types.ModuleType(name)
     module.__file__ = str(ENGINE_PATH)
     sys.modules[name] = module
-    inst = _support.instrument(source, str(ENGINE_PATH))
-    if inst is not None:
-        module.__dict__[_support.COND_NAME] = _support.no_cond
-        _INSTRUMENTED[module] = inst
-    exec(inst.code if inst is not None else compile(source, str(ENGINE_PATH), "exec", dont_inherit=True), module.__dict__)
+    exec(compile(source, str(ENGINE_PATH), "exec", dont_inherit=True), module.__dict__)
     return module
 
 
@@ -670,7 +668,7 @@ def state_now() -> Any:
     return copy.deepcopy(state)
 
 
-# --- Support: what code on the replica ran, against the evidence (the play agent) ------------------------
+# --- Support: the committed engine's map, for read_file's margin and comments (the play agent) --------------
 
 
 def _support_map() -> dict[str, Any] | None:
@@ -682,97 +680,6 @@ def _support_map() -> dict[str, Any] | None:
     except (OSError, ValueError):
         return None
 
-
-class TracedRun:
-    """What a `with traced() as run:` block ran on your replica: .lines (engine.py's lines that ran), .weakest (the
-    least support of those lines: how many recorded steps ran it; 0 for an untested or new line; None: no map or no
-    line), .untested, .thin and .new (lines), .unseparated (and/or conditions it evaluated that the recorded steps
-    never separated). Printing it gives one paragraph; support(run) prints it."""
-
-    def __init__(self) -> None:
-        self.lines: list[int] = []
-        self.weakest: int | None = None
-        self.untested: list[int] = []
-        self.thin: list[int] = []
-        self.new: list[int] = []
-        self.unseparated: list[dict[str, Any]] = []
-        self.steps: int | None = None  # the recorded steps the map counts
-        self.note = ""
-
-    def __repr__(self) -> str:
-        if self.note:
-            return f"traced: {len(self.lines)} lines of engine.py ran; {self.note}"
-        parts = [f"traced: {len(self.lines)} lines of engine.py ran; weakest support {self.weakest}"
-                 + (f" of {self.steps} recorded steps" if self.steps is not None else "")]
-        if self.untested:
-            parts.append(f"untested (no recorded step ran them): {_support.line_ranges(self.untested)}")
-        if self.new:
-            parts.append(f"new since your last commit: {_support.line_ranges(self.new)}")
-        if self.thin:
-            parts.append(f"thin (1-{_support.THIN_SUPPORT - 1} steps): {_support.line_ranges(self.thin)}")
-        if self.unseparated:
-            parts.append("never separated: " + _support.unseparated_text(self.unseparated, 3))
-        return "; ".join(parts)
-
-
-_LAST_RUN: TracedRun | None = None
-
-
-def _fill(run: TracedRun, inst: _support.Instrumented, lines: list[int], evaluated: list[list[int]]) -> None:
-    run.lines = list(lines)
-    smap = _support_map()
-    if smap is None:
-        run.note = "no support map yet (commit_moves makes one when it commits your replica)"
-        return
-    current = _support.remap(smap, ENGINE_PATH.read_text(encoding="utf-8"))
-    ps = _support.path_support(current, lines)
-    table = current["lines"]
-    run.steps, run.weakest, run.thin = smap.get("steps"), ps["weakest"], ps["thin"]
-    run.new = [line for line in lines if table.get(str(line), {}).get("new")]
-    run.untested = [line for line in ps["untested"] if line not in run.new]
-    known = _support.compound_lookup(current)
-    ran = {k for k, _ in evaluated}
-    groups = {inst.conds[k]["group"] for k in ran if k < len(inst.conds) and inst.conds[k]["group"] is not None}
-    for g in sorted(groups):
-        c = known.get((inst.groups[g]["line"], inst.groups[g]["text"]))
-        if c is None or c["separated"]:
-            continue
-        loose = [k for k in inst.groups[g]["operands"] if inst.conds[k]["text"] in c["missing"]]
-        if any(k in ran for k in loose):  # it relied on an operand that never decided the condition (support.path_support)
-            run.unseparated.append({"line": c["line"], "text": c["text"], "missing": c["missing"]})
-
-
-@contextlib.contextmanager
-def traced() -> Any:
-    """`with traced() as run:` around code that steps your replica (replica.step, replica.make_level): afterwards
-    `run` says which lines of engine.py it ran and how many recorded steps support each (TracedRun), so plans can
-    be ranked by evidence (run.weakest). Code outside the block, and state_now(), are not counted."""
-    global _LAST_RUN
-    run = TracedRun()
-    _LAST_RUN = run
-    module = replica._current()
-    inst = _INSTRUMENTED.get(module)
-    tracer = _support.Tracer(inst, module.__dict__) if inst is not None else None
-    if tracer is None or not tracer.start():
-        run.note = "nothing was traced (engine.py could not be instrumented, or a tracer is already running)"
-        yield run
-        return
-    tracer.begin()
-    try:
-        yield run
-    finally:
-        tracer.end("run")
-        tracer.stop()
-        _fill(run, inst, tracer.executed.get("run", []), tracer.evaluated.get("run", []))
-
-
-def support(run: TracedRun | None = None) -> None:
-    """Print what the last `with traced()` block (or `run`) ran on your replica, against the evidence."""
-    run = run or _LAST_RUN
-    if run is None:
-        print("support(): nothing traced yet; run your moves inside `with traced() as run:` first")
-        return
-    print(repr(run))
 
 
 # --- Code for a frame's pieces --------------------------------------------------------------------
