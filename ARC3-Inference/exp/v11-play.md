@@ -312,20 +312,17 @@ Output tokens per level, base agent against v11:
 
 ## Where the tokens went
 
-**Phases.** On sp80 the plan phase took 55.7% of the output tokens. The
-first two levels were fit-heavy (fit 60% and 68% of their output). Levels 2
-and 3 were plan-heavy (plan 62% and 71%), because the searches were long.
-On ls20 the fit phase took 87.3%, and 84-89% of every level. ls20's fit
-rounds averaged 12.0 turns, twice sp80's 6.1. s115 alone took 41 turns.
-Cost follows prompt tokens more than output: the fit share of the cost was
-37.0% on sp80 and 72.4% on ls20.
+**Phases.** sp80's plan phase took 55.7% of its output tokens: levels 0-1
+were fit-heavy (fit 60% and 68%), levels 2-3 plan-heavy (plan 62% and 71%,
+the long searches). ls20's fit phase took 87.3% (84-89% per level); its fit
+rounds averaged 12.0 turns, twice sp80's 6.1. The fit share of the cost was
+37.0% on sp80 and 72.4% on ls20: cost follows prompt tokens.
 
-**Level changes.** At each solved level the model drew the next board in
-the fit round on the solving step, by hand. The segmentation generator
-(`recording[k].pieces_after.code()`) was called once in the whole run (ls20
-t10, level 0). sp80 wrote each new board in grid coordinates. ls20 extracted
-each maze floor with numpy into a 50-row literal and wrote the other
-objects' positions by hand.
+**Level changes.** The next board was drawn by hand in the fit round on the
+solving step. `recording[k].pieces_after.code()`, the segmentation
+generator, was called once in the run (ls20 t10, level 0). sp80 wrote each
+board in grid coordinates; ls20 extracted each maze floor with numpy into a
+50-row literal and placed the other objects by hand.
 
 | level change | drawing the new board: turns (output tokens) | from that commit to the first batch: turns |
 | --- | --- | --- |
@@ -345,9 +342,8 @@ code, a kernel timeout) or a refused batch.
 | most frequent errors | `E_BAD_OP` 16, TypeError 9, NameError 7, E_NO_MATCH 3, IndexError 3, timeouts 3 | IndexError 7, NameError 5, TypeError 5, KeyError 3, ValueError 3, timeouts 2 |
 | `edit_file` called as a tool (run as python by the shim) | 55 | 2 |
 
-Most errors were in the model's own search code. On sp80, 14 of the 16
-`E_BAD_OP`s were `edit_file` tool calls with `oldText`/`newText` and no
-`op`; the other 2 passed `edits` as a JSON string.
+Most errors were in the model's own search code; 14 of sp80's 16
+`E_BAD_OP`s were `edit_file` tool calls with `oldText`/`newText` and no `op`.
 
 **Context.** Compaction ran from the first prompt over 140K (t35 sp80, t42
 ls20) on every later turn, but it trims in place and drops nothing. After
@@ -379,11 +375,11 @@ searches (sp80 t117, ls20 t105 and t248). Most searches ran on fast
 set-based copies of the rules, which can disagree with the engine (sp80
 t227).
 
-**Support.** Every batch's output carried its support lines. Neither game
-ever called `traced()` or `support()`, so the model saw a plan's weakest
-link only after sending it. The sent moves, by the weakest support of the
-engine lines their prediction ran (`support.weakest` of each `move`
-record), against v10's offline check over its three games:
+**Support.** Every batch's output carried its support lines, but neither
+game ever called `traced()` or `support()`, so the model saw a plan's
+weakest link only after sending it. The sent moves by the weakest support of
+the lines their prediction ran (`support.weakest`), against v10's offline
+check over three games:
 
 | weakest line's support | sp80 moves (mismatched) | ls20 | v11 together | v10 offline |
 | --- | --- | --- | --- | --- |

@@ -18,6 +18,7 @@ their own index ([Play runs](#play-runs)).
 | [v8-condense-per-turn.md](v8-condense-per-turn.md) | v8c, v6cc | Does condensing the conversation before every request save tokens? |
 | [v9-bar-tolerance.md](v9-bar-tolerance.md) | v9, v9c, v9t | Does tolerating one HUD-bar pixel unblock level 2? With the threshold condenser, with a thinking budget? |
 | [v10-play.md](v10-play.md) | v10 (sp80, ls20, ft09) | Can one agent play a live game while it fits `engine.py`, and plan its moves on that engine? |
+| [v11-play.md](v11-play.md) | v11 (sp80, ls20) | Does stepping the replica directly, with support measured by the harness and the base prompt's guidance, take the play agent further? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
@@ -176,9 +177,18 @@ the run directory holds every game. All numbers come from each game's
 | [v10 ft09](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | won | 100.0 | 6/6 | 77 | 156 | 74 / 78 of 78 | 70.0 | $0.605 | 17.42M | 92% | 289,302 | 229,091 | 11 | `qwen38flash-v10` |
 | [v10 sp80](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 4.01 | 2/6 | 239 | 300 | 240 / 0 of 240 | 177.3 | $1.967 | 48.26M | 86% | 627,305 | 546,947 | 21 | `qwen38flash-v10` |
 | [v10 ls20](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 3.57 | 1/7 | 239 | 300 | 230 / 240 of 240 | 182.5 | $1.904 | 48.00M | 87% | 675,320 | 575,226 | 18 | `qwen38flash-v10` |
+| [v11 sp80](v11-play.md) | v11: replica stepped directly, support, base-prompt port | `5d2bda7` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 47.6 | 4/6 | 122 | 300 | 122 / 122 of 123 | 165.9 | $1.965 | 51.35M | 88% | 612,788 | 505,629 | 19 | `qwen38flash-v11-a` |
+| [v11 ls20](v11-play.md) | v11: replica stepped directly, support, base-prompt port | `5d2bda7` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 231 | 300 | 232 / 232 of 232 | 135.5 | $1.937 | 52.64M | 88% | 468,632 | 376,296 | 18 | `qwen38flash-v11-a` |
 
 Headline: the loop won ft09 in 77 actions, against the base agent's 100 and
 a human baseline of 208. It cost 2.9 times the base agent's output tokens
 and 4.7 times its cost. It passed sp80's level 1 (2/6 against 1/6), but
 stopped at 1/7 on ls20 (the base agent reached 5/7). The turn limit ended
 both unfinished games.
+
+v11 headline: on the same budget, sp80 went from 2/6 to 4/6 (score 4.01 to
+47.6, 239 to 122 actions) and ls20 from 1/7 to 2/7 (3.57 to 10.7), every
+solved level under the human baseline. The three levels v10 never solved
+(sp80 2-3, ls20 1) all came from routes searched and verified on the
+replica. ls20 stopped at level 2 on a win rule that left out colour; the
+base agent still leads there (5/7).
