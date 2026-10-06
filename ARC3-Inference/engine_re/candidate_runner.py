@@ -2,7 +2,7 @@
 
     python -m engine_re.candidate_runner ENGINE ACTIONS_JSON OUT_DIR [--start-level L]
         [--win-levels N --available-actions JSON --levels JSON] [--inspect JSON] [--no-contract]
-        [--ignore JSON] [--resync JSON]
+        [--ignore JSON] [--resync JSON] [--no-trace]
 
 Two kinds of engine are accepted: a module with ``make_level`` and ``step``
 (the simple interface, ``engine_re.game_api``; it needs --win-levels and
@@ -26,6 +26,14 @@ action positions: an error at an ignored position does not end the run (the step
 error goes to result["ignored_errors"]) since the engine is out of step with the game there; before a
 resync position ({"pos": {"level": L, "score": s}}) the runner is put back at level L's start
 (game_api.GameRunner.resync). The process still gets only the actions and these positions.
+
+Support (simple interface; PLAY_DESIGN.md 3.11, engine_re.support): the engine is compiled with its
+conditions wrapped in a recorder (line numbers kept), and while the actions are played a tracer records, per
+action position (and "start"), the lines of the model's part executed (result["executed"]: {"0": [lines],
+...}) and the conditions evaluated with their truth value (result["evaluated"]: {"0": [[k, 0|1], ...]});
+result["coverage"] holds the static part (the executable lines, the conditions and the and/or groups). The
+contract tests and the module's loading are not traced. ``--no-trace`` turns it off (the engine is then
+compiled as it is); an engine the rewrite cannot compile runs as before, without condition data.
 
 The process never sees the expected observations: it gets only the actions,
 and after loading the engine source it can read no files at all (only the
@@ -52,7 +60,7 @@ import numpy as np
 import arcengine  # noqa: F401  (imported before the guard so the engine can use it)
 from arcengine import ARCBaseGame
 
-from engine_re import game_api, guard
+from engine_re import game_api, guard, support
 from engine_re.trace import Action, new_game, perform
 
 MODULE_NAME = "candidate_engine"
@@ -63,14 +71,17 @@ class StepTimeout(Exception):
     pass
 
 
-def load_module(source: str, path: str) -> types.ModuleType:
-    """Execute the engine source as a module."""
+def load_module(source: str, path: str, code: types.CodeType | None = None) -> types.ModuleType:
+    """Execute the engine source as a module (`code`: its compiled form, e.g. support.instrument's, whose
+    condition recorder is a no-op until a tracer is attached)."""
     # The guard blocks reading the file again, so seed linecache for tracebacks.
     linecache.cache[path] = (len(source), None, source.splitlines(True), path)
     module = types.ModuleType(MODULE_NAME)
     module.__file__ = path
     sys.modules[MODULE_NAME] = module
-    exec(compile(source, path, "exec", dont_inherit=True), module.__dict__)
+    if code is not None:
+        module.__dict__[support.COND_NAME] = support.no_cond
+    exec(code if code is not None else compile(source, path, "exec", dont_inherit=True), module.__dict__)
     return module
 
 
@@ -110,6 +121,7 @@ def main() -> int:
     parser.add_argument("--no-contract", action="store_true", help="skip the contract tests")
     parser.add_argument("--ignore", default=None, help="JSON list of action positions whose errors do not end the run")
     parser.add_argument("--resync", default=None, help='JSON {"position": {"level": L, "score": s}}')
+    parser.add_argument("--no-trace", action="store_true", help="record no support data (executed lines, conditions)")
     args = parser.parse_args()
 
     engine_path = str(Path(args.engine).resolve())
@@ -119,6 +131,9 @@ def main() -> int:
     inspect = {str(k) for k in json.loads(args.inspect)} if args.inspect else set()
     ignore = {int(k) for k in json.loads(args.ignore)} if args.ignore else set()
     resync = {int(k): v for k, v in json.loads(args.resync).items()} if args.resync else {}
+    inst = None if args.no_trace else support.instrument(source, engine_path)
+    code = inst.code if inst is not None else None
+    tracer: support.Tracer | None = None
     guard.install(read_roots=[], write_roots=[str(out_dir)])
 
     result: dict = {"steps": [], "error": None, "error_step": None, "start_frame": None, "interface": None, "contract": None}
@@ -165,7 +180,7 @@ def main() -> int:
         capture = game_api.PrintCapture()
         try:
             with contextlib.redirect_stdout(capture):
-                module = load_module(source, engine_path)
+                module = load_module(source, engine_path, code)
         finally:
             keep("load", capture, always=True)
         if game_api.is_simple_engine(module):
@@ -182,15 +197,26 @@ def main() -> int:
                     )
                     # The contract tests modify states on purpose; replay on a freshly loaded module.
                     signal.setitimer(signal.ITIMER_REAL, args.step_timeout * 4)
-                    module = load_module(source, engine_path)
+                    module = load_module(source, engine_path, code)
+            if inst is not None:
+                tracer = support.Tracer(inst, module.__dict__)
+                if tracer.start():
+                    result["coverage"] = {**inst.static(), "tracer": "sys.monitoring"}
+                    result["executed"], result["evaluated"] = tracer.executed, tracer.evaluated
+                else:
+                    tracer = None
             game = game_api.GameRunner(module, args.win_levels, available)
             play = game.perform
             if args.start_level is not None:
                 capture = game_api.PrintCapture()
                 try:
+                    if tracer is not None:
+                        tracer.begin()
                     with contextlib.redirect_stdout(capture):
                         game.set_level(args.start_level)
                 finally:
+                    if tracer is not None:
+                        tracer.end("start")
                     keep("start", capture, always=True)
                 game.score = args.start_level
                 result["start_frame"] = game_api.render(game.state).tolist()
@@ -213,6 +239,8 @@ def main() -> int:
             if snap:
                 result["inspect"][str(step_index)] = {"before": summary(game), "after": None}
             capture = game_api.PrintCapture()
+            if tracer is not None:
+                tracer.begin()
             try:
                 signal.setitimer(signal.ITIMER_REAL, args.step_timeout)
                 with contextlib.redirect_stdout(capture):
@@ -228,6 +256,8 @@ def main() -> int:
                 result.setdefault("ignored_errors", {})[str(step_index)] = _short_traceback(exc, engine_path)
                 obs = game._observation([])
             finally:
+                if tracer is not None:
+                    tracer.end(str(step_index))
                 keep(str(step_index), capture, always=snap)
             if snap:
                 result["inspect"][str(step_index)]["after"] = summary(game)
@@ -239,6 +269,8 @@ def main() -> int:
         signal.setitimer(signal.ITIMER_REAL, 0)
         result["error"] = _short_traceback(exc, engine_path)
         result["error_step"] = step_index
+    if tracer is not None:
+        tracer.stop()
     result["seconds"] = round(time.time() - started, 2)
     np.savez_compressed(
         out_dir / "frames.npz",

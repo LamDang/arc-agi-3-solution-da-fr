@@ -1,6 +1,6 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history] [--play]]
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history] [--play [--support FILE]]]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests (a {"focus": k} request, from the stepwise harness, reloads
@@ -70,8 +70,9 @@ RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
 # The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and click_cell
-# (moves are played by calling replica.step on copies of a State).
-PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell")
+# (moves are played by calling replica.step on copies of a State), and traced and support, which read what a
+# block of code ran on the replica against the committed engine's support map (--support FILE, readable).
+PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell", "traced", "support")
 RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
     "replica is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
@@ -241,6 +242,7 @@ def main() -> int:
     focus = int(sys.argv[sys.argv.index("--focus") + 1]) if "--focus" in sys.argv[3:] else None
     history = "--history" in sys.argv[3:]
     play = "--play" in sys.argv[3:]
+    support_file = Path(sys.argv[sys.argv.index("--support") + 1]).resolve() if "--support" in sys.argv[3:] else None
     import numpy as np
 
     import scipy.ndimage  # noqa: F401
@@ -251,6 +253,7 @@ def main() -> int:
     helpers.load_trace(Trace.load(trace_dir), focus)
     helpers.ENGINE_PATH = workspace / "engine.py"
     helpers.IMAGES = images
+    helpers.SUPPORT_PATH = support_file
     api = game_api.canonical()
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
     namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
@@ -277,7 +280,8 @@ def main() -> int:
         return json.loads(reply) if reply else {"ok": False, "text": "the harness did not answer"}
 
     helpers._RPC = rpc
-    guard.install(read_roots=[str(trace_dir)], write_roots=[str(workspace)], protected=[str(workspace / "engine.py")])
+    guard.install(read_roots=[str(trace_dir)] + ([str(support_file)] if support_file else []), write_roots=[str(workspace)],
+                  protected=[str(workspace / "engine.py")])
 
     while True:
         line = sys.stdin.readline()
@@ -338,6 +342,7 @@ class KernelClient:
         focus: int | None = None,
         history: bool = False,
         play: bool = False,
+        support: Path | None = None,
     ):
         from engine_re.engine_files import EngineEditor
 
@@ -348,6 +353,7 @@ class KernelClient:
         self.focus = focus
         self.history = history
         self.play = play
+        self.support = Path(support).resolve() if support else None  # the committed engine's support map (play mode)
         self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
@@ -358,6 +364,8 @@ class KernelClient:
             cmd.append("--no-images")
         if self.focus is not None:
             cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else []) + (["--play"] if self.play else [])
+            if self.play and self.support is not None:
+                cmd += ["--support", str(self.support)]
         self.proc = subprocess.Popen(
             cmd,
             cwd=self.workspace,

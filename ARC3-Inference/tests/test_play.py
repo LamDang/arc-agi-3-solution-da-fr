@@ -901,3 +901,302 @@ def test_run_play_writes_what_score_run_reads_and_skips_finished_games(tmp_path:
     strip = ("final_wallclock_seconds", "started_at")
     assert [{k: v for k, v in r.items() if k not in strip} for r in again["game_runs"]] == \
         [{k: v for k, v in r.items() if k not in strip} for r in first["game_runs"]]
+
+
+# --- support: what the recorded steps ran (PLAY_DESIGN.md 3.11) -----------------------------------
+
+SUPPORT_SOURCE = """FIXED = 1
+# ==== END OF FIXED INTERFACE ====
+import numpy as np
+
+CALLS = []
+
+
+def probe(name, value):
+    CALLS.append(name)
+    return value
+
+
+def rule(a, b, c):
+    if probe("a", a) and probe("b", b):
+        out = "both"
+    elif a or c:
+        out = "either"
+    else:
+        out = "none"
+    keep = c and np.array([1, 2])
+    while False:
+        pass
+    return out if keep is not None else "never"
+
+
+def boom():
+    x = 1
+    raise ValueError("here")
+"""
+
+
+def _line(source: str, text: str) -> int:
+    """The first line holding `text` after the FIXED block (the whole file when it has none)."""
+    lines = source.splitlines()
+    start = next((n for n, line in enumerate(lines, 1) if line.strip() == "# ==== END OF FIXED INTERFACE ===="), 0)
+    return next(n for n, line in enumerate(lines, 1) if n > start and text in line)
+
+
+def test_the_condition_rewrite_keeps_values_order_and_lines_and_the_tracer_records_them() -> None:
+    import traceback
+    import types
+
+    from engine_re import support
+
+    inst = support.instrument(SUPPORT_SOURCE, "/x/engine.py")
+    assert inst is not None and inst.first == 3
+    kinds = [(c["kind"], c["text"]) for c in inst.conds]
+    assert ("and", 'probe("a", a)') in kinds and ("if", 'probe("a", a) and probe("b", b)') in kinds
+    assert ("or", "a") in kinds and ("ifexp", "keep is not None") in kinds and ("and", "np.array([1, 2])") in kinds
+    assert not any(c["kind"] == "while" for c in inst.conds)  # a constant test is left alone
+    assert [g["op"] for g in inst.groups] == ["and", "or", "and"]
+    assert 1 not in inst.lines and _line(SUPPORT_SOURCE, 'out = "both"') in inst.lines
+    assert _line(SUPPORT_SOURCE, "CALLS = []") not in inst.lines  # module level: runs at load, not in a step
+    module = types.ModuleType("m")
+    module.__dict__[support.COND_NAME] = support.no_cond
+    exec(inst.code, module.__dict__)
+    tracer = support.Tracer(inst, module.__dict__)
+    assert tracer.start()
+    try:
+        for key, args in (("0", (False, True, False)), ("1", (True, False, True)), ("2", (True, True, False))):
+            tracer.begin()
+            module.CALLS.clear()
+            got = module.rule(*args)
+            tracer.end(key)
+            if key == "0":  # short-circuit kept: b is not evaluated once a is false
+                assert module.CALLS == ["a"] and got == "none"
+        tracer.begin()
+        try:
+            module.boom()
+        except ValueError as exc:
+            frame = traceback.extract_tb(exc.__traceback__)[-1]
+            assert frame.lineno == _line(SUPPORT_SOURCE, 'raise ValueError("here")')  # line numbers unchanged
+        tracer.end("3")
+    finally:
+        tracer.stop()
+    assert module.rule(True, True, True) == "both" and module.__dict__[support.COND_NAME] is support.no_cond
+    assert _line(SUPPORT_SOURCE, 'out = "none"') in tracer.executed["0"] and _line(SUPPORT_SOURCE, 'out = "both"') not in tracer.executed["0"]
+    assert _line(SUPPORT_SOURCE, 'out = "either"') in tracer.executed["1"] and _line(SUPPORT_SOURCE, 'out = "both"') in tracer.executed["2"]
+    a_and = next(c["id"] for c in inst.conds if c["text"] == 'probe("a", a)')
+    b_and = next(c["id"] for c in inst.conds if c["text"] == 'probe("b", b)')
+    assert [a_and, 0] in tracer.evaluated["0"] and not any(k == b_and for k, _ in tracer.evaluated["0"])
+    assert [a_and, 1] in tracer.evaluated["1"] and [b_and, 0] in tracer.evaluated["1"]
+    assert tracer.executed["3"] == [_line(SUPPORT_SOURCE, "x = 1"), _line(SUPPORT_SOURCE, 'raise ValueError("here")')]
+    # A file the rewrite cannot read is reported as before: instrument gives None and the runner compiles it itself.
+    assert support.instrument("def f(:\n", "/x/engine.py") is None
+
+
+def test_the_support_map_counts_steps_and_finds_conditions_never_separated() -> None:
+    import types
+
+    from engine_re import support
+
+    inst = support.instrument(SUPPORT_SOURCE, "/x/engine.py")
+    module = types.ModuleType("m")
+    exec(inst.code, module.__dict__)
+    tracer = support.Tracer(inst, module.__dict__)
+    tracer.start()
+    calls = [(True, True, False), (True, True, True), (False, False, True), (True, False, False)]
+    try:
+        for k, args in enumerate(calls):
+            tracer.begin()
+            module.rule(*args)
+            tracer.end(str(k))
+    finally:
+        tracer.stop()
+    data = {"coverage": inst.static(), "executed": tracer.executed, "evaluated": tracer.evaluated}
+    both = _line(SUPPORT_SOURCE, 'out = "both"')
+    # Steps 0-2 only: `a and b` was never decided by b (b was true whenever a held); `a or c`, reached only when the
+    # `and` failed, never by a.
+    smap = support.fold_result(data, {"0": 10, "1": 11, "2": 12}, SUPPORT_SOURCE)
+    assert smap["steps"] == 3 and smap["lines"][str(both)] == {"n": 2, "steps": [10, 11]}
+    assert smap["lines"][str(_line(SUPPORT_SOURCE, 'out = "none"'))]["n"] == 0  # untested
+    first = next(c for c in smap["compound"] if c["text"].startswith('probe("a", a) and'))
+    assert not first["separated"] and first["missing"] == ['probe("b", b)']
+    either = next(c for c in smap["compound"] if c["text"] == "a or c")
+    assert not either["separated"] and either["missing"] == ["a"]
+    assert smap["summary"]["untested"] >= 2 and smap["summary"]["unseparated"] >= 2 and smap["thin"] == support.THIN_SUPPORT
+    # Step 3 (a held, b did not) separates `a and b`.
+    smap = support.fold_result(data, {"0": 10, "1": 11, "2": 12, "3": 13}, SUPPORT_SOURCE)
+    assert next(c for c in smap["compound"] if c["text"].startswith('probe("a", a) and'))["separated"]
+    # Step 3's path against the first map: "either" ran on one earlier step (thin), and it relied on both loose
+    # compounds (it evaluated b of the `and` and a of the `or`, the operands that never decided them).
+    early = support.fold_result(data, {"0": 10, "1": 11, "2": 12}, SUPPORT_SOURCE)
+    ps = support.path_support(early, tracer.executed["3"], tracer.evaluated["3"])
+    assert ps["weakest"] == 1 and ps["untested"] == [] and _line(SUPPORT_SOURCE, 'out = "either"') in ps["weakest_lines"]
+    assert [c["text"] for c in ps["unseparated"]] == ['probe("a", a) and probe("b", b)', "a or c"]
+    assert "ran in only 1 step so far" in support.move_support_text(ps) and "never separated" in support.move_support_text(ps)
+    assert support.mismatch_support_text(ps).startswith("the weakest lines")
+    # A path through the untested branch.
+    ps = support.path_support(early, tracer.executed["2"], tracer.evaluated["2"])
+    assert support.path_support(early, [_line(SUPPORT_SOURCE, 'out = "none"')])["untested"] == [_line(SUPPORT_SOURCE, 'out = "none"')]
+    none_path = support.path_support(early, tracer.executed["2"] + [_line(SUPPORT_SOURCE, 'out = "none"')])
+    assert none_path["weakest"] == 0 and support.mismatch_support_text(none_path).startswith("this step was the first to run line")
+
+
+def test_the_support_margin_follows_lines_through_an_edit() -> None:
+    from engine_re import hashline, support
+
+    text = SUPPORT_SOURCE
+    smap = {"engine_sha": "old", "steps": 5, "keys": [support.text_key(t) for t in text.splitlines()],
+            "lines": {str(_line(text, 'out = "both"')): {"n": 4, "steps": [1, 2, 3, 4]},
+                      str(_line(text, 'out = "none"')): {"n": 0, "steps": []}}, "compound": []}
+    # Two lines inserted above (the counted lines move), one counted line changed.
+    edited = text.replace("def rule(a, b, c):\n", "def rule(a, b, c):\n    # a note\n    a = bool(a)\n").replace(
+        'out = "none"', 'out = "nothing"')
+    margin = support.margins(smap, edited)
+    assert margin[_line(edited, 'out = "both"')] == "4" and margin[_line(edited, 'out = "nothing"')] == "new"
+    assert margin[_line(edited, "a = bool(a)")] == "new" and _line(edited, "# a note") not in margin
+    assert margin[1] == "·" and margin[2] == "·"  # the FIXED block
+    listing = hashline.render_read(edited, margin=margin)
+    assert listing.startswith(hashline.MARGIN_NOTE)
+    shown = next(line for line in listing.splitlines() if 'out = "both"' in line)
+    assert shown.startswith("   4| ") and hashline.parse_anchor(shown.split(":")[0]).line == _line(edited, 'out = "both"')
+    with pytest.raises(hashline.EditError, match="E_INVALID_PATCH"):  # a listing line pasted as code is still refused
+        hashline.apply_edits(edited, [{"op": "append", "lines": [shown]}])
+    moved = support.remap(smap, edited)
+    assert moved["lines"][str(_line(edited, 'out = "both"'))]["n"] == 4
+    assert moved["lines"][str(_line(edited, 'out = "nothing"'))] == {"n": 0, "steps": [], "new": True}
+
+
+def test_the_runner_records_executed_lines_per_step(tmp_path: Path) -> None:
+    from engine_re.hashline import apply_edits
+    from engine_re.skeleton import render_skeleton
+    from engine_re.tester import run_candidate
+
+    edits = [{"op": "replace_def", "name": n, "lines": p.strip("\n")} for n, p in zip(("LAYOUT", "make_level", "step"), RIGHT_ENGINE.split("\n\n\n"))]
+    text = apply_edits(render_skeleton("twol", [1, 2, 3, 4]), edits).text
+    text = text.replace("    if player.x >= 4:", "    if action.id == 2 and player.y > 1:\n        raise ValueError('deep')\n    if player.x >= 4:")
+    engine = tmp_path / "engine.py"
+    engine.write_text(text, encoding="utf-8")
+    meta = {"win_levels": 2, "available_actions": [1, 2, 3, 4], "levels": [0]}
+    actions = [{"id": 0}, {"id": 4}, {"id": 3}, {"id": 3}, {"id": 0}, {"id": 2}]  # RIGHT, LEFT, LEFT at x 1 (lost), RESET, DOWN
+    result, _ = run_candidate(engine, actions, meta=meta, contract=False)
+    executed = result["executed"]
+    assert set(executed) == {"0", "1", "2", "3", "4", "5"} and result["error_step"] == 5
+    assert _line(text, "state.try_move(player") in executed["1"] and _line(text, 'state.status = "game_over"') in executed["3"]
+    assert _line(text, "state.try_move(player") not in executed["3"] and _line(text, "player = Sprite(") in executed["0"]
+    assert executed["4"] == []  # a RESET of a level already built runs none of the model's code
+    from engine_re.support import first_model_line
+
+    assert all(line >= first_model_line(text) for lines in executed.values() for line in lines)
+    assert f"line {_line(text, 'raise ValueError')}" in result["error"]  # the traceback's line is the file's
+    assert any(g["text"] == "action.id == 3 and player.x == 1" for g in result["coverage"]["groups"])
+    plain, _ = run_candidate(engine, actions, meta=meta, contract=False, trace=False)
+    assert "executed" not in plain and plain["error"] == result["error"] and plain["steps"] == result["steps"]
+
+
+def test_commit_moves_says_what_each_prediction_rests_on(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT", "RIGHT", "RIGHT"], "note": "a"})],
+        [("commit_moves", {"actions": ["DOWN", "UP", "RIGHT"], "note": "b"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=6)
+    result = agent.run()
+    run = tmp_path / "run"
+    engine = (run / "engine_committed.py").read_text()
+    tools = _texts(agent, "tool")
+    first = next(t for t in tools if t.startswith("Sent 3 of 4"))
+    assert "Support of your replica's predictions (how many of the 1 recorded steps ran the code each move runs" in first
+    head = _line(engine, "player = state.vars")
+    assert f"moves 1 Action(4), 2 Action(4), 4 Action(4): first to run lines {head}-" in first  # step() had never run
+    assert f"move 3 Action(4): first to run lines {head}-" in first and "(no step so far)" in first  # it solves the level too
+    assert "moves 1, 2, 3: their paths are supported by at least 3 steps each" in tools[-1]
+    support = result.batch_log[1]["support"]
+    assert [s["weakest"] for s in support] == [3, 3, 3] and all(s["untested"] == [] for s in support)
+    assert result.batch_log[0]["support"][0]["untested"] and result.batch_log[0]["support"][0]["weakest"] == 0
+    # the sidecar: the committed engine's map, grown with the moves that matched
+    import hashlib
+
+    smap = json.loads((run / "engine_committed.support.json").read_text())
+    assert smap["engine_sha"] == hashlib.sha256((run / "engine_committed.py").read_bytes()).hexdigest() == result.committed_sha
+    assert smap["steps"] == 7 and smap["lines"][str(_line(engine, "state.try_move(player"))]["n"] == 6
+    tests = [json.loads(line) for line in (run / "tests.jsonl").read_text().splitlines()]
+    assert tests[-1]["support"]["steps"] == 4 and set(tests[-1]["support"]) == {"steps", "lines", "untested", "thin", "supported",
+                                                                                "compound", "unseparated"}
+    # the PLAN message names the outcome rule no step ran and the thin lines of the last batch's path
+    plans = [u for u in _texts(agent) if u.startswith("Plan the next moves")]
+    solved = _line(engine, 'state.status = "level_solved"')
+    assert "Rules with little support" in plans[2]
+    assert f"- your last batch's path: thin line {solved} (1 step), lines " in plans[2]  # and make_level(1)'s lines (2 steps)
+    assert (f"- line {_line(engine, 'state.status = \"game_over\"')} sets game_over: no step ran it (an untested rule); its "
+            "condition `action.id == 3 and player.x == 1`") in plans[-1]
+    from engine_re.hashline import MARGIN_NOTE
+
+    listing = plans[1].split(ENGINE_HEADER)[1]  # listed after the commit, with the support margin
+    assert listing.lstrip().startswith(MARGIN_NOTE)
+    assert next(line for line in listing.splitlines() if "state.try_move(player" in line).startswith("   0| ")
+
+
+def test_a_mismatch_names_the_untested_lines_and_cut_untested_cuts_the_batch(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start(WRONG_DOWN) + [
+        [("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "a"})],  # cut after the first: it runs untested code
+        [("commit_moves", {"actions": ["DOWN", "RIGHT"], "note": "b"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5, cut_untested=True)
+    result = agent.run()
+    assert result.cut_untested and result.batch_log[0]["sent"] == 1 and result.batch_log[0]["cut_untested"] == 1
+    assert result.batch_log[0]["moves"] == ["Action(4)", "Action(4)"] and result.actions == 2
+    tools = _texts(agent, "tool")
+    assert ("The batch was cut after move 1, the first to run code no recorded step has run: it is the experiment "
+            "(the harness's cut-untested rule); the 1 move(s) after it were not sent.") in tools[2]
+    fit = next(u for u in _texts(agent) if u.startswith("Fix your replica: step 2"))
+    assert "Support: the weakest lines" in fit and "on its path had run in only 1 earlier step." in fit
+    report = fit[fit.index("TEST RESULT"):]
+    assert "its path in engine.py" in report and "thin: lines" in report and "(1 step)" in report
+
+
+def test_the_kernel_margin_and_traced_support(tmp_path: Path, environments: Path) -> None:
+    from engine_re.hashline import MARGIN_NOTE
+    from engine_re.kernel import KernelClient
+
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT", "RIGHT"], "note": "a"})]])
+    agent = _agent(tmp_path, environments, model, turns=3)
+    agent.run()
+    run = tmp_path / "run"
+    engine = (run / "workspace" / "engine.py").read_text()
+    kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=2, history=True, play=True,
+                          support=run / "engine_committed.support.json")
+    try:
+        out = kernel.execute("read_file()")
+        assert out.startswith(MARGIN_NOTE)
+        moves = next(line for line in out.splitlines() if "state.try_move(player" in line)
+        assert moves.startswith("   2| ")  # steps 1 and 2 ran it
+        out = kernel.execute(
+            "import copy\ns = state_now()\nwith traced() as run:\n    t = copy.deepcopy(s)\n    replica.step(t, Action(4))\n"
+            "print(run.weakest, run.untested, run.new)\nsupport()")
+        solved = _line(engine, 'state.status = "level_solved"')
+        assert out.splitlines()[-2] == f"0 [{solved}] []"  # the winning move runs the line no recorded step ran
+        assert out.splitlines()[-1].startswith("traced: ") and f"untested (no recorded step ran them): {solved}" in out
+        # an edited line shows as new, in the margin and in what traced() reports
+        kernel.execute("edit_file(edits=[{'op': 'replace_text', 'oldText': 'if player.x >= 4:', 'newText': 'if player.x >= 5:'}])")
+        out = kernel.execute("read_file()")
+        assert next(line for line in out.splitlines() if "player.x >= 5" in line).startswith(" new| ")
+        assert next(line for line in out.splitlines() if "state.try_move(player" in line).startswith("   2| ")
+        out = kernel.execute("with traced() as run:\n    replica.step(copy.deepcopy(s), Action(4))\nprint(run.new, run.weakest)")
+        assert out.strip() == f"[{_line(engine, 'if player.x >= 4:')}] 0"
+        for name in ("traced", "support"):
+            assert "nothing was run" in kernel.execute(f"{name} = 1"), name
+    finally:
+        kernel.stop()
+
+
+def test_the_play_prompt_explains_support_and_its_rules() -> None:
+    from engine_re.prompts import system_prompt, tools
+
+    text = system_prompt(mode="play", images=False)
+    assert "# Support: how much of your replica the steps played have tested" in text
+    assert "0 is untested" in text and "fewer than 3 is thin" in text and "Trust these counts over comments in engine.py." in text
+    assert "Important rules should be tested in different conditions a few times." in text
+    assert "A rule written as `A and B` or `A or B` is only established once the steps separate its parts" in text
+    assert "Do not over-engineer your replica on one observation: one step supports one rule, not a general mechanism" in text
+    assert "a rule is worth generalising when its support\n   comes from steps in different conditions, not before." in text
+    assert "traced() -> TracedRun" in text and "support(run=None) -> None" in text
+    commit_moves = tools(False, "play", True)[3]["function"]["description"]
+    assert "what each move's prediction rested on" in commit_moves

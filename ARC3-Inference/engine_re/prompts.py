@@ -402,6 +402,11 @@ To play moves on your replica, call it directly on copies of a State: s = copy.d
     replica.make_level(n), and after s.status == "level_solved" the next level is replica.make_level(n + 1).
     render_state(s) draws a State and show_frames(...) shows it. Searching over moves (a BFS calling
     replica.step on copies) is a short function in python: write it when the level needs it.
+traced() -> TracedRun  `with traced() as run:` around code that steps your replica records the lines of engine.py
+    it runs (state_now() is not counted); afterwards run.weakest is the least support among them (0: untested or
+    new), run.untested, run.thin and run.new list lines, run.unseparated the and/or conditions it relied on that
+    no step separated. Rank candidate plans by it: run each inside its own traced() block.
+support(run=None) -> None  prints the last traced() block's summary (or run's).
 """
 
 # replay_step's level argument, as the modes whose run_tests has `level` describe it, and as the play mode does.
@@ -896,6 +901,16 @@ that account for every step observed so far.
 - commit_moves checks each move the same way, live: your replica's final frame and status for the move
   against the game's.
 
+# Support: how much of your replica the steps played have tested
+The harness records which lines of engine.py each step runs. A line's support is the number of steps played so
+far that ran it: 0 is untested (a guess no step has checked), fewer than 3 is thin. A condition `A and B` is
+separated when some step had A true and B false and some step had A false (`A or B`: each part true on some
+step); a compound never separated cannot be told from a simpler rule by the steps so far. You see it in the margin
+of read_file() and of the engine listing (the count left of each line; new: changed since your last commit), in
+commit_moves' output (each move's weakest line, e.g. "first to run lines 512-518"), in the fit message and the
+test report (the failing step's untested and thin lines), in the plan message (thin rules on your last batch's
+path, and the outcome rules), and in python with traced(). Trust these counts over comments in engine.py.
+
 __OBJECTS__
 # How to work
 Plan rounds:
@@ -912,7 +927,15 @@ Plan rounds:
    something it does not model), send that move in a short batch of 1-3 to learn its effect, instead of a
    long plan built on a guess; do not study the frame for many turns first: the game's answer to a move
    shows its rule faster than analysis. The note says what the batch is meant to do.
-4. After a game over the harness restarts the level with a RESET (it counts as an action). After a solved
+4. Important rules should be tested in different conditions a few times. A rule is important when your planned
+   path depends on it (the weakest link of a batch) or when it decides the outcome (sets level_solved or
+   game_over). When such a rule is thin, prefer a cheap batch that exercises it in a new situation before
+   building a long plan on it.
+5. A rule written as `A and B` or `A or B` is only established once the steps separate its parts: steps where A
+   held and B did not, and steps where A did not hold. When the support says a compound condition was never
+   separated, test each part on its own (a move where only one of them holds) before trusting the combination,
+   and until a step separates them prefer the simplest condition the steps cannot tell from it (Occam).
+6. After a game over the harness restarts the level with a RESET (it counts as an action). After a solved
    level the batch stops: the next level is new, plan it afresh.
 Fit rounds:
 1. Look at what the step did: compare step_to_fix.before with step_to_fix.after, and read the report's
@@ -922,6 +945,11 @@ Fit rounds:
    steps give no evidence for. Per-level constants in the level data (a rate, a budget, a size) are fine
    when the steps give no evidence of a formula: do not hunt for one. When a step contradicts a rule you
    wrote, replace it with the simplest rule that explains all the steps so far.
+   Do not over-engineer your replica on one observation: one step supports one rule, not a general mechanism
+   with cases, so write the simplest code that makes every step pass, with no branches, special cases or
+   hidden variables for situations not seen yet. Explore instead (cheap moves that exercise the rule in other
+   conditions) and refactor once several steps show its shape: a rule is worth generalising when its support
+   comes from steps in different conditions, not before.
    A long line or a strip of small blocks flush against a screen edge, outside the playing grid, that
    shrinks or changes on every action is almost always a step or time budget (a HUD bar), not a game
    mechanic: model it as a per-level budget drawn proportionally and rounded to the nearest pixel,
@@ -956,8 +984,9 @@ RESET. First the tests run on engine.py (every step played so far): if any fails
 get the report (fix engine.py first). Otherwise each move is predicted with your replica, sent to the game,
 and the game's result is compared with the prediction (final frame, status, levels completed): on a match
 the next move is sent; at the first difference the batch stops, the moves after it are not sent, and a fit
-round opens on that step. The batch also stops when a level is solved or the game ends. At most __BATCH__
-moves per call, one call per turn."""
+round opens on that step. The batch also stops when a level is solved or the game ends. The output also says
+what each move's prediction rested on (its weakest line's support, untested lines, conditions never separated).
+At most __BATCH__ moves per call, one call per turn."""
 
 _COMMIT_MOVES_TOOL = {
     "type": "function",
@@ -1027,6 +1056,9 @@ def _ranges(indices: list[int]) -> str:
 PLAN_CLOSING = "\n\nWork out the next moves"
 ENGINE_CLOSINGS = (ENGINE_CLOSING, PLAN_CLOSING)
 
+# The PLAN message's support items (support.plan_items) come under this line.
+SUPPORT_HEAD = "Rules with little support (recorded steps that ran the line; thin: fewer than 3):"
+
 # The play agent's notes, appended to the turn's last tool output.
 PLAN_NUDGE = (
     "\n\n[harness] {n} turns in this plan round without commit_moves. The goal is to play: send a short batch now, even "
@@ -1052,12 +1084,13 @@ COMMIT_HINT_PLAY = {
 def plan_message(
     game: str, trace: Trace, *, last_batch: str, budget_line: str, batch_size: int, engine_read: str = "",
     kernel_names: str = "", baseline: list[int] | None = None, unexplained: list[int] | None = None,
-    out_of_sync: int | None = None, engine_note: str = "", images: bool = True,
+    out_of_sync: int | None = None, engine_note: str = "", images: bool = True, support_note: str = "",
 ) -> str:
     """The PLAN message: the replica reproduces every step so far (or, out of step since `out_of_sync`, plays
     blind); the game's state, the last batch's outcome, the actions it accepts, the budget, the current frame
     (attached as an image by the agent), and what to do. `unexplained`: the steps played while the replica was
-    out of step; `engine_note`: a sentence on engine.py changed since its commit."""
+    out of step; `engine_note`: a sentence on engine.py changed since its commit; `support_note`: the thin or
+    never-separated rules on the last batch's path and among the outcome rules (support.plan_items), one per line."""
     s = trace.steps[-1]
     n = len(trace.steps)
     level = min(s.levels_completed, max(0, s.win_levels - 1))
@@ -1090,7 +1123,7 @@ def plan_message(
 
 Game: {game}, at level {level} ({s.levels_completed} of {s.win_levels} levels completed), {_status_text(s)}. {last_batch}{base}
 {accepted_actions_text(trace.steps[0].available_actions)}
-{budget_line}{unexplained_line}{(chr(10) + engine_note) if engine_note else ""}
+{budget_line}{unexplained_line}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + SUPPORT_HEAD + chr(10) + support_note) if support_note else ""}
 In python, `recording` holds every step played so far (steps 0-{n - 1}); recording[-1].after is the game's current frame
 {shown}. {about_now}; replica.step(s, Action(...)) on a copy of it plays a move, and commit_moves sends those Actions as
 python prints them (Action(4), Action(6, x=12, y=40)).
@@ -1100,13 +1133,14 @@ Work out the next moves on your replica, then {send}"""
 
 def mismatch_message(
     trace: Trace, k: int, verdict: str, dropped: int, report: str, engine_read: str = "", kernel_names: str = "",
-    auto_reset: bool = True, engine_note: str = "", predicted: bool = True,
+    auto_reset: bool = True, engine_note: str = "", predicted: bool = True, support_note: str = "",
 ) -> str:
     """The FIT message after a move went differently from the replica's prediction: step k (the last step
     played), what differed (`verdict`, one line), how many moves of the batch were not sent, what the step
     changed piece by piece, the test report (the comparison, with its picture), engine.py and the task.
     `predicted` False: no prediction was made (a step played out of step, or found when a run resumed); the
-    replica as it is now does not reproduce step k."""
+    replica as it is now does not reproduce step k. `support_note`: what the move's prediction rested on
+    (support.mismatch_support_text)."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     notes = []
@@ -1128,7 +1162,7 @@ def mismatch_message(
     return f"""Fix your replica: {title}.
 
 Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.
-What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}
+What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + "Support: " + support_note + ".") if support_note else ""}
 `recording` now holds steps 0-{k}, and `step_to_fix` is step {k} (recording[-1]).
 
 {step_objects(trace, k)}

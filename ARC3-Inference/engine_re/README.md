@@ -468,6 +468,19 @@ loop goes on. Both live in the trace's meta, so the tests (`tester.replay_test`,
 --ignore/--resync`), the kernel (`state_now`, `replay_step`) and a resumed run see them;
 `result.json` lists them (`unexplained`, `resync`, `out_of_sync`) and the PLAN message names them.
 
+Support (PLAY_DESIGN.md 3.11, `support.py`): the runner compiles the engine with its conditions wrapped
+in a recorder (line numbers kept) and traces, per step, the lines of the model's part it executed and
+the conditions it evaluated. A full replay folds its passing steps into a support map (per line, how many
+recorded steps ran it: 0 untested, fewer than 3 thin; per `and`/`or`, whether the steps separated its
+operands), saved beside the committed engine (`engine_committed.support.json`) and summarised in each
+`tests.jsonl` record. Each planned move's path is read against it from the prediction run itself: its
+weakest line, the untested lines it runs, the never-separated conditions it relies on, in the
+`commit_moves` output, `batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
+lists the thin rules on the last batch's path and among the outcome rules; listings and `read_file()`
+show the counts in a margin; `traced()`/`support()` read what python ran on the replica.
+`--cut-untested` (off) cuts a batch after the first move that runs untested code.
+`engine_re/tools/support_check.py` measures the mismatch rate by support on an archived run.
+
 `run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`
 (`make score_run SCORE_RUN_DIR=<out>` scores it; `final_score` is TAAF's formula, 0 without baselines)
 and, per game, `trace/`, the viewer event sidecar `artifacts/<game_id>_p0_events.jsonl` (the base

@@ -21,6 +21,13 @@ recording replaced by the game being played (engine_re.live_game):
   test report (the comparison, with its picture); the model fixes engine.py and submits it with
   commit_engine, which must pass every step so far; then PLAN again. A commit whose engine still fails a
   later step gets that step as in the stepwise harness (advance_message).
+- Support (PLAY_DESIGN.md 3.11, engine_re.support): the tests and the prediction record which lines of engine.py
+  each step ran. The committed engine's support map (per line, how many recorded steps ran it; per and/or, whether
+  the steps separated its operands) is saved beside it (engine_committed.support.json); each move of a batch is
+  read against it (its weakest line, the untested lines it runs, the conditions it relies on that were never
+  separated), computed before anything is sent: in commit_moves' output, in the batch's `support` entry of batch_log, in the
+  mismatch message, and the thin rules of the last batch's path and the outcome rules in the PLAN message.
+  `cut_untested` (off by default) cuts a batch after the first move that runs untested code.
 - After a game over the harness sends RESET itself (auto_reset), checked like any move. A WIN ends the run.
 - Nudges: after `plan_turns` turns of a plan round without commit_moves, a reminder to send a short batch
   (PLAN_NUDGE, every as many turns; result.json plan_nudges). The test nudge of the stepwise harness only
@@ -46,17 +53,20 @@ a batch) are tested and lead to the right next message.
 
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from engine_re import diff_report
+from engine_re import diff_report, hashline
+from engine_re import support as sup
 from engine_re.agent import (
     READ_CHARS_IN_MESSAGES, REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate,
 )
-from engine_re.game_api import sync_points
+from engine_re.game_api import fixed_block_lines, sync_points
 from engine_re.helpers import PLAY_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.live_game import LiveGame
@@ -73,6 +83,8 @@ CURRENT_FRAME_NOTE = "The game's current frame (after step {k}), upscaled 8x:"
 AUTO_RESET_NOTE = "[harness] automatic RESET after the game over"
 PLAN_TURNS = 6  # turns of a plan round without commit_moves before the reminder (PLAN_NUDGE)
 COMMITTED_FILE = "engine_committed.py"  # the engine the predictions come from (the last that reproduced every step)
+SUPPORT_FILE = "engine_committed.support.json"  # its support map (engine_re.support), keyed by its sha256
+PLAN_SUPPORT_LINES = 4  # thin or unseparated items the PLAN message lists at most
 OPENING_TEXT = (
     "The game has just started. Before your first turn the harness put level 0's first frame into make_level "
     "(recording[0].pieces_after.code()); step() does nothing yet, so your replica predicts that no move changes anything. "
@@ -101,7 +113,9 @@ class PlayResult(AgentResult):
     mismatches: int = 0  # moves whose real result differed from the prediction
     auto_resets: int = 0
     plan_nudges: int = 0  # PLAN_NUDGE reminders
-    # per batch: turn, first step, moves, sent, matched, mismatch (step), diff (one line), note, blind (out of step)
+    # per batch: turn, first step, moves, sent, matched, mismatch (step), diff (one line), note, blind (out of step),
+    # support (per planned move: move, step, weakest, untested lines, unseparated conditions; None when not predicted),
+    # cut_untested (moves cut by --cut-untested)
     batch_log: list = field(default_factory=list)
     # per fit round: step, start_turn, end_turn (None: open), turns, commits, accepted, end ("accepted", "replaced",
     # "escaped"), verdict, escape_offered (the turn FIT_ESCAPE was given)
@@ -111,6 +125,7 @@ class PlayResult(AgentResult):
     phase: str = "plan"
     committed_sha: str | None = None  # the engine the predictions come from
     fit_turns: int | None = None  # the escape hatch's setting (None: off)
+    cut_untested: bool = False  # a batch is cut after its first move that runs untested code
     escapes: int = 0  # fit rounds left out of step through the escape hatch
     out_of_sync: int | None = None  # the step the engine is out of step since (None: in step)
     unexplained: list = field(default_factory=list)  # steps played out of step: replayed by the tests, never compared
@@ -135,6 +150,7 @@ class PlayAgent(EngineAgent):
         auto_reset: bool = True,
         fit_turns: int | None = None,
         plan_turns: int = PLAN_TURNS,
+        cut_untested: bool = False,
     ):
         if model.context != "compact":
             raise ValueError("the play agent bounds its context by compaction (ModelConfig.context='compact'); "
@@ -151,14 +167,18 @@ class PlayAgent(EngineAgent):
         super().__init__(game, game_dir, model, budget, client=client, images=images, stepwise=True, history=True)
         self.full_trace = self.trace = self.live.trace  # the live trace: it grows as the game is played
         self.mode = "play"
-        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, history=True, play=True)
+        self.support_path = self.dir / SUPPORT_FILE
+        self.kernel = KernelClient(self.workspace, self.trace_dir, images=images, log=self._log_engine_change, history=True, play=True,
+                                   support=self.support_path)
         self.fit_turns = int(fit_turns) if fit_turns else None
         self.plan_turns = max(0, int(plan_turns or 0))
         self.result = PlayResult(
             game=game, model=model.model, trace_steps=len(self.full_trace), match=self.match, interface=self.interface,
             images=images, mode="play", context=model.context, thinking_budget=model.thinking_budget,
             game_id=self.live.game_id, baseline_actions=self.live.baseline_actions, fit_turns=self.fit_turns,
+            cut_untested=bool(cut_untested),
         )
+        self.cut_untested = bool(cut_untested)
         self.batch_size = max(1, int(batch_size))
         self.max_actions = int(max_actions)
         self.auto_reset = auto_reset
@@ -171,6 +191,11 @@ class PlayAgent(EngineAgent):
         self.pending: dict[str, Any] | None = None  # a batch sent this turn, handled at the end of the turn
         self.fit_round: dict[str, Any] | None = None  # the open fit round (an entry of result.fit_rounds)
         self.restored_status: str | None = None  # result.json's status when the run was restored
+        self.supports: dict[str, dict[str, Any]] = {}  # engine sha -> the support map of its last passing full replay
+        self.support: dict[str, Any] | None = None  # the committed engine's support map (saved as SUPPORT_FILE)
+        self.batch_support: list[str] = []  # the support lines of this turn's batch (commit_moves' output)
+        self.batch_cut = 0  # moves of this turn's batch cut by cut_untested
+        self.last_path: tuple[list[int], list[list[int]]] | None = None  # lines and conditions the last batch ran
 
     # --- the trace's out-of-step bookkeeping (kept in its meta: the tests and the kernel read it there) ---------
 
@@ -328,6 +353,12 @@ class PlayAgent(EngineAgent):
         first_step = outcomes[0]["index"] if outcomes else n
         lines = [f"Sent {len(outcomes)} of {len(acts) + cut} move(s) (steps {first_step}-{first_step + len(outcomes) - 1}):"] if outcomes else []
         lines += batch_lines(self.full_trace, first_step, outcomes)
+        lines += self.batch_support  # what each planned move's prediction rested on, computed before anything was sent
+        if self.batch_cut:
+            j = len(acts) - self.batch_cut
+            lines.append(f"The batch was cut after move {j}, the first to run code no recorded step has run: it is the experiment "
+                         f"(the harness's cut-untested rule); the {self.batch_cut} move(s) after it were not sent.")
+            dropped -= self.batch_cut
         last = outcomes[-1] if outcomes else None
         if last is not None and not last["ok"]:
             lines.append(f"The batch stopped at step {last['index']}: the game's result differs from your replica's prediction"
@@ -390,8 +421,27 @@ class PlayAgent(EngineAgent):
         if self.fit_round is not None and self.fit_round.get("end_turn") is None:
             self.fit_round["commits"] += 1
 
+    def _tested(self, report: Any) -> None:
+        """Keep the support map of an engine that passes a full replay of everything played (for its commit)."""
+        smap = getattr(report, "support", None)
+        if smap and report.passed and report.level is None:
+            known = self.supports.get(smap["engine_sha"])
+            if known is None or known["steps"] <= smap["steps"]:
+                self.supports[smap["engine_sha"]] = smap
+                for old in list(self.supports)[:-4]:  # a few recent engines are enough
+                    self.supports.pop(old)
+
+    def _save_support(self, smap: dict[str, Any] | None) -> None:
+        """The committed engine's support map: kept, and written beside engine_committed.py (removed when unknown)."""
+        self.support = smap
+        if smap is None:
+            self.support_path.unlink(missing_ok=True)
+            return
+        self.support_path.write_text(json.dumps(smap), encoding="utf-8")
+
     def _keep_committed(self, sha: str) -> None:
-        """The engine with this hash is the one the predictions come from: a copy in engine_committed.py."""
+        """The engine with this hash is the one the predictions come from: a copy in engine_committed.py, and its
+        support map beside it (SUPPORT_FILE)."""
         source = self.engine_path
         if self._engine_hash() != sha:  # (engine.py changed since: the saved version with that hash)
             version = self._version_of(sha)
@@ -400,11 +450,68 @@ class PlayAgent(EngineAgent):
                 return
         shutil.copy(source, self.committed_path)
         self.committed_sha = self.result.committed_sha = sha
+        self._save_support(self.supports.get(sha))
 
     def _predict(self, acts: list[Action]) -> tuple[dict[str, Any], list[Any]]:
         """The committed engine's prediction for `acts` after everything played (tester.predict)."""
-        engine = self.committed_path if self.committed_path.exists() else self.engine_path
-        return predict(engine, self.full_trace, acts, scratch_root=self.dir)
+        return predict(self._predicting_engine(), self.full_trace, acts, scratch_root=self.dir)
+
+    def _predicting_engine(self) -> Path:
+        return self.committed_path if self.committed_path.exists() else self.engine_path
+
+    def _fold(self, prediction: dict[str, Any], upto: int) -> dict[str, Any] | None:
+        """The support map of the prediction's engine over the steps played before position `upto` (the unexplained
+        ones left out): every one of them passes, since commit_moves sends nothing otherwise."""
+        ignore, _ = sync_points(self.live.trace.meta)
+        data = self._predicting_engine().read_bytes()
+        positions = {str(i): i for i in range(upto) if i not in ignore}
+        return sup.fold_result(prediction, positions, data.decode("utf-8", "replace"), hashlib.sha256(data).hexdigest())
+
+    @staticmethod
+    def _move_paths(prediction: dict[str, Any], smap: dict[str, Any] | None, n: int, m: int) -> list[dict[str, Any] | None]:
+        """Each planned move's path against the support map (support.path_support); None when it was not predicted."""
+        if smap is None:
+            return [None] * m
+        executed, evaluated = prediction.get("executed") or {}, prediction.get("evaluated") or {}
+        out = []
+        for j in range(m):
+            key = str(n + j)
+            out.append(sup.path_support(smap, executed[key], evaluated.get(key)) if key in executed else None)
+        return out
+
+    @staticmethod
+    def _compact_path(ps: dict[str, Any]) -> dict[str, Any]:
+        """A move's path support as batch_log and the move records keep it."""
+        return {"weakest": ps["weakest"], "weakest_lines": ps["weakest_lines"][:12], "untested": ps["untested"][:60],
+                "thin": ps["thin"][:60], "unseparated": ps["unseparated"][:6]}
+
+    @staticmethod
+    def _support_lines(acts: list[Action], paths: list[dict[str, Any] | None], smap: dict[str, Any] | None) -> list[str]:
+        """commit_moves' lines on what each move's prediction rests on: one per move whose path is thin, untested or
+        relies on a condition never separated, one for the others together."""
+        if smap is None or not any(paths):
+            return []
+        exe = smap.get("lines") or {}
+        lines = [f"Support of your replica's predictions (how many of the {smap['steps']} recorded steps ran the code each move "
+                 "runs; thin: fewer than 3):"]
+        solid = []
+        weak: dict[str, list[str]] = {}  # the same words for several moves: one line
+        for j, (act, ps) in enumerate(zip(acts, paths), 1):
+            if ps is None:
+                continue
+            if ps["weakest"] is not None and ps["weakest"] >= sup.THIN_SUPPORT and not ps["unseparated"]:
+                solid.append((j, ps["weakest"]))
+                continue
+            weak.setdefault(sup.move_support_text(ps, exe), []).append(f"{j} {action_code(act)}")
+        for text, moves in weak.items():
+            lines.append(f"  move{'s' if len(moves) > 1 else ''} {', '.join(moves)}: {text}")
+        if solid:
+            moves = ", ".join(str(j) for j, _ in solid)
+            if len(solid) == 1:
+                lines.append(f"  move {moves}: its path is supported by at least {solid[0][1]} steps")
+            else:
+                lines.append(f"  moves {moves}: their paths are supported by at least {min(w for _, w in solid)} steps each")
+        return lines
 
     @staticmethod
     def _verdict(check: StepCheck, real: Any, got: dict[str, Any] | None, error: str | None) -> str:
@@ -431,6 +538,16 @@ class PlayAgent(EngineAgent):
         prediction, frames = self._predict(acts)
         predicted = prediction.get("steps") or []
         error = prediction.get("error")
+        smap = self._fold(prediction, n)
+        paths = self._move_paths(prediction, smap, n, len(acts))
+        planned = list(acts)
+        self.batch_support = self._support_lines(acts, paths, smap)
+        self.batch_cut = 0
+        if self.cut_untested:  # the first move that runs untested code is the experiment: the batch ends there
+            j = next((j for j, ps in enumerate(paths) if ps is not None and ps["untested"]), None)
+            if j is not None and j + 1 < len(acts):
+                self.batch_cut = len(acts) - j - 1
+                acts = acts[: j + 1]
         outcomes: list[dict[str, Any]] = []
         for i, act in enumerate(acts):
             pos = n + i
@@ -450,6 +567,8 @@ class PlayAgent(EngineAgent):
                 "level_solved": real.levels_completed > self.full_trace[pos - 1].levels_completed,
                 "levels_completed": real.levels_completed, "auto": note == AUTO_RESET_NOTE,
             }
+            if paths[i] is not None:
+                outcome["support"] = self._compact_path(paths[i])
             outcomes.append(outcome)
             self.result.moves_sent += 1
             if not check.ok:
@@ -459,13 +578,26 @@ class PlayAgent(EngineAgent):
                 break
         self._focus_on(len(self.full_trace) - 1)
         miss = next((o for o in outcomes if not o["ok"]), None)
-        self.result.batch_log.append({
-            "turn": self.result.turns, "first_step": n, "moves": [action_code(a) for a in acts], "sent": len(outcomes),
+        entry = {
+            "turn": self.result.turns, "first_step": n, "moves": [action_code(a) for a in planned], "sent": len(outcomes),
             "matched": sum(bool(o["ok"]) for o in outcomes), "mismatch": miss["index"] if miss else None,
             "diff": miss["verdict"] if miss else None, "note": note,
-        })
+            "support": [None if ps is None else {"move": j + 1, "step": n + j, **self._compact_path(ps)} for j, ps in enumerate(paths)],
+        }
+        if self.batch_cut:
+            entry["cut_untested"] = self.batch_cut
+        self.result.batch_log.append(entry)
         self._log({"turn": self.result.turns, "batch": self.result.batch_log[-1]})
-        return outcomes, len(acts) - len(outcomes)
+        # The moves that matched are passing steps now: the committed engine's map grows with them.
+        matched = n + sum(1 for _ in itertools.takewhile(lambda o: o["ok"], outcomes))
+        if smap is not None and self.committed_path.exists() and self.committed_sha is not None:
+            self._save_support(self._fold(prediction, matched) if matched > n else smap)
+        executed, evaluated = prediction.get("executed") or {}, prediction.get("evaluated") or {}
+        keys = [str(n + i) for i in range(len(outcomes)) if str(n + i) in executed]
+        if note != AUTO_RESET_NOTE:  # (the harness's RESET is not the model's plan)
+            self.last_path = (sorted({line for k in keys for line in executed[k]}),
+                              [c for k in keys for c in evaluated.get(k) or []]) if keys else None
+        return outcomes, len(acts) - len(outcomes) + self.batch_cut
 
     def _play_blind(self, acts: list[Action], note: str) -> list[dict[str, Any]]:
         """Out of step: send `acts` unchecked, each step unexplained, up to the first resync point (a RESET or a
@@ -507,6 +639,21 @@ class PlayAgent(EngineAgent):
         return (f"Actions played: {self.live.actions} of at most {self.max_actions} ({per_level or 'none yet'}). Turns: "
                 f"{self.result.turns} of {self.budget.max_turns}; minutes: {self._elapsed_minutes():.0f} of {self.budget.max_minutes:.0f}; "
                 f"output tokens: {u.completion_tokens:,} of {self.budget.max_output_tokens:,}.")
+
+    def _read_engine(self, fold: bool, max_chars: int) -> str:
+        """engine.py with anchors and, once the committed engine has a support map, each line's support in the margin
+        (support.margins: the count, 0 untested, "new" for a line changed since the commit), as read_file() shows it."""
+        text = self.engine_path.read_text(encoding="utf-8")
+        margin = sup.margins(self.support, text) if self.support else None
+        return hashline.render_read(text, max_chars=max_chars, fold=fixed_block_lines(text) if fold else None, margin=margin)
+
+    def _plan_support(self) -> str:
+        """The PLAN message's support items (support.plan_items): the thin rules on the last batch's path and the
+        outcome rules no step ran or never separated; empty when there are none."""
+        if not self.support or not self.committed_path.exists():
+            return ""
+        items = sup.plan_items(self.support, self.committed_path.read_text(encoding="utf-8"), self.last_path, PLAN_SUPPORT_LINES)
+        return "\n".join(items)
 
     def _engine_listing_if_changed(self) -> str:
         sha = self._engine_hash()
@@ -560,6 +707,7 @@ class PlayAgent(EngineAgent):
             engine_read=self._engine_listing_if_changed(), kernel_names=kernel_names_text(*self.kernel.names()),
             baseline=self.live.baseline_actions, unexplained=sorted(ignore), out_of_sync=self.out_of_sync,
             engine_note=self._engine_note(), images=self.images,
+            support_note=self._plan_support() if self.out_of_sync is None else "",
         )
         self._log({"turn": self.result.turns, "plan": {"step": n - 1, "steps": n, "actions": self.live.actions, "level": self.live.level,
                                                         "out_of_sync": self.out_of_sync}})
@@ -587,9 +735,10 @@ class PlayAgent(EngineAgent):
                           "accepted": None, "verdict": verdict}
         self.result.fit_rounds.append(self.fit_round)
 
-    def _enter_fit(self, k: int, verdict: str, dropped: int, say: bool = True, predicted: bool = True) -> str | list[dict[str, Any]]:
+    def _enter_fit(self, k: int, verdict: str, dropped: int, say: bool = True, predicted: bool = True,
+                   path: dict[str, Any] | None = None) -> str | list[dict[str, Any]]:
         """Step k differs (from the prediction, or, `predicted` False, from what the engine now gives): the FIT
-        message with the test report on steps 0..k."""
+        message with the test report on steps 0..k. `path`: the move's path support (its outcome's "support")."""
         self.phase = "fit"
         self.passed = False
         self._focus_on(k)
@@ -600,6 +749,7 @@ class PlayAgent(EngineAgent):
             self.full_trace, k, verdict, dropped, report, engine_read=self._engine_listing_if_changed(),
             kernel_names=kernel_names_text(*self.kernel.names()), auto_reset=self.auto_reset,
             engine_note=self._engine_note(report=True), predicted=predicted,
+            support_note=sup.mismatch_support_text(path, (self.support or {}).get("lines")),
         )
         self._log({"turn": self.result.turns, "step_start": {"step": k, "steps": len(self.full_trace), "report": report, "verdict": verdict}})
         if say:
@@ -624,7 +774,7 @@ class PlayAgent(EngineAgent):
             outcomes, _ = self._play([Action(0)], AUTO_RESET_NOTE)
             o = outcomes[0]
             if not o["ok"]:
-                return self._enter_fit(o["index"], o["verdict"], 0, say=say)
+                return self._enter_fit(o["index"], o["verdict"], 0, say=say, path=o.get("support"))
             last_batch += f" The game was over, so the harness sent a RESET (step {o['index']}, an action): the level restarted as your replica predicted."
         elif self.live.game_over:
             last_batch += " The game is over: only RESET is accepted now."
@@ -671,7 +821,7 @@ class PlayAgent(EngineAgent):
                 return self._after_resync(self._batch_summary(pending), dropped) is not None
             return self._after_sync(self._batch_summary(pending)) is not None
         if last is not None and not last["ok"]:
-            self._enter_fit(last["index"], last["verdict"], dropped)
+            self._enter_fit(last["index"], last["verdict"], dropped, path=last.get("support"))
             return True
         return self._after_sync(self._batch_summary(pending)) is not None
 
@@ -842,6 +992,9 @@ class PlayAgent(EngineAgent):
                     setattr(self.result, key, data[key])
             self.phase = data.get("phase") or self.phase
         self.committed_sha = self.result.committed_sha
+        if self.support_path.exists():  # the committed engine's support map, when it is that engine's
+            smap = json.loads(self.support_path.read_text(encoding="utf-8"))
+            self.support = smap if smap.get("engine_sha") == self.committed_sha else None
         # One cumulative token count per step after step 0 (a run interrupted mid-batch saved its trace, not result.json).
         need = len(self.full_trace) - 1
         tokens = list(self.result.step_tokens)[:need]

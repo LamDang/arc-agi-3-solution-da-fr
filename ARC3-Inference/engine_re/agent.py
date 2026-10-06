@@ -598,6 +598,7 @@ class EngineAgent:
             entry["focus"] = self.focus
         with (self.dir / "tests.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
+        self._tested(report)
         self._keep_test_images(report, auto)
         if full:
             key = best_key(entry)
@@ -610,6 +611,9 @@ class EngineAgent:
                 if self.result.first_pass_turn is None:
                     self.result.first_pass_turn = self.result.turns
         return report
+
+    def _tested(self, report: Any) -> None:
+        """Called with every full or level test's report (the play agent keeps the support maps)."""
 
     def _tool_commit_engine(self, message: Any = None) -> str:
         """Submit engine.py: run the tests. Single mode: the session ends when every test passes.
@@ -1214,6 +1218,7 @@ class EngineAgent:
     def _replay_all(self) -> int | None:
         """Replay the whole recording; the first failing step, or None when everything passes."""
         report = replay_test(self.engine_path, self.full_trace, failures=1, scratch_root=self.dir, match=self.match)
+        self._tested(report)
         summary = report.summary()
         self.result.passing_prefix = summary.get("passing_prefix")
         if report.passed:

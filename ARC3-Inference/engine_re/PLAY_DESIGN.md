@@ -369,6 +369,92 @@ test pictures are today. Each PLAN message lists engine.py as the FIT
 messages do only when it changed since the last listing (the `elide` rule
 already keeps one listing live).
 
+### 3.11 Support
+
+The tests say whether engine.py reproduces every step; they do not say how much of it the steps ever ran.
+In v10 the model replaced a rule every observation supported by one nothing distinguished (ls20's unlock
+rule), kept rules that held only through a confound (sp80: shots that "did not fill" also hit the floor,
+the real loss) and sent long batches through branches no recorded step had executed; its own comments
+("verified at steps 48, 119") were where the wrong confidence lived. Support is the harness's measure of
+that evidence (`engine_re/support.py`).
+
+**Recording.** `candidate_runner` compiles the engine with `support.instrument`: in the model's part
+(after `# ==== END OF FIXED INTERFACE ====`) each operand of an `and`/`or` and the test of each
+`if`/`elif`/`while`/ternary is wrapped in `__support_cond__(k, expr)`, which returns the value unchanged
+(short-circuit order kept: an operand is wrapped where it stands, so it is evaluated only when Python
+evaluates it). Every new node takes the location of the node it wraps, the code is compiled with the
+real file name, so line numbers, tracebacks, what `step()` printed and hashline anchors are unchanged. A
+rewrite that does not compile falls back to the plain code (lines only); a file that does not compile
+fails as before. While the actions are played, a `sys.monitoring` LINE tracer set on the engine's own code
+objects records per action position the model's lines executed (each location reports once per
+position, then is disabled until the next: the cost is one callback per distinct line per step), and the
+recorder the conditions evaluated with their truth value. The result gets `executed` (`{"0": [lines],
+...}`), `evaluated` (`{"0": [[cond, 0|1], ...]}`) and `coverage` (the executable lines of the model's
+functions, the conditions, the and/or groups). Module-level lines run when the file loads, not in a
+step, and are not counted; the contract tests are not traced. Overhead, on the v10 committed engines
+(150-270 executable lines, up to 91 conditions; median of 7 replays of the step loop): sp80 64 -> 68 ms
+and ls20 159 -> 146 ms over 240 steps, ft09 61 -> 91 ms over 78 (x1.5: conditions in loops over sprites);
+the subprocess's start-up (about 0.3 s) dominates either way. `--no-trace` turns it off.
+
+**The map.** `tester.replay_test` folds the passing steps of a full replay (`TestReport.support`); the
+schema (`support.py`'s docstring):
+
+```json
+{"schema": 1, "engine_sha": "<sha256 of the engine file>", "steps": 120, "thin": 3,
+ "lines": {"512": {"n": 41, "steps": [3, 7, 8, 9, 101, 110, 115, 119]}},
+ "conds": {"4": {"line": 512, "kind": "and", "text": "a", "group": 2, "true": 30, "false": 11}},
+ "compound": [{"group": 2, "op": "and", "line": 512, "text": "a and b", "operands": [4, 5],
+               "separated": false, "missing": ["b"]}],
+ "keys": ["QXZWRM", "..."],
+ "summary": {"steps": 120, "lines": 210, "untested": 12, "thin": 30, "supported": 168,
+             "compound": 5, "unseparated": 2}}
+```
+
+`lines[l].n` is the number of recorded steps that executed line `l` (the first and last four kept):
+0 is *untested*, below `THIN_SUPPORT` (3) *thin*. `conds` count the steps on which a condition was True
+and False. A `compound` is *separated* when every operand decided it on some step: for `A and B`, a step
+with A true and B false and a step with A false; for `A or B`, each operand true on some step. `missing`
+names the operands that never did: the recording cannot tell the compound from the simpler rule without
+them (a `x is not None` guard is never listed). `keys` is the hash of each line's text (`hashline.text_hash`,
+without the neighbours an anchor includes): `support.align` carries the map over to an edited engine.py
+(difflib on the keys, then lines that moved), so a line that only moved keeps its count and a changed one
+shows `new`.
+
+**Where it is kept and shown.**
+
+- `commit_moves` runs the full tests and commits the engine: its map is written beside it,
+  `engine_committed.support.json` (keyed by `engine_sha` and `steps`), and grows with the moves that
+  match. Each `tests.jsonl` record carries the summary (`support`: untested, thin, supported,
+  compound, unseparated, steps).
+- `tester.predict` is the same runner over the played actions plus the batch, so each planned move's path
+  comes with no extra replay; `support.path_support` gives its weakest link (the least support of a line
+  it ran), the untested and thin lines it runs and the compound conditions it relied on that were never
+  separated (it evaluated an operand that never decided them). The `commit_moves` output lists them
+  ("move 3 Action(5): first to run lines 512-518 (no step so far)"; "moves 1, 2: their paths are supported
+  by at least 41 steps each"), `batch_log` keeps a `support` entry per planned move (`weakest`,
+  `weakest_lines`, `untested`, `thin`, `unseparated`), the mismatch message says what the failing move's
+  prediction rested on ("this step was the first to run lines 512-518"), and the fit round's test report
+  lists the failing step's path with the support of its untested and thin lines.
+- `--cut-untested` (off by default) cuts a batch after the first move whose path runs untested code: that
+  move is the experiment. Off by default because the model now sees each move's support before deciding,
+  one batch per turn makes every cut cost a turn, and the default keeps runs comparable with v10.
+- The listing in the PLAN and FIT messages and `read_file()` in the kernel carry a margin: the count left of
+  each line (`0` untested, `new` changed since the commit, `·` in the FIXED block, blank for lines no step
+  runs). The kernel reads the sidecar (a read root of its sandbox). An anchor copied with its margin
+  (`41| 512#QXZ`) is still accepted, and listing lines pasted as code are refused as before.
+- The PLAN message lists, at most four lines under "Rules with little support", the untested, thin and
+  never-separated items on the last batch's path and the outcome rules (lines setting `level_solved` or
+  `game_over`) that no step ran or whose guarding and/or was never separated.
+- In python, `with traced() as run:` around `replica.step` calls records what the block ran (kernel side,
+  the same tracer on the replica's module) and reads it against the sidecar carried over to engine.py as
+  it is: `run.weakest`, `run.untested`, `run.thin`, `run.new`, `run.unseparated`; `support()` prints it.
+  A search can rank plans by evidence.
+
+**Offline check (v10).** `python -m engine_re.tools.support_check <run>` replays each batch's predicting
+engine (the committed engine at that point of the transcript, from `engine_versions/` by sha256) with the
+tracer over the trace up to the batch and tabulates the mismatch rate of the sent moves by weakest support
+and by unseparated conditions; the numbers are in `exp/v10-play.md`, "Next steps".
+
 ## 4. Files
 
 | File | Change |
@@ -379,7 +465,9 @@ already keeps one listing live).
 | `engine_re/prompts.py` | mode `"play"`: system prompt, `plan_message`, `mismatch_message`, `commit_moves` schema, Objects entries for `state_now`/`click_cell` |
 | `engine_re/helpers.py`, `kernel.py` | `state_now`, `click_cell`; `PRELOADED_PLAY`/`RESERVED_PLAY` |
 | `engine_re/tester.py`, `candidate_runner.py` | `predict()` (run the engine on recorded + planned actions), `ignore`, `resync` |
-| `engine_re/agent.py` | small hooks: a `phase` label on transcript records, `_advance` overridable, the commit output text per mode |
+| `engine_re/agent.py` | small hooks: a `phase` label on transcript records, `_advance` overridable, the commit output text per mode, `_tested` (every test report) |
+| `engine_re/support.py` | the support measure (3.11): condition rewrite, tracer, map, path support, margins |
+| `engine_re/tools/support_check.py` | the offline check of 3.11 on an archived run |
 | `tests/test_play.py` | the loop with a scripted client: match → PLAN, mismatch → FIT, refused `commit_moves`, GAME_OVER then RESET, fit cap and resync, resume, score |
 | `engine_re/README.md`, `exp/v10-play.md` | the play mode and the run page |
 

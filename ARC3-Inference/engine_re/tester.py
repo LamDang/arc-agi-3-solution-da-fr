@@ -49,6 +49,12 @@ engine was out of step with the game (its escape hatch, PLAY_DESIGN.md 3.6): ``i
 and compared but never failing, left out of ``exact``, ``total`` and ``passing_prefix``) and ``resync``
 (step -> {"level", "score"}: before that step the engine is put back at the level's start,
 ``game_api.GameRunner.resync``). Both default to what the trace's meta holds (``game_api.sync_points``).
+
+Support (PLAY_DESIGN.md 3.11): the runner records the engine lines and conditions each step executed; a
+full replay (no level scope) folds those of its passing steps into a support map (``TestReport.support``,
+``engine_re.support``), whose summary goes with ``summary()`` (tests.jsonl). For the first failing step
+explained in full, the report lists the lines it ran with their support (the untested and thin ones, the
+conditions no passing step separated).
 """
 
 from __future__ import annotations
@@ -67,6 +73,7 @@ from typing import Any
 import numpy as np
 
 from engine_re import diff_report
+from engine_re import support as sup
 from engine_re.game_api import describe_contract, last_lines, sync_points
 from engine_re.guard import sandbox_env
 from engine_re.trace import Step, Trace
@@ -127,6 +134,7 @@ class TestReport:
     signature: str = ""  # of the failure: the same first failing step, counts and differing regions give the same one
     tolerated: list[int] = field(default_factory=list)  # steps passing with a one-pixel border difference (HUD_BORDER)
     ignored: list[int] = field(default_factory=list)  # unexplained steps in the scope: replayed, not counted
+    support: dict[str, Any] | None = None  # full replay: the support map of the passing steps (engine_re.support)
 
     @property
     def passed(self) -> bool:
@@ -149,8 +157,9 @@ class TestReport:
         return "the contract tests fail the same way"
 
     def summary(self) -> dict[str, Any]:
-        out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text", "images")}
+        out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text", "images", "support")}
         out["passed"] = self.passed
+        out["support"] = self.support["summary"] if self.support else None  # one line: untested, thin, supported, ...
         return out
 
 
@@ -188,6 +197,7 @@ def run_candidate(
     contract: bool = True,
     ignore: Any = None,
     resync: dict[int, dict[str, int]] | None = None,
+    trace: bool = True,
 ) -> tuple[dict[str, Any], list[np.ndarray]]:
     """Run the engine on ``actions`` in a sandboxed process.
 
@@ -195,7 +205,7 @@ def run_candidate(
     of each completed step. ``inspect``: action positions (and "start") whose
     states to describe (result["inspect"]); ``contract=False`` skips the
     contract tests. ``ignore`` and ``resync``: action positions (see the module
-    docstring and candidate_runner)."""
+    docstring and candidate_runner). ``trace=False``: no support data (the runner's --no-trace)."""
     engine_path = Path(engine_path).resolve()
     scratch = Path(tempfile.mkdtemp(prefix="cand_", dir=Path(scratch_root).resolve() if scratch_root else None))
     try:
@@ -231,6 +241,8 @@ def run_candidate(
             cmd += ["--ignore", json.dumps(sorted(int(i) for i in ignore))]
         if resync:
             cmd += ["--resync", json.dumps({str(k): v for k, v in resync.items()})]
+        if not trace:
+            cmd.append("--no-trace")
         try:
             proc = subprocess.run(
                 cmd, cwd=scratch, env=sandbox_env(str(scratch)), capture_output=True, text=True, timeout=total_timeout
@@ -585,6 +597,12 @@ def replay_test(
     failing = [c.index for c in checks if not c.ok]
     first_fail = failing[0] if failing else None
     played_in = levels_before(trace)
+    support_map = None
+    if level is None and from_level is None:  # a full replay: what its passing steps support
+        passing = {str(k): steps[k].index for k, c in enumerate(checks) if c.ok and not c.ignored}
+        engine_bytes = Path(engine_path).read_bytes()
+        support_map = sup.fold_result(result, passing, engine_bytes.decode("utf-8", "replace"),
+                                      hashlib.sha256(engine_bytes).hexdigest())
 
     start_frame = None
     start_frame_diff = None
@@ -775,6 +793,8 @@ def replay_test(
             states=inspected.get(str(k)), crops=crops, images=images, printed=printed(str(k)),
         )
         lines.append(text)
+        if support_map is not None and str(k) in result.get("executed", {}):
+            lines += sup.path_lines_text(support_map, result["executed"][str(k)], (result.get("evaluated") or {}).get(str(k)))
         if not first_regions:
             first_regions = [r.core for r in regions]
         if step.index in inspected.get("nondeterministic", []):
@@ -840,6 +860,7 @@ def replay_test(
         images=report_images,
         tolerated=tolerated,
         ignored=ignored_steps,
+        support=support_map,
     )
 
 

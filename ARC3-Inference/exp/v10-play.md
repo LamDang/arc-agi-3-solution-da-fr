@@ -636,6 +636,25 @@ over from an earlier version.
   to play moves with `engine.step` on copies of a State and `engine.make_level`
   for a level's first state, a BFS over moves being one short function.
   Later the kernel built-in `engine` was renamed `replica` (the file is still engine.py).
+- **Support, measured by the harness (done after this run; PLAY_DESIGN.md 3.11).**
+  The runner now records which engine lines and conditions each step runs,
+  and every move is read against the steps before it: its weakest line's
+  support, and whether it relies on an `and`/`or` the steps never separated.
+  `engine_re/tools/support_check.py` replayed this run's 555 checked moves
+  with the engine that predicted each batch (it reproduces the batch log on
+  all of them). The 13 moves that ran a line no earlier step had run all
+  mismatched (sp80 7/7, ls20 2/2, ft09 4/4). Moves whose weakest line had
+  1-2 steps behind it mismatched 12 times in 41 (sp80 1/17, ls20 9/19, ft09
+  2/5). Moves supported by 3 or more steps throughout mismatched 23 times in
+  488 (sp80 13/207, ls20 5/213, ft09 5/68). The 13 moves that ran no step
+  code (a RESET of a level already built) never mismatched. So the weakest
+  link flags 25 of the 48 mismatches in advance, on 10% of the moves. An
+  unseparated condition on the path is weaker evidence: ls20 4/14 against
+  12/225 without one. In sp80 (17/210 against 4/29) and ft09 (10/76 against
+  1/1), nearly every path relies on one, mostly defensive conditions. The
+  next run shows these numbers to the model: in `commit_moves`, the fit
+  message, the PLAN message and the listing's margin. It can also cut a
+  batch at the first untested move with `--cut-untested`.
 
 
 ## How the numbers were checked

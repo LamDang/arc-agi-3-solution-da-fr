@@ -71,6 +71,9 @@ def main() -> int:
     parser.add_argument("--plan-turns", type=int, default=PLAN_TURNS,
                         help="turns of a plan round without commit_moves before the harness reminds the model to send a batch "
                              "(and again every as many turns; 0: never)")
+    parser.add_argument("--cut-untested", action="store_true",
+                        help="cut each batch after its first move whose predicted path runs engine code no recorded step has "
+                             "run (PLAY_DESIGN.md 3.11; default: off, the model sees each move's support and decides)")
     parser.add_argument("--no-images", action="store_true", help="text-only feedback (no pictures)")
     parser.add_argument("--providers", default=None, help="comma-separated OpenRouter providers, in order, no fallback")
     parser.add_argument("--reasoning-effort", default=None)
@@ -100,7 +103,7 @@ def main() -> int:
     def agent_for(game: str) -> PlayAgent:
         return PlayAgent(game, args.out / game, model, budget, args.environments_dir, images=not args.no_images,
                          batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset,
-                         fit_turns=args.fit_turns, plan_turns=args.plan_turns)
+                         fit_turns=args.fit_turns, plan_turns=args.plan_turns, cut_untested=args.cut_untested)
 
     def work(game: str) -> None:
         previous = args.out / game / "result.json"
