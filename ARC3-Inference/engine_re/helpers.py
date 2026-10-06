@@ -42,6 +42,7 @@ from typing import Any, Callable
 import numpy as np
 
 from engine_re import diff_report, game_api, hashline, segment, tester
+from engine_re import animation  # StepView.animation
 from engine_re.auto_sprites import kinds_summary
 from engine_re.game_api import click_cell  # noqa: F401  (a play built-in: action.cell for a click, as the harness computes it)
 from engine_re.trace import Action as _TraceAction, Trace
@@ -339,6 +340,14 @@ class StepView:
         _visible(self.index)
         return _SEGMENTER.changes(self.index)
 
+    @property
+    def animation(self) -> animation.Animation | None:
+        """The digest of an animated step's frames (engine_re.animation): its transient cells and its timeline;
+        None when the action returned one frame."""
+        if not hasattr(self, "_animation"):
+            self._animation = animation.digest(self.before, self.frames)
+        return self._animation
+
     def __repr__(self) -> str:
         what = _ACTION_WORDS.get(self.action.id, str(self.action))
         if self.action.id == 6:
@@ -591,7 +600,7 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
             return before, copy.deepcopy(after_state)
         text, _ = tester.describe_step(
             steps[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
-            show_vars=False,
+            show_vars=False, before_frame=steps[i - 1].last if i else None,
         )
         print(f"compared with the recording after step {i}{note} (expected = the original, got = yours):")
         print("\n".join(text.splitlines()[1:]))

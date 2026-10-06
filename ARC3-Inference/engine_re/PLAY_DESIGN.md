@@ -369,6 +369,29 @@ test pictures are today. Each PLAN message lists engine.py as the FIT
 messages do only when it changed since the last listing (the `elide` rule
 already keeps one listing live).
 
+### 3.11 Ported from the base harness
+
+Guidance the base harness's prompt (`inference/agent/prompts.py`, and `_build_system_prompt` /
+`_build_user_prompt` in `inference/agent/tool_agent.py`) gives and the play prompt lacked, its sentences
+kept verbatim where they apply and adapted only where our setup differs (a replica and `commit_moves`
+instead of `action(...)`; numpy frames of colours 0-15, not letters; clicks `Action(6, x, y)` with x the
+column, not `MOUSE row/col`; no `current_frame`/`history`; the harness RESETs after a game over). The
+text is in new constants of `prompts.py`, inserted into `_SYSTEM_PLAY` at anchors (`_insert` raises when
+one is missing):
+
+| What | From | Where now |
+| --- | --- | --- |
+| Animation digest: transient cells (equal before and after, different in a frame between: count, box, `old>new` counts, frames) and a diff timeline (per changed frame: index, cells, box, `old>new @ (x,y)` cells or counts) | `ANIMATION_ADDENDUM`, `ANIMATION_ADDENDUM_TIMELINE`; `inference/utils/animation.py` | `engine_re/animation.py`; `StepView.animation` (# Objects); two lines in `tester.describe_step`, in the fit / advance / episode messages when their report lacks them, and in `commit_moves`' output for a matched move with transient cells; a paragraph in # Tests |
+| "the game is solvable", plus: a plan far above the baseline, or none, means a missing rule | `STEP_VERIFICATION_ADDENDUM` (second bullet) | plan rule 5 |
+| Colour legend, from `diff_report.COLOR_NAMES` | `GAME_OVERVIEW_ADDENDUM` | # Setup |
+| Action meanings (directional keys, SPACE, click, UNDO, RESET: it counts as an action, keeps completed levels) | `ACTION_INFO_ADDENDUM`, `UNDO_INFO_ADDENDUM`, `RESET_INFO_ADDENDUM` | # Setup, all actions (the plan message lists the advertised ones) |
+| Levels build on earlier mechanics; engine.py's rules are the starting hypothesis | `LEVEL_TRANSFER_SYSTEM_GUIDANCE` | plan rule 6 |
+| The first PLAN message of a new level: the level-start paragraph and the new board's pieces whose shape names no frame of the previous level showed (at most 8) | `LEVEL_START_USER_PROMPT` | `prompts.plan_additions` / `level_start_text` |
+| A scene of objects; no player assumed; no absolute-coordinate goals | `VISUAL_GAME_ADDENDUM` | plan rule 7 |
+| Warnings before a batch is sent: a predicted game over at move k, runs of moves that change nothing in the replica; never a refusal; kept in the batch's `batch_log` entry (`warnings`) | `DEATH_GUARD_ADDENDUM`, `NOOP_GUARD_ADDENDUM` | `PlayAgent._prediction_warnings` |
+| Prefer another python call over more reasoning; only `commit_moves` spends the level budget | `PREFER_TOOL_CALLS_LINE` | plan rule 8 |
+| `notes.md` for what is not code: Goal model, Open questions, Plan (engine.py holds the world and action models); the PLAN message shows it (40 lines at most); "older parts of this conversation will eventually be dropped, so anything you leave out ... is gone" | the memory sections of `tool_agent.py` (`_MEMORY_SECTION_MEANINGS`, `_memory_section_labels`), `SUMMARY_REQUEST_PROMPT` | plan rule 9; `PlayAgent._init_notes` / `_notes`; `edit_file(path="notes.md")` writes it directly (engine.py's versions are untouched) |
+
 ## 4. Files
 
 | File | Change |

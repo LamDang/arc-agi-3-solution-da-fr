@@ -22,8 +22,11 @@ playing a live game, with plan rounds (plan_message, the commit_moves tool) and 
 from __future__ import annotations
 
 import copy
+import textwrap
 
 from engine_re import segment
+from engine_re import animation  # the ported animation digest
+from engine_re.diff_report import COLOR_NAMES
 from engine_re.kernel import PRELOADED, PRELOADED_HISTORY, PRELOADED_PLAY, PRELOADED_STEP
 from engine_re.tester import MAX_FAILURES, _ranges as _tester_ranges
 from engine_re.trace import Trace, action_code
@@ -207,6 +210,27 @@ The recorded action (a step's .action; it prints as Action(id=6, x=39, y=17) but
   It has no .cell: the grid cell under a click depends on your State's grid and view, so the harness
   computes it when it hands the click to step() (Action.cell below).
 """
+
+# --- Ported from the base harness: the animation digest (StepView.animation, engine_re.animation) ----------
+_STEP_VIEW_ANIMATION = """  .animation: Animation | None  an animated step's digest, None for one frame; print() shows it. .transient:
+      the cells that changed and changed back (in no frame you can otherwise reach), with .transient_bbox (x0,
+      y0, x1, y1), .transient_transitions ({"old>new": cells}) and .transient_frames (first, last); .timeline: one
+      entry per frame that changed anything against the frame before it (frame 0 against .before): .frame,
+      .changed, .bbox, and .cells ("old>new @ (x,y) ...") when few, else .transitions ({"old>new": count})
+"""
+_STEP_VIEW_ANIMATION_AFTER = "  .frames: np.ndarray  int8 (n, 64, 64): every frame the action returned, in order; n > 1: animated\n"
+
+
+def _insert(text: str, anchor: str, addition: str, before: bool = False) -> str:
+    """`text` with `addition` put right after (or before) `anchor`, which must occur exactly once."""
+    if text.count(anchor) != 1:
+        raise ValueError(f"prompt anchor not found exactly once: {anchor[:60]!r}")
+    at = text.index(anchor) + (0 if before else len(anchor))
+    return text[:at] + addition + text[at:]
+
+
+_STEP_VIEW = _insert(_STEP_VIEW, _STEP_VIEW_ANIMATION_AFTER, _STEP_VIEW_ANIMATION)
+# --- end of the animation digest's reference ------------------------------------------------------------------
 
 _ENGINE = """
 ## engine.py: your two functions and the FIXED block's classes (the classes are preloaded in python too)
@@ -766,7 +790,7 @@ def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: s
 
 Game: {game}. {passed}
 Step {k}: {_action_text(s.action)}, played in level {level}. The game returned {s.n_frames} frame(s) for it; the tests compare
-the last.{(" " + " ".join(notes)) if notes else ""}
+the last.{(" " + " ".join(notes)) if notes else ""}{animation_note(trace, k, report)}
 {shown}
 
 {step_objects(trace, k)}
@@ -822,7 +846,7 @@ def advance_message(
     shown = (f"`recording` now holds the recording up to step {k}, and `step_to_fix` is step {k}." if history
              else f"`step_to_fix` is now step {k}.")
     return f"""{passed}
-Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}
+Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}{animation_note(trace, k, report)}
 {shown}
 
 {step_objects(trace, k)}
@@ -940,6 +964,79 @@ Fit rounds:
 Never hard-code frames or anything keyed to the step number. Print whatever helps you debug inside
 step(); the test report and replay_step show it.
 """
+
+# --- Ported from the base harness's prompt (inference/agent/prompts.py, inference/agent/tool_agent.py) -----------
+# Its sentences, verbatim where they apply, adapted to the replica, commit_moves, numpy frames of colours 0-15 and
+# clicks Action(6, x, y) (PLAY_DESIGN.md, "Ported from the base harness"). Each block goes in at an anchor of
+# _SYSTEM_PLAY (_insert raises when an anchor is missing, so a change to the text around it is caught at import).
+
+# GAME_OVERVIEW_ADDENDUM's colour legend, and ACTION_INFO_ADDENDUM, UNDO_INFO_ADDENDUM, RESET_INFO_ADDENDUM: in # Setup,
+# after the action list.
+_PLAY_COLOUR_LEGEND = textwrap.fill(
+    "- Colour legend: " + ", ".join(f"{c} {name}" for c, name in sorted(COLOR_NAMES.items())) + ".",
+    width=110, subsequent_indent="  ",
+) + "\n"
+_PLAY_ACTION_MEANINGS = """- Action meanings (use only the actions the game advertises; every plan message lists them):
+  - UP, DOWN, LEFT and RIGHT (Action(1) to Action(4)) are directional controls; what they affect depends on the
+    game.
+  - When available, SPACE (Action(5)) performs a game-specific action, such as interacting, selecting, rotating,
+    attaching/detaching, or executing. Test its effect rather than assuming what it does.
+  - When available, a click Action(6, x=x, y=y) clicks a board location. Pass integer x and y from 0 to 63.
+    Coordinates are zero-based from the top-left: y (the row) increases downward and x (the column) increases
+    rightward.
+  - When available, UNDO (Action(7)) reverses a previous action, usually the last turn. Check what it restores.
+    It cannot recover a failed attempt after game over.
+  - RESET (Action(0)) usually restores the current level to its starting state, including the
+    remaining-action/time bar, while keeping completed levels. Use it to recover from an unrecoverable position or
+    start a different approach. RESET itself counts as one action, and actions already spent still count toward
+    your score. Send it with commit_moves like any move; after a game over the harness sends it for you.
+"""
+_PLAY_SETUP_AFTER = "  advertises a fixed subset of them (every plan message lists them).\n"
+
+# ANIMATION_ADDENDUM and ANIMATION_ADDENDUM_TIMELINE: in # Tests, after the sentence on animated actions.
+_PLAY_ANIMATION = """  One action can return a short animation: a step's .frames holds every frame and .after, its final frame, is
+  the board it settled on. Transient cells changed and then changed BACK during the animation, so they appear in
+  no frame you can otherwise reach - not in .before, not in .after. For an animated step the test report and the
+  messages print step.animation: the transient cells (how many, where, their colour changes old>new and the
+  frames they differ in) and a diff timeline of the frames, which shows which cells changed at each frame.
+  Whatever the action did may be visible only there: read it before concluding that a move did nothing.
+"""
+_PLAY_ANIMATION_AFTER = "  did. When the game animated an action, only its last frame is compared.\n"
+
+# STEP_VERIFICATION_ADDENDUM (the game is solvable), LEVEL_TRANSFER_SYSTEM_GUIDANCE, VISUAL_GAME_ADDENDUM (a scene, no
+# player assumed, no absolute-coordinate goals), PREFER_TOOL_CALLS_LINE, and the memory sections Goal model, Open
+# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 5-9, before the fit rules.
+NOTES_FILE = "notes.md"
+_PLAY_PLAN_RULES = """5. If your search finds no solution under your current model of the game, remember that the game is solvable.
+   Reconsider your mechanics, goal, search implementation, or search limits, including interactions with new
+   elements. Take a targeted action to test an uncertain rule or overlooked interaction, then update your model
+   from the result. A plan far above the human baseline the plan message shows, or no plan at all, means your
+   replica is missing a rule, not that the level is hard.
+6. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
+   engine.py carry them forward: they are your starting hypothesis on a new level, while you re-check anything
+   contradicted by new evidence. New levels often introduce additional mechanics, sometimes through unfamiliar
+   board elements. These additions are often important for solving the level. The goal may remain the same but
+   require new mechanics to reach it, or the goal itself may change.
+7. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
+   Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do
+   not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board
+   configuration. Use coordinates only to target actions or describe local evidence. Do not frame the objective
+   as reaching a specific absolute row or column.
+8. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
+   another python call over more reasoning: the code answers what the reasoning would only guess at, and running
+   it is faster than thinking your way to the same answer.
+9. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
+   the workspace, under three headings: Goal model: what winning requires. Open questions: unresolved hypotheses.
+   Plan: intended next steps. Change it with edit_file(path="notes.md", edits=[...]) (read_file("notes.md") gives
+   its anchors); every plan message shows it. Older parts of this conversation will eventually be dropped, so
+   anything you leave out of engine.py and notes.md is gone.
+"""
+_PLAY_PLAN_RULES_BEFORE = "Fit rounds:\n1. Look at what the step did"
+
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_SETUP_AFTER, _PLAY_COLOUR_LEGEND + _PLAY_ACTION_MEANINGS)
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_ANIMATION_AFTER, _PLAY_ANIMATION)
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_PLAN_RULES_BEFORE, _PLAY_PLAN_RULES, before=True)
+# --- end of the ported guidance in the system prompt -----------------------------------------------------------
 
 _RUN_TESTS_PLAY = """Run the contract tests, then replay every step played so far through engine.py, in order. Stops after
 `failures` failing steps (1 to 10, default 1). Reports how many steps pass before the first failure, the
@@ -1127,7 +1224,7 @@ def mismatch_message(
     title = f"step {k} did not go as your replica predicted" if predicted else f"your replica does not reproduce step {k}"
     return f"""Fix your replica: {title}.
 
-Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.
+Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.{animation_note(trace, k, report)}
 What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}
 `recording` now holds steps 0-{k}, and `step_to_fix` is step {k} (recording[-1]).
 
@@ -1166,3 +1263,107 @@ def batch_lines(trace: Trace, first: int, outcomes: list[dict]) -> list[str]:
         tail = f" ({', '.join(extra)})" if extra else ""
         lines.append(f"  #{o['index']} {o['label']}: {what}{tail}")
     return lines
+
+
+# --- Ported from the base harness: the animation digest in the step messages, and the PLAN message's additions -------
+
+
+def animation_note(trace: Trace, k: int, report: str = "") -> str:
+    """The animation digest of step k (engine_re.animation.report_lines) on new lines, for a message that says how many
+    frames the game returned; "" for a step of one frame, or when `report` (the test report the message carries) has
+    it already."""
+    s = trace.steps[k]
+    if s.n_frames <= 1:
+        return ""
+    lines = animation.report_lines(trace.steps[k - 1].last if k > 0 else None, s.frames, k, indent="")
+    if not lines or lines[0].strip() in report:
+        return ""
+    return "\n" + "\n".join(lines)
+
+
+# LEVEL_START_USER_PROMPT (the first message after a level is completed), adapted: the new board is recording[-1].after.
+LEVEL_START_PLAY = """You have completed the previous level. recording[-1].after now contains the starting board of the next level; __SHOWN__.
+Build a new plan for this layout rather than continuing the previous level's action sequence.
+Start from the mechanics you established on the previous level (the rules in engine.py); do not rediscover them without
+reason. Inspect the new board for unfamiliar elements, changed arrangements, or interactions your previous understanding
+does not explain. New elements often introduce mechanics needed to solve this level, so prioritize small, informative
+tests when their behavior is unclear.
+Reassess the goal: does the previous objective still apply, now requiring the new mechanics, or does the evidence suggest
+a different objective? Combine retained knowledge with new findings to plan for this board."""
+UNFAMILIAR_SHOWN = 8  # pieces listed as the new level's unfamiliar elements
+UNFAMILIAR_FRAMES = 24  # frames of the previous level whose shapes are compared (distinct ones, evenly spaced)
+
+
+def unfamiliar_pieces(trace: Trace, limit: int = UNFAMILIAR_SHOWN) -> tuple[int, list[str], int] | None:
+    """The pieces of the last step's frame (a new level's first frame) whose shape names occur in none of the previous
+    level's frames: (that level, one line per piece, at most `limit`, how many more); None when the segmentation fails."""
+    steps = trace.steps
+    n = len(steps)
+    try:
+        seg = segment.Segmenter(trace)
+        previous = segment.shown_level(trace, n - 2)
+        frames: dict[bytes, int] = {}
+        for i in range(n - 1):
+            if steps[i].last is not None and steps[i].state != "WIN" and segment.shown_level(trace, i) == previous:
+                frames.setdefault(steps[i].last.tobytes(), i)
+        chosen = sorted(frames.values())
+        if len(chosen) > UNFAMILIAR_FRAMES:
+            chosen = [chosen[round(j * (len(chosen) - 1) / (UNFAMILIAR_FRAMES - 1))] for j in range(UNFAMILIAR_FRAMES)]
+        known = {p.shape for i in chosen for p in seg.pieces(i) if p.role == "object"}
+        new = [(j, p) for j, p in enumerate(seg.pieces(n - 1)) if p.role == "object" and p.shape not in known]
+    except Exception:  # noqa: BLE001  (a frame the segmentation cannot read must not stop the run)
+        return None
+    lines = [f"[{j}] {p.shape}, colour {p.colour} ({COLOR_NAMES.get(p.colour, '?')}), {p.width}x{p.height} at ({p.x}, {p.y})"
+             + (" (a screen piece)" if p.screen else "") for j, p in new[:limit]]
+    return previous, lines, max(0, len(new) - limit)
+
+
+def level_start_text(trace: Trace, images: bool = True) -> str:
+    """LEVEL_START_PLAY and the new board's unfamiliar elements when the last step played entered a new level (it
+    solved one and the game goes on); "" otherwise."""
+    steps = trace.steps
+    if len(steps) < 2 or steps[-1].levels_completed <= steps[-2].levels_completed or steps[-1].state == "WIN":
+        return ""
+    shown = "the image below shows this new board" if images else "show_frames(recording[-1].after) shows this new board"
+    text = LEVEL_START_PLAY.replace("__SHOWN__", shown)
+    found = unfamiliar_pieces(trace)
+    if found is None:
+        return text
+    previous, lines, more = found
+    if not lines:
+        return text + f"\nEvery piece of the new board (recording[-1].pieces_after) has a shape seen in level {previous}'s frames."
+    head = (f"Unfamiliar elements to test first: the pieces of the new board (recording[-1].pieces_after; x, y in grid cells) whose "
+            f"shapes occur in none of level {previous}'s frames:")
+    return text + "\n" + head + "\n" + "\n".join("  " + line for line in lines) + (f"\n  ... and {more} more" if more else "")
+
+
+PLAN_NOTES_LINES = 40  # lines of notes.md a PLAN message shows
+NOTES_TEMPLATE = "Goal model:\nOpen questions:\nPlan:\n"  # notes.md as the play agent creates it
+NOTES_EMPTY = ('notes.md holds nothing yet: keep the goal model, the open questions and the plan there with '
+               'edit_file(path="notes.md", edits=[...]).')
+
+
+def notes_block(notes: str | None, limit: int = PLAN_NOTES_LINES) -> str:
+    """notes.md for a PLAN message: its first `limit` lines, with a note when the rest is cut."""
+    if notes is None or not notes.strip() or notes.split() == NOTES_TEMPLATE.split():
+        return NOTES_EMPTY
+    lines = notes.rstrip("\n").splitlines()
+    cut = (f'\n  [cut: {len(lines) - limit} more line(s) of notes.md not shown; read_file("notes.md") shows them. Keep it short.]'
+           if len(lines) > limit else "")
+    return "notes.md (your goal model, open questions and plan):\n" + "\n".join("  " + line for line in lines[:limit]) + cut
+
+
+def plan_additions(text: str, trace: Trace, notes: str | None = None, images: bool = True) -> str:
+    """A PLAN message (plan_message) with the ported additions: after its first paragraph, the level-start paragraph
+    when the last step entered a new level (level_start_text); before the engine.py listing (or the closing paragraph
+    when there is none), notes.md (notes_block). Compaction (elide_engine_listing) keeps both."""
+    level = level_start_text(trace, images)
+    if level and "\n\n" in text:
+        head, rest = text.split("\n\n", 1)
+        text = f"{head}\n\n{level}\n\n{rest}"
+    block = notes_block(notes) + "\n\n"
+    if ENGINE_HEADER in text:
+        return text.replace(ENGINE_HEADER, block + ENGINE_HEADER, 1)
+    closing = PLAN_CLOSING.strip()
+    at = text.rfind(closing)
+    return text if at < 0 else text[:at] + block + text[at:]

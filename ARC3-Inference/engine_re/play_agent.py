@@ -52,7 +52,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from engine_re import diff_report
+from engine_re import animation  # transient cells of a batch's animated moves
 from engine_re.agent import (
     READ_CHARS_IN_MESSAGES, REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate,
 )
@@ -64,6 +67,7 @@ from engine_re.prompts import (
     COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, accepted_actions_text, advance_message, batch_lines, commit_moves_description,
     kernel_names_text, mismatch_message, move_text, plan_message, tools,
 )
+from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, plan_additions
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import StepCheck, check_step, predict
 from engine_re.trace import Action, Trace, action_code, parse_moves
@@ -171,6 +175,7 @@ class PlayAgent(EngineAgent):
         self.pending: dict[str, Any] | None = None  # a batch sent this turn, handled at the end of the turn
         self.fit_round: dict[str, Any] | None = None  # the open fit round (an entry of result.fit_rounds)
         self.restored_status: str | None = None  # result.json's status when the run was restored
+        self.warnings: list[str] = []  # the last batch's prediction warnings (_prediction_warnings)
 
     # --- the trace's out-of-step bookkeeping (kept in its meta: the tests and the kernel read it there) ---------
 
@@ -328,6 +333,7 @@ class PlayAgent(EngineAgent):
         first_step = outcomes[0]["index"] if outcomes else n
         lines = [f"Sent {len(outcomes)} of {len(acts) + cut} move(s) (steps {first_step}-{first_step + len(outcomes) - 1}):"] if outcomes else []
         lines += batch_lines(self.full_trace, first_step, outcomes)
+        lines += self._animation_lines(outcomes)
         last = outcomes[-1] if outcomes else None
         if last is not None and not last["ok"]:
             lines.append(f"The batch stopped at step {last['index']}: the game's result differs from your replica's prediction"
@@ -344,6 +350,7 @@ class PlayAgent(EngineAgent):
             lines.append("Every move matched your replica. The next message asks for the next moves.")
         if cut:
             lines.append(f"The last {cut} move(s) of the batch were cut: the run allows {self.max_actions} actions in all.")
+        lines += self.warnings
         return "\n".join(lines)
 
     def _blind_batch(self, acts: list[Action], note: str, cut: int) -> str:
@@ -431,6 +438,7 @@ class PlayAgent(EngineAgent):
         prediction, frames = self._predict(acts)
         predicted = prediction.get("steps") or []
         error = prediction.get("error")
+        self.warnings = self._prediction_warnings(acts, predicted, frames, n) if note != AUTO_RESET_NOTE else []
         outcomes: list[dict[str, Any]] = []
         for i, act in enumerate(acts):
             pos = n + i
@@ -464,6 +472,8 @@ class PlayAgent(EngineAgent):
             "matched": sum(bool(o["ok"]) for o in outcomes), "mismatch": miss["index"] if miss else None,
             "diff": miss["verdict"] if miss else None, "note": note,
         })
+        if self.warnings:
+            self.result.batch_log[-1]["warnings"] = list(self.warnings)
         self._log({"turn": self.result.turns, "batch": self.result.batch_log[-1]})
         return outcomes, len(acts) - len(outcomes)
 
@@ -497,6 +507,85 @@ class PlayAgent(EngineAgent):
         })
         self._log({"turn": self.result.turns, "batch": self.result.batch_log[-1]})
         return outcomes
+
+    # --- ported from the base harness: warnings from the prediction, notes.md ----------------------------------
+
+    def _prediction_warnings(self, acts: list[Action], predicted: list[Any], frames: list[Any], n: int) -> list[str]:
+        """What the committed replica predicts for the batch that is worth a word before it is sent (warnings only:
+        the batch is sent as it is, since a deliberate probe is legitimate; the base harness's DEATH_GUARD_ADDENDUM and
+        NOOP_GUARD_ADDENDUM, without their refusals): a game over at some move, and runs of moves that change nothing
+        in the replica (the same final frame and status as before the move)."""
+        out: list[str] = []
+        noop: list[int] = []  # 0-based positions in the batch
+
+        def flush() -> None:
+            if not noop:
+                return
+            which = f"move {noop[0] + 1}" if len(noop) == 1 else f"moves {noop[0] + 1}-{noop[-1] + 1}"
+            shown = ", ".join(action_code(acts[i]) for i in noop)
+            verb = "changes" if len(noop) == 1 else "change"
+            out.append(f"[harness] Warning: {which} ({shown}) {verb} nothing in your replica (the same frame and status as "
+                       "before): if your replica is right, an action spent for nothing; a deliberate probe of that rule is fine.")
+            noop.clear()
+
+        for i, act in enumerate(acts):
+            pos = n + i
+            got = predicted[pos] if pos < len(predicted) else None
+            if got is None:
+                break
+            prev = predicted[pos - 1] if pos - 1 < len(predicted) else None
+            frame = frames[pos][-1] if pos < len(frames) and len(frames[pos]) else None
+            prev_frame = frames[pos - 1][-1] if 0 < pos <= len(frames) and len(frames[pos - 1]) else None
+            same = (prev is not None and frame is not None and prev_frame is not None and np.array_equal(frame, prev_frame)
+                    and all(got.get(k) == prev.get(k) for k in ("state", "levels_completed")))
+            if same:
+                noop.append(i)
+            else:
+                flush()
+            if got.get("state") == "GAME_OVER":
+                after = (f"; the {len(acts) - i - 1} move(s) after it would not be sent" if i < len(acts) - 1 else "")
+                out.append(f"[harness] Warning: your replica predicts a game over at move {i + 1} ({action_code(act)}){after}, and "
+                           "the harness then RESETs the level (one more action). Sent anyway: a deliberate probe is fine.")
+                break
+        flush()
+        return out
+
+    ANIMATION_LINES = 3  # animated moves of a batch whose transient cells commit_moves' output names
+
+    def _animation_lines(self, outcomes: list[dict[str, Any]]) -> list[str]:
+        """One line per move of the batch that animated with transient cells (cells that changed and changed back,
+        in no frame the model can otherwise reach; engine_re.animation), at most ANIMATION_LINES: the base harness's
+        describe_animation, which is silent when no cell changed back."""
+        out: list[str] = []
+        for o in outcomes:
+            k = int(o["index"])
+            step = self.full_trace[k]
+            if step.n_frames <= 1:
+                continue
+            found = animation.digest(self.full_trace[k - 1].last if k else None, step.frames)
+            if found is None or not found.transient:
+                continue
+            if len(out) == self.ANIMATION_LINES:
+                out.append("[harness] (more moves of this batch animated; recording[k].animation shows each)")
+                break
+            out.append(f"[harness] Step {k} ({o['label']}) animated over {found.frames} frames: {found.transient_text()}. "
+                       f"recording[{k}].animation has its timeline.")
+        return out
+
+    def _notes(self) -> str | None:
+        """notes.md in the workspace (the model's goal model, open questions and plan), or None."""
+        path = self.workspace / NOTES_FILE
+        try:
+            return path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    def _init_notes(self) -> None:
+        """notes.md with its three headings, when the workspace has none."""
+        path = self.workspace / NOTES_FILE
+        if not path.exists():
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            path.write_text(NOTES_TEMPLATE, encoding="utf-8")
 
     # --- phases ----------------------------------------------------------------------------------
 
@@ -561,6 +650,7 @@ class PlayAgent(EngineAgent):
             baseline=self.live.baseline_actions, unexplained=sorted(ignore), out_of_sync=self.out_of_sync,
             engine_note=self._engine_note(), images=self.images,
         )
+        text = plan_additions(text, self.full_trace, notes=self._notes(), images=self.images)
         self._log({"turn": self.result.turns, "plan": {"step": n - 1, "steps": n, "actions": self.live.actions, "level": self.live.level,
                                                         "out_of_sync": self.out_of_sync}})
         if say:
@@ -771,6 +861,7 @@ class PlayAgent(EngineAgent):
                 text = text.replace(old, new, 1)
             self.workspace.mkdir(parents=True, exist_ok=True)
             self.engine_path.write_text(text, encoding="utf-8")
+        self._init_notes()
         super().setup()
 
     def _stepwise_start(self) -> str | list[dict[str, Any]] | None:
