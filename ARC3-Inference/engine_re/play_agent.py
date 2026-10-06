@@ -6,8 +6,8 @@ The design is in PLAY_DESIGN.md. In short, the stepwise agent (engine_re.agent, 
 recording replaced by the game being played (engine_re.live_game):
 
 - PLAN: the model sees every step played so far (`recording`) and the game's current frame; in python,
-  state_now() is its engine's state and simulate(actions) plays moves on it. It sends moves with
-  commit_moves(actions, note).
+  state_now() is its engine's state and it plays moves by calling engine.step on copies of it (a click's
+  Action takes cell=click_cell(state, x, y)). It sends moves with commit_moves(actions, note).
 - commit_moves first runs the tests on engine.py over every step played so far; if any fails, nothing is
   sent and the model gets the report (a fit round opens on the failing step). Otherwise engine.py becomes
   the committed engine (engine_committed.py), the batch is predicted with it in one sandboxed run

@@ -22,7 +22,7 @@ This document is the design to review before implementation. The run plan
                                             ▼        │ differs from the engine's
                  ┌──────────────────────────────────────────────────────┐
                  │  PLAN: "steps 0..n-1 pass; the game is at level L"    │
-                 │  python: state_now(), simulate(actions) on engine.py  │
+                 │  python: state_now(), engine.step on copies of it     │
                  │  commit_moves(actions)                                │
                  └───────────────┬──────────────────────────────────────┘
                                  │ for each action, in order:
@@ -47,9 +47,9 @@ asks for. Three phases:
   first message is a PLAN message.
 - **PLAN.** The model sees every step so far (`recording`), the current frame
   as an image, the level and what the game accepts. In python, `state_now()`
-  is engine.py's state after replaying everything played, and
-  `simulate(actions)` plays a sequence on engine.py from there and shows the
-  final frame. The model ends the phase with `commit_moves(actions)`.
+  is engine.py's state after replaying everything played, and the model plays
+  moves on copies of it by calling `engine.step` directly (a click's `Action`
+  built with `click_cell`). The model ends the phase with `commit_moves(actions)`.
 - **PLAY** (harness only). The harness predicts the batch with the committed
   engine, then sends the actions to the real game one at a time and compares.
   On the first mismatch it drops the rest of the batch and opens a FIT round
@@ -70,7 +70,7 @@ turn's tool messages, by the PLAN user message with the current frame.
 | `Trace`/`Step`: the recording | `engine_re.trace` | grows one step per real action; saved after every batch |
 | `engine.py`, the fixed interface, `GameRunner`, rendering, click cells | `engine_re.game_api`, `skeleton` | none |
 | Tests: contract + replay, failure report with images, HUD-bar tolerance, `tests.jsonl`, `engine_best.py` | `engine_re.tester`, `candidate_runner` | `ignore` (steps not compared) and `resync` (section 4.6) |
-| Kernel: `recording`, `step_to_fix`, pieces, `read_file`/`edit_file`/`undo_edit`, `replay_step`, `show_frames`, reserved names, replay on resume | `engine_re.kernel`, `helpers` | two built-ins added: `state_now`, `simulate` |
+| Kernel: `recording`, `step_to_fix`, pieces, `read_file`/`edit_file`/`undo_edit`, `replay_step`, `show_frames`, reserved names, replay on resume | `engine_re.kernel`, `helpers` | two built-ins added: `state_now`, `click_cell` |
 | Agent loop: OpenRouter client, retries, tool dispatch, automatic test after an edit, images after tool messages, compaction/condenser, transcript, resume, budgets | `engine_re.agent.EngineAgent` | subclassed; one tool added |
 | Stepwise messages: `episode_message`, `advance_message`, `step_objects` | `engine_re.prompts` | a `play` mode: system prompt, PLAN message, `commit_moves` schema |
 | Score | TAAF's formula (`taaf/game.py`) and `metadata.json` `baseline_actions` | reimplemented in 15 lines; the run also writes a `benchmark.json`-shaped record so `make score_run` and the viewer can read it (section 4.8) |
@@ -142,13 +142,17 @@ reference:
   (the committed engine.py or the current file; the current file, as
   `replay_step` does, so the model can test an edit before committing). Cached
   per engine hash and trace length.
-- `simulate(actions, state=None, show=True) -> list[State]`: from
-  `state_now()` (or `state`), plays the actions through `GameRunner` (so
-  RESET, level changes, WIN and GAME_OVER behave as in the tests) and prints
-  one line per action (what changed in the state, status, level) and shows
-  the final frame as an image (up to 4 frames with `show`). Returns the states
-  so the model can search in python: a BFS over moves on the engine is one
-  short function away, which is the point of having a model.
+- `click_cell(state, x, y) -> tuple | None`: the grid cell under a screen
+  pixel on this state, as the harness computes `action.cell` for a click, so
+  the model can build the `Action` a click is for `step()`.
+- No `simulate` helper (it existed in the v10 run and was removed after it):
+  the model plays moves by calling `engine.step` on copies of a State and
+  `engine.make_level(n)` for a level's first state, with the harness rules
+  stated in the prompt (RESET is a fresh `make_level`, `level_solved` starts
+  `make_level(n + 1)`). The v10 transcripts showed the model composing routes
+  in text and using `simulate` only to verify them, while its searches
+  re-implemented the rules by hand; a BFS over moves calling `engine.step` on
+  copies is one short function away, which is the point of having a model.
 - Both are reserved names (`kernel.RESERVED`) and go in the `# Objects` text
   and its test.
 
@@ -204,7 +208,7 @@ the game does not advertise) are refused before sending, with the valid form.
   actions as possible; the way to do that is to keep a model that
   reproduces every step so far and to plan with it") and a "How to work"
   that adds the plan phase: look at the current frame and `state_now()`,
-  try sequences with `simulate`, prefer the shortest sequence the engine
+  try sequences with `engine.step` on copies, prefer the shortest sequence the engine
   says solves the level, and when the engine has never seen a kind of
   move, send a short batch (1-3 actions) to learn its effect rather than a
   long plan built on a guess. Scoring: each level's score is
@@ -213,7 +217,7 @@ the game does not advertise) are refused before sending, with the valid form.
 - **PLAN message** (new, `plan_message`): "Steps 0-{n-1} pass with your
   committed engine. The game is at level L ({c} of {w} completed), {status};
   the last action was ...; {budget line}. Current frame: [image, upscaled 8x,
-  as the test pictures]. Plan the next moves with simulate(), then
+  as the test pictures]. Work out the next moves on your engine, then
   commit_moves(actions, note)." When a level was just solved, it says so and
   that `make_level(L)` drew its first frame correctly (the step matched).
 - **FIT message**: `advance_message` as it is, with its first line replaced by
@@ -276,8 +280,8 @@ then on in the second:
   replay stays aligned with the game after a divergence. `candidate_runner`
   takes both as arguments; the candidate still sees only actions. As
   implemented, both live in the live trace's meta (with `out_of_sync`, the
-  step the engine is out of step since), so the kernel's `state_now`,
-  `simulate` and `replay_step` follow them too; an out-of-step batch stops at
+  step the engine is out of step since), so the kernel's `state_now` and
+  `replay_step` follow them too; an out-of-step batch stops at
   the resync point, after which every step is tested and the loop goes on
   (a FIT round when the resync step itself fails, e.g. `make_level(L+1)` not
   drawing the new level). The hatch is refused when the current engine.py
@@ -342,8 +346,8 @@ already keeps one listing live).
 | `engine_re/live_game.py` | new: `LiveGame` (section 3.1), action parsing from the model's labels, `events.jsonl` writer |
 | `engine_re/play_agent.py` | new: `PlayAgent` (3.3, 3.5, 3.6, 3.7), `score()` |
 | `engine_re/run_play.py` | new CLI: `--games`, `--out`, `--model`, budgets, `--max-actions`, `--batch-size`, `--fit-turns`, `--plan-turns`, parallel games, `summary.md`, `benchmark.json` |
-| `engine_re/prompts.py` | mode `"play"`: system prompt, `plan_message`, `mismatch_message`, `commit_moves` schema, Objects entries for `state_now`/`simulate` |
-| `engine_re/helpers.py`, `kernel.py` | `state_now`, `simulate`; `PRELOADED_PLAY`/`RESERVED_PLAY` |
+| `engine_re/prompts.py` | mode `"play"`: system prompt, `plan_message`, `mismatch_message`, `commit_moves` schema, Objects entries for `state_now`/`click_cell` |
+| `engine_re/helpers.py`, `kernel.py` | `state_now`, `click_cell`; `PRELOADED_PLAY`/`RESERVED_PLAY` |
 | `engine_re/tester.py`, `candidate_runner.py` | `predict()` (run the engine on recorded + planned actions), `ignore`, `resync` |
 | `engine_re/agent.py` | small hooks: a `phase` label on transcript records, `_advance` overridable, the commit output text per mode |
 | `tests/test_play.py` | the loop with a scripted client: match → PLAN, mismatch → FIT, refused `commit_moves`, GAME_OVER then RESET, fit cap and resync, resume, score |
@@ -366,10 +370,11 @@ rule affects.
    form of the loop: the model cannot skip the fit. The escape hatch (3.6) is
    the only relaxation, and it is explicit in the results (unexplained
    steps).
-3. **Planning is in python (`simulate`), sending is a tool.** The tool that
-   "gives the moves and gets final states" is `simulate`; `commit_moves` only
-   sends. This lets the model search over its engine; a tool call per
-   candidate plan would not.
+3. **Planning is in python (`engine.step` on copies), sending is a tool.**
+   The thing that "gives the moves and gets final states" is the engine
+   itself, called directly in python; `commit_moves` only sends. This lets
+   the model search over its engine; a tool call per candidate plan would
+   not.
 4. **Batch size 10, checked per action.** The batch is predicted at once and
    sent step by step, so the first divergence stops it; later actions of a
    plan are never sent on a wrong premise.
@@ -387,8 +392,8 @@ rule affects.
    configuration, not the first.
 
 Open: whether the PLAN message should also give the base harness's
-board-diff image of the last step (cheap, may help). `simulate` does not cap
-the sequence length: searching needs long rollouts; only sending is capped.
+board-diff image of the last step (cheap, may help). Playing moves on the
+engine in python is not capped: searching needs long rollouts; only sending is capped.
 
 ## 6. Expected failure modes
 

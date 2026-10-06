@@ -2395,7 +2395,7 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
     play = objects_reference("play", True, True)
     play_members = _objects_members(play)
     assert all(play_members[k] == v for k, v in members.items())
-    for name in FUNCTIONS + ("summarize_levels", "state_now", "simulate"):
+    for name in FUNCTIONS + ("summarize_levels", "state_now", "click_cell"):
         documented = re.search(rf"^{name}\((.*?)\) ->", play, re.M).group(1)
         args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
         assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name

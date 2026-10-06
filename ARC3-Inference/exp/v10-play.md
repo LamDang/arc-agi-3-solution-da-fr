@@ -22,7 +22,8 @@ the rules from the screen alone. The three games test three cases
 ## What the harness is
 
 One conversation per game alternates a **plan round** (the current frame;
-in python `state_now()` and `simulate(actions)` on the engine; then
+in python `state_now()` and `simulate(actions)` on the engine, a helper
+removed after this run, see the next steps; then
 `commit_moves(actions, note)`) and a **fit round**, which is the stepwise
 harness of v6c-v9 ("fix step k"). `commit_moves` replays the whole game on
 `engine.py` first and sends nothing while a step fails. Otherwise each move
@@ -627,6 +628,14 @@ over from an earlier version.
   prompt.
 - **Count turns without a tool call** in `phase_turns`.
 - **Run lp85 as the fourth game**, where every v5-v9 measurement was made.
+- **`simulate` removed, the engine called directly (done after this run).** The
+  transcripts showed the model composing routes in text and using `simulate`
+  only to verify them, while its searches re-implemented the rules by hand
+  (ls20: 49 hand-written search loops against 34 calling the engine). The play
+  kernel now preloads `state_now` and `click_cell` only, and the prompt says
+  to play moves with `engine.step` on copies of a State and `engine.make_level`
+  for a level's first state, a BFS over moves being one short function.
+
 
 ## How the numbers were checked
 

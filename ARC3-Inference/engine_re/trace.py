@@ -193,7 +193,7 @@ def move_label(action: Action) -> str:
 
 
 def parse_move(item: Any) -> Action:
-    """An action as the model gives it to commit_moves or simulate: a label ("UP", "RESET", "ACTION3",
+    """An action as the model gives it to commit_moves: a label ("UP", "RESET", "ACTION3",
     "MOUSE(row=46, col=12)"), an action id, an Action, a click as {"click": [x, y]}, {"x": x, "y": y},
     {"action": "MOUSE", "row": r, "col": c}, (6, x, y) or "click 12 46" / "click(12, 46)" (x then y);
     {"action": "UP"} or {"id": 1} for the others. Raises ValueError with the accepted forms otherwise."""

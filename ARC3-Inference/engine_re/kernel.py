@@ -69,8 +69,9 @@ PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("engine",)
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
-# The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and simulate.
-PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "simulate")
+# The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and click_cell
+# (moves are played by calling engine.step on copies of a State).
+PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell")
 RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
     "engine is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "

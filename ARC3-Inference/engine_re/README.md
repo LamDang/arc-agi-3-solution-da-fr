@@ -428,7 +428,8 @@ evaluate.py: candidate vs real engine on new random action sequences per level
 
 The same agent playing a live game instead of fitting a recording: one conversation that alternates a
 plan round (the game's current frame and the actions it accepts; in python `state_now()`, the engine's
-state after everything played, and `simulate(actions)`, moves played on it; then
+state after everything played, on copies of which the model plays moves by calling `engine.step`
+directly, a click's `Action` built with `click_cell(state, x, y)` as the harness does; then
 `commit_moves(actions, note)`) and the stepwise fit round above. `commit_moves` runs the full test first
 and sends nothing while a step fails (a fit round opens on it); otherwise engine.py becomes the committed
 engine (`engine_committed.py`; a `commit_engine` earlier in the same turn is the batch's commit), each move
@@ -452,7 +453,7 @@ counted in `exact`, `total` or `passing_prefix`), up to the first RESET or level
 resync point (`resync`: `game_api.GameRunner.resync` puts the engine at that level's start, performing
 the RESET, or showing the new level without calling `step()`); there every step is tested again and the
 loop goes on. Both live in the trace's meta, so the tests (`tester.replay_test`, `candidate_runner
---ignore/--resync`), the kernel (`state_now`, `simulate`, `replay_step`) and a resumed run see them;
+--ignore/--resync`), the kernel (`state_now`, `replay_step`) and a resumed run see them;
 `result.json` lists them (`unexplained`, `resync`, `out_of_sync`) and the PLAN message names them.
 
 `run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`

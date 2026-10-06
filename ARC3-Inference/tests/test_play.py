@@ -728,7 +728,8 @@ def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> No
     for images in (True, False):
         text = system_prompt(mode="play", images=images)
         assert "run_tests(level" not in text and "first message" not in text and "the recorded frame as images" not in text
-        assert "state_now() -> State" in text and "simulate(actions, state=None, show=True) -> list[State]" in text
+        assert "state_now() -> State" in text and "click_cell(state, x, y) -> tuple | None" in text
+        assert "engine.step(s, Action(1))" in text and "simulate" not in text
         names = [t["function"]["name"] for t in tools(images, "play", True)]
         assert names == ["python", "run_tests", "commit_engine", "commit_moves"]
         run_tests = tools(images, "play", True)[1]["function"]
@@ -738,7 +739,9 @@ def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> No
 # --- the kernel's play built-ins ------------------------------------------------------------------
 
 
-def test_state_now_and_simulate_in_the_kernel(tmp_path: Path, environments: Path) -> None:
+def test_state_now_and_the_engine_in_the_kernel(tmp_path: Path, environments: Path) -> None:
+    """The play kernel: state_now() is the engine's State after everything played, and moves are played by
+    calling engine.step on copies of it, a click's Action built with click_cell (as the harness does)."""
     from engine_re.kernel import KernelClient
 
     model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})]])
@@ -747,17 +750,15 @@ def test_state_now_and_simulate_in_the_kernel(tmp_path: Path, environments: Path
     kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=1, history=True, play=True)
     try:
         out = kernel.execute(
-            "s = state_now()\nprint('x', s.vars['player'].x)\n"
-            "states = simulate(['RIGHT', 'RIGHT', 'UP', {'click': [3, 4]}], show=False)\nprint(len(states), states[1].level)"
+            "import copy\ns = state_now()\nprint('x', s.vars['player'].x)\n"
+            "t = copy.deepcopy(s)\nengine.step(t, Action(4))\nprint('after RIGHT', t.vars['player'].x, t.status, s.vars['player'].x)\n"
+            "print('cell', click_cell(t, 3, 4))\nengine.step(t, Action(6, 3, 4, cell=click_cell(t, 3, 4)))\n"
+            "nxt = engine.make_level(1)\nprint('level 1 sprites', len(nxt.sprites))"
         )
         assert "state_now(): your engine after replaying steps 0-1: level 0, NOT_FINISHED" in out and "x 2" in out
-        assert "#2 RIGHT: level 0 solved; level 1 starts" in out and "#3 UP: " in out and "\n4 1" in out
-        out = kernel.execute("after = simulate(['LEFT', 'LEFT', 'RESET'], state=s, show=False)\nprint([a is None for a in after])")
-        assert "#2 LEFT: GAME OVER" in out and "#3 RESET: level 0 restarts" in out
-        assert "#2 LEFT: refused" not in out and "[False, False, False]" in out
-        out = kernel.execute("simulate(['fly'])")
-        assert "simulate(): unrecognised action 'fly'" in out
-        assert "nothing was run" in kernel.execute("simulate = 1")
+        assert "after RIGHT 3 playing 2" in out and "cell (0, 0)" in out and "level 1 sprites 4" in out
+        assert "nothing was run" in kernel.execute("state_now = 1")
+        assert "nothing was run" in kernel.execute("click_cell = 1")
     finally:
         kernel.stop()
 

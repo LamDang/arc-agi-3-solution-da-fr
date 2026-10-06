@@ -43,7 +43,8 @@ import numpy as np
 
 from engine_re import diff_report, game_api, hashline, segment, tester
 from engine_re.auto_sprites import kinds_summary
-from engine_re.trace import Action as _TraceAction, Trace, move_label, parse_move
+from engine_re.game_api import click_cell  # noqa: F401  (a play built-in: action.cell for a click, as the harness computes it)
+from engine_re.trace import Action as _TraceAction, Trace
 
 HEX = "0123456789abcdef"
 COLOR_NAMES = {
@@ -55,9 +56,10 @@ MAX_SHOWN = 4  # frames per show_frames() call
 # The built-in functions, as the kernel preloads them (the model may call one as a tool by mistake: the
 # harness then runs it as python).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "summarize_levels")
-# The play-and-model agent (engine_re.play_agent) adds two: the engine's state after everything played, and a
-# simulation of moves on it.
-PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "simulate")
+# The play-and-model agent (engine_re.play_agent) adds two: the engine's state after everything played, and
+# the grid cell a click lands on (to build the Action a click is for step()). Moves are played by calling
+# engine.step on copies of a State directly.
+PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "click_cell")
 
 # Set by the kernel (load_trace).
 trace: Trace = None  # type: ignore[assignment]
@@ -620,85 +622,6 @@ def state_now() -> Any:
     print(f"state_now(): your engine after replaying steps 0-{n - 1}: level {game.level}, {game.status}, "
           f"{game.score} level(s) completed, {len(state.sprites)} sprites, vars={_vars_text(state)}")
     return copy.deepcopy(state)
-
-
-def simulate(actions: Any, state: Any = None, show: bool = True) -> list:
-    """Play a sequence of actions on your engine, from the state the engine is in now (state_now()) or from
-    `state` (a copy of it), with the harness rules (RESET restarts the level, a solved level starts the next
-    one, GAME_OVER, WIN). actions: a list of "UP", "DOWN", "LEFT", "RIGHT", "SPACE", "RESET", "UNDO" or
-    clicks {"click": [x, y]} (x the column, y the row, screen pixels), or Actions. Prints one line per
-    action: what it changed in your State (sprites moved, recoloured, shown, hidden, added, removed; vars),
-    a solved level, a game over or a win, or the error your engine raised (the simulation stops there).
-    With show, shows the final frame as an image. Returns a copy of the State after each action, so
-    you can search over your engine: simulate(moves, state=some_state, show=False) in a loop."""
-    try:
-        acts = [_TraceAction(0) if a is None else parse_move(a) for a in (actions if isinstance(actions, (list, tuple)) else [actions])]
-    except ValueError as exc:
-        print(f"simulate(): {exc}")
-        return []
-    capture = game_api.PrintCapture()
-    try:
-        with contextlib.redirect_stdout(capture):
-            module = _load_engine()
-    except Exception:
-        _print_output(capture, "loading engine.py")
-        raise
-    if not game_api.is_simple_engine(module):
-        raise TypeError("engine.py must define make_level(n) and step(state, action)")
-    game = _runner(module)
-    if state is None:
-        _replay_all(game)
-        if game.state is None:
-            print(f"simulate(): your engine has no state after the steps played so far ({game.status})")
-            return []
-        origin = f"from your engine's state now (after steps 0-{len(trace.steps) - 1})"
-    else:
-        if not hasattr(state, "sprites"):
-            print("simulate(): state must be a State (from state_now(), make_level(n) or an earlier simulate())")
-            return []
-        game.state = copy.deepcopy(state)
-        game.level = int(getattr(state, "level", 0) or 0)
-        game.score = game.level
-        game.status = "NOT_FINISHED"
-        origin = f"from the state you gave (level {game.level})"
-    print(f"simulate(): {len(acts)} action(s) {origin}")
-    results: list = []
-    for n, act in enumerate(acts, 1):
-        label = move_label(act)
-        before = game_api.state_summary(game.state) if game.state is not None else None
-        level_before, status_before = game.level, game.status
-        if status_before in ("GAME_OVER", "WIN") and act.id != 0:
-            print(f"  #{n} {label}: refused by the harness rules ({status_before}: only RESET is accepted)")
-            results.append(None)
-            continue
-        capture = game_api.PrintCapture()
-        try:
-            with contextlib.redirect_stdout(capture):
-                obs = game.perform(act)
-        except Exception as exc:  # noqa: BLE001  (the model's engine failed: report, stop)
-            _print_output(capture, f"action #{n}")
-            print(f"  #{n} {label}: your engine raised {type(exc).__name__}: {exc}; the simulation stops here")
-            break
-        after = game.state
-        if obs["state"] == "WIN":
-            text = "WIN: the game is won"
-        elif obs["state"] == "GAME_OVER":
-            text = "GAME OVER (then only RESET is accepted)"
-        elif game.level != level_before:
-            text = f"level {level_before} solved; level {game.level} starts"
-        elif act.id == 0:
-            text = f"level {game.level} restarts"
-        else:
-            changes = diff_report.state_changes(before, game_api.state_summary(after) if after is not None else None, limit=6)
-            text = "; ".join(c.strip() for c in changes) if changes else "nothing changed"
-        print(f"  #{n} {label}: {text}")
-        results.append(copy.deepcopy(after))
-    done = [r for r in results if r is not None]
-    if game.state is not None:
-        print(f"  after {len(results)} action(s): level {game.level}, {game.status}, {game.score} level(s) completed, vars={_vars_text(game.state)}")
-    if show and done:
-        show_frames(done[-1], titles=[f"your engine after {len(results)} simulated action(s)"])
-    return results
 
 
 # --- Code for a frame's pieces --------------------------------------------------------------------

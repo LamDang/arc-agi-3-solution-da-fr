@@ -390,14 +390,14 @@ _SUMMARIZE["play"] = _SUMMARIZE["history"]
 _PLAY_BUILTINS = """state_now() -> State  your engine's State now: engine.py loaded fresh and every step played so far replayed
     through it with the harness rules; prints the level, status and vars; returns a copy (.level is the
     level being played). It is the game as your engine models it; the real frame is recording[-1].after.
-simulate(actions, state=None, show=True) -> list[State]  plays actions on your engine from state_now()
-    (or from `state`, a copy of it) with the harness rules (RESET restarts the level, a solved level starts
-    the next, GAME_OVER, WIN). actions: a list of "UP", "DOWN", "LEFT", "RIGHT", "SPACE", "RESET", "UNDO"
-    or clicks {"click": [x, y]} (x the column, y the row, screen pixels). Prints one line per action: what
-    changed in your State, a solved level, a game over, a win, or the error your engine raised (it stops
-    there); then the level and status reached. show: the final frame as an image. Returns a copy of the
-    State after each action (None for one the harness rules refuse), so you can search: call it with
-    show=False in a loop over candidate moves, from states it returned.
+click_cell(state, x, y) -> tuple | None  the grid cell under screen pixel (x, y) on this state, as the harness
+    computes action.cell for a click: Action(6, x, y, cell=click_cell(state, x, y)) is the click step() gets.
+To play moves on your engine, call it directly on copies of a State: s = copy.deepcopy(state_now());
+    engine.step(s, Action(1)) plays UP (ids: 1 UP, 2 DOWN, 3 LEFT, 4 RIGHT, 5 SPACE, 6 click, 7 UNDO; commit_moves
+    takes the same moves as labels or {"click": [x, y]}). step() never gets a RESET: a RESET is a fresh
+    engine.make_level(n), and after s.status == "level_solved" the next level is engine.make_level(n + 1).
+    render_state(s) draws a State and show_frames(...) shows it. Searching over moves (a BFS calling
+    engine.step on copies) is a short function in python: write it when the level needs it.
 """
 
 # replay_step's level argument, as the modes whose run_tests has `level` describe it, and as the play mode does.
@@ -853,7 +853,8 @@ _SYSTEM_PLAY = """# Goal
 You are playing a game you have never seen, and the way you play it is to build engine.py, a Python model
 of the game, as you go. The harness alternates two rounds in this one conversation:
 - Plan: your engine reproduces every step played so far. Look at the game's current frame, use your engine
-  to work out what to do (state_now(), simulate(actions)), and send moves with commit_moves(actions, note).
+  to work out what to do (state_now(), then engine.step on copies of it), and send moves with
+  commit_moves(actions, note).
   The harness predicts each move with your engine, sends it to the real game, and compares. As long as
   the game does what your engine predicted it sends the next move; at the first difference it stops the
   batch and opens a fit round on that step.
@@ -889,8 +890,10 @@ __OBJECTS__
 Plan rounds:
 1. Look at the current frame (the message shows it; recording[-1].after holds it) and at your engine's
    state (state_now()). What is the goal of the level? What have your moves changed so far?
-2. Try moves on your engine with simulate(actions): it shows what your model predicts. Search over it in
-   python when the level needs it (simulate(moves, state=s, show=False) from states it returned).
+2. Try moves on your engine in python: engine.step(s, Action(...)) on copies of state_now() shows what your
+   model predicts (render_state(s) draws the result). Search over it in python when the level needs it:
+   a BFS over moves calling engine.step on copies is a short function, and your engine is the point of
+   having one.
 3. Send a batch with commit_moves(actions, note): the moves you are confident about, the shortest way you
    see to the goal. When your engine has never seen a kind of move (a key it has no rule for, a click on
    something it does not model), send that move in a short batch of 1-3 to learn its effect, instead of a
@@ -922,7 +925,7 @@ Fit rounds:
    the rules you found: older parts of this conversation are shortened as it grows, and engine.py is
    what stays. Define helpers and data once in python: the kernel keeps them for the whole run.
 Never hard-code frames or anything keyed to the step number. Print whatever helps you debug inside
-step(); the test report, replay_step and simulate show it.
+step(); the test report and replay_step show it.
 """
 
 _RUN_TESTS_PLAY = """Run the contract tests, then replay every step played so far through engine.py, in order. Stops after
@@ -1065,7 +1068,7 @@ Game: {game}, at level {level} ({s.levels_completed} of {s.win_levels} levels co
 {accepted_actions_text(trace.steps[0].available_actions)}
 {budget_line}{unexplained_line}{(chr(10) + engine_note) if engine_note else ""}
 In python, `recording` holds every step played so far (steps 0-{n - 1}); recording[-1].after is the real game's current frame
-{shown}. {about_now}; simulate(actions) plays moves on it and shows the result.
+{shown}. {about_now}; engine.step(s, Action(...)) on a copy of it plays a move.
 {(chr(10) + kernel_names) if kernel_names else ""}{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
 Work out the next moves on your engine, then {send}"""
 
