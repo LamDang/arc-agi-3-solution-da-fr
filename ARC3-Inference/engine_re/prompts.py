@@ -29,7 +29,7 @@ import numpy as np
 
 from engine_re import segment
 from engine_re import animation  # the ported animation digest
-from engine_re.diff_report import COLOR_NAMES
+from engine_re.diff_report import COLOR_NAMES, colour_text
 from engine_re.kernel import CELL_SECONDS, PRELOADED, PRELOADED_HISTORY, PRELOADED_PLAY, PRELOADED_STEP
 from engine_re.tester import MAX_FAILURES, _ranges as _tester_ranges
 from engine_re.trace import Trace, action_code
@@ -1336,7 +1336,8 @@ PIECES_HEAD = "The game's current frame segmented (recording[-1].pieces_after; s
 
 
 def sprite_list_text(summary: dict) -> str:
-    """The replica's sprites from a game_api.state_summary, one line each: "[i] name tags=[...] WxH at (x, y) layer L"
+    """The replica's sprites from a game_api.state_summary, one line each: "[i] name tags=[...] WxH colour 12 (orange)
+    at (x, y) layer L" (the main colour of its pixels, "multi (...)" when none holds most: diff_report.colour_text)
     plus rot=90, mirror_ud, mirror_lr, scale=2, hidden, inert (not collidable) and screen when they apply, under
     SPRITES_HEAD with the state's vars."""
     vars_text = ", ".join(f"{k!r}: {v}" for k, v in (summary.get("vars") or {}).items())
@@ -1344,7 +1345,9 @@ def sprite_list_text(summary: dict) -> str:
     for i, e in enumerate(summary.get("sprites") or []):
         tags = "[" + ", ".join(repr(str(t)) for t in e.get("tags") or []) + "]"
         name = json.dumps(str(e.get("name", "")))
-        parts = [f"[{i}] {name} tags={tags} {e.get('w')}x{e.get('h')} at ({e.get('x')}, {e.get('y')}) layer {e.get('layer')}"]
+        colour = colour_text(e.get("colours"))
+        parts = [f"[{i}] {name} tags={tags} {e.get('w')}x{e.get('h')}" + (f" {colour}" if colour else "")
+                 + f" at ({e.get('x')}, {e.get('y')}) layer {e.get('layer')}"]
         if e.get("rotation", 0):
             parts.append(f"rot={e['rotation']}")
         for flag in ("mirror_ud", "mirror_lr"):

@@ -1636,10 +1636,10 @@ def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Pat
     assert "Unfamiliar elements" not in plan and "You have completed the previous level" not in users[1]
     sprites = plan[plan.index("Your replica's sprites now"):]
     assert sprites == ("Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={'player': #2}:\n"
-                       '  [0] "border" tags=[] 64x64 at (0, 0) layer -2 inert screen\n'
-                       '  [1] "background" tags=[] 8x8 at (0, 0) layer -1 inert\n'
-                       '  [2] "player" tags=[\'player\'] 1x1 at (1, 3) layer 0\n'
-                       '  [3] "wall" tags=[\'wall\'] 8x1 at (0, 7) layer 0')
+                       '  [0] "border" tags=[] 64x64 colour 3 (dark grey) at (0, 0) layer -2 inert screen\n'
+                       '  [1] "background" tags=[] 8x8 colour 0 (white) at (0, 0) layer -1 inert\n'
+                       '  [2] "player" tags=[\'player\'] 1x1 colour 9 (blue) at (1, 3) layer 0\n'
+                       '  [3] "wall" tags=[\'wall\'] 8x1 colour 8 (red) at (0, 7) layer 0')
     assert plan.index("Work out the next moves") < plan.index("Your replica's sprites now")  # under the frame, after the text
 
 
@@ -1696,15 +1696,22 @@ def test_the_plan_messages_sprite_list_on_the_sp80_engine() -> None:
     text = sprite_list_text(summary)
     assert text.splitlines()[:3] == [
         "Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={'budget': 120, 'moves': 70}:",
-        '  [0] "border" tags=[] 64x64 at (0, 0) layer -2 inert screen',
-        '  [1] "background" tags=[] 20x20 at (0, 0) layer -1 inert',
+        '  [0] "border" tags=[] 64x64 colour 1 (light grey) at (0, 0) layer -2 inert screen',
+        '  [1] "background" tags=[] 20x20 colour 12 (orange) at (0, 0) layer -1 inert',
     ]
-    assert "  [8] \"\" tags=['player'] 4x1 at (0, 10) layer 0" in text and "  [9] \"\" tags=['bin'] 3x2 at (2, 17) layer 0" in text
-    assert text.splitlines()[-1] == '  [14] "hud" tags=[\'hud\'] 64x1 at (0, 0) layer 1 inert screen' and len(text.splitlines()) == 16
+    assert "  [8] \"\" tags=['player'] 4x1 colour 9 (blue) at (0, 10) layer 0" in text
+    assert "  [9] \"\" tags=['bin'] 3x2 colour 11 (yellow) at (2, 17) layer 0" in text
+    assert text.splitlines()[-1] == '  [14] "hud" tags=[\'hud\'] 64x1 multi (0 white, 14 green) at (0, 0) layer 1 inert screen'
+    assert len(text.splitlines()) == 16
     flags = sprite_list_text({"vars": {}, "sprites": [{"name": "k", "tags": ["a", "b"], "w": 2, "h": 3, "x": 4, "y": 5, "layer": 1,
                                                        "rotation": 90, "mirror_ud": True, "mirror_lr": True, "scale": 2, "visible": False,
-                                                       "collidable": False, "screen": True}]})
-    assert flags.splitlines()[1] == "  [0] \"k\" tags=['a', 'b'] 2x3 at (4, 5) layer 1 rot=90 mirror_ud mirror_lr scale=2 hidden inert screen"
+                                                       "collidable": False, "screen": True, "colours": {"12": 3, "9": 2, "5": 1}}]})
+    assert flags.splitlines()[1] == ("  [0] \"k\" tags=['a', 'b'] 2x3 multi (12 orange, 9 blue) at (4, 5) layer 1 rot=90 mirror_ud "
+                                     "mirror_lr scale=2 hidden inert screen")
+    from engine_re.diff_report import colour_text
+
+    assert colour_text({"12": 6, "9": 4}) == "colour 12 (orange)" and colour_text({"12": 5, "9": 4, "5": 1}) == "multi (12 orange, 9 blue)"
+    assert colour_text({}) == "" and colour_text(None) == ""
     pieces = pieces_list_text(sub)
     assert pieces.startswith(PIECES_HEAD + "\n  ") and "pieces on a 20x20 grid at scale 3, offset (2, 2)" in pieces.splitlines()[1]
 
@@ -1744,9 +1751,9 @@ def test_the_fit_reports_sprite_by_sprite_reconciliation_on_the_sp80_engine(tmp_
     tail = text[text.index(RECONCILE_HEAD):].splitlines()
     assert tail == [
         "    sprite by sprite (your replica's sprites against the game's frame; x, y in your grid):",
-        '      #5 "" 5x1 red: yours colour 8; the game shows it colour 11 (yellow) at the same place',
-        '      #8 "" 4x1 blue: yours at (0, 10); the game shows this shape at (0, 11)',
-        '      #9 "" 3x2 yellow: yours visible at (2, 17); the game shows nothing there',
+        '      #5 "" 5x1 colour 8 (red): yours colour 8; the game shows it colour 11 (yellow) at the same place',
+        '      #8 "" 4x1 colour 9 (blue): yours at (0, 10); the game shows this shape at (0, 11)',
+        '      #9 "" 3x2 colour 11 (yellow): yours visible at (2, 17); the game shows nothing there',
         "      the game shows a 2x2 piece (blue, 4 cells) at (10, 3) that none of your sprites draws",
     ]
     same, _ = describe_step(step, got, frames[121], 3, states=states, crops=False)

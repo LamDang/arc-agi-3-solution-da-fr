@@ -633,7 +633,11 @@ def state_summary(state: Any) -> dict[str, Any]:
         entry["tags"] = [str(t) for t in getattr(sprite, "tags", ()) or ()]
         try:
             entry["w"], entry["h"] = int(sprite.width), int(sprite.height)
-            entry["pixels_crc"] = zlib.crc32(np.asarray(sprite.pixels, dtype=np.int16).tobytes())
+            px = np.asarray(sprite.pixels, dtype=np.int16)
+            entry["pixels_crc"] = zlib.crc32(px.tobytes())
+            opaque = px[px >= 0].astype(np.int64)
+            counts = np.bincount(opaque, minlength=16) if opaque.size else np.zeros(16, np.int64)
+            entry["colours"] = {str(c): int(n) for c, n in enumerate(counts.tolist()) if n}  # colour -> opaque pixels
         except Exception:  # noqa: BLE001
             entry["w"] = entry["h"] = 0
             entry["pixels_crc"] = None

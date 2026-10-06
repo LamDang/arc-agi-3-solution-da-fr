@@ -469,11 +469,30 @@ def _find_shape(frame: np.ndarray, crop: np.ndarray, mask: np.ndarray, at: tuple
     return best
 
 
-def _colour_word(crop: np.ndarray, mask: np.ndarray) -> str:
-    colours = sorted(set(crop[mask].tolist()))
-    if len(colours) == 1:
-        return f" {COLOR_NAMES.get(colours[0], '?')}"
-    return ""
+MAIN_COLOUR_SHARE = 60  # a sprite's main colour holds at least this share of its opaque pixels; else "multi"
+
+
+def colour_text(colours: dict[Any, Any] | None) -> str:
+    """A sprite's main colour in words, from its colour counts (state_summary's "colours": colour -> opaque pixels,
+    as the segmentation's Piece.colour takes the most common one): "colour 12 (orange)", or "multi (12 orange, 9 blue)"
+    when no colour holds MAIN_COLOUR_SHARE percent of the opaque pixels (the top two listed); "" without counts."""
+    items = sorted(((int(c), int(n)) for c, n in (colours or {}).items() if int(n) > 0), key=lambda cn: (-cn[1], cn[0]))
+    if not items:
+        return ""
+    total = sum(n for _, n in items)
+    if items[0][1] * 100 >= MAIN_COLOUR_SHARE * total:
+        return f"colour {items[0][0]} ({COLOR_NAMES.get(items[0][0], '?')})"
+    return "multi (" + ", ".join(f"{c} {COLOR_NAMES.get(c, '?')}" for c, _ in items[:2]) + ")"
+
+
+def _colour_word(entry: dict[str, Any], crop: np.ndarray, mask: np.ndarray) -> str:
+    """The sprite's main colour for a reconciliation line (colour_text), from the summary's counts, else its rendering."""
+    colours = entry.get("colours")
+    if not colours:
+        values, counts = np.unique(crop[mask], return_counts=True)
+        colours = {int(v): int(n) for v, n in zip(values.tolist(), counts.tolist())}
+    text = colour_text(colours)
+    return f" {text}" if text else ""
 
 
 def _role(e: dict[str, Any], grid_rect: tuple[int, int, int, int]) -> str:
@@ -531,7 +550,7 @@ def reconcile_lines(expected: np.ndarray, got: np.ndarray | None, after: dict[st
         r0, c0, r1, c1 = e["box"]
         crop = renders[i][r0 : r1 + 1, c0 : c1 + 1]
         mask = crop >= 0
-        label = f"#{i} {json.dumps(str(e.get('name', '')))} {e.get('w')}x{e.get('h')}{_colour_word(crop, mask)}"
+        label = f"#{i} {json.dumps(str(e.get('name', '')))} {e.get('w')}x{e.get('h')}{_colour_word(e, crop, mask)}"
         screen = e.get("screen") is True
         here = f"({e.get('x')}, {e.get('y')})"
         found = _find_shape(expected, crop, mask, (r0, c0), diff)
