@@ -57,6 +57,15 @@ harness logs a breaking step), the nudges ("plan_nudge"), the escape hatch ("fit
 "resync"); every record carries the phase it was logged in. A run is resumed like a stepwise run, with the
 real game replayed from trace/; moves played after the last message the model got (an interruption during
 a batch) are tested and lead to the right next message.
+
+A fork (engine_re.tools.fork_run) is a finished run's directory truncated to the state after one of its turns, with
+result.json "running", so that run_play resumes it from there: its result.json carries `forked_from` (the source,
+the turn, the budget the source had spent there, which the fork does not count: _restore takes the cost and the
+minutes from the records after the transcript's "fork" record only; output tokens stay), and the marker fork.json
+makes the first resume's kernel replay apply the cells' edits to notes.md and the other workspace files (the fork's
+notes.md starts over as the template, so nothing written after the fork turn leaks in); the marker is then removed
+and a "fork" record logged. dry_resume() does everything a resume does up to the first request, for run_play's
+--dry-resume.
 """
 
 from __future__ import annotations
@@ -65,6 +74,7 @@ import hashlib
 import itertools
 import json
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -88,7 +98,7 @@ from engine_re.prompts import (
 )
 from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, plan_additions
 from engine_re.skeleton import render_skeleton
-from engine_re.tester import HUD_BORDER, StepCheck, check_step, predict, replica_state
+from engine_re.tester import HUD_BORDER, StepCheck, check_step, predict, replay_test, replica_state
 from engine_re.trace import Action, Trace, action_code, parse_moves
 
 CURRENT_FRAME_NOTE = "The game's current frame (after step {k}), upscaled 8x:"
@@ -98,6 +108,7 @@ AUTO_RESET_NOTE = "[harness] automatic RESET after the game over"
 PLAN_TURNS = 6  # turns of a plan round without commit_moves before the reminder (PLAN_NUDGE)
 COMMITTED_FILE = "engine_committed.py"  # the engine the predictions come from (the last that reproduced every step)
 SUPPORT_FILE = "engine_committed.support.json"  # its support map (engine_re.support), keyed by its sha256
+FORK_FILE = "fork.json"  # a fork not resumed yet (engine_re.tools.fork_run): the first resume rebuilds notes.md from the cells
 PLAN_SUPPORT_LINES = 4  # thin or unseparated items the PLAN message lists at most
 OPENING_TEXT = (
     "The game has just started. Before your first turn the harness put level 0's first frame into make_level "
@@ -144,6 +155,9 @@ class PlayResult(AgentResult):
     out_of_sync: int | None = None  # the step the engine is out of step since (None: in step)
     unexplained: list = field(default_factory=list)  # steps played out of step: replayed by the tests, never compared
     resync: dict = field(default_factory=dict)  # step -> {"level", "score"}: where the engine was put back in step
+    # A fork (engine_re.tools.fork_run): {"source", "turn", "steps", "cost_usd", "minutes"}, the source run, the turn it was
+    # forked at and the budget it had spent there, which this run does not count (its cost and minutes start at 0).
+    forked_from: dict | None = None
 
 
 class PlayAgent(EngineAgent):
@@ -215,6 +229,7 @@ class PlayAgent(EngineAgent):
         # The replica's state after everything played (game_api.state_summary): (engine sha, steps, summary), from
         # the last batch's prediction run, or a replay when a PLAN message needs it (the sprite list).
         self.replica_summary: tuple[str, int, dict[str, Any]] | None = None
+        self.fork: dict[str, Any] | None = None  # the FORK_FILE marker of a fork not resumed yet (read by _restore)
 
     # --- the trace's out-of-step bookkeeping (kept in its meta: the tests and the kernel read it there) ---------
 
@@ -1161,7 +1176,12 @@ class PlayAgent(EngineAgent):
         return state
 
     def _resume_conversation(self) -> bool:
-        if not super()._resume_conversation():
+        rebuilt = super()._resume_conversation()
+        if self.fork is not None:  # the first resume of a fork: its notes.md was rebuilt by the replay (or could not be)
+            self._log({"turn": self.result.turns, "fork": {**self.fork, "resumed": True, "notes_rebuilt": rebuilt}})
+            (self.dir / FORK_FILE).unlink(missing_ok=True)
+            self.fork, self.replay_files = None, False
+        if not rebuilt:
             return False
         phases = [r for r in self.records if "plan" in r or "step_start" in r or "advance" in r]
         last = phases[-1] if phases else {"plan": {}}
@@ -1202,10 +1222,16 @@ class PlayAgent(EngineAgent):
             data = json.loads(previous.read_text(encoding="utf-8"))
             self.restored_status = data.get("status")
             for key in ("batches", "refused_batches", "moves_sent", "mismatches", "auto_resets", "plan_nudges", "batch_log",
-                        "fit_rounds", "phase_turns", "step_tokens", "committed_sha", "escapes"):
+                        "fit_rounds", "phase_turns", "step_tokens", "committed_sha", "escapes", "forked_from"):
                 if key in data:
                     setattr(self.result, key, data[key])
             self.phase = data.get("phase") or self.phase
+        if self.result.forked_from:  # a fork: the source's cost and minutes are not this run's (the tokens are counted)
+            self._fork_budget(int(self.result.forked_from.get("turn") or 0))
+        marker = self.dir / FORK_FILE
+        if marker.exists():
+            self.fork = json.loads(marker.read_text(encoding="utf-8"))
+            self.replay_files = True
         self.committed_sha = self.result.committed_sha
         if self.support_path.exists():  # the committed engine's support map, when it is that engine's
             smap = json.loads(self.support_path.read_text(encoding="utf-8"))
@@ -1216,6 +1242,58 @@ class PlayAgent(EngineAgent):
         tokens += [int(self.result.usage.completion_tokens)] * (need - len(tokens))
         self.result.step_tokens = tokens
         return restored
+
+    def _fork_budget(self, turn: int) -> None:
+        """The cost and the minutes of a fork count from its "fork" record on (the tool logs it after the records kept
+        from the source; without one, from the records after the fork turn), so the source's spent budget cannot stop it.
+        The resume records a fork's own resumes log carry the fork turn too, but a negligible time."""
+        marks = [i for i, r in enumerate(self.records) if "fork" in r]
+        own = self.records[marks[0] + 1 :] if marks else [r for r in self.records if int(r.get("turn") or 0) > turn]
+        self.result.usage.cost_usd = sum(float((r.get("usage") or {}).get("cost") or 0.0) for r in own if "finish_reason" in r)
+        self.prior_minutes = max((float(r.get("elapsed_min") or 0.0) for r in own), default=0.0)
+
+    def dry_resume(self) -> dict[str, Any]:
+        """Everything run() does when it resumes a run, up to its first request, and nothing is sent: the totals and the
+        conversation from transcript.jsonl, the kernel's cells replayed (a fork's notes.md rebuilt), the real game
+        replayed from trace/ (done when the agent is made), engine.py and the committed engine tested on every step
+        played. Returns a summary (run_play --dry-resume prints it). It writes what a resume writes (the resume
+        records, visible_trace/, notes.md), so run_play runs it on a copy of the game directory."""
+        self.setup()
+        self.started = time.time()
+        restored = self._restore()
+        fork = self.fork  # (the marker, read by _restore; the resume removes it)
+        n = len(self.full_trace)
+        first = self._replay_all() if not self.live.won else None
+        resumed = restored and not self.live.won and self._resume_conversation()
+        summary: dict[str, Any] = {
+            "game": self.game, "restored": restored, "resumed": bool(resumed), "won": self.live.won, "turn": self.result.turns,
+            "steps": n, "actions": self.live.actions, "level": self.live.level, "levels_completed": self.live.levels_completed,
+            "step": self.focus, "phase": self.phase, "out_of_sync": self.out_of_sync, "fork": fork,
+            "budget": {"turns": f"{self.result.turns}/{self.budget.max_turns}", "cost_usd": round(self.result.usage.cost_usd, 4),
+                       "minutes": round(self.prior_minutes, 2), "output_tokens": int(self.result.usage.completion_tokens),
+                       "over": self._over_budget()},
+            "engine": {"sha": self._engine_hash()[:12], "passes": first is None, "first_fail": first,
+                       "passing_prefix": self.result.passing_prefix},
+            "committed": None, "messages": len(self.messages), "last_message": None, "kernel": None, "replay": None, "notes": self._notes(),
+        }
+        if self.committed_path.exists():
+            report = replay_test(self.committed_path, self.full_trace, failures=1, scratch_root=self.dir, match=self.match)
+            smap = self.support if self.support else None
+            summary["committed"] = {"sha": (self.committed_sha or "")[:12], "same_as_engine": self.committed_sha == self._engine_hash(),
+                                    "passes": report.passed, "first_fail": report.summary().get("first_fail"),
+                                    "passing_prefix": report.passing_prefix, "steps": report.total,
+                                    "support_steps": smap.get("steps") if smap else None}
+        if self.messages:
+            last = self.messages[-1]
+            content = last.get("content")
+            text = content if isinstance(content, str) else "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
+            summary["last_message"] = {"role": last["role"], "text": str(text)[:600], "chars": len(str(text))}
+            replay = next((r["replay"] for r in reversed(self.records) if "replay" in r), None)
+            summary["replay"] = replay
+            names, more = self.kernel.names()
+            summary["kernel"] = {"names": names, "more": more}
+        self.kernel.stop()
+        return summary
 
     def _over_budget(self) -> str | None:
         reason = super()._over_budget()

@@ -8,14 +8,19 @@ Writes <out>/<game>/ (the agent's files: trace/, workspace/engine.py, transcript
 rounds, tokens, cost per game), and <out>/benchmark.json in TAAF's shape, so that
 `make score_run SCORE_RUN_DIR=<out>` scores the run with the base harness's code and the viewer can
 open <out>/<game>/artifacts/. Running the same command again skips finished games and resumes
-interrupted ones (the real game is replayed from the saved trace).
+interrupted ones (the real game is replayed from the saved trace), as it resumes a fork made by
+engine_re.tools.fork_run (--max-turns is the absolute turn count: the fork turn plus the turns to play).
+--dry-resume does everything a resume does up to the first request on a copy of each game directory and
+prints a summary (turn, step, phase, messages, kernel names, tests), without any model call.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
+import tempfile
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -52,6 +57,46 @@ def summarize(out: Path, games: list[str]) -> None:
     print("\n".join(lines), flush=True)
 
 
+def dry_resume_text(summary: dict) -> str:
+    """A dry resume's summary (PlayAgent.dry_resume) as lines."""
+    e, c, b = summary.get("engine") or {}, summary.get("committed"), summary.get("budget") or {}
+    lines = [
+        f"[{summary['game']}] dry resume: restored={summary['restored']} resumed={summary['resumed']} won={summary['won']}",
+        f"  turn {summary['turn']}, phase {summary['phase']}, step {summary['step']}; game at step {summary['steps'] - 1} "
+        f"({summary['actions']} actions), level {summary['level']}, {summary['levels_completed']} completed"
+        + (f", out of step since {summary['out_of_sync']}" if summary.get("out_of_sync") is not None else ""),
+        f"  budget: turns {b.get('turns')}, cost ${b.get('cost_usd')}, minutes {b.get('minutes')}, output tokens {b.get('output_tokens'):,}"
+        + (f"; OVER: {b['over']}" if b.get("over") else ""),
+        f"  engine.py {e.get('sha')}: " + ("passes every step" if e.get("passes") else f"fails at step {e.get('first_fail')} (passing prefix {e.get('passing_prefix')})"),
+    ]
+    if c:
+        lines.append(f"  committed {c['sha']}{' (= engine.py)' if c['same_as_engine'] else ''}: "
+                     + (f"passes steps 0-{c['steps'] - 1}" if c["passes"] else f"fails at step {c['first_fail']} (passing prefix {c['passing_prefix']})")
+                     + (f"; support map over {c['support_steps']} steps" if c.get("support_steps") is not None else "; no support map"))
+    else:
+        lines.append("  no committed engine")
+    if summary.get("fork"):
+        f = summary["fork"]
+        lines.append(f"  fork of {f.get('source')} at turn {f.get('turn')}" + (" (notes.md rebuilt by the replay)" if summary["resumed"] else ""))
+    r = summary.get("replay")
+    if r:
+        failed = sorted({int(x["turn"]) for x in r.get("failed") or [] if x.get("turn") is not None})
+        lines.append(f"  kernel replay: {r.get('replayed')} of {r.get('cells')} cells in {r.get('seconds')}s, {r.get('skipped')} skipped, "
+                     f"{len(r.get('failed') or [])} raised" + (f" (turns {', '.join(map(str, failed))})" if failed else "")
+                     + (f"; error: {r['error']}" if r.get("error") else ""))
+    k = summary.get("kernel")
+    if k:
+        lines.append(f"  kernel names ({len(k['names']) + k['more']}): " + ", ".join(k["names"]) + (f" ... and {k['more']} more" if k["more"] else ""))
+    m = summary.get("last_message")
+    lines.append(f"  messages: {summary['messages']}" + (f"; last ({m['role']}, {m['chars']} chars): {m['text'][:160]!r}" if m else ""))
+    notes = summary.get("notes")
+    if notes is not None:
+        shown = notes.rstrip("\n").splitlines()
+        lines.append(f"  notes.md ({len(shown)} lines):")
+        lines += ["    " + line for line in shown[:40]] + ([f"    ... {len(shown) - 40} more"] if len(shown) > 40 else [])
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--games", required=True, help="comma-separated game ids or prefixes (ft09, sp80, ...)")
@@ -82,28 +127,57 @@ def main() -> int:
     parser.add_argument("--top-p", type=float, default=ModelConfig.top_p)
     parser.add_argument("--top-k", type=int, default=None)
     parser.add_argument("--label", default=None, help="the benchmark.json label (default: the out directory's name)")
+    parser.add_argument("--dry-resume", action="store_true",
+                        help="restore each game on a copy of its directory as a resume would (conversation, kernel, real game, "
+                             "tests), print a summary and exit; no model call, nothing written under --out")
     args = parser.parse_args()
     if args.thinking_budget is not None and args.reasoning_effort:
         parser.error("--thinking-budget and --reasoning-effort cannot be combined")
 
     games = [g.strip() for g in args.games.split(",") if g.strip()]
-    args.out.mkdir(parents=True, exist_ok=True)
-    config = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
-    config["started"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    config["harness"] = "engine_re.play_agent (v10)"
-    (args.out / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    started = time.time()
-
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
     model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
                         top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
-    runs: dict[str, dict] = {}
 
-    def agent_for(game: str) -> PlayAgent:
-        return PlayAgent(game, args.out / game, model, budget, args.environments_dir, images=not args.no_images,
+    def agent_for(game: str, game_dir: Path | None = None) -> PlayAgent:
+        return PlayAgent(game, game_dir or args.out / game, model, budget, args.environments_dir, images=not args.no_images,
                          batch_size=args.batch_size, max_actions=args.max_actions, auto_reset=not args.no_auto_reset,
                          fit_turns=args.fit_turns, plan_turns=args.plan_turns, cut_untested=args.cut_untested)
+
+    if args.dry_resume:  # on a copy: a resume writes its records, visible_trace/ and (a fork) notes.md
+        failed = []
+        for game in games:
+            source = args.out / game
+            if not (source / "result.json").exists():
+                print(f"[{game}] nothing to resume: no result.json in {source}", flush=True)
+                failed.append(game)
+                continue
+            with tempfile.TemporaryDirectory(prefix=f"dry-resume-{game}-") as tmp:
+                copy = Path(tmp) / game
+                shutil.copytree(source, copy)
+                try:
+                    print(dry_resume_text(agent_for(game, copy).dry_resume()), flush=True)
+                except Exception:  # noqa: BLE001
+                    failed.append(game)
+                    print(f"[{game}] the dry resume failed:\n{traceback.format_exc()}", flush=True)
+        return 1 if failed else 0
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    config = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
+    config["started"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    config["harness"] = "engine_re.play_agent (v10)"
+    previous_config = args.out / "config.json"
+    if previous_config.exists():  # forks keep their provenance (engine_re.tools.fork_run writes it)
+        try:
+            forks = json.loads(previous_config.read_text(encoding="utf-8")).get("forks")
+        except (OSError, ValueError):
+            forks = None
+        if forks:
+            config["forks"] = forks
+    previous_config.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    started = time.time()
+    runs: dict[str, dict] = {}
 
     def work(game: str) -> None:
         previous = args.out / game / "result.json"

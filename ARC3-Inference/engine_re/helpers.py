@@ -21,7 +21,10 @@ and the functions it calls, a trailing `# support (n): ...` comment (engine_re.s
 committed engine's support map (SUPPORT_PATH).
 
 The kernel's replay mode (REPLAY, set while the harness re-runs the python cells of a resumed
-conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image.
+conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image. With REPLAY_FILES
+(a forked run, engine_re.tools.fork_run: its notes.md starts over as the template), edit_file() still
+applies edits to files other than engine.py, so the cells rebuild notes.md and the other files the model
+wrote; engine.py's edits stay off (its versions are kept with the fork).
 
 Each StepView also has the frames' segmentation (engine_re.segment), computed when first used and
 only from the steps loaded: .grid, .pieces_before, .pieces_after (whose .code() writes sprites that
@@ -79,6 +82,7 @@ IMAGES = True  # False: show_frames() prints hex views instead of making images
 _RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the harness
 _SHOWN: list[dict[str, str]] = []  # images made by show_frames() during the current request
 REPLAY = False  # the kernel is re-running earlier cells: no edits, no images (engine_re.kernel.replay_cells)
+REPLAY_FILES = False  # in replay mode: edits to files other than engine.py are applied (a fork rebuilds notes.md)
 SUPPORT_PATH: Path | None = None  # the committed engine's support map (the play kernel's --support): read_file's margin and comments
 
 _API = game_api.canonical()
@@ -113,7 +117,7 @@ def read_file(path: str = "engine.py", offset: int | None = None, limit: int | N
 def edit_file(path: str = "engine.py", edits: Any = None) -> None:
     """Apply anchored edits to a file (engine.py through the harness); prints what changed, a
     syntax check and fresh anchors, or why nothing was applied."""
-    if REPLAY:
+    if REPLAY and (_is_engine(path) or not REPLAY_FILES):
         print("edit_file(): skipped, the kernel is replaying earlier cells")
         return
     if edits is None:
