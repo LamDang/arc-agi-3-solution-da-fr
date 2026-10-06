@@ -61,7 +61,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `python(code)`: a kernel that is persistent for the whole run (the prompt
     says so plainly: define helpers and data once). Its namespace holds `np`,
     the fixed-block classes, `recording` (the recorded steps), seven functions
-    (`helpers.py`) and `engine`; nothing else is preloaded. These names are
+    (`helpers.py`) and `replica`; nothing else is preloaded. These names are
     reserved: code that binds one (`def`, assignment, parameter, loop
     variable, import as) is refused before it runs
     (`kernel.reserved_bindings`). They are named so that they do not collide
@@ -132,12 +132,16 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       first frame (`recording[k].after`), its guessed grid, the steps played in
       it and their actions, animated steps, RESETs and game overs, and the step
       that solved it.
-    - `engine`: engine.py as it is now (`helpers._EngineModule`): an attribute
-      access loads the file again when its content hash changed since the last
-      load, so `engine.step(...)` and `engine.make_level(...)` never go stale
-      after an edit. Every `import engine` / `from engine import ...` /
-      `import engine as e` is refused by the reserved-name check with a note
-      saying to use the built-in.
+    - `replica`: engine.py, the model's replica of the game, as it is now
+      (`helpers._ReplicaModule`; named so that it is not taken for the real
+      game's engine, arcengine): an attribute access loads the file again when
+      its content hash changed since the last load, so `replica.step(...)` and
+      `replica.make_level(...)` never go stale after an edit; `replica.step`
+      fills in a click's `action.cell` when it is None, as the harness does.
+      Every `import engine` / `from engine import ...` / `import engine as e`
+      is refused by the reserved-name check with a note saying to use the
+      built-in. The file stays `engine.py` (and `--engine` stays the flag of
+      `evaluate.py` and the tester).
 
     A tool call named after one of these functions (the model calling
     `read_file` or `edit_file` as if it were a tool) runs through the python
@@ -427,10 +431,18 @@ evaluate.py: candidate vs real engine on new random action sequences per level
 ## The play-and-model agent (v10, `play_agent.py`)
 
 The same agent playing a live game instead of fitting a recording: one conversation that alternates a
-plan round (the game's current frame and the actions it accepts; in python `state_now()`, the engine's
-state after everything played, on copies of which the model plays moves by calling `engine.step`
-directly, a click's `Action` built with `click_cell(state, x, y)` as the harness does; then
-`commit_moves(actions, note)`) and the stepwise fit round above. `commit_moves` runs the full test first
+plan round (the game's current frame and the actions it accepts; in python `state_now()`, the replica's
+state after everything played, on copies of which the model plays moves by calling `replica.step`
+directly; then `commit_moves(actions, note)` with the very Actions it stepped its replica with, as python
+prints them) and the stepwise fit round above. The play prompts call engine.py "your replica" and the real
+game "the game". The kernel's `Action` (the fixed block's, `game_api.canonical`) prints as the code that
+builds it, its cell left out: `Action(4)`, `Action(6, x=12, y=40)`, `Action(0)` for RESET
+(`trace.action_code`). `commit_moves` takes that text as it is, item by item (`["Action(4)", "Action(6,
+x=12, y=40)"]`) or as one printed list (`"[Action(4), Action(0)]"`), besides the labels (`"UP"`,
+`{"click": [x, y]}`, `MOUSE(row=, col=)`; `trace.parse_moves`); a given cell is ignored, the harness
+computes it. The play messages name moves in the same form (`#12 Action(4): matches your prediction`).
+The repr is set on the harness side: the FIXED block is unchanged, and an engine's own `Action` keeps the
+dataclass repr (`Action(id=4, x=0, y=0, cell=None)`), which `commit_moves` takes too. `commit_moves` runs the full test first
 and sends nothing while a step fails (a fit round opens on it); otherwise engine.py becomes the committed
 engine (`engine_committed.py`; a `commit_engine` earlier in the same turn is the batch's commit), each move
 is predicted with it in one sandboxed run (`tester.predict`), sent to the real game
@@ -446,7 +458,7 @@ every step. After `--plan-turns` turns (6) of a plan round without `commit_moves
 short batch is appended to the turn's last output (`plan_nudge`); the test nudge only runs in fit rounds.
 
 The escape hatch (`--fit-turns N`, off by default; PLAY_DESIGN.md 3.6): after N turns in one fit round
-without an accepted commit, the model is told it may play on with its engine out of step. `commit_moves`
+without an accepted commit, the model is told it may play on with its replica out of step. `commit_moves`
 then sends moves although the tests fail, unchecked; the steps from the failing one on are unexplained
 (`ignore`: the tests replay them, an error there does not stop the replay, they never fail and are not
 counted in `exact`, `total` or `passing_prefix`), up to the first RESET or level change the game makes, a

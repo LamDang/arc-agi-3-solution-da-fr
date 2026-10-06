@@ -13,7 +13,7 @@ private. In the stepwise harness (the kernel's --focus K) the recording on disk 
     show_frames(*frames, titles=None, boxes=None)          look at frames as images
     replay_step(i, state=None, action=None)                run one step of engine.py and explain it
     summarize_levels()                                     each level's first frame, steps and end
-    engine                                                 engine.py as it is now, reloaded after a change
+    replica                                                engine.py as it is now, reloaded after a change
 
 The kernel's replay mode (REPLAY, set while the harness re-runs the python cells of a resumed
 conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image.
@@ -56,9 +56,9 @@ MAX_SHOWN = 4  # frames per show_frames() call
 # The built-in functions, as the kernel preloads them (the model may call one as a tool by mistake: the
 # harness then runs it as python).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "summarize_levels")
-# The play-and-model agent (engine_re.play_agent) adds two: the engine's state after everything played, and
-# the grid cell a click lands on (to build the Action a click is for step()). Moves are played by calling
-# engine.step on copies of a State directly.
+# The play-and-model agent (engine_re.play_agent) adds two: the replica's state after everything played, and
+# the grid cell a click lands on (the Action.cell the harness computes for a click). Moves are played by
+# calling replica.step on copies of a State directly.
 PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "click_cell")
 
 # Set by the kernel (load_trace).
@@ -166,10 +166,13 @@ def _load_engine() -> types.ModuleType:
     return module
 
 
-class _EngineModule:
-    """The `engine` built-in: engine.py as it is now. An attribute access loads the file again
-    (_load_engine) when its content changed since the last load, else uses the module loaded then; so
-    engine.step(...) and engine.make_level(...) never go stale after an edit, as `import engine` would."""
+class _ReplicaModule:
+    """The `replica` built-in: engine.py, the model's replica of the game, as it is now. An attribute access
+    loads the file again (_load_engine) when its content changed since the last load, else uses the module
+    loaded then; so replica.step(...) and replica.make_level(...) never go stale after an edit, as `import
+    engine` would. replica.step(state, action) fills in a click's action.cell when it is None, as the harness
+    does before it calls step() (click_cell), so an Action written as it prints, Action(6, x=3, y=4), plays
+    the same click in python as in the game (the module's own step, engine.py's, is unchanged)."""
 
     def __init__(self) -> None:
         self._sha: str | None = None
@@ -184,16 +187,33 @@ class _EngineModule:
         return self._module
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._current(), name)
+        value = getattr(self._current(), name)
+        if name == "step" and callable(value):
+            return _with_click_cell(self._current(), value)
+        return value
 
     def __dir__(self) -> list[str]:
         return [n for n in dir(self._current()) if not n.startswith("__")]
 
     def __repr__(self) -> str:
-        return "<engine: engine.py as it is now (loaded again whenever the file changed)>"
+        return "<replica: engine.py as it is now (loaded again whenever the file changed)>"
 
 
-engine = _EngineModule()
+def _with_click_cell(module: types.ModuleType, step: Callable[..., Any]) -> Callable[..., Any]:
+    """engine.py's step(state, action), a click without a cell getting the one the harness would give it."""
+
+    def run(state: Any, action: Any) -> Any:
+        if getattr(action, "id", None) == 6 and getattr(action, "cell", None) is None and hasattr(state, "grid"):
+            cls = getattr(module, "Action", None) or Action
+            x, y = int(action.x), int(action.y)
+            action = cls(id=6, x=x, y=y, cell=click_cell(state, x, y))
+        return step(state, action)
+
+    run.__doc__, run.__name__ = step.__doc__, getattr(step, "__name__", "step")
+    return run
+
+
+replica = _ReplicaModule()
 
 
 # --- Drawing and looking ----------------------------------------------------------------------
@@ -578,7 +598,7 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
     return before, copy.deepcopy(after_state)
 
 
-# --- Playing on the engine (the play-and-model agent) ---------------------------------------------
+# --- Playing on the replica (the play-and-model agent) --------------------------------------------
 
 
 def _runner(module: types.ModuleType) -> game_api.GameRunner:
@@ -599,10 +619,10 @@ def _vars_text(state: Any, limit: int = 160) -> str:
 
 
 def state_now() -> Any:
-    """Your engine's State now: engine.py loaded fresh, every step played so far replayed through it
+    """Your replica's State now: engine.py loaded fresh, every step played so far replayed through it
     (the harness rules: RESET, level changes, WIN, GAME_OVER). Prints the level, the status and the
-    vars; returns a copy of the State (its .level is the level being played). The game as your engine
-    models it, not the real game: the real frame after the last step is recording[-1].after."""
+    vars; returns a copy of the State (its .level is the level being played). The game as your replica
+    models it, not the game itself: the real frame after the last step is recording[-1].after."""
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
@@ -617,9 +637,9 @@ def state_now() -> Any:
     state = game.state
     n = len(trace.steps)
     if state is None:
-        print(f"state_now(): your engine has no state after replaying steps 0-{n - 1} ({game.status})")
+        print(f"state_now(): your replica has no state after replaying steps 0-{n - 1} ({game.status})")
         return None
-    print(f"state_now(): your engine after replaying steps 0-{n - 1}: level {game.level}, {game.status}, "
+    print(f"state_now(): your replica after replaying steps 0-{n - 1}: level {game.level}, {game.status}, "
           f"{game.score} level(s) completed, {len(state.sprites)} sprites, vars={_vars_text(state)}")
     return copy.deepcopy(state)
 
@@ -691,5 +711,5 @@ class _LevelCode(str):
 
 __all__ = [
     "Sprite", "Action", "View", "State", "recording", "read_file", "edit_file", "undo_edit", "render_state", "show_frames",
-    "replay_step", "summarize_levels", "engine",
+    "replay_step", "summarize_levels", "replica",
 ]

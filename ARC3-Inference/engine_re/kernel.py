@@ -57,26 +57,28 @@ NAMES_SHOWN = 40  # entries a {"names": true} answer lists before "... and N mor
 REPLAY_CELL_SECONDS = 20.0
 REPLAY_TOTAL_SECONDS = 120.0
 # What the namespace of the model's code starts with (besides np and the fixed-block classes): the built-in
-# functions, and `engine`, engine.py as it is now (helpers._EngineModule).
+# functions, and `replica`, engine.py (the model's replica of the game) as it is now (helpers._ReplicaModule).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step")
-PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels", "engine")
+PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels", "replica")
 # Names the model's code may not rebind: the built-ins, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
 # The stepwise harness (--focus K): `step_to_fix`, the step to fix, instead of the recording, and no
 # summarize_levels; with --history also `recording`, the recording so far (steps 0..K, all the trace on disk
 # holds, recording[K] being step_to_fix), and summarize_levels.
-PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("engine",)
+PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("replica",)
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
 # The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and click_cell
-# (moves are played by calling engine.step on copies of a State).
+# (moves are played by calling replica.step on copies of a State).
 PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell")
 RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
-    "engine is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
-    "engine.step(...), engine.make_level(...) directly"
+    "replica is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
+    "replica.step(...), replica.make_level(...) directly"
 )
+# How code that imports engine.py is reported (as a binding of the built-in `replica`, which it would duplicate).
+_ENGINE_IMPORTS = ("import engine", "from engine import")
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
@@ -97,12 +99,12 @@ def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> li
         elif isinstance(node, ast.arg):
             hit(node.arg, node, f"a parameter named {node.arg}")
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            # Any import of the engine module is refused (that copy would go stale; `engine` is the built-in).
+            # Any import of engine.py is refused (that copy would go stale; `replica` is the built-in).
             if isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == "engine":
-                hit("engine", node, "from engine import")
+                hit("replica", node, "from engine import")
             for alias in node.names:
                 if isinstance(node, ast.Import) and alias.name.split(".")[0] == "engine":
-                    hit("engine", node, f"import engine as {alias.asname}" if alias.asname else "import engine")
+                    hit("replica", node, f"import engine as {alias.asname}" if alias.asname else "import engine")
                 else:
                     bound = alias.asname or alias.name.split(".")[0]
                     hit(bound, node, f"import as {bound}")
@@ -125,7 +127,7 @@ def _reserved_error(found: list[tuple[str, int, str]], reserved: tuple[str, ...]
         f"Error: nothing was run. This code would replace the harness's built-in {names} ({where}).\n"
         f"These names are reserved: {', '.join(reserved)}. Give your own functions and variables other names.\n"
     )
-    if any(name == "engine" and how.startswith(("import", "from engine")) for name, _, how in found):
+    if any(name == "replica" and how.startswith(_ENGINE_IMPORTS) for name, _, how in found):
         text += ENGINE_IMPORT_NOTE + ".\n"
     return text
 

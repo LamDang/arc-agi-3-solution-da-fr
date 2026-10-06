@@ -988,7 +988,7 @@ def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
     python = TOOLS[0]["function"]["description"]
     assert "# Objects" in python and "edit_file() and undo_edit()" in python
     objects = system_prompt()[system_prompt().index("# Objects") : system_prompt().index("# How to work")]
-    assert "engine: module  engine.py as it is now" in objects and "Never `import engine`" in objects
+    assert "replica: module  engine.py as it is now" in objects and "Never `import engine`" in objects
     for text in (python, objects):  # the kernel's persistence, said plainly
         assert "persistent for the whole run" in text and "define helpers and data once and reuse them" in text
     for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(",
@@ -1854,7 +1854,7 @@ def test_the_kernel_lists_what_the_model_defined_and_replays_cells(tmp_path: Pat
     try:
         assert kernel.names() == ([], 0) and kernel_names_text([], 0) == KERNEL_KEEPS_NOTHING
         kernel.execute("import os, numpy\nRING = list(range(20))\ndef cols(a): return a\nL1 = {1: 2, 2: 3, 3: 4}\n"
-                       "f0 = np.zeros((64, 64))\nbest = (1, 2)\nst = engine.make_level(0)\nclass K: pass\nn = None\ns = 'ab'")
+                       "f0 = np.zeros((64, 64))\nbest = (1, 2)\nst = replica.make_level(0)\nclass K: pass\nn = None\ns = 'ab'")
         names, more = kernel.names()
         assert names == ["RING: list[20]", "cols: function", "L1: dict[3]", "f0: ndarray(64, 64)", "best: tuple[2]", "st: State",
                          "K: class", "n: None", "s: str[2]"] and more == 0  # not the built-ins, np, modules or dunders
@@ -1885,7 +1885,7 @@ def test_the_kernel_lists_what_the_model_defined_and_replays_cells(tmp_path: Pat
         kernel.stop()
 
 
-def test_the_engine_builtin_always_reflects_the_current_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_the_replica_builtin_always_reflects_the_current_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.kernel import ENGINE_IMPORT_NOTE
     from engine_re.skeleton import render_skeleton
 
@@ -1895,16 +1895,18 @@ def test_the_engine_builtin_always_reflects_the_current_engine_py(tmp_path: Path
     (workspace / "engine.py").write_text(render_skeleton("tiny", [1, 2, 3, 4]), encoding="utf-8")
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
-        assert kernel.execute("print(engine.make_level(0).grid, callable(engine.step), 'make_level' in dir(engine))").split() == ["(64,", "64)", "True", "True"]
-        for code in ("import engine", "from engine import step", "import engine as e", "engine = 3"):
+        assert kernel.execute("print(replica.make_level(0).grid, callable(replica.step), 'make_level' in dir(replica))").split() == ["(64,", "64)", "True", "True"]
+        for code in ("import engine", "from engine import step", "import engine as e", "import engine as replica", "replica = 3"):
             out = kernel.execute(code)
-            assert "nothing was run" in out and "engine" in out, code
+            assert "nothing was run" in out and "built-in replica" in out, code
             assert (ENGINE_IMPORT_NOTE in out) == ("import" in code), code
+        assert ENGINE_IMPORT_NOTE.startswith("replica is a built-in") and "use replica.step(...)" in ENGINE_IMPORT_NOTE
         kernel.execute("edit_file(edits=[{'op': 'append', 'lines': ['X_MARK = 7']}])")
-        assert kernel.execute("engine.X_MARK").strip() == "7"  # reloaded after the change
+        assert kernel.execute("replica.X_MARK").strip() == "7"  # reloaded after the change
         kernel.execute("undo_edit()")
-        assert "AttributeError" in kernel.execute("engine.X_MARK")
-        assert kernel.execute("engine").startswith("<engine: engine.py as it is now")
+        assert "AttributeError" in kernel.execute("replica.X_MARK")
+        assert kernel.execute("replica").startswith("<replica: engine.py as it is now")
+        assert "NameError" in kernel.execute("engine")  # one name for the built-in, in every mode
     finally:
         kernel.stop()
 
@@ -2399,7 +2401,7 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
         documented = re.search(rf"^{name}\((.*?)\) ->", play, re.M).group(1)
         args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
         assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
-    assert set(PRELOADED_PLAY) - {"recording", "step_to_fix", "engine"} == set(helpers.PLAY_FUNCTIONS)
+    assert set(PRELOADED_PLAY) - {"recording", "step_to_fix", "replica"} == set(helpers.PLAY_FUNCTIONS)
     assert all(re.search(rf"^{name}[(:]", play, re.M) for name in PRELOADED_PLAY), PRELOADED_PLAY
     assert "run_tests(level=L)" not in play and "run_tests(level=L)" in text
     # Every mode shares these parts; the recorded steps python holds differ.

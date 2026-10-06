@@ -710,7 +710,7 @@ def replay_test(
     if ignored_steps:
         back = sorted(steps[k].index for k in resync_pos)
         lines.append(
-            f"  Unexplained steps {_ranges(ignored_steps)} (played while your engine was out of step with the game): replayed, "
+            f"  Unexplained steps {_ranges(ignored_steps)} (played while your replica was out of step with the game): replayed, "
             "never failing, not counted" + (f"; your engine is put back at the level's start at step {_ranges(back)}" if back else "") + "."
         )
     tolerated = [c.index for c in checks if c.warning]

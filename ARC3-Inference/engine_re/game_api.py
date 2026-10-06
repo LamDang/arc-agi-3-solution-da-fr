@@ -301,14 +301,26 @@ STATUSES = ("playing", "level_solved", "game_over")
 _CANONICAL: types.ModuleType | None = None
 
 
+def _action_repr(action: Any) -> str:
+    from engine_re.trace import action_code  # (trace imports nothing of this module; imported here all the same)
+
+    return action_code(action)
+
+
 def canonical() -> types.ModuleType:
-    """A module holding the interface classes and helpers, defined from FIXED_INTERFACE."""
+    """A module holding the interface classes and helpers, defined from FIXED_INTERFACE.
+
+    Its Action prints as the code that builds it, cell left out: Action(4), Action(6, x=3, y=4), Action(0)
+    (trace.action_code), the form commit_moves takes back as it is. That repr is set here, on the harness side,
+    and not in the FIXED block, so the block, and every engine.py written with it, stays as it was (an engine's
+    own Action keeps the dataclass repr, Action(id=4, x=0, y=0, cell=None), which commit_moves takes too)."""
     global _CANONICAL
     if _CANONICAL is None:
         module = types.ModuleType("engine_re_fixed_interface")
         sys.modules[module.__name__] = module
         # dont_inherit: compile the block as engine.py would, without this file's __future__ imports.
         exec(compile(FIXED_INTERFACE, "<fixed interface>", "exec", dont_inherit=True), module.__dict__)
+        module.Action.__repr__ = _action_repr
         _CANONICAL = module
     return _CANONICAL
 

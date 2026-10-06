@@ -6,8 +6,9 @@ The design is in PLAY_DESIGN.md. In short, the stepwise agent (engine_re.agent, 
 recording replaced by the game being played (engine_re.live_game):
 
 - PLAN: the model sees every step played so far (`recording`) and the game's current frame; in python,
-  state_now() is its engine's state and it plays moves by calling engine.step on copies of it (a click's
-  Action takes cell=click_cell(state, x, y)). It sends moves with commit_moves(actions, note).
+  state_now() is its replica's state (engine.py's) and it plays moves by calling replica.step on copies of it.
+  It sends moves with commit_moves(actions, note), the actions being the Actions it stepped its replica with,
+  as python prints them (Action(4), Action(6, x=3, y=4)), or labels.
 - commit_moves first runs the tests on engine.py over every step played so far; if any fails, nothing is
   sent and the model gets the report (a fit round opens on the failing step). Otherwise engine.py becomes
   the committed engine (engine_committed.py), the batch is predicted with it in one sandboxed run
@@ -16,7 +17,7 @@ recording replaced by the game being played (engine_re.live_game):
   one-pixel HUD-bar difference is a match, with its warning shown). The batch stops at the first
   difference (the moves after it are not sent), after a solved level and when the game ends. One batch
   per turn; a commit_engine earlier in the same turn is the batch's commit.
-- FIT: after a difference at step k, the message "step k did not go as your engine predicted" with the
+- FIT: after a difference at step k, the message "step k did not go as your replica predicted" with the
   test report (the comparison, with its picture); the model fixes engine.py and submits it with
   commit_engine, which must pass every step so far; then PLAN again. A commit whose engine still fails a
   later step gets that step as in the stepwise harness (advance_message).
@@ -60,27 +61,27 @@ from engine_re.helpers import PLAY_FUNCTIONS
 from engine_re.kernel import KernelClient
 from engine_re.live_game import LiveGame
 from engine_re.prompts import (
-    COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, advance_message, batch_lines, commit_moves_description, kernel_names_text,
-    mismatch_message, plan_message, tools,
+    COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, accepted_actions_text, advance_message, batch_lines, commit_moves_description,
+    kernel_names_text, mismatch_message, move_text, plan_message, tools,
 )
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import StepCheck, check_step, predict
-from engine_re.trace import Action, Trace, move_label, parse_move
+from engine_re.trace import Action, Trace, action_code, parse_moves
 
-CURRENT_FRAME_NOTE = "The real game's current frame (after step {k}), upscaled 8x:"
+CURRENT_FRAME_NOTE = "The game's current frame (after step {k}), upscaled 8x:"
 # After a game over the harness restarts the level itself, as the base harness does; the RESET is a real step.
 AUTO_RESET_NOTE = "[harness] automatic RESET after the game over"
 PLAN_TURNS = 6  # turns of a plan round without commit_moves before the reminder (PLAN_NUDGE)
 COMMITTED_FILE = "engine_committed.py"  # the engine the predictions come from (the last that reproduced every step)
 OPENING_TEXT = (
     "The game has just started. Before your first turn the harness put level 0's first frame into make_level "
-    "(recording[0].pieces_after.code()); step() does nothing yet, so your engine predicts that no move changes anything. "
+    "(recording[0].pieces_after.code()); step() does nothing yet, so your replica predicts that no move changes anything. "
     "The first moves you send show what they do: send one or a few early."
 )
 SKELETON_PLAY = (  # the starting engine.py's docstring, in the play mode's words
     ("reverse-engineered from a recorded run.", "modelled from the game as it is played."),
     ("the recorded actions are replayed; after each one, your final frame and the game\n  state must equal the recording.",
-     "every action played so far is replayed; after each one, your final frame and\n  the game state must equal the real game's."),
+     "every action played so far is replayed; after each one, your final frame and\n  the game state must equal the game's."),
 )
 
 
@@ -255,23 +256,26 @@ class PlayAgent(EngineAgent):
                                 "message says what to do next. Send the next batch in your next turn.")
         if not isinstance(note, str) or not note.strip():
             return self._refuse("Not sent: commit_moves needs a note (one or two sentences: what the batch is meant to do and "
-                                "what your engine predicts).")
-        if not isinstance(actions, list) or not actions:
-            return self._refuse('Not sent: actions must be a non-empty list of moves, e.g. ["UP", "UP", {"click": [12, 40]}].')
-        if len(actions) > self.batch_size:
-            return self._refuse(f"Not sent: at most {self.batch_size} moves per call; you gave {len(actions)}. Send the first "
-                                f"{self.batch_size}, look at the result, then the rest.")
-        try:
-            acts = [parse_move(a) for a in actions]
+                                "what your replica predicts).")
+        empty = 'Not sent: actions must be a non-empty list of moves, e.g. ["Action(4)", "Action(6, x=12, y=40)"].'
+        if not isinstance(actions, (list, str)) or not actions:
+            return self._refuse(empty)
+        try:  # a list of moves, or a printed list of Actions as one string
+            acts = parse_moves(actions)
         except (ValueError, TypeError) as exc:
             return self._refuse(f"Not sent: {exc}.")
+        if not acts:
+            return self._refuse(empty)
+        if len(acts) > self.batch_size:
+            return self._refuse(f"Not sent: at most {self.batch_size} moves per call; you gave {len(acts)}. Send the first "
+                                f"{self.batch_size}, look at the result, then the rest.")
         allowed = set(self.full_trace[0].available_actions) | {0}
         for a in acts:
             if a.id == 6 and not (0 <= int(a.x) <= 63 and 0 <= int(a.y) <= 63):
-                return self._refuse(f"Not sent: the click {move_label(a)} is off the 64x64 screen (x and y must be 0-63).")
+                return self._refuse(f"Not sent: the click {action_code(a)} is off the 64x64 screen (x and y must be 0-63).")
             if a.id not in allowed:
-                names = ", ".join(move_label(Action(i, 0, 0)) if i != 6 else 'clicks {"click": [x, y]}' for i in sorted(allowed))
-                return self._refuse(f"Not sent: this game does not accept {move_label(a)}. It accepts: {names}.")
+                return self._refuse(f"Not sent: this game does not accept {move_text(a)}. "
+                                    + accepted_actions_text(self.full_trace[0].available_actions))
         if self.live.won:
             return "Not sent: the game is won; nothing more to play."
         left = self.max_actions - self.live.actions
@@ -297,7 +301,7 @@ class PlayAgent(EngineAgent):
                 if first < k:
                     return self._refuse(
                         f"Not sent: playing on out of step is offered from step {k} on, but engine.py now fails step {first}, "
-                        "which your committed engine reproduces. Fix it (undo_edit() brings back earlier versions), then send "
+                        "which your committed replica reproduces. Fix it (undo_edit() brings back earlier versions), then send "
                         "again. The report:\n\n" + _truncate(report.text, REPORT_CHARS))
                 self._go_out_of_sync(first)
                 return self._blind_batch(acts, note, cut)
@@ -309,7 +313,7 @@ class PlayAgent(EngineAgent):
                 self._new_fit_round(k, "commit_moves refused: the tests fail here")
             self._log({"turn": self.result.turns, "refused_batch": {"reason": "tests fail", "first_fail": first, "note": note}})
             return self._refuse(
-                f"Not sent: your engine does not reproduce the game so far (steps 0-{n - 1}), so no move was sent. Fix "
+                f"Not sent: your replica does not reproduce the game so far (steps 0-{n - 1}), so no move was sent. Fix "
                 "engine.py first, then commit_engine(message) and plan again. The report:\n\n" + _truncate(report.text, REPORT_CHARS))
         commit, self.commit = self.commit, None  # a commit_engine earlier in this turn: this batch's commit
         sha = self._engine_hash()
@@ -326,18 +330,18 @@ class PlayAgent(EngineAgent):
         lines += batch_lines(self.full_trace, first_step, outcomes)
         last = outcomes[-1] if outcomes else None
         if last is not None and not last["ok"]:
-            lines.append(f"The batch stopped at step {last['index']}: the real result differs from your engine's prediction"
+            lines.append(f"The batch stopped at step {last['index']}: the game's result differs from your replica's prediction"
                          + (f"; {dropped} move(s) not sent" if dropped else "") + ". A fit round opens: the next message shows the comparison.")
         elif last is not None and last["state"] == "WIN":
             lines.append("The game is won.")
         elif last is not None and last["state"] == "GAME_OVER":
-            lines.append("The game is over" + (": the harness will RESET the level (checked against your engine too), then ask for the next moves."
+            lines.append("The game is over" + (": the harness will RESET the level (checked against your replica too), then ask for the next moves."
                                                if self.auto_reset else ": only RESET is accepted now."))
         elif last is not None and last.get("level_solved"):
             lines.append(f"Level {last['level']} is solved; the batch stops there" + (f" ({dropped} move(s) not sent)" if dropped else "")
                          + ". The next message shows the new level.")
         else:
-            lines.append("Every move matched your engine. The next message asks for the next moves.")
+            lines.append("Every move matched your replica. The next message asks for the next moves.")
         if cut:
             lines.append(f"The last {cut} move(s) of the batch were cut: the run allows {self.max_actions} actions in all.")
         return "\n".join(lines)
@@ -352,20 +356,20 @@ class PlayAgent(EngineAgent):
         self.pending = {"outcomes": outcomes, "dropped": dropped + cut, "note": note, "blind": True}
         first_step = outcomes[0]["index"]
         lines = [f"Sent {len(outcomes)} of {len(acts) + cut} move(s) (steps {first_step}-{first_step + len(outcomes) - 1}), not "
-                 f"checked: your engine is out of step with the game since step {since}."]
+                 f"checked: your replica is out of step with the game since step {since}."]
         lines += batch_lines(self.full_trace, first_step, outcomes)
         last = outcomes[-1]
         if last.get("resync"):
-            lines.append(f"Your engine is back in step with the game at step {last['index']}" + (f" ({dropped} move(s) not sent)" if dropped else "")
+            lines.append(f"Your replica is back in step with the game at step {last['index']}" + (f" ({dropped} move(s) not sent)" if dropped else "")
                          + ". After this turn the harness replays every step (the unexplained ones are not compared) and, when "
                          "they pass, asks for the next moves.")
         elif last["state"] == "WIN":
             lines.append("The game is won.")
         elif last["state"] == "GAME_OVER":
-            lines.append("The game is over: " + ("the harness will RESET the level, which puts your engine back in step." if self.auto_reset
-                                                 else "only RESET is accepted now; it puts your engine back in step."))
+            lines.append("The game is over: " + ("the harness will RESET the level, which puts your replica back in step." if self.auto_reset
+                                                 else "only RESET is accepted now; it puts your replica back in step."))
         else:
-            lines.append("Your engine is still out of step. The next message asks for the next moves.")
+            lines.append("Your replica is still out of step. The next message asks for the next moves.")
         if cut:
             lines.append(f"The last {cut} move(s) of the batch were cut: the run allows {self.max_actions} actions in all.")
         return "\n".join(lines)
@@ -406,13 +410,13 @@ class PlayAgent(EngineAgent):
     def _verdict(check: StepCheck, real: Any, got: dict[str, Any] | None, error: str | None) -> str:
         if got is None:
             last = (error or "").strip().splitlines()[-1][:160] if error else "no prediction"
-            return f"your engine raised an error ({last})"
+            return f"your replica raised an error ({last})"
         parts = []
         if "final frame" in check.problems:
             parts.append("the final frame differs")
         for name, shown in (("state", "outcome"), ("levels_completed", "levels completed"), ("win_levels", "win levels"), ("available_actions", "available actions")):
             if name in check.problems:
-                parts.append(f"{shown}: the game says {getattr(real, name)!r}, your engine {got.get(name)!r}")
+                parts.append(f"{shown}: the game says {getattr(real, name)!r}, your replica {got.get(name)!r}")
         return "; ".join(parts) if parts else "; ".join(check.problems)
 
     def _played(self) -> None:
@@ -440,7 +444,7 @@ class PlayAgent(EngineAgent):
             else:
                 check = check_step(real, got, got_frames, self.match)
             outcome = {
-                "index": real.index, "label": move_label(act), "ok": check.ok, "warning": check.warning,
+                "index": real.index, "label": action_code(act), "ok": check.ok, "warning": check.warning,
                 "verdict": "" if check.ok else self._verdict(check, real, got, error),
                 "frames": real.n_frames, "level": level_before, "state": real.state,
                 "level_solved": real.levels_completed > self.full_trace[pos - 1].levels_completed,
@@ -456,7 +460,7 @@ class PlayAgent(EngineAgent):
         self._focus_on(len(self.full_trace) - 1)
         miss = next((o for o in outcomes if not o["ok"]), None)
         self.result.batch_log.append({
-            "turn": self.result.turns, "first_step": n, "moves": [move_label(a) for a in acts], "sent": len(outcomes),
+            "turn": self.result.turns, "first_step": n, "moves": [action_code(a) for a in acts], "sent": len(outcomes),
             "matched": sum(bool(o["ok"]) for o in outcomes), "mismatch": miss["index"] if miss else None,
             "diff": miss["verdict"] if miss else None, "note": note,
         })
@@ -474,7 +478,7 @@ class PlayAgent(EngineAgent):
             point = self._mark(real.index)
             self._played()  # saves the trace with its meta
             outcome = {
-                "index": real.index, "label": move_label(act), "ok": None, "warning": None, "verdict": "",
+                "index": real.index, "label": action_code(act), "ok": None, "warning": None, "verdict": "",
                 "frames": real.n_frames, "level": level_before, "state": real.state,
                 "level_solved": real.levels_completed > self.full_trace[real.index - 1].levels_completed,
                 "levels_completed": real.levels_completed, "auto": note == AUTO_RESET_NOTE, "resync": point is not None,
@@ -488,7 +492,7 @@ class PlayAgent(EngineAgent):
                 break
         self._focus_on(len(self.full_trace) - 1)
         self.result.batch_log.append({
-            "turn": self.result.turns, "first_step": n, "moves": [move_label(a) for a in acts], "sent": len(outcomes),
+            "turn": self.result.turns, "first_step": n, "moves": [action_code(a) for a in acts], "sent": len(outcomes),
             "matched": 0, "mismatch": None, "diff": None, "note": note, "blind": True,
         })
         self._log({"turn": self.result.turns, "batch": self.result.batch_log[-1]})
@@ -616,12 +620,12 @@ class PlayAgent(EngineAgent):
                 o = self._play_blind([Action(0)], AUTO_RESET_NOTE)[0]
                 return self._after_resync(
                     f"{last_batch} The game was over, so the harness sent a RESET (step {o['index']}, an action), which puts your "
-                    "engine back in step.", 0, say)
+                    "replica back in step.", 0, say)
             outcomes, _ = self._play([Action(0)], AUTO_RESET_NOTE)
             o = outcomes[0]
             if not o["ok"]:
                 return self._enter_fit(o["index"], o["verdict"], 0, say=say)
-            last_batch += f" The game was over, so the harness sent a RESET (step {o['index']}, an action): the level restarted as your engine predicted."
+            last_batch += f" The game was over, so the harness sent a RESET (step {o['index']}, an action): the level restarted as your replica predicted."
         elif self.live.game_over:
             last_batch += " The game is over: only RESET is accepted now."
         return self._enter_plan(last_batch, say=say)
@@ -631,26 +635,26 @@ class PlayAgent(EngineAgent):
         compared); PLAN when they pass, else FIT on the first that fails."""
         k = self._replay_all()
         if k is not None:
-            return self._enter_fit(k, "your engine does not reproduce it now that it is back in step with the game", dropped,
+            return self._enter_fit(k, "your replica does not reproduce it now that it is back in step with the game", dropped,
                                    say=say, predicted=False)
         if self._engine_hash() != self.committed_sha:
             self._record_commit("(back in step with the game) engine.py reproduces every step played", implicit=True)
         self._focus_on(len(self.full_trace) - 1)
-        return self._after_sync(last_batch + " Every step played passes with your engine again (the unexplained ones are not compared).", say)
+        return self._after_sync(last_batch + " Every step played passes with your replica again (the unexplained ones are not compared).", say)
 
     @staticmethod
     def _batch_summary(pending: dict[str, Any]) -> str:
         outcomes, dropped = pending["outcomes"], pending["dropped"]
         last = outcomes[-1] if outcomes else None
         if pending.get("blind"):
-            text = f"Your last batch: {len(outcomes)} move(s) sent while your engine was out of step (not checked)"
+            text = f"Your last batch: {len(outcomes)} move(s) sent while your replica was out of step (not checked)"
             if last is not None and last.get("resync"):
-                text += f"; at step {last['index']} ({last['label']}) it is back in step"
+                text += f"; at step {last['index']}, {last['label']}, it is back in step"
         elif last is not None and not last["ok"]:  # (a commit in the same turn fixed it)
-            text = (f"Your last batch: {len(outcomes)} move(s) sent; step {last['index']} ({last['label']}) differed from your "
-                    f"engine's prediction ({last['verdict']})")
+            text = (f"Your last batch: {len(outcomes)} move(s) sent; step {last['index']}, {last['label']}, differed from your "
+                    f"replica's prediction ({last['verdict']})")
         else:
-            text = f"Your last batch: {len(outcomes)} move(s) sent, all as your engine predicted"
+            text = f"Your last batch: {len(outcomes)} move(s) sent, all as your replica predicted"
             if last is not None and last.get("level_solved") and last["state"] != "WIN":
                 text += (f"; level {last['level']} solved, and your make_level({last['level'] + 1}) drew the new level's start "
                          "as the game did, so the batch stopped there")
@@ -698,7 +702,7 @@ class PlayAgent(EngineAgent):
             return True
         self._keep_committed(commit["engine_sha"])
         self._focus_on(n - 1)
-        done = f"Commit accepted: your engine now reproduces steps 0-{n - 1}" + (
+        done = f"Commit accepted: your replica now reproduces steps 0-{n - 1}" + (
             " (but the unexplained ones, which are not compared)." if sync_points(self.live.trace.meta)[0] else ".")
         if pending is not None:
             done = self._batch_summary(pending) + " " + done
@@ -783,7 +787,7 @@ class PlayAgent(EngineAgent):
             text = OPENING_TEXT if n == 1 else f"{self.live.actions} action(s) were played before this session."
             content = self._after_sync(text, say=False)
             return content if content is not None else "The game is won."
-        return self._enter_fit(first, "your engine does not reproduce this step", 0, say=False, predicted=False)
+        return self._enter_fit(first, "your replica does not reproduce this step", 0, say=False, predicted=False)
 
     def _rebuild_conversation(self) -> dict[str, Any] | None:
         state = super()._rebuild_conversation()
@@ -823,7 +827,7 @@ class PlayAgent(EngineAgent):
                 self._focus_on(n - 1)
                 self._after_sync(text)
             else:
-                self._enter_fit(k, "your engine does not reproduce it (found when the run resumed)", 0, predicted=False)
+                self._enter_fit(k, "your replica does not reproduce it (found when the run resumed)", 0, predicted=False)
         return True
 
     def _restore(self) -> bool:

@@ -22,11 +22,11 @@ This document is the design to review before implementation. The run plan
                                             ▼        │ differs from the engine's
                  ┌──────────────────────────────────────────────────────┐
                  │  PLAN: "steps 0..n-1 pass; the game is at level L"    │
-                 │  python: state_now(), engine.step on copies of it     │
-                 │  commit_moves(actions)                                │
+                 │  python: state_now(), replica.step on copies of it    │
+                 │  commit_moves(actions): the Actions, as printed       │
                  └───────────────┬──────────────────────────────────────┘
                                  │ for each action, in order:
-                                 │   predicted = engine.step(...)      (committed engine.py)
+                                 │   predicted = replica.step(...)     (committed engine.py)
                                  │   real      = game.perform(...)     (the arcengine game)
                                  │   same final frame, status, levels, actions?  yes → next action
                                  │                                               no  → stop, FIT on step k
@@ -48,8 +48,10 @@ asks for. Three phases:
 - **PLAN.** The model sees every step so far (`recording`), the current frame
   as an image, the level and what the game accepts. In python, `state_now()`
   is engine.py's state after replaying everything played, and the model plays
-  moves on copies of it by calling `engine.step` directly (a click's `Action`
-  built with `click_cell`). The model ends the phase with `commit_moves(actions)`.
+  moves on copies of it by calling `replica.step` directly (`replica` is the
+  kernel's built-in for engine.py). The model ends the phase with
+  `commit_moves(actions)`, the actions being the `Action`s it stepped its
+  replica with, as python prints them.
 - **PLAY** (harness only). The harness predicts the batch with the committed
   engine, then sends the actions to the real game one at a time and compares.
   On the first mismatch it drops the rest of the batch and opens a FIT round
@@ -113,12 +115,36 @@ class LiveGame:
 Tools: `python`, `run_tests`, `commit_engine` (as in stepwise mode) and one new
 tool, **`commit_moves(actions, note)`**.
 
-- `actions`: a list of 1 to `--batch-size` (default 10) actions, each `"UP"`,
-  `"DOWN"`, `"LEFT"`, `"RIGHT"`, `"SPACE"`, `"RESET"`, `"UNDO"` or
-  `{"click": [x, y]}` (screen pixel, x column, y row, as `Action.x/y` in
-  engine.py; the base harness's `MOUSE(row=, col=)` text is accepted too).
-  Only the game's advertised actions are allowed; others are refused before
-  anything is sent.
+- `actions`: a list of 1 to `--batch-size` (default 10) actions, each the
+  fixed block's `Action` as python prints it: `"Action(4)"`, `"Action(6, x=12,
+  y=40)"` (screen pixel, x column, y row), `"Action(0)"` for RESET; or the
+  printed list as one string, `"[Action(4), Action(0)]"`. The labels stay
+  accepted (`"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`, `"SPACE"`, `"RESET"`,
+  `"UNDO"`, `{"click": [x, y]}`, the base harness's `MOUSE(row=, col=)`;
+  `trace.parse_moves`). Only the game's advertised actions are allowed;
+  others are refused before anything is sent.
+- **One action object for the replica and the game.** What the model steps
+  its replica with in python is what it submits: the kernel's `Action`
+  prints as the code that builds it, cell left out (`Action(4)`,
+  `Action(6, x=12, y=40)`, `Action(0)`; `trace.action_code`), so `print(moves)`
+  is pastable into `actions`, and the messages name moves the same way
+  (`#12 Action(4): matches your prediction`, "this game does not accept
+  Action(1) (UP)"), so what the model reads it can write back. The cell is
+  the harness's to compute (`game_api.click_cell`, before `step()`): a cell
+  in the text (`Action(id=6, x=3, y=4, cell=(1, 1))`, the dataclass form) is
+  ignored, and `replica.step` fills in a click's cell when it is None, so
+  `Action(6, x=3, y=4)` read from a message plays the same click in python as
+  in the game. The choice: the printed form is python, not JSON, because it
+  is the code that builds the object (as `Sprite` prints), it evaluates back
+  in the kernel, and a JSON-looking repr (`{"id": 4}`) would make an object
+  read as a dict. The repr is set on the harness side (`game_api.canonical`
+  patches the canonical `Action`, the one the kernel preloads), not in the
+  FIXED block: the block stays byte-identical, so every engine.py written
+  with it, the contract test (`same_interface`) and the reference engines are
+  untouched. An engine's own `Action` (the one `GameRunner` hands its
+  `step()`) keeps the dataclass repr, `Action(id=4, x=0, y=0, cell=None)`,
+  which `commit_moves` accepts as well. RESET is `Action(0)`: `step()` never
+  gets it, `commit_moves` sends it.
 - `note`: one or two sentences: what the batch is meant to do and what the
   engine predicts (kept in the transcript and `result.json`; it is the
   planning record, as `commit_engine`'s message is the modelling record).
@@ -138,22 +164,26 @@ tool, **`commit_moves(actions, note)`**.
 Built-ins added to the kernel (`helpers.py`), documented in the `# Objects`
 reference:
 
+- `replica`: engine.py as it is now (every mode's built-in; it was `engine`
+  before, renamed so that the model does not take it for the real game's
+  engine, arcengine; the play prompts call engine.py "your replica" and the
+  real game "the game"). The file stays `engine.py`.
 - `state_now()`: engine.py's `State` after replaying every recorded step
   (the committed engine.py or the current file; the current file, as
   `replay_step` does, so the model can test an edit before committing). Cached
   per engine hash and trace length.
 - `click_cell(state, x, y) -> tuple | None`: the grid cell under a screen
-  pixel on this state, as the harness computes `action.cell` for a click, so
-  the model can build the `Action` a click is for `step()`.
+  pixel on this state, as the harness computes `action.cell` for a click
+  (`replica.step` fills it in when an `Action`'s cell is None).
 - No `simulate` helper (it existed in the v10 run and was removed after it):
-  the model plays moves by calling `engine.step` on copies of a State and
-  `engine.make_level(n)` for a level's first state, with the harness rules
+  the model plays moves by calling `replica.step` on copies of a State and
+  `replica.make_level(n)` for a level's first state, with the harness rules
   stated in the prompt (RESET is a fresh `make_level`, `level_solved` starts
   `make_level(n + 1)`). The v10 transcripts showed the model composing routes
   in text and using `simulate` only to verify them, while its searches
-  re-implemented the rules by hand; a BFS over moves calling `engine.step` on
+  re-implemented the rules by hand; a BFS over moves calling `replica.step` on
   copies is one short function away, which is the point of having a model.
-- Both are reserved names (`kernel.RESERVED`) and go in the `# Objects` text
+- They are reserved names (`kernel.RESERVED`) and go in the `# Objects` text
   and its test.
 
 ### 3.3 Prediction and check (the PLAY phase)
@@ -178,9 +208,9 @@ For a batch of actions `a_1..a_m` after `n` recorded steps:
 3. Save the trace; `kernel.refocus(n+i-1)` so `recording` grows and
    `step_to_fix` is the last step; write the batch record.
 
-The tool output lists one line per action: `#12 UP: matches (level 0, 1
-frame)`; `#13 DOWN: differs, final frame (2 regions); level solved in the game,
-not in your engine`; `#14-#16 not sent`. Then the harness adds the user message
+The tool output lists one line per action, each move named as its `Action`
+prints: `#12 Action(1): matches your prediction`; `#13 Action(2): differs from
+your prediction: the final frame differs`; then how many moves were not sent. Then the harness adds the user message
 of the next phase:
 
 - a mismatch: `advance_message`-shaped "Fix step k" (section 3.4);
@@ -208,7 +238,7 @@ the game does not advertise) are refused before sending, with the valid form.
   actions as possible; the way to do that is to keep a model that
   reproduces every step so far and to plan with it") and a "How to work"
   that adds the plan phase: look at the current frame and `state_now()`,
-  try sequences with `engine.step` on copies, prefer the shortest sequence the engine
+  try sequences with `replica.step` on copies, prefer the shortest sequence the replica
   says solves the level, and when the engine has never seen a kind of
   move, send a short batch (1-3 actions) to learn its effect rather than a
   long plan built on a guess. Scoring: each level's score is
@@ -370,7 +400,7 @@ rule affects.
    form of the loop: the model cannot skip the fit. The escape hatch (3.6) is
    the only relaxation, and it is explicit in the results (unexplained
    steps).
-3. **Planning is in python (`engine.step` on copies), sending is a tool.**
+3. **Planning is in python (`replica.step` on copies), sending is a tool.**
    The thing that "gives the moves and gets final states" is the engine
    itself, called directly in python; `commit_moves` only sends. This lets
    the model search over its engine; a tool call per candidate plan would

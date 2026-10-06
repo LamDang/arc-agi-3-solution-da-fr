@@ -635,6 +635,7 @@ over from an earlier version.
   kernel now preloads `state_now` and `click_cell` only, and the prompt says
   to play moves with `engine.step` on copies of a State and `engine.make_level`
   for a level's first state, a BFS over moves being one short function.
+  Later the kernel built-in `engine` was renamed `replica` (the file is still engine.py).
 
 
 ## How the numbers were checked

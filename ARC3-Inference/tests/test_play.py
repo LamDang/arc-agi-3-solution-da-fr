@@ -10,7 +10,7 @@ from engine_re.agent import Budget, ModelConfig
 from engine_re.live_game import LiveGame, benchmark_json
 from engine_re.play_agent import PlayAgent
 from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, PLAN_CLOSING, elide_engine_listing
-from engine_re.trace import Action, parse_move
+from engine_re.trace import Action, action_code, parse_move, parse_moves
 
 # Two levels of 8x8; RIGHT x3 solves each level (player.x >= 4); LEFT at x == 1 loses the game.
 GAME = '''
@@ -141,6 +141,8 @@ class _ScriptedModel:
     def chat(self, messages, tools):  # noqa: ARG002
         self.seen.append([dict(m) for m in messages])
         calls = self.turns.pop(0) if self.turns else []
+        if callable(calls):  # a turn written from what the model has seen (e.g. a python output)
+            calls = calls(messages)
         return {
             "choices": [{
                 "finish_reason": "tool_calls" if calls else "stop",
@@ -241,6 +243,28 @@ def test_parse_move_forms() -> None:
         parse_move("fly")
 
 
+def test_the_fixed_block_action_prints_as_commit_moves_takes_it() -> None:
+    """The kernel's Action (the fixed block's, game_api.canonical) prints as the code that builds it, cell left out;
+    that text, the dataclass form an engine's own Action prints, and the objects themselves parse back to the move."""
+    from engine_re.game_api import FIXED_INTERFACE, canonical, same_interface
+
+    api = canonical()
+    moves = [api.Action(4), api.Action(6, 12, 40, cell=(1, 5)), api.Action(0), api.Action(id=1)]
+    assert repr(moves) == "[Action(4), Action(6, x=12, y=40), Action(0), Action(1)]" and str(moves[1]) == "Action(6, x=12, y=40)"
+    want = [Action(4), Action(6, 12, 40), Action(0), Action(1)]
+    assert parse_moves(repr(moves)) == parse_moves([repr(m) for m in moves]) == parse_moves(moves) == want
+    assert [action_code(a) for a in want] == [repr(m) for m in moves]  # how the play messages name the moves
+    assert parse_move("Action(id=6, x=12, y=40, cell=(9, 9))") == Action(6, 12, 40)  # the cell is the harness's to compute
+    assert parse_move("Action(id=4, x=0, y=0, cell=None)") == Action(4) == parse_move({"id": 4, "x": 0, "y": 0})
+    assert parse_move("Action(id=1, x=None, y=None)") == Action(1)  # a recorded action, as it prints
+    assert parse_moves('[UP, "RESET", {"click": [3, 4]}, Action(6, x=5, y=6)]') == [Action(1), Action(0), Action(6, 3, 4), Action(6, 5, 6)]
+    for bad in ("Action(6)", "Action(9)", "Action(4, z=1)", "[Action(4), fly]"):
+        with pytest.raises(ValueError):
+            parse_moves(bad)
+    action_block = FIXED_INTERFACE.split("class Action:")[1].split("class View:")[0]
+    assert "__repr__" not in action_block and same_interface(FIXED_INTERFACE)  # the repr is the harness's: the block is as it was
+
+
 # --- the loop -------------------------------------------------------------------------------------
 
 
@@ -260,12 +284,12 @@ def test_a_right_engine_wins_the_game_in_the_baseline_actions(tmp_path: Path, en
     assert result.batch_log[1]["sent"] == 3 and len(result.batch_log[1]["moves"]) == 4  # WIN inside the batch: the 4th not sent
     users = _texts(agent)
     assert users[0].startswith("Plan the next moves. Steps 0-0 pass") and "The game has just started" in users[0]
-    assert "The game accepts: UP, DOWN, LEFT, RIGHT, RESET" in users[0]
+    assert "The game accepts: Action(1) UP, Action(2) DOWN, Action(3) LEFT, Action(4) RIGHT, Action(0) RESET" in users[0]
     assert any("Commit accepted" in u for u in users)
     assert any("level 0 solved, and your make_level(1) drew the new level's start as the game did, so the batch stopped there "
                "(1 move(s) not sent)" in u for u in users)
     tool_outputs = _texts(agent, "tool")
-    assert any(o.startswith("Sent 3 of 4 move(s) (steps 1-3):") and "#3 RIGHT: matches your prediction (level 0 solved)" in o for o in tool_outputs)
+    assert any(o.startswith("Sent 3 of 4 move(s) (steps 1-3):") and "#3 Action(4): matches your prediction (level 0 solved)" in o for o in tool_outputs)
     assert any("The game is won." in o for o in tool_outputs)
     assert result.final["passed"] and result.committed_sha and (tmp_path / "run" / "engine_committed.py").exists()
     # the records the viewer and scoring read
@@ -295,12 +319,12 @@ def test_a_wrong_prediction_opens_a_fit_round_and_blocks_moves_until_fixed(tmp_p
     assert result.status == "budget_turns"
     assert result.mismatches == 1 and result.refused_batches == 1 and result.batches == 2
     users = _texts(agent)
-    fit = next(u for u in users if u.startswith("Fix the engine: step 1 did not go as your engine predicted."))
+    fit = next(u for u in users if u.startswith("Fix your replica: step 1 did not go as your replica predicted."))
     assert "What differed: the final frame differs. Step 0 matches. The 1 move after it in your batch was not sent." in fit
     assert "TEST RESULT" in fit and "step 1 is the first failure" in fit
     tool_outputs = _texts(agent, "tool")
-    assert any(o.startswith("Not sent: your engine does not reproduce the game so far (steps 0-1)") for o in tool_outputs)
-    assert any("#1 DOWN: differs from your prediction: the final frame differs" in o for o in tool_outputs)
+    assert any(o.startswith("Not sent: your replica does not reproduce the game so far (steps 0-1)") for o in tool_outputs)
+    assert any("#1 Action(2): differs from your prediction: the final frame differs" in o for o in tool_outputs)
     assert "after the commit you plan the next moves" in tool_outputs[4]  # the fit round's commit hint
     assert len(result.fit_rounds) == 1
     assert result.fit_rounds[0]["step"] == 1 and result.fit_rounds[0]["end_turn"] == 6 and result.fit_rounds[0]["commits"] == 1
@@ -325,8 +349,8 @@ def test_bad_batches_are_refused_before_anything_is_sent(tmp_path: Path, environ
     result = agent.run()
     outputs = _texts(agent, "tool")
     assert any(o.startswith("Not sent: at most 4 moves per call") for o in outputs)
-    assert any(o.startswith("Not sent: this game does not accept SPACE") for o in outputs)
-    assert any(o.startswith("Not sent: the click MOUSE(row=2, col=70) is off the 64x64 screen") for o in outputs)
+    assert any(o.startswith("Not sent: this game does not accept Action(5) (SPACE)") for o in outputs)
+    assert any(o.startswith("Not sent: the click Action(6, x=70, y=2) is off the 64x64 screen") for o in outputs)
     assert any(o.startswith("Not sent: unrecognised action 'fly'") for o in outputs)
     assert any(o.startswith("Not sent: commit_moves needs a note") for o in outputs)
     assert any(o.startswith("Not sent: one commit_moves call per turn") for o in outputs)
@@ -357,10 +381,10 @@ def test_an_unpredicted_game_over_is_fitted_then_reset(tmp_path: Path, environme
     agent = _agent(tmp_path, environments, model, turns=5)
     result = agent.run()
     users = _texts(agent)
-    fit = next(u for u in users if u.startswith("Fix the engine: step 1"))
-    assert "outcome: the game says 'GAME_OVER', your engine 'NOT_FINISHED'" in fit
-    assert "After it the game is over; the harness will RESET the level once your engine reproduces it." in fit
-    assert "The game was over, so the harness sent a RESET (step 2, an action): the level restarted as your engine predicted." in users[-1]
+    fit = next(u for u in users if u.startswith("Fix your replica: step 1"))
+    assert "outcome: the game says 'GAME_OVER', your replica 'NOT_FINISHED'" in fit
+    assert "After it the game is over; the harness will RESET the level once your replica reproduces it." in fit
+    assert "The game was over, so the harness sent a RESET (step 2, an action): the level restarted as your replica predicted." in users[-1]
     assert result.auto_resets == 1 and result.mismatches == 1 and [s.action.id for s in agent.live.trace.steps] == [0, 3, 0]
 
 
@@ -394,9 +418,9 @@ def test_a_commit_and_a_batch_in_one_turn(tmp_path: Path, environments: Path) ->
     assert result.mismatches == 1 and len(result.fit_rounds) == 1 and result.fit_rounds[0]["accepted"]
     users = _texts(agent)
     assert sum(u.startswith("Plan the next moves") for u in users) == 4 and not any(u.startswith("Fix the engine") for u in users)
-    assert "Your last batch: 1 move(s) sent, all as your engine predicted." in users[1]
-    assert ("Your last batch: 1 move(s) sent; step 2 (DOWN) differed from your engine's prediction (the final frame differs). "
-            "Commit accepted: your engine now reproduces steps 0-2.") in users[2]
+    assert "Your last batch: 1 move(s) sent, all as your replica predicted." in users[1]
+    assert ("Your last batch: 1 move(s) sent; step 2, Action(2), differed from your replica's prediction (the final frame differs). "
+            "Commit accepted: your replica now reproduces steps 0-2.") in users[2]
     assert result.levels_completed == 1 and result.actions == 4
 
 
@@ -413,13 +437,13 @@ def test_a_batch_then_an_edit_in_one_turn(tmp_path: Path, environments: Path) ->
     agent.run()
     users = _texts(agent)
     plan = users[2]
-    assert plan.startswith("Plan the next moves. Steps 0-1 pass with your engine as committed.")
+    assert plan.startswith("Plan the next moves. Steps 0-1 pass with your replica as committed.")
     assert "engine.py has changed since your last commit and does not reproduce every step played" in plan
     tools = _texts(agent, "tool")
     assert tools[2].startswith("Sent 1 of 1 move(s)") and "[harness] engine.py changed, so it was tested automatically" in tools[3]
-    assert tools[4].startswith("Not sent: your engine does not reproduce the game so far")
+    assert tools[4].startswith("Not sent: your replica does not reproduce the game so far")
     # after undo_edit() the DOWN batch is sent with the committed engine and matches; the edit after it is reported
-    assert any("#2 DOWN: matches your prediction" in t for t in tools)
+    assert any("#2 Action(2): matches your prediction" in t for t in tools)
     assert "engine.py has changed since your last commit and does not reproduce every step played" in users[-1]
 
 
@@ -452,9 +476,9 @@ def test_engine_errors_during_the_prediction(tmp_path: Path, environments: Path)
     agent = _agent(tmp_path, environments, model, turns=4)
     result = agent.run()
     tools = _texts(agent, "tool")
-    assert "#4 UP: differs from your prediction: your engine raised an error (ValueError: UP is not modelled)" in tools[-1]
+    assert "#4 Action(1): differs from your prediction: your replica raised an error (ValueError: UP is not modelled)" in tools[-1]
     assert result.mismatches == 1 and result.actions == 4  # the move was still sent; RIGHT was not
-    assert _texts(agent)[-1].startswith("Fix the engine: step 4 did not go as your engine predicted.")
+    assert _texts(agent)[-1].startswith("Fix your replica: step 4 did not go as your replica predicted.")
 
 
 def test_a_hud_pixel_difference_matches_with_its_warning(tmp_path: Path, environments: Path) -> None:
@@ -464,7 +488,7 @@ def test_a_hud_pixel_difference_matches_with_its_warning(tmp_path: Path, environ
     agent = _agent(tmp_path, environments, model, turns=3)
     result = agent.run()
     out = _texts(agent, "tool")[-1]
-    assert "#1 UP: matches your prediction (1 px differs at the frame border" in out and "tolerated as HUD-bar rounding" in out
+    assert "#1 Action(1): matches your prediction (1 px differs at the frame border" in out and "tolerated as HUD-bar rounding" in out
     assert result.mismatches == 0 and result.actions == 2
 
 
@@ -478,11 +502,35 @@ def test_a_click_game(tmp_path: Path, environments: Path) -> None:
     agent = _agent(tmp_path, environments, model, turns=5, game="clik")
     result = agent.run()
     tools = _texts(agent, "tool")
-    assert tools[2].startswith('Not sent: this game does not accept UP. It accepts: RESET, SPACE, clicks {"click": [x, y]}.')
-    assert "#3 MOUSE(row=20, col=20): matches your prediction (level 0 solved)" in tools[3]
-    assert 'clicks {"click": [x, y]} (x the column, y the row, screen pixels 0-63)' in _texts(agent)[0]
+    assert tools[2].startswith("Not sent: this game does not accept Action(1) (UP). The game accepts: Action(5) SPACE, clicks "
+                               "Action(6, x=x, y=y) (x the column, y the row, screen pixels 0-63), Action(0) RESET")
+    assert "#3 Action(6, x=20, y=20): matches your prediction (level 0 solved)" in tools[3]
+    assert "clicks Action(6, x=x, y=y) (x the column, y the row, screen pixels 0-63)" in _texts(agent)[0]
     assert result.status == "won" and result.actions == 4 and result.actions_per_level == [3, 1]
     assert [s.action for s in agent.live.trace.steps][1:] == [Action(5), Action(6, 40, 40), Action(6, 20, 20), Action(6, 50, 10)]
+
+
+def test_actions_stepped_on_the_replica_are_sent_as_printed(tmp_path: Path, environments: Path) -> None:
+    """A click game played the way the prompt says: moves tried on the replica in python (a click's cell filled
+    in by replica.step, as the harness does), the printed list pasted into commit_moves as one string, sent."""
+    plan = ("import copy\nt = copy.deepcopy(state_now())\nmoves = [Action(5), Action(0), Action(6, x=20, y=20)]\n"
+            "replica.step(t, moves[0])\nt = replica.make_level(0)\nreplica.step(t, moves[2])\nprint(t.status)\nprint(moves)")
+    model = _ScriptedModel(_start(CLICK_ENGINE, names=("TARGETS", "make_level", "step")) + [
+        [("python", {"code": plan})],
+        lambda messages: [("commit_moves", {"actions": _printed_moves(messages), "note": "space, reset, the target"})],
+        [("python", {"code": "t = copy.deepcopy(state_now())\nmoves = [Action(6, x=50, y=10)]\nreplica.step(t, moves[0])\n"
+                             "print(t.status)\nprint(moves)"})],
+        lambda messages: [("commit_moves", {"actions": _printed_moves(messages), "note": "level 1's target"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=6, game="clik")
+    result = agent.run()
+    tools = _texts(agent, "tool")
+    assert "level_solved\n[Action(5), Action(0), Action(6, x=20, y=20)]" in tools[2]
+    assert tools[3].startswith("Sent 3 of 3 move(s) (steps 1-3):") and "#2 Action(0): matches your prediction" in tools[3]
+    assert "#3 Action(6, x=20, y=20): matches your prediction (level 0 solved)" in tools[3]
+    assert "level_solved\n[Action(6, x=50, y=10)]" in tools[4] and "#4 Action(6, x=50, y=10): matches your prediction" in tools[5]
+    assert result.status == "won" and result.mismatches == 0 and result.actions_per_level == [3, 1]
+    assert [s.action for s in agent.live.trace.steps][1:] == [Action(5), Action(0), Action(6, 20, 20), Action(6, 50, 10)]
 
 
 def test_the_action_budget_cuts_a_batch_and_ends_the_run_cleanly(tmp_path: Path, environments: Path) -> None:
@@ -531,7 +579,7 @@ def test_the_pure_loop_never_offers_the_escape_hatch(tmp_path: Path, environment
     agent = _agent(tmp_path, environments, model, turns=8)
     result = agent.run()
     assert not any("out of step" in t for t in _texts(agent, "tool"))
-    assert result.escapes == 0 and result.unexplained == [] and _texts(agent, "tool")[-1].startswith("Not sent: your engine does not")
+    assert result.escapes == 0 and result.unexplained == [] and _texts(agent, "tool")[-1].startswith("Not sent: your replica does not")
 
 
 def test_the_escape_hatch_plays_blind_and_resyncs_at_a_reset(tmp_path: Path, environments: Path) -> None:
@@ -546,20 +594,20 @@ def test_the_escape_hatch_plays_blind_and_resyncs_at_a_reset(tmp_path: Path, env
     agent = _agent(tmp_path, environments, model, turns=7, fit_turns=2)
     result = agent.run()
     tools = _texts(agent, "tool")
-    assert "You may now play on with your engine out of step" in tools[4]
+    assert "You may now play on with your replica out of step" in tools[4]
     blind = tools[5]
-    assert blind.startswith("Sent 3 of 4 move(s) (steps 2-4), not checked: your engine is out of step with the game since step 1.")
-    assert "#4 RESET: sent, not checked (your engine is out of step) (your engine is back in step with the game here)" in blind
+    assert blind.startswith("Sent 3 of 4 move(s) (steps 2-4), not checked: your replica is out of step with the game since step 1.")
+    assert "#4 Action(0): sent, not checked (your replica is out of step) (your replica is back in step with the game here)" in blind
     assert result.unexplained == [1, 2, 3] and result.resync == {"4": {"level": 0, "score": 0}} and result.out_of_sync is None
-    plan = next(u for u in _texts(agent) if "Every step played passes with your engine again" in u)
-    assert plan.startswith("Plan the next moves. Steps 0-4 pass with your engine as committed (but the unexplained ones, which are "
+    plan = next(u for u in _texts(agent) if "Every step played passes with your replica again" in u)
+    assert plan.startswith("Plan the next moves. Steps 0-4 pass with your replica as committed (but the unexplained ones, which are "
                            "not compared: 1-3).")
-    assert "#7 RIGHT: matches your prediction (level 0 solved)" in tools[-1]
+    assert "#7 Action(4): matches your prediction (level 0 solved)" in tools[-1]
     assert result.levels_completed == 1 and result.escapes == 1 and result.fit_rounds[0]["end"] == "escaped"
     # the tests: the unexplained steps never fail, even where the engine raised; the final test passes
     assert result.final["passed"] and result.final["ignored"] == [1, 2, 3] and result.final["total"] == 5
     text = (tmp_path / "run" / "final_test.txt").read_text()
-    assert "Unexplained steps 1-3 (played while your engine was out of step with the game)" in text
+    assert "Unexplained steps 1-3 (played while your replica was out of step with the game)" in text
 
 
 def test_the_escape_hatch_through_a_level_change(tmp_path: Path, environments: Path) -> None:
@@ -573,9 +621,9 @@ def test_the_escape_hatch_through_a_level_change(tmp_path: Path, environments: P
     agent = _agent(tmp_path, environments, model, turns=7, fit_turns=1)
     result = agent.run()
     users = _texts(agent)
-    assert any(u.startswith("Plan the next moves. Your engine is out of step with the game since step 1") for u in users)
+    assert any(u.startswith("Plan the next moves. Your replica is out of step with the game since step 1") for u in users)
     assert result.unexplained == [1, 2, 3] and result.resync == {"4": {"level": 1, "score": 1}}
-    assert "#5 RIGHT: matches your prediction" in _texts(agent, "tool")[-1]
+    assert "#5 Action(4): matches your prediction" in _texts(agent, "tool")[-1]
     assert result.final["passed"] and result.levels_completed == 1
 
 
@@ -589,9 +637,9 @@ def test_the_escape_hatch_resyncs_at_the_automatic_reset(tmp_path: Path, environ
     agent = _agent(tmp_path, environments, model, turns=6, fit_turns=1)
     result = agent.run()
     assert result.unexplained == [1, 2] and result.resync == {"3": {"level": 0, "score": 0}} and result.auto_resets == 1
-    assert any("The game was over, so the harness sent a RESET (step 3, an action), which puts your engine back in step." in u
+    assert any("The game was over, so the harness sent a RESET (step 3, an action), which puts your replica back in step." in u
                for u in _texts(agent))
-    assert "#4 RIGHT: matches your prediction" in _texts(agent, "tool")[-1]
+    assert "#4 Action(4): matches your prediction" in _texts(agent, "tool")[-1]
 
 
 def test_a_resync_the_engine_does_not_reproduce_opens_a_fit_round(tmp_path: Path, environments: Path) -> None:
@@ -604,7 +652,7 @@ def test_a_resync_the_engine_does_not_reproduce_opens_a_fit_round(tmp_path: Path
     agent = _agent(tmp_path, environments, model, turns=5, fit_turns=1)
     result = agent.run()
     fit = _texts(agent)[-1]
-    assert fit.startswith("Fix the engine: your engine does not reproduce step 4.")
+    assert fit.startswith("Fix your replica: your replica does not reproduce step 4.")
     assert "now that it is back in step with the game" in fit and result.phase == "fit" and result.fit_rounds[-1]["step"] == 4
 
 
@@ -713,8 +761,8 @@ def test_compaction_elides_the_listing_of_older_plan_messages(tmp_path: Path, en
     assert ENGINE_ELIDED in texts[0] and ENGINE_HEADER not in texts[0]
     assert ENGINE_HEADER in texts[1] and ENGINE_ELIDED not in texts[1]  # the latest listing stays
     assert all(PLAN_CLOSING.strip() in t for t in texts)  # the paragraph after the listing is kept
-    text = "Head.\n\n" + ENGINE_HEADER + "\n\n  1#ABC:x = 1\n" + PLAN_CLOSING + " on your engine."
-    assert elide_engine_listing(text) == f"Head.\n\n{ENGINE_ELIDED}{PLAN_CLOSING} on your engine."
+    text = "Head.\n\n" + ENGINE_HEADER + "\n\n  1#ABC:x = 1\n" + PLAN_CLOSING + " on your replica."
+    assert elide_engine_listing(text) == f"Head.\n\n{ENGINE_ELIDED}{PLAN_CLOSING} on your replica."
 
 
 def test_the_play_agent_keeps_compaction(tmp_path: Path, environments: Path) -> None:
@@ -729,7 +777,7 @@ def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> No
         text = system_prompt(mode="play", images=images)
         assert "run_tests(level" not in text and "first message" not in text and "the recorded frame as images" not in text
         assert "state_now() -> State" in text and "click_cell(state, x, y) -> tuple | None" in text
-        assert "engine.step(s, Action(1))" in text and "simulate" not in text
+        assert "replica.step(s, Action(1))" in text and "engine.step" not in text and "simulate" not in text
         names = [t["function"]["name"] for t in tools(images, "play", True)]
         assert names == ["python", "run_tests", "commit_engine", "commit_moves"]
         run_tests = tools(images, "play", True)[1]["function"]
@@ -739,26 +787,47 @@ def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> No
 # --- the kernel's play built-ins ------------------------------------------------------------------
 
 
-def test_state_now_and_the_engine_in_the_kernel(tmp_path: Path, environments: Path) -> None:
-    """The play kernel: state_now() is the engine's State after everything played, and moves are played by
-    calling engine.step on copies of it, a click's Action built with click_cell (as the harness does)."""
+def _printed_moves(messages: list[dict]) -> str:
+    """The printed list of Actions ("[Action(4), ...]") in the last python output the model got."""
+    out = next(m["content"] for m in reversed(messages) if m["role"] == "tool")
+    return next(line for line in out.splitlines() if line.startswith("[Action("))
+
+
+def test_state_now_and_the_replica_in_the_kernel(tmp_path: Path, environments: Path) -> None:
+    """The play kernel: state_now() is the replica's State after everything played, and moves are played by
+    calling replica.step on copies of it; the Actions print as the code that builds them, and that printed list,
+    pasted into commit_moves, is what is sent (a RESET among them), each move matching the prediction."""
     from engine_re.kernel import KernelClient
 
-    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})]])
-    _agent(tmp_path, environments, model, turns=3).run()
+    plan = ("import copy\ns = state_now()\nt = copy.deepcopy(s)\nmoves = [Action(4), Action(0), Action(4), Action(4)]\n"
+            "replica.step(t, moves[0])\nt = replica.make_level(t.level)\nreplica.step(t, moves[2])\nprint('x', t.vars['player'].x, t.status)\n"
+            "print(moves)")
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["RIGHT"], "note": "one"})],
+        [("python", {"code": plan})],
+        lambda messages: [("commit_moves", {"actions": [m.strip() for m in _printed_moves(messages)[1:-1].split(",")], "note": "as printed"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=5)
+    agent.run()
+    tools = _texts(agent, "tool")
+    assert "x 2 playing\n[Action(4), Action(0), Action(4), Action(4)]" in tools[-2]
+    assert tools[-1].startswith("Sent 4 of 4 move(s) (steps 2-5):") and "#3 Action(0): matches your prediction" in tools[-1]
+    assert "#5 Action(4): matches your prediction" in tools[-1] and "differs" not in tools[-1]
+    assert [s.action for s in agent.live.trace.steps][2:] == [Action(4), Action(0), Action(4), Action(4)]
+    assert agent.result.batch_log[-1]["moves"] == ["Action(4)", "Action(0)", "Action(4)", "Action(4)"]
     run = tmp_path / "run"
-    kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=1, history=True, play=True)
+    kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=5, history=True, play=True)
     try:
         out = kernel.execute(
             "import copy\ns = state_now()\nprint('x', s.vars['player'].x)\n"
-            "t = copy.deepcopy(s)\nengine.step(t, Action(4))\nprint('after RIGHT', t.vars['player'].x, t.status, s.vars['player'].x)\n"
-            "print('cell', click_cell(t, 3, 4))\nengine.step(t, Action(6, 3, 4, cell=click_cell(t, 3, 4)))\n"
-            "nxt = engine.make_level(1)\nprint('level 1 sprites', len(nxt.sprites))"
+            "t = copy.deepcopy(s)\nreplica.step(t, Action(4))\nprint('after RIGHT', t.vars['player'].x, t.status, s.vars['player'].x)\n"
+            "print('cell', click_cell(t, 3, 4))\nreplica.step(t, Action(6, x=3, y=4))\n"
+            "nxt = replica.make_level(1)\nprint('level 1 sprites', len(nxt.sprites))"
         )
-        assert "state_now(): your engine after replaying steps 0-1: level 0, NOT_FINISHED" in out and "x 2" in out
-        assert "after RIGHT 3 playing 2" in out and "cell (0, 0)" in out and "level 1 sprites 4" in out
-        assert "nothing was run" in kernel.execute("state_now = 1")
-        assert "nothing was run" in kernel.execute("click_cell = 1")
+        assert "state_now(): your replica after replaying steps 0-5: level 0, NOT_FINISHED" in out and "x 3" in out
+        assert "after RIGHT 4 level_solved 3" in out and "cell (0, 0)" in out and "level 1 sprites 4" in out
+        for name in ("state_now", "click_cell", "replica"):
+            assert "nothing was run" in kernel.execute(f"{name} = 1"), name
     finally:
         kernel.stop()
 
@@ -776,7 +845,7 @@ def test_the_kernel_replays_unexplained_steps_and_resyncs(tmp_path: Path, enviro
     kernel = KernelClient(run / "workspace", run / "visible_trace", timeout=60, images=False, focus=3, history=True, play=True)
     try:
         out = kernel.execute("s = state_now()\nb, a = replay_step(3)")
-        assert "your engine after replaying steps 0-3: level 0, NOT_FINISHED" in out
+        assert "your replica after replaying steps 0-3: level 0, NOT_FINISHED" in out
         assert "step 3 is where your engine was put back in step with the game" in out and "your frame matches the recording after step 3" in out
     finally:
         kernel.stop()
@@ -794,7 +863,7 @@ def test_a_run_resumed_out_of_step(tmp_path: Path, environments: Path) -> None:
     agent = _agent(tmp_path, environments, second, turns=7, fit_turns=1)
     result = agent.run()
     assert result.unexplained == [1, 2] and result.resync == {"3": {"level": 0, "score": 0}} and result.out_of_sync is None
-    assert "#4 RIGHT: matches your prediction" in _texts(agent, "tool")[-1] and result.final["passed"]
+    assert "#4 Action(4): matches your prediction" in _texts(agent, "tool")[-1] and result.final["passed"]
     assert [r["end"] for r in result.fit_rounds] == ["escaped"]
 
 
