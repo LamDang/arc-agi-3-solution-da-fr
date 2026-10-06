@@ -138,3 +138,15 @@ changed during the run. Ordered by the turns they cost.
     level change (item 15), and the kernel's user-defined functions listed with their first
     docstring line. The base agent's analogue is its retained python functions plus an opener
     that restates the state every turn.
+    The cheapest version already exists: the commit messages and the batch notes. Measured on
+    this run, sp80 wrote 21 commit messages (~3.2K tokens) and 26 batch notes (~2.7K), ls20 19
+    (~4.8K) and 36 (~2.7K): 6K to 7.5K tokens for a 300-turn game, about 20 tokens a turn, 10% of
+    a 57K window if all of them are kept. They cover most of (a)-(d): each commit message says
+    which step changed which rule and which earlier rule it replaced and why ("my halo rule was
+    wrong", "killed my 'aligning press is free' rule", the fake-board rule and its correction);
+    each batch note says what was tried, what the replica predicted and, with the harness's
+    sent/matched counts, what came of it. Not covered: the remaining moves of a route in flight
+    (the note names the route, not its tail), observations that never became a fix, and the
+    helpers' signatures. So: keep every commit message and every batch note with its outcome in
+    the PLAN message (current level in full, earlier levels' commit messages only), plus the
+    `plan` variable and the function listing for the rest.
