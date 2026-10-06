@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -27,10 +28,24 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from engine_re import PLAY_VERSION
 from engine_re.agent import Budget, ModelConfig
 from engine_re.live_game import benchmark_json
 from engine_re.play_agent import PLAN_TURNS, PlayAgent
 from engine_re.tokens import DEFAULT_TOKENIZER, ENV_TOKENIZER, load_counter
+
+
+def harness_label() -> str:
+    """config.json's "harness": "engine_re.play_agent (v12, git 1a2b3c4)", the harness version (engine_re.PLAY_VERSION)
+    and the git short sha of the code when git can give it (v11 follow-up 9: every run said "(v10)")."""
+    sha = ""
+    try:
+        done = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent, capture_output=True,
+                              text=True, timeout=10, check=False)
+        sha = done.stdout.strip() if done.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        sha = ""
+    return f"engine_re.play_agent ({PLAY_VERSION}{', git ' + sha if sha else ''})"
 
 
 def summarize(out: Path, games: list[str]) -> None:
@@ -205,7 +220,7 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     config = {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()}
     config["started"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    config["harness"] = "engine_re.play_agent (v10)"
+    config["harness"] = harness_label()
     config["token_counter"] = counter.describe() if counter else None
     previous_config = args.out / "config.json"
     if previous_config.exists():  # forks keep their provenance (engine_re.tools.fork_run writes it)

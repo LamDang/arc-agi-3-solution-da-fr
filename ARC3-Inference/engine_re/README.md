@@ -428,7 +428,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   clicks aimed mostly at object pixels; occasional RESET; RESET after a game
   over), and the steps are compared exactly as in the tests.
 
-## The play-and-model agent (v10, `play_agent.py`)
+## The play-and-model agent (v10 and on, `play_agent.py`; the version is `engine_re.PLAY_VERSION`)
 
 The same agent playing a live game instead of fitting a recording: one conversation that alternates a
 plan round (the game's current frame and the actions it accepts; in python `state_now()`, the replica's
@@ -483,7 +483,8 @@ are stripped from anything pasted into an edit). `--cut-untested` (off) cuts a b
 that runs untested code.
 `engine_re/tools/support_check.py` measures the mismatch rate by support on an archived run.
 
-`run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`
+`run_play.py` runs several games in parallel and writes `config.json` (its `harness` names the harness version,
+`engine_re.PLAY_VERSION`, and the git short sha: "engine_re.play_agent (v12, git 1a2b3c4)"), `summary.md`, a TAAF-shaped `benchmark.json`
 (`make score_run SCORE_RUN_DIR=<out>` scores it; `final_score` is TAAF's formula, 0 without baselines)
 and, per game, `trace/`, the viewer event sidecar `artifacts/<game_id>_p0_events.jsonl` (the base
 harness's name; `trace.trace_from_run(<out>/<game>, game, environment_files)` rebuilds and verifies the

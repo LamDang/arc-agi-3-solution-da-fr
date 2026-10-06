@@ -48,6 +48,7 @@ changed during the run. Ordered by the turns they cost.
 8. **Piece name vs description** in object diffs: a disappeared piece named
    `SHAPE_9_3x3_710a` described as "colour 12 (orange), 6x6" (stale identity carried over).
 9. **`run_play.py` writes "(v10)"** into config.json for every run.
+   **Done (v12):** `engine_re.PLAY_VERSION` and the git short sha: "engine_re.play_agent (v12, git 1a2b3c4)".
 10. **Support lines number moves by batch position** ("move 4") while the Sent lines use step
     numbers ("#30"); the well-supported summary line lacks the action name.
 11. **notes.md headings duplicate**: the file is seeded with empty headings and the model appends

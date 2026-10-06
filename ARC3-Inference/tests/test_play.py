@@ -1213,6 +1213,12 @@ def test_run_play_writes_what_score_run_reads_and_skips_finished_games(tmp_path:
     assert run_play.main() == 0
     first = json.loads((out / "benchmark.json").read_text())
     assert [r["state"] for r in first["game_runs"]] == ["won", "gave_up"]
+    # config.json names the harness version from one constant, with the git short sha when git gives it (v11 follow-up 9).
+    from engine_re import PLAY_VERSION
+
+    harness = json.loads((out / "config.json").read_text())["harness"]
+    assert harness.startswith(f"engine_re.play_agent ({PLAY_VERSION}") and "(v10)" not in harness and harness == run_play.harness_label()
+    assert harness == f"engine_re.play_agent ({PLAY_VERSION})" or harness.startswith(f"engine_re.play_agent ({PLAY_VERSION}, git ")
     assert "| twol | won | 100.0 | 2/2 | 6 |" in (out / "summary.md").read_text()
     [evaluation] = _run_evaluations_from_benchmark(out)
     scores = {g.game_id: g.score for g in evaluation.games}

@@ -1,4 +1,5 @@
-"""The play-and-model agent (v10): plays a live game while building engine.py, in one conversation.
+"""The play-and-model agent (v10 and on; engine_re.PLAY_VERSION names the current harness version): plays a live game
+while building engine.py, in one conversation.
 
     uv run --no-sync python -m engine_re.run_play --games ft09 --out runs/engine-play/<name>
 
