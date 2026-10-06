@@ -54,13 +54,23 @@ class ReapRecorder:
     """
 
     FIELDS = ("count", "gate", "norm", "gate_norm", "prob")
+    # the same sums split by the token's position in the sequence (context length so far):
+    # <name>_pos [layer, expert, category, band], bands [0, 32K), [32K, 64K), [64K, 96K), [96K, inf)
+    POSITION_FIELDS = ("count", "gate", "gate_norm")
+    POSITION_BANDS = (32768, 65536, 98304)
 
     def __init__(self, n_layers: int, n_experts: int, device):
         self.data = {
             f: torch.zeros(n_layers, n_experts, N_CATEGORIES, dtype=torch.float64, device=device)
             for f in self.FIELDS
         }
+        n_bands = len(self.POSITION_BANDS) + 1
+        self.data.update({
+            f"{f}_pos": torch.zeros(n_layers, n_experts, N_CATEGORIES, n_bands, dtype=torch.float64, device=device)
+            for f in self.POSITION_FIELDS
+        })
         self.categories: torch.Tensor | None = None  # [tokens] of the current chunk
+        self.positions: torch.Tensor | None = None  # [tokens] position of each token in its sequence
         self.enabled = True
 
     def reset(self):
@@ -76,6 +86,14 @@ class ReapRecorder:
         if self.categories.shape[0] != n:
             raise ValueError(f"recorder has {self.categories.shape[0]} categories for {n} tokens")
         return self.categories
+
+    def _bands(self, n: int, device) -> torch.Tensor:
+        if self.positions is None:
+            return torch.zeros(n, dtype=torch.long, device=device)
+        if self.positions.shape[0] != n:
+            raise ValueError(f"recorder has {self.positions.shape[0]} positions for {n} tokens")
+        edges = torch.tensor(self.POSITION_BANDS, device=self.positions.device)
+        return torch.bucketize(self.positions, edges, right=True)
 
 
 # --------------------------------------------------------------------------- experts
@@ -241,6 +259,10 @@ class Int4Experts(nn.Module):
             rec.data["gate"][layer].view(-1).index_add_(0, key, g)
             rec.data["norm"][layer].view(-1).index_add_(0, key, norms)
             rec.data["gate_norm"][layer].view(-1).index_add_(0, key, g * norms)
+            n_bands = len(rec.POSITION_BANDS) + 1
+            key_pos = key * n_bands + rec._bands(T, hidden_states.device)[token]
+            for name, value in (("count", torch.ones_like(g)), ("gate", g), ("gate_norm", g * norms)):
+                rec.data[f"{name}_pos"][layer].view(-1).index_add_(0, key_pos, value)
         return out.to(dtype)
 
 

@@ -76,6 +76,7 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
         e = min(n, s + chunk_tokens)
         if recorder is not None:
             recorder.categories = cats[s:e]
+            recorder.positions = torch.arange(s, e, device=device)
         out = lm(
             inputs_embeds=embeds[:, s:e],
             position_ids=position_ids[:, :, s:e],
@@ -105,6 +106,7 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
                     token_nll.append(nll.cpu())
     if recorder is not None:
         recorder.categories = None
+        recorder.positions = None
     if collect_hidden:
         result["hidden"] = torch.cat(hidden, dim=1)
     if predictions:

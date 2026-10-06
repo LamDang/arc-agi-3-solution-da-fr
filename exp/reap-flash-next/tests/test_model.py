@@ -59,8 +59,11 @@ def test_experts_and_reap_statistics(models):
     recorder.reset()
     cats = torch.randint(0, reap_model.N_CATEGORIES, (T,))
     recorder.categories = cats
+    positions = torch.tensor([0, 40000, 70000, 100000, 32767, 32768])[torch.arange(T) % 6]
+    bands = torch.tensor([0, 1, 2, 3, 0, 1])[torch.arange(T) % 6]
+    recorder.positions = positions
     got = our_experts(hidden, index, weights)
-    recorder.categories = None
+    recorder.categories = recorder.positions = None
     torch.testing.assert_close(got, expected, rtol=1e-5, atol=1e-5)
 
     # brute-force REAP sums from the reference weights
@@ -80,6 +83,14 @@ def test_experts_and_reap_statistics(models):
     torch.testing.assert_close(data["norm"][layer], norm, rtol=1e-5, atol=1e-6)
     torch.testing.assert_close(data["gate_norm"][layer], gate_norm, rtol=1e-5, atol=1e-6)
     torch.testing.assert_close(data["gate"][layer].sum(), torch.tensor(float(T), dtype=torch.float64))
+    # position bands split the same sums
+    for name in ("count", "gate", "gate_norm"):
+        torch.testing.assert_close(data[f"{name}_pos"][layer].sum(-1), data[name][layer])
+    count_pos = torch.zeros(E, reap_model.N_CATEGORIES, 4, dtype=torch.float64)
+    for t in range(T):
+        for slot in range(k):
+            count_pos[int(index[t, slot]), cats[t], bands[t]] += 1
+    assert torch.equal(data["count_pos"][layer], count_pos)
 
 
 def _reference_selection_mask(attention, hidden, position_embeddings, kv_len):

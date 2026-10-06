@@ -57,3 +57,22 @@ def test_leave_one_game_out(tmp_path):
     assert by_game["bbbb"]["held_out_mean"] == 0.5  # expert 1 kept, expert 7 not
     assert by_game["bbbb"]["in_sample_mean"] == 1.0
     assert by_game["aaaa"]["held_out_mean"] < 1.0  # b alone ranks 7 first: it displaces one of a's experts
+
+
+def test_position_bands():
+    rng = np.random.default_rng(0)
+    run = _stats([0, 1, 2, 3])
+    # band 0 routes to experts 0-3, band 3 to experts 4-7
+    for name in ("count", "gate", "gate_norm"):
+        pos = np.zeros((L, E, C, 4))
+        pos[:, :4, :, 0] = run[name][:, :4]
+        pos[:, 4:, :, 3] = run[name][:, :4] + rng.random((L, 4, C))
+        run[f"{name}_pos"] = pos
+    runs = {"k/aaaa_p0": run}
+    # the _pos arrays do not leak into the ordinary aggregate
+    assert set(analyze.aggregate(runs, ["k/aaaa_p0"], [0, 1, 2])) == {"count", "gate", "norm", "gate_norm", "prob"}
+    bands = analyze.position_bands(runs, ["k/aaaa_p0"], [0, 1, 2], [4])
+    first, _, _, last = bands["keep"][4]
+    assert first["overlap_with_first"] == 1.0 and first["coverage_own_choice"] == 1.0
+    assert last["overlap_with_first"] == 0.0 and last["coverage_first_choice"] == 0.0
+    assert last["coverage_own_choice"] == 1.0

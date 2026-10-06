@@ -64,6 +64,13 @@ image:
 | `gate_norm` | g_j(x) ||f_j(x)||; REAP score = `gate_norm / count` |
 | `prob` | full softmax probability, routed or not (over all tokens) |
 
+`count_pos`, `gate_pos` and `gate_norm_pos` hold the same sums split by
+the token's position in its sequence, `[layer, expert, category, band]` with
+bands 0-32K, 32-64K, 64-96K and 96K+. `analyze.py` uses them to check
+whether long contexts route to other experts: overlap of each band's top-N
+with the first band's, and how much of a band's router weight the first
+band's choice keeps.
+
 Sums, not averages, so any set of games or categories combines by addition.
 A `.json` next to each file has per-sample tokens, timing, peak GPU memory and
 the next-token check. `analyze.py OUT` writes `analysis.json`: routing
@@ -72,7 +79,7 @@ kept-expert count.
 
 ## Validation done
 
-Local, CPU (`pytest tests`, 22 tests):
+Local, CPU (`pytest tests`, 24 tests):
 
 - **Tiny model** with the same architecture and a fake Intel-format checkpoint
   (`tests/tiny.py`):

@@ -44,7 +44,7 @@ def aggregate(runs: dict, keys, categories) -> dict[str, np.ndarray]:
     """Sum the fields over runs and the chosen category indexes -> [L, E]."""
     total = None
     for key in keys:
-        part = {f: v[..., categories].sum(-1) for f, v in runs[key].items()}
+        part = {f: v[..., categories].sum(-1) for f, v in runs[key].items() if not f.endswith("_pos")}
         total = part if total is None else {f: total[f] + part[f] for f in total}
     return total
 
@@ -80,6 +80,39 @@ def coverage(stats: dict, mask: np.ndarray, field: str = "gate") -> np.ndarray:
     mass = stats[field]
     total = mass.sum(1)
     return np.divide((mass * mask).sum(1), total, out=np.ones_like(total), where=total > 0)
+
+
+def position_bands(runs: dict, keys, categories, keep: list[int], criterion: str = "gate_norm") -> dict | None:
+    """Do long contexts route to other experts? Per position band (see
+    reap_model.ReapRecorder.POSITION_BANDS): tokens, and for each N the
+    overlap of the top-N experts chosen from that band with those chosen
+    from the first band, plus the share of that band's router weight that
+    the first band's choice keeps vs its own choice. None without _pos data."""
+    keys = [k for k in keys if "count_pos" in runs[k]]
+    if not keys:
+        return None
+    total = {}
+    for key in keys:
+        for f, v in runs[key].items():
+            if f.endswith("_pos"):
+                part = v[:, :, categories].sum(2)  # [L, E, band]
+                total[f[:-4]] = total.get(f[:-4], 0) + part
+    n_bands = total["count"].shape[-1]
+    band = [{f: v[..., b] for f, v in total.items()} for b in range(n_bands)]
+    out = {"tokens": [float(b["count"][0].sum()) / 10 for b in band], "keep": {}}  # top-10 routing
+    for n in keep:
+        rows = []
+        first = keep_mask(expert_scores(band[0], criterion), n)
+        for b in range(n_bands):
+            if band[b]["count"].sum() == 0:
+                rows.append(None)
+                continue
+            own = keep_mask(expert_scores(band[b], criterion), n)
+            rows.append({"overlap_with_first": float((own & first).sum(1).mean() / n),
+                         "coverage_first_choice": float(coverage(band[b], first).mean()),
+                         "coverage_own_choice": float(coverage(band[b], own).mean())})
+        out["keep"][n] = rows
+    return out
 
 
 def usage_summary(stats: dict) -> dict:
@@ -143,6 +176,7 @@ def main():
             n: float(coverage(everything, keep_mask(expert_scores(everything, args.criterion), n)).mean())
             for n in keep},
         "cross_validation": cross_validate(runs, keep, categories, args.criterion),
+        "position_bands": position_bands(runs, list(runs), categories, keep, args.criterion),
     }
     (out / "analysis.json").write_text(json.dumps(report, indent=1))
     print(f"{len(runs)} runs, games: {', '.join(report['games'])}")
@@ -154,6 +188,15 @@ def main():
         worst = "-" if cv["held_out_worst"] is None else f"{cv['held_out_worst']:.4f}"
         gap = "-" if cv["gap_mean"] is None else f"{cv['gap_mean']:.4f}"
         print(f"{n:>5} {report['in_sample_coverage'][n]:>10.4f} {held:>9} {worst:>7} {gap:>7}")
+    bands = report["position_bands"]
+    if bands:
+        print("\nby position (bands 0-32K, 32-64K, 64-96K, 96K+): tokens", [round(t) for t in bands["tokens"]])
+        print(f"{'keep':>5} {'band':>4} {'overlap w/ 0-32K':>16} {'kept weight, 0-32K choice':>25} {'own choice':>10}")
+        for n, rows in bands["keep"].items():
+            for b, r in enumerate(rows):
+                if r:
+                    print(f"{n:>5} {b:>4} {r['overlap_with_first']:>16.3f} {r['coverage_first_choice']:>25.4f} "
+                          f"{r['coverage_own_choice']:>10.4f}")
 
 
 if __name__ == "__main__":
