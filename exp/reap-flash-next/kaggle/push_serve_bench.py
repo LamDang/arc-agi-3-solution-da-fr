@@ -60,9 +60,10 @@ print(f"pruned checkpoint in {time.time() - _t:.0f}s", flush=True)
 
 SERVER = '''LAUNCHER_SRC = __LAUNCHER__
 
-def start_server(model_dir, maxreq, mamba):
-    global MODEL_DIR, BENCH_MAXREQ, BENCH_MAMBA, NOTEBOOK_START_TIME
-    MODEL_DIR, BENCH_MAXREQ, BENCH_MAMBA, NOTEBOOK_START_TIME = model_dir, maxreq, mamba, time.time()
+def start_server(model_dir, maxreq, mamba, memfrac):
+    global MODEL_DIR, BENCH_MAXREQ, BENCH_MAMBA, BENCH_MEMFRAC, NOTEBOOK_START_TIME
+    MODEL_DIR, BENCH_MAXREQ, BENCH_MAMBA, BENCH_MEMFRAC = model_dir, maxreq, mamba, memfrac
+    NOTEBOOK_START_TIME = time.time()
     exec(LAUNCHER_SRC, globals())
     deadline = time.time() + SERVER_STARTUP_TIMEOUT
     while time.time() < deadline:
@@ -106,7 +107,7 @@ for setting in BENCH["settings"]:
     model_dir = FULL_MODEL_DIR if setting["model"] == "full" else PRUNED_MODEL_DIR
     t = time.time()
     try:
-        start_server(model_dir, setting["maxreq"], setting["mamba"])
+        start_server(model_dir, setting["maxreq"], setting["mamba"], setting["memfrac"])
     except Exception as exc:
         print(f"[bench] {setting} failed to start: {exc}", flush=True)
         results.append({**setting, "error": str(exc)})
@@ -165,6 +166,7 @@ def build(nb: dict, bench: dict) -> dict:
     launcher = p(launcher, "MAXREQ=10,", "MAXREQ=BENCH_MAXREQ,")
     launcher = p(launcher, "CUDAGRAPH_MAXBS=10,", "CUDAGRAPH_MAXBS=BENCH_MAXREQ,")
     launcher = p(launcher, "MAMBA_CACHE=60,", "MAMBA_CACHE=BENCH_MAMBA,")
+    launcher = p(launcher, "MEMFRAC=0.96,", "MEMFRAC=BENCH_MEMFRAC,")
     launcher = p(launcher, "graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, ",
                  "graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, *range(12, CFG['MAXREQ'], 2), ")
     # the launcher runs once per setting; the precache thread can only start once
@@ -193,6 +195,9 @@ def main():
     parser.add_argument("--keep-file", default="kaggle/keep_256_smoke.json")
     parser.add_argument("--concurrency", default="10,16,20,28", help="streams to measure on the pruned model")
     parser.add_argument("--max-tokens", type=int, default=4096, help="tokens each stream generates")
+    # dfranzen's 0.96 leaves under 4 GB for activations: ten cold ~120K-token multimodal prefills ran out
+    # of it (OOM in the PLE convolution) on the full model
+    parser.add_argument("--memfrac", type=float, default=0.93, help="SGLang --mem-fraction-static")
     parser.add_argument("--user", default="lamdang")
     parser.add_argument("--kernel", default="flash-next-serve-bench")
     parser.add_argument("--no-push", action="store_true")
@@ -202,9 +207,9 @@ def main():
     keep = json.loads(keep_file.read_text())["num_experts"]
     streams = [int(c) for c in args.concurrency.split(",")]
     bench = {"keep": keep, "keep_file": keep_file.name, "max_tokens": args.max_tokens,
-             "settings": [{"model": "full", "maxreq": 10, "mamba": 60, "concurrency": [10]},
+             "settings": [{"model": "full", "maxreq": 10, "mamba": 60, "memfrac": args.memfrac, "concurrency": [10]},
                           {"model": f"pruned{keep}", "maxreq": max(streams), "mamba": 6 * max(streams),
-                           "concurrency": streams}]}
+                           "memfrac": args.memfrac, "concurrency": streams}]}
     source_dir = push.HERE / "build" / "source"
     source_dir.mkdir(parents=True, exist_ok=True)
     push.kaggle("kernels", "pull", push_games.SOURCE, "-p", str(source_dir), "-m")

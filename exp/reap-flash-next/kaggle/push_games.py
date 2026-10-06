@@ -104,6 +104,7 @@ def build(nb: dict, run: dict) -> dict:
     text[launcher] = _patch(text[launcher], 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
                             'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
     text[launcher] = _patch(text[launcher], "MAXREQ=10,", f"MAXREQ={maxreq},")
+    text[launcher] = _patch(text[launcher], "MEMFRAC=0.96,", f"MEMFRAC={run['memfrac']},")
     text[launcher] = _patch(text[launcher], "CUDAGRAPH_MAXBS=10,", f"CUDAGRAPH_MAXBS={maxreq},")
     # SGLang also caps running requests at max_mamba_cache_size // (state slots per request), with only a
     # warning; dfranzen's 60 slots serve 10 requests, so scale them with the request count
@@ -139,6 +140,8 @@ def main():
     parser.add_argument("--criterion", default="gate_norm")
     parser.add_argument("--passes", type=int, default=2)
     parser.add_argument("--maxreq", type=int, default=10)
+    # dfranzen's 0.96 leaves under 4 GB for activations; cold long multimodal prefills ran out of it
+    parser.add_argument("--memfrac", type=float, default=0.93, help="SGLang --mem-fraction-static")
     parser.add_argument("--user", default="lamdang")
     parser.add_argument("--kernel", help="default: flash-next-games-<keep>-<fold>")
     parser.add_argument("--no-push", action="store_true", help="write the notebook only")
@@ -151,7 +154,7 @@ def main():
     if runs < args.maxreq:
         print(f"warning: {runs} game runs for {args.maxreq} streams: games get less GPU time than in the competition")
     run = {"fold": fold, "play": play, "all_games": GAMES, "keep": args.keep,
-           "criterion": args.criterion, "passes": args.passes, "maxreq": args.maxreq, "stats_kernel": STATS_KERNEL}
+           "criterion": args.criterion, "passes": args.passes, "maxreq": args.maxreq, "memfrac": args.memfrac, "stats_kernel": STATS_KERNEL}
     slug = args.kernel or f"flash-next-games-{args.keep}-{fold if not args.games else 'sel' + str(len(play))}"
     if args.maxreq != 10:
         slug += f"-req{args.maxreq}"
