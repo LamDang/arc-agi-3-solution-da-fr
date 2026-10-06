@@ -74,6 +74,7 @@ import numpy as np
 
 from engine_re import diff_report
 from engine_re import support as sup
+from engine_re import animation  # the digest of an animated step
 from engine_re.game_api import describe_contract, last_lines, sync_points
 from engine_re.guard import sandbox_env
 from engine_re.trace import Step, Trace
@@ -378,12 +379,14 @@ def describe_step(
     images: bool = False,
     printed: str | None = None,
     show_vars: bool = True,
+    before_frame: np.ndarray | None = None,
 ) -> tuple[str, list[diff_report.Region]]:
     """Detailed explanation of one failing step, and the numbered regions of its final frame.
 
     ``before`` is the level the step was played in (levels completed before it); ``states`` the
     candidate's state summaries {"before": ..., "after": ...} if available; ``printed`` what the
-    engine printed during the step."""
+    engine printed during the step; ``before_frame`` the frame before it, for an animated step's digest
+    (engine_re.animation)."""
     lines = [f"--- Step {step.index}: {step.action}   (played in level {before})"]
     lines += diff_report.click_lines(step.action, (states or {}).get("before"))
     if got is None or got_frames is None:
@@ -399,6 +402,8 @@ def describe_step(
         lines.append(f"    frames: expected {step.n_frames}, got {len(got_frames)}")
     elif step.n_frames > 1:
         lines.append(f"    (the original animated this action over {step.n_frames} frames; only the last is compared)")
+    if step.n_frames > 1:
+        lines += animation.report_lines(before_frame, step.frames, step.index)
     regions: list[diff_report.Region] = []
     if step.n_frames and len(got_frames):
         states = states or {}
@@ -791,6 +796,7 @@ def replay_test(
         text, regions = describe_step(
             step, got, frames, played_in[step.index], crashed_here, match,
             states=inspected.get(str(k)), crops=crops, images=images, printed=printed(str(k)),
+            before_frame=trace[step.index - 1].last if step.index else None,
         )
         lines.append(text)
         if support_map is not None and str(k) in result.get("executed", {}):

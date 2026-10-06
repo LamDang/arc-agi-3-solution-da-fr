@@ -1200,3 +1200,258 @@ def test_the_play_prompt_explains_support_and_its_rules() -> None:
     assert "traced() -> TracedRun" in text and "support(run=None) -> None" in text
     commit_moves = tools(False, "play", True)[3]["function"]["description"]
     assert "what each move's prediction rested on" in commit_moves
+# --- ported from the base harness's prompt ---------------------------------------------------------
+
+# Two levels of 8x8 as twol; SPACE flashes the wall (5 -> 14 -> 5: an animation of two frames) and moves the player down.
+FLASH_GAME = '''
+from arcengine import ARCBaseGame, Camera, GameAction, Level, Sprite
+
+MOVES = {GameAction.ACTION1: (0, -1), GameAction.ACTION2: (0, 1), GameAction.ACTION3: (-1, 0), GameAction.ACTION4: (1, 0)}
+
+
+class Flash(ARCBaseGame):
+    def __init__(self, seed: int = 0) -> None:
+        self.flashing = False
+        levels = [
+            Level(sprites=[Sprite([[9]], name="player", x=1, y=1), Sprite([[5] * 8], name="wall", x=0, y=0)], grid_size=(8, 8)),
+            Level(sprites=[Sprite([[9]], name="player", x=1, y=3), Sprite([[8] * 8], name="wall", x=0, y=7)], grid_size=(8, 8)),
+        ]
+        super().__init__(game_id="flsh", levels=levels, camera=Camera(0, 0, 8, 8, 0, 3), available_actions=[1, 2, 3, 4, 5])
+
+    def step(self) -> None:
+        wall = self.current_level.get_sprites_by_name("wall")[0]
+        if self.action.id == GameAction.ACTION5:
+            if not self.flashing:
+                self.flashing = True
+                wall.color_remap(None, 14)
+                return
+            self.flashing = False
+            wall.color_remap(None, 5)
+            self.try_move("player", 0, 1)
+            self.complete_action()
+            return
+        player = self.current_level.get_sprites_by_name("player")[0]
+        dx, dy = MOVES.get(self.action.id, (0, 0))
+        if dx or dy:
+            self.try_move("player", dx, dy)
+        if player.x >= 4:
+            self.next_level()
+        self.complete_action()
+'''
+
+
+@pytest.fixture()
+def flash_env(tmp_path: Path) -> Path:
+    root = tmp_path / "env"
+    _write_game(root, "flsh", FLASH_GAME, [3, 3])
+    return root
+
+
+def _flash_frames() -> tuple:
+    """A synthetic animated step: row 10 flashes 1 -> 14 -> 1 over three frames, and the pixel at (5, 3) turns 9 in the
+    second frame and stays."""
+    import numpy as np
+
+    before = np.zeros((64, 64), np.int8)
+    before[10, :] = 1
+    flash = before.copy()
+    flash[10, :] = 14
+    settled = before.copy()
+    settled[3, 5] = 9
+    return before, np.stack([flash, settled, settled])
+
+
+def test_the_animation_digest_of_a_flash() -> None:
+    import numpy as np
+
+    from engine_re import animation
+
+    before, frames = _flash_frames()
+    found = animation.digest(before, frames)
+    assert found.frames == 3 and found.transient == 64 and found.transient_bbox == (0, 10, 63, 10)
+    assert found.transient_transitions == {"1>14": 64} and found.transient_frames == (0, 0)
+    assert [(e.frame, e.changed, e.bbox) for e in found.timeline] == [(0, 64, (0, 10, 63, 10)), (1, 65, (0, 3, 63, 10))]
+    assert found.timeline[0].transitions == {"1>14": 64} and found.timeline[0].cells is None  # too many cells to list
+    assert str(found.timeline[1]) == "frame 1: 65 cells in x 0-63, y 3-10: 14>1 x64, 0>9 x1"
+    one = before.copy()
+    one[3, 5] = 9
+    few = animation.digest(before, np.stack([one, before]))  # one pixel blinks: its cells are listed, as (x,y)
+    assert few.timeline[0].cells == ["0>9 @ (5,3)"] and few.timeline[1].cells == ["9>0 @ (5,3)"]
+    assert few.transient == 1 and few.transient_bbox == (5, 3, 5, 3) and "1 cell changed and changed back at (5, 3)" in str(few)
+    assert animation.digest(before, frames[:1]) is None and animation.digest(None, frames).transient == 0
+    lines = animation.report_lines(before, frames, 7)
+    assert lines == [
+        "    Animation: transient cells: 64 cells changed and changed back in x 0-63, y 10, in frame 0: 1>14 x64; they are in "
+        "no frame you can otherwise reach (not in .before, not in .after).",
+        "    Animation timeline (each frame against the one before it, frame 0 against .before): frame 0: 64 cells in x 0-63, "
+        "y 10: 1>14 x64; frame 1: 65 cells in x 0-63, y 3-10: 14>1 x64, 0>9 x1.",
+    ]
+    # a timeline too long for a report is a pointer
+    noisy = np.stack([np.full((64, 64), k % 16, np.int8) if k % 2 else before for k in range(12)])
+    long = animation.report_lines(before, noisy, 7)
+    assert len(long) == 2 and long[1] == "    Animation timeline: 11 frames changed something; recording[7].animation.timeline lists them."
+
+
+def test_the_animation_digest_in_step_views_reports_and_messages() -> None:
+    from engine_re import helpers, tester
+    from engine_re.prompts import mismatch_message
+    from engine_re.trace import Step, Trace
+
+    before, frames = _flash_frames()
+    trace = Trace("flash", [Step(0, Action(0), before[None], "NOT_FINISHED", 0, 1, [1, 2, 3, 4]),
+                            Step(1, Action(1), frames, "NOT_FINISHED", 0, 1, [1, 2, 3, 4])])
+    helpers.load_trace(trace)
+    assert helpers.recording[0].animation is None and helpers.recording[1].animation.transient == 64
+    assert "Animation over 3 frames. Transient: 64 cells changed and changed back" in str(helpers.recording[1].animation)
+    got = {"state": "NOT_FINISHED", "levels_completed": 0, "win_levels": 1, "available_actions": [1, 2, 3, 4]}
+    text, _ = tester.describe_step(trace[1], got, before[None], 0, before_frame=before)
+    assert "(the original animated this action over 3 frames; only the last is compared)" in text
+    assert "    Animation: transient cells: 64 cells changed and changed back in x 0-63, y 10, in frame 0: 1>14 x64" in text
+    assert "Animation" not in tester.describe_step(trace[0], got, before[None], 0)[0]
+    # the message says it after the frame count, unless the report it carries has it already
+    message = mismatch_message(trace, 1, "the final frame differs", 0, "TEST RESULT (stub)")
+    assert ("the game returned 3 frame(s), the tests compare the last.\nAnimation: transient cells: 64 cells changed and changed "
+            "back") in message
+    assert mismatch_message(trace, 1, "the final frame differs", 0, text).count("Animation: transient cells") == 1
+
+
+def test_an_animated_step_in_the_play_loop(tmp_path: Path, flash_env: Path) -> None:
+    """SPACE animates (the wall flashes) and moves the player: the fit message carries the digest once; when the replica
+    models the move, the next SPACE matches and commit_moves' output names its transient cells."""
+    space = RIGHT_ENGINE.replace("moves = {1: (0, -1)", "moves = {5: (0, 1), 1: (0, -1)")
+    model = _ScriptedModel(_start() + [
+        [("commit_moves", {"actions": ["SPACE"], "note": "probe SPACE"})],
+        [_install(space)],
+        [("commit_engine", {"message": "SPACE moves the player down"})],
+        [("commit_moves", {"actions": ["SPACE"], "note": "again"})],
+    ])
+    agent = _agent(tmp_path, flash_env, model, turns=6, game="flsh")
+    agent.run()
+    fit = next(u for u in _texts(agent) if u.startswith("Fix your replica: step 1"))
+    assert "the game returned 2 frame(s), the tests compare the last." in fit
+    assert fit.count("Animation: transient cells: 512 cells changed and changed back in x 0-63, y 0-7, in frame 0: 5>14 x512") == 1
+    out = _texts(agent, "tool")[-1]
+    assert "#2 Action(5): matches your prediction" in out
+    assert "[harness] Step 2 (Action(5)) animated over 2 frames: 512 cells changed and changed back" in out
+
+
+def test_commit_moves_warns_of_a_predicted_game_over_and_of_moves_that_change_nothing(tmp_path: Path, environments: Path) -> None:
+    """twol: UP at y=1 is blocked by the wall (nothing changes) and LEFT at x=1 loses. Warnings, never a refusal: the
+    batch is sent up to the game over, and the warnings are in the batch's log entry."""
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["UP", "UP", "LEFT", "RIGHT"], "note": "probe"})]])
+    agent = _agent(tmp_path, environments, model, turns=3)
+    result = agent.run()
+    out = _texts(agent, "tool")[-1]
+    assert out.startswith("Sent 3 of 4 move(s) (steps 1-3):")
+    noop = ("[harness] Warning: moves 1-2 (Action(1), Action(1)) change nothing in your replica (the same frame and status as "
+            "before): if your replica is right, an action spent for nothing; a deliberate probe of that rule is fine.")
+    death = ("[harness] Warning: your replica predicts a game over at move 3 (Action(3)); the 1 move(s) after it would not be "
+             "sent, and the harness then RESETs the level (one more action). Sent anyway: a deliberate probe is fine.")
+    assert noop in out and death in out
+    assert result.batch_log[0]["warnings"] == [noop, death] and result.refused_batches == 0
+    assert "warnings" not in result.batch_log[1]  # the automatic RESET
+    assert [s.action.id for s in agent.live.trace.steps] == [0, 1, 1, 3, 0]
+
+
+def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
+    from engine_re.prompts import system_prompt
+
+    for images in (True, False):
+        text = system_prompt(mode="play", images=images)
+        setup = text[text.index("# Setup"):text.index("# Drawing")]
+        assert ("- Colour legend: 0 white, 1 light grey, 2 grey, 3 dark grey, 4 darker grey, 5 black, 6 magenta, 7 pink, 8 red,\n"
+                "  9 blue, 10 light blue, 11 yellow, 12 orange, 13 maroon, 14 green, 15 purple.") in setup
+        flat = " ".join(setup.split())
+        for part in ("UP, DOWN, LEFT and RIGHT (Action(1) to Action(4)) are directional controls; what they affect depends on "
+                     "the game.",
+                     "When available, SPACE (Action(5)) performs a game-specific action, such as interacting, selecting, "
+                     "rotating, attaching/detaching, or executing. Test its effect rather than assuming what it does.",
+                     "a click Action(6, x=x, y=y) clicks a board location. Pass integer x and y from 0 to 63. Coordinates are "
+                     "zero-based from the top-left: y (the row) increases downward and x (the column) increases rightward.",
+                     "When available, UNDO (Action(7)) reverses a previous action, usually the last turn. Check what it "
+                     "restores. It cannot recover a failed attempt after game over.",
+                     "RESET (Action(0)) usually restores the current level to its starting state, including the "
+                     "remaining-action/time bar, while keeping completed levels. Use it to recover from an unrecoverable "
+                     "position or start a different approach. RESET itself counts as one action, and actions already spent "
+                     "still count toward your score."):
+            assert part in flat, part
+        assert "row` and `col`" not in text and "MOUSE" not in text and "first game action in a Python snippet" not in text
+        tests = " ".join(text[text.index("# Tests"):text.index("# Objects")].split())
+        assert ("Transient cells changed and then changed BACK during the animation, so they appear in no frame you can "
+                "otherwise reach - not in .before, not in .after.") in tests
+        plan = " ".join(text[text.index("Plan rounds:"):text.index("Fit rounds:")].split())
+        for part in (
+            "If your search finds no solution under your current model of the game, remember that the game is solvable. "
+            "Reconsider your mechanics, goal, search implementation, or search limits, including interactions with new "
+            "elements. Take a targeted action to test an uncertain rule or overlooked interaction, then update your model "
+            "from the result.",
+            "A plan far above the human baseline the plan message shows, or no plan at all, means your replica is missing a "
+            "rule, not that the level is hard.",
+            "Levels usually build on mechanics learned in earlier levels, especially the most recent one.",
+            "they are your starting hypothesis on a new level, while you re-check anything contradicted by new evidence.",
+            "New levels often introduce additional mechanics, sometimes through unfamiliar board elements. These additions "
+            "are often important for solving the level. The goal may remain the same but require new mechanics to reach it, "
+            "or the goal itself may change.",
+            "Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.",
+            "Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do "
+            "not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board "
+            "configuration.",
+            "Use coordinates only to target actions or describe local evidence. Do not frame the objective as reaching a "
+            "specific absolute row or column.",
+            "Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer "
+            "another python call over more reasoning: the code answers what the reasoning would only guess at",
+            "Goal model: what winning requires. Open questions: unresolved hypotheses. Plan: intended next steps.",
+            'edit_file(path="notes.md", edits=[...])',
+            "Older parts of this conversation will eventually be dropped, so anything you leave out of engine.py and "
+            "notes.md is gone.",
+        ):
+            assert part in plan, part
+        assert ".animation: Animation | None" in text  # the Objects reference
+    assert "Colour legend" not in system_prompt(mode="single") and "notes.md" not in system_prompt(mode="step")
+    assert ".animation: Animation | None" in system_prompt(mode="single")
+
+
+def test_notes_md_round_trips_through_the_kernel_and_shows_in_the_plan_message(tmp_path: Path, environments: Path) -> None:
+    notes = ("edit_file(path='notes.md', edits=[{'op': 'replace_text', 'oldText': 'Goal model:', "
+             "'newText': 'Goal model: reach x >= 4'}, {'op': 'replace_text', 'oldText': 'Plan:', 'newText': 'Plan: RIGHT x3'}])\n"
+             "read_file('notes.md')")
+    many = "edit_file(path='notes.md', edits=[{'op': 'append', 'lines': [f'line {i}' for i in range(50)]}])"
+    model = _ScriptedModel(_start() + [
+        [("python", {"code": notes}), ("commit_moves", {"actions": ["RIGHT"], "note": "one"})],
+        [("python", {"code": many}), ("commit_moves", {"actions": ["RIGHT"], "note": "two"})],
+    ])
+    agent = _agent(tmp_path, environments, model, turns=4)
+    agent.run()
+    users = _texts(agent)
+    assert "notes.md holds nothing yet" in users[0]  # the headings the harness wrote
+    tools = _texts(agent, "tool")
+    assert "notes.md: " in tools[2] and "Goal model: reach x >= 4" in tools[2]
+    plan = users[2]
+    assert "notes.md (your goal model, open questions and plan):\n  Goal model: reach x >= 4\n  Open questions:\n  Plan: RIGHT x3" in plan
+    assert plan.index("notes.md (your goal") < plan.index("Work out the next moves")
+    text = (tmp_path / "run" / "workspace" / "notes.md").read_text()
+    assert text.startswith("Goal model: reach x >= 4\nOpen questions:\nPlan: RIGHT x3\n") and len(text.splitlines()) == 53
+    last = users[3]
+    assert '  line 36\n  [cut: 13 more line(s) of notes.md not shown; read_file("notes.md") shows them. Keep it short.]' in last
+    # edit_file on notes.md writes the file itself: engine.py's versions are untouched
+    assert not any("reach x >= 4" in v.read_text() for v in (tmp_path / "run" / "engine_versions").glob("*.py"))
+
+
+def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Path) -> None:
+    """The level-start paragraph (the base harness's LEVEL_START_USER_PROMPT) and the new board's pieces whose shapes the
+    previous level never showed (level 1's wall, red and at the bottom)."""
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"] * 3, "note": "solve level 0"})]])
+    agent = _agent(tmp_path, environments, model, turns=3)
+    agent.run()
+    users = _texts(agent)
+    plan = users[-1]
+    assert plan.startswith("Plan the next moves. Steps 0-3 pass")
+    assert ("You have completed the previous level. recording[-1].after now contains the starting board of the next level; "
+            "show_frames(recording[-1].after) shows this new board.\nBuild a new plan for this layout rather than continuing the "
+            "previous level's action sequence.") in plan
+    assert "Reassess the goal: does the previous objective still apply, now requiring the new mechanics" in plan
+    head = "Unfamiliar elements to test first: the pieces of the new board (recording[-1].pieces_after; x, y in grid cells)"
+    listed = plan[plan.index(head):].split("\n")[1:]
+    assert listed[0].startswith("  [") and ", colour 8 (red), 8x1 at (0, 7)" in listed[0]
+    assert not any("colour 9" in line for line in listed[:3])  # the player has the same shape as in level 0
+    assert "You have completed the previous level" not in users[1]

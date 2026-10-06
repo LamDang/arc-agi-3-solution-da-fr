@@ -494,6 +494,17 @@ last message the model got (an interruption during a batch) are tested and lead 
 finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
 (`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
 
+Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
+legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5-9 (the game
+is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
+code over reasoning, `notes.md`). An animated step has a digest (`engine_re/animation.py`,
+`StepView.animation`): its transient cells (changed and changed back, so in no frame the model can otherwise
+reach) and a diff timeline of its frames, printed in two lines by the test report and the step messages, and
+named in `commit_moves`' output for a matched move. `commit_moves` warns, without refusing, when the replica
+predicts a game over or moves that change nothing (`batch_log[i]["warnings"]`). Each PLAN message shows
+`notes.md` (the model's goal model, open questions and plan; 40 lines at most) and, after a solved level, the
+base's level-start paragraph with the new board's unfamiliar pieces (shapes the previous level never showed).
+
 ```bash
 uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
   --model qwen/qwen3.8-flash --max-turns 300 --max-minutes 240 --max-cost 6 --max-actions 500 --batch-size 10

@@ -2371,7 +2371,7 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
         assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
     view = helpers.StepView(tiny_trace, 1)
     lazy = {k for k, v in vars(helpers.StepView).items() if isinstance(v, property)}
-    assert lazy == {"grid", "pieces_before", "pieces_after", "changes"}
+    assert lazy == {"grid", "pieces_before", "pieces_after", "changes", "animation"}
     public = {k for k in vars(view) if not k.startswith("_")} | lazy
     assert members["StepView"] == public, members["StepView"] ^ public
     # A frame's pieces: Piece lists what it adds to Sprite; Pieces, Change and GridGuess everything they have.
