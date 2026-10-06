@@ -115,7 +115,8 @@ for setting in BENCH["settings"]:
     for n in setting["concurrency"]:
         try:
             r = serve_bench.batch_test(f"http://127.0.0.1:{SERVED_MODEL_PORT}", SERVED_MODEL_NAME, prompts, n,
-                                       max_tokens=BENCH["max_tokens"], log=lambda m: print(m, flush=True))
+                                       max_tokens=BENCH["max_tokens"], log=lambda m: print(m, flush=True),
+                                       server_log=str(WORKING_DIR / "serve.log"))
         except Exception as exc:
             r = {"streams": n, "error": str(exc)}
         results.append({"model": setting["model"], "maxreq": setting["maxreq"], **r})
@@ -124,7 +125,7 @@ for setting in BENCH["settings"]:
 
 f = lambda v, p=2: "-" if v is None else f"{v:.{p}f}"
 print(f"\\n{'model':10} {'streams':>7} {'running':>7} {'decode tok/s':>12} {'per stream':>10} {'vs full@10':>10} "
-      f"{'cache hit':>9} {'peak KV':>7} {'retracted':>9} {'accept':>6} {'prefill s':>9} {'errors':>6}")
+      f"{'cache hit':>9} {'peak KV':>7} {'retracted':>9} {'accept':>6} {'prefill s':>9} {'errors':>6} {'131K fit':>8}")
 base = next((r["decode_tok_s"] for r in results if r.get("model") == "full" and "decode_tok_s" in r), None)
 for r in results:
     if "error" in r:
@@ -133,7 +134,8 @@ for r in results:
     ratio = f"{r['decode_tok_s'] / base:.2f}x" if base else "-"
     print(f"{r['model']:10} {r['streams']:>7} {r['max_running']:>7.0f} {r['decode_tok_s']:>12.0f} "
           f"{r['per_stream_tok_s']:>10.1f} {ratio:>10} {f(r['cache_hit']):>9} {f(r['peak_kv_usage']):>7} "
-          f"{r['retracted_requests']:>9.0f} {f(r['spec_accept_length']):>6} {r['prefill_seconds']:>9.0f} {r['errors']:>6}")
+          f"{r['retracted_requests']:>9.0f} {f(r['spec_accept_length']):>6} {r['prefill_seconds']:>9.0f} {r['errors']:>6} "
+          f"{r.get('streams_at_full_context', '-'):>8}")
 '''
 
 

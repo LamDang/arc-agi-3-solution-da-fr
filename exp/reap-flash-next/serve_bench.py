@@ -5,7 +5,9 @@ batch_test (what selects the serving config): n requests at once, each the
 longest logged prompt of a different game run (about 110K tokens, close to
 the harness's context limit), each generating a fixed number of tokens. It
 answers whether n full-length requests fit (all n running, no retractions,
-peak KV use) and the decode throughput with all n running.
+peak KV use) and the decode throughput with all n running. The measured
+requests peak at about 114K tokens; the harness allows 131,072 (116K prompt +
+12K output), so the result also gives how many of those the KV pool holds.
 
 Load/measure (below) replay whole games instead, for cache behaviour (not used
 to pick the config):
@@ -195,6 +197,34 @@ def longest_prompts(sessions: list[dict], n: int) -> list[tuple[str, int]]:
     return [(line, prompt) for line, _, prompt in best[:n]]
 
 
+HARNESS_CONTEXT = (116 + 12) * 1024  # LOCAL_ANALYZER_CONTEXT_WINDOW: prompt + 12K output
+
+
+def kv_pool_tokens(url: str, server_log: str | None = None) -> int | None:
+    """The server's KV pool size (max_total_num_tokens), from /server_info or the server log."""
+    def find(o):
+        if isinstance(o, dict):
+            if isinstance(o.get("max_total_num_tokens"), int):
+                return o["max_total_num_tokens"]
+            o = list(o.values())
+        if isinstance(o, list):
+            for v in o:
+                if (found := find(v)) is not None:
+                    return found
+        return None
+    try:
+        with urllib.request.urlopen(f"{url}/server_info", timeout=30) as r:
+            if (found := find(json.loads(r.read()))) is not None:
+                return found
+    except Exception:  # noqa: BLE001
+        pass
+    if server_log and Path(server_log).exists():
+        hits = re.findall(r"max_total_num_tokens=(\d+)", Path(server_log).read_text(errors="replace"))
+        if hits:
+            return int(hits[-1])
+    return None
+
+
 def _send_all(url: str, model: str, lines: list[str], max_tokens: int, timeout: float) -> list[int]:
     statuses = []
 
@@ -217,7 +247,7 @@ def _send_all(url: str, model: str, lines: list[str], max_tokens: int, timeout: 
 
 
 def batch_test(url: str, model: str, prompts: list[tuple[str, int]], n: int, max_tokens: int = 4096,
-               log=print, poll: float = 2.0, timeout: float = 3600) -> dict:
+               log=print, poll: float = 2.0, timeout: float = 3600, server_log: str | None = None) -> dict:
     """n requests at once, each a long logged prompt of a different game.
     Phase 1 prefills them (1 output token) so they sit in the cache; phase 2
     sends them again with max_tokens each: they start decoding together from
@@ -261,6 +291,11 @@ def batch_test(url: str, model: str, prompts: list[tuple[str, int]], n: int, max
         "errors": prefill_errors + sum(1 for s in statuses if s != 200),
     }
     result["per_stream_tok_s"] = result["decode_tok_s"] / n
+    # the measured requests peak at prompt + max_tokens; the harness allows up to HARNESS_CONTEXT each
+    pool = kv_pool_tokens(url, server_log)
+    result["kv_pool_tokens"] = pool
+    if pool:
+        result["streams_at_full_context"] = pool // HARNESS_CONTEXT
     log("[batch] " + json.dumps({k: round(v, 3) if isinstance(v, float) else v for k, v in result.items()}))
     return result
 

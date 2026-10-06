@@ -100,3 +100,10 @@ def test_batch_test(tmp_path):
     assert sorted(b["max_tokens"] for b in state["bodies"]) == [1, 1, 5, 5]  # prefill, then decode
     assert sorted(b["messages"][1]["content"] for b in state["bodies"]) == ["turn 2"] * 4
     assert result["decode_tok_s"] > 0 and abs(result["cache_hit"] - 0.75) < 1e-9
+
+
+def test_kv_pool_from_log(tmp_path):
+    log = tmp_path / "serve.log"
+    log.write_text("x\n[2026] max_total_num_tokens=1011264, chunked_prefill_size=8192\n")
+    assert serve_bench.kv_pool_tokens("http://127.0.0.1:9", str(log)) == 1011264
+    assert 1011264 // serve_bench.HARNESS_CONTEXT == 7
