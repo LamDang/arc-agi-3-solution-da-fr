@@ -81,3 +81,9 @@ changed during the run. Ordered by the turns they cost.
     the State hit the 120 s kernel timeout twice, so the model rewrote the level's rules as a
     set-based fast model that diverged from the engine twice. A cheaper State copy, or a built-in
     move search over `replica.step`, would remove the rewrite.
+18. **The python cell timeout is not in the prompt.** A cell may run 120 s (`kernel.py`, the
+    `timeout` of the kernel parent); past that the kernel is restarted and every variable is lost,
+    and the model learns this only from the "Timed out after 120s" message after a search is gone
+    (sp80 twice, ls20 once). State it in the python tool description: "a cell has 120 s; a longer
+    one is killed and the kernel restarts without your variables; bound searches by time
+    (`time.time()`) and keep the best result in a variable you print".
