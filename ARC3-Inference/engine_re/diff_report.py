@@ -11,6 +11,11 @@ kernel helper ``replay_step`` (with summaries of states in the kernel), so both 
   their index in ``state.sprites``), before and after the step.
 - ``state_changes``: what a step changed in the engine's own state (sprites matched by object
   identity, so additions and removals do not shift them; vars; status), for ``replay_step``.
+- ``reconcile_lines``: sprite by sprite, where the engine and the game disagree: for each visible
+  sprite of the engine's state that the game's frame contradicts, the same shape elsewhere in the
+  game's frame (moved), the same shape at the same place in other colours (recoloured) or nothing
+  there; then the pieces of the game's frame no sprite of the engine draws. Coordinates in the
+  engine's grid (through its View).
 - ``comparison_image``: the engine's frame and the original's side by side, upscaled, with the
   same numbered boxes; ``png_bytes`` / ``data_url`` encode it for a chat message.
 """
@@ -49,6 +54,8 @@ EDGE_RGB = (0, 0, 0)
 UPSCALE = 8
 MAX_REGIONS = 6  # regions numbered and described; smaller ones beyond this are only counted
 MAX_SPRITES = 4  # sprites listed per region
+RECONCILE_LINES = 12  # lines of the sprite-by-sprite reconciliation at most
+RECONCILE_HEAD = "    sprite by sprite (your replica's sprites against the game's frame; x, y in your grid):"
 
 
 @dataclass
@@ -375,6 +382,234 @@ def region_lines(region: Region, expected: np.ndarray, got: np.ndarray | None, b
     if crops and got is not None:
         lines += hex_crop(expected, got, region.box, indent="        ")
     return lines
+
+
+# --- Sprite by sprite: the engine's sprites against the game's frame ------------------------------
+
+
+def _view_of(summary: dict[str, Any]) -> Any:
+    view = summary.get("view") or {}
+    return game_api.canonical().View(
+        scale=view.get("scale"), rotation=view.get("rotation", 0), mirror_ud=view.get("mirror_ud", False), mirror_lr=view.get("mirror_lr", False)
+    )
+
+
+def _cell_map(summary: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+    """Per screen pixel, the engine's grid cell under it (gx, gy arrays, -1 outside the grid), through the View."""
+    w, h = (int(v) for v in summary["grid"])
+    view = _view_of(summary)
+    s, ox, oy = game_api.geometry((w, h), view.scale)
+    gx = np.full((64, 64), -1, np.int32)
+    gy = np.full((64, 64), -1, np.int32)
+    ys, xs = np.mgrid[0:64, 0:64]
+    inside = (xs >= ox) & (xs < ox + w * s) & (ys >= oy) & (ys < oy + h * s)
+    gx[inside] = (xs[inside] - ox) // s
+    gy[inside] = (ys[inside] - oy) // s
+    return game_api.view_transform(gx, view), game_api.view_transform(gy, view)
+
+
+def _screen_grid(summary: dict[str, Any], frame: np.ndarray) -> Any:
+    """The engine's grid as it lies on the screen (turned by the View), as a GridGuess for the segmentation."""
+    from engine_re.auto_sprites import GridGuess
+
+    w, h = (int(v) for v in summary["grid"])
+    view = _view_of(summary)
+    s, _, _ = game_api.geometry((w, h), view.scale)
+    gx, _ = _cell_map(summary)
+    rows, cols = np.nonzero(gx >= 0)
+    r0, c0, r1, c1 = int(rows.min()), int(cols.min()), int(rows.max()), int(cols.max())
+    width, height = (c1 - c0 + 1) // s, (r1 - r0 + 1) // s
+    ring = np.concatenate([frame[0], frame[-1], frame[:, 0], frame[:, -1]])
+    border = int(np.bincount(np.asarray(ring, np.int64) % 16).argmax())
+    return GridGuess(width, height, s, c0, r0, border, 1, "your replica's grid on the screen")
+
+
+def _grid_corner(mask: np.ndarray, cells: tuple[np.ndarray, np.ndarray]) -> tuple[int, int] | None:
+    """The smallest grid x and y under a set of screen pixels (None when none is on the grid)."""
+    gx, gy = cells
+    on = mask & (gx >= 0)
+    if not on.any():
+        return None
+    return int(gx[on].min()), int(gy[on].min())
+
+
+def _find_shape(frame: np.ndarray, crop: np.ndarray, mask: np.ndarray, at: tuple[int, int], diff: np.ndarray) -> tuple[int, int] | None:
+    """Where `frame` shows `crop` (its pixels under `mask`) exactly, other than at `at` (the crop's own top-left):
+    the nearest such top-left, or None. Only a place where the frames differ (`diff`) counts (the same shape where
+    the engine draws it too is that sprite, not this one), and not a match whose whole surrounding ring is in the
+    crop's colours (the shape merging into a larger area of the same colour)."""
+    from numpy.lib.stride_tricks import sliding_window_view
+    from scipy import ndimage
+
+    h, w = crop.shape
+    if h > frame.shape[0] or w > frame.shape[1]:
+        return None
+    windows = sliding_window_view(frame, (h, w))
+    hits = np.all((windows == crop) | ~mask, axis=(2, 3))
+    colours = set(crop[mask].tolist())
+    ring_shape = ndimage.binary_dilation(mask, structure=np.ones((3, 3), bool)) & ~mask
+    best: tuple[int, int] | None = None
+    best_d = None
+    for r, c in zip(*np.nonzero(hits)):
+        r, c = int(r), int(c)
+        if (r, c) == at or not diff[r : r + h, c : c + w][mask].any():
+            continue
+        d = abs(r - at[0]) + abs(c - at[1])
+        if best_d is not None and d >= best_d:
+            continue
+        around = np.full((h + 2, w + 2), -1, np.int16)
+        sub = frame[max(0, r - 1) : r + h + 1, max(0, c - 1) : c + w + 1]
+        around[1 - min(1, r) : 1 - min(1, r) + sub.shape[0], 1 - min(1, c) : 1 - min(1, c) + sub.shape[1]] = sub
+        ring = np.pad(ring_shape, 1)
+        ring_values = around[ring]
+        ring_values = ring_values[ring_values >= 0]
+        if ring_values.size and all(int(v) in colours for v in ring_values):
+            continue
+        best, best_d = (r, c), d
+    return best
+
+
+def _colour_word(crop: np.ndarray, mask: np.ndarray) -> str:
+    colours = sorted(set(crop[mask].tolist()))
+    if len(colours) == 1:
+        return f" {COLOR_NAMES.get(colours[0], '?')}"
+    return ""
+
+
+def _role(e: dict[str, Any], grid_rect: tuple[int, int, int, int]) -> str:
+    """"border" or "background" for a sprite that covers the whole screen or the whole grid (or is named so)."""
+    name = str(e.get("name", "")).lower()
+    if name in ("border", "background"):
+        return name
+    box = e.get("box")
+    if box is None:
+        return "object"
+    if box == [0, 0, 63, 63]:
+        return "border"
+    if e.get("screen") is not True and tuple(box) == grid_rect:
+        return "background"
+    return "object"
+
+
+def reconcile_lines(expected: np.ndarray, got: np.ndarray | None, after: dict[str, Any] | None, limit: int = RECONCILE_LINES) -> list[str]:
+    """Sprite by sprite, where the engine's state after the step disagrees with the game's frame (`expected`), at
+    most `limit` lines under RECONCILE_HEAD: one line per visible sprite of the engine (border and background
+    left out) that the frame contradicts where it shows, saying whether the frame shows the same shape elsewhere
+    ("yours at (5, 2); the game shows this shape at (5, 3)"), the same shape at the same place in other colours, or
+    nothing there; then one line per piece of the frame (the segmentation on the engine's grid) that no sprite of
+    the engine draws. Coordinates in the engine's grid, through its View. Empty when the frames agree or the
+    summary has no renders."""
+    view = SummaryView(after)
+    if not view or got is None:
+        return []
+    summary = view.summary
+    expected, got = np.asarray(expected, np.int16), np.asarray(got, np.int16)
+    diff = expected != got
+    if not diff.any():
+        return []
+    sprites = summary["sprites"]
+    renders = [game_api.unpack_render(e) for e in sprites]
+    if not any(r is not None for r in renders):
+        return []
+    try:
+        cells = _cell_map(summary)
+    except Exception:  # noqa: BLE001  (a summary that cannot say it is not worth failing the report)
+        return []
+    gx, _ = cells
+    rows, cols = np.nonzero(gx >= 0)
+    grid_rect = (int(rows.min()), int(cols.min()), int(rows.max()), int(cols.max())) if rows.size else (-1, -1, -1, -1)
+    roles = [_role(e, grid_rect) for e in sprites]
+    owner = view.owner
+    lines: list[str] = []
+    explained = np.zeros((64, 64), bool)  # pixels of the game's frame a moved sprite accounts for
+    for i, e in enumerate(sprites):
+        if roles[i] != "object" or e.get("visible") is not True or renders[i] is None:
+            continue
+        shows = owner == i
+        if not (shows & diff).any():
+            continue
+        r0, c0, r1, c1 = e["box"]
+        crop = renders[i][r0 : r1 + 1, c0 : c1 + 1]
+        mask = crop >= 0
+        label = f"#{i} {json.dumps(str(e.get('name', '')))} {e.get('w')}x{e.get('h')}{_colour_word(crop, mask)}"
+        screen = e.get("screen") is True
+        here = f"({e.get('x')}, {e.get('y')})"
+        found = _find_shape(expected, crop, mask, (r0, c0), diff)
+        if found is not None:
+            fr, fc = found
+            if screen:
+                where = f"({e.get('x') + fc - c0}, {e.get('y') + fr - r0})"
+            else:
+                own = _grid_corner(view.masks[i] if view.masks[i] is not None else mask, cells)
+                target = np.zeros((64, 64), bool)
+                target[fr : fr + mask.shape[0], fc : fc + mask.shape[1]] = mask
+                there = _grid_corner(target, cells)
+                where = (f"({e.get('x') + there[0] - own[0]}, {e.get('y') + there[1] - own[1]})" if own and there
+                         else f"screen pixel ({fc}, {fr})")
+            lines.append(f"{label}: yours at {here}; the game shows this shape at {where}")
+            explained[fr : fr + mask.shape[0], fc : fc + mask.shape[1]] |= mask
+            continue
+        exp_here = expected[r0 : r1 + 1, c0 : c1 + 1]
+        pairs: dict[int, set[int]] = {}
+        for mine, theirs in zip(crop[mask].tolist(), exp_here[mask].tolist()):
+            pairs.setdefault(int(mine), set()).add(int(theirs))
+        from scipy import ndimage
+
+        ring = ndimage.binary_dilation(np.pad(mask, 1), structure=np.ones((3, 3), bool)) & ~np.pad(mask, 1)
+        around = np.full((mask.shape[0] + 2, mask.shape[1] + 2), -1, np.int16)
+        sub = expected[max(0, r0 - 1) : r1 + 2, max(0, c0 - 1) : c1 + 2]
+        around[1 - min(1, r0) : 1 - min(1, r0) + sub.shape[0], 1 - min(1, c0) : 1 - min(1, c0) + sub.shape[1]] = sub
+        ring_values = [int(v) for v in around[ring].tolist() if v >= 0]
+        inside = {v for vs in pairs.values() for v in vs}
+        # One colour under the shape, continuing into most of the ring around it: no shape there, the game's background.
+        blank = len(inside) == 1 and bool(ring_values) and 2 * sum(v in inside for v in ring_values) >= len(ring_values)
+        if not blank and all(len(vs) == 1 for vs in pairs.values()):
+            mine = sorted(pairs)
+            theirs = [next(iter(pairs[c])) for c in mine]
+            if len(mine) == 1:
+                lines.append(f"{label}: yours colour {mine[0]}; the game shows it colour {theirs[0]} "
+                             f"({COLOR_NAMES.get(theirs[0], '?')}) at the same place")
+            else:
+                lines.append(f"{label}: yours colours {', '.join(map(str, mine))}; the game shows them "
+                             f"{', '.join(map(str, theirs))} at the same place")
+            continue
+        if blank:
+            lines.append(f"{label}: yours visible at {here}; the game shows nothing there")
+        else:
+            shown = Counter(exp_here[mask].tolist()).most_common(3)
+            lines.append(f"{label}: yours visible at {here}; the game shows other pixels there (colours "
+                         + ", ".join(f"{c} x{n}" for c, n in shown) + ")")
+    # The game's pieces no sprite draws: the segmentation of the game's frame on the engine's grid.
+    try:
+        from engine_re import segment
+
+        pieces = segment.pieces(expected, _screen_grid(summary, expected))
+        drawn = np.zeros((64, 64), bool)
+        for i, m in enumerate(view.masks):
+            if m is not None and roles[i] == "object" and sprites[i].get("visible") is True:
+                drawn |= m
+        footprints = game_api.sprite_footprints(types.SimpleNamespace(
+            grid=pieces.grid.grid, view=game_api.canonical().View(scale=pieces.grid.scale), sprites=list(pieces)))
+        for p, m in zip(pieces, footprints):
+            if p.role != "object" or m is None:
+                continue
+            if (m & (drawn | explained)).sum() * 2 >= m.sum():
+                continue
+            if p.screen:
+                where = f"screen pixel ({p.x}, {p.y})"
+            else:
+                corner = _grid_corner(m, cells)
+                where = f"({corner[0]}, {corner[1]})" if corner else f"screen pixel ({p.x}, {p.y})"
+            amount = f"{p.size} px" if p.screen else f"{p.size} cell{'s' if p.size != 1 else ''}"
+            lines.append(f"the game shows a {p.width}x{p.height} piece ({COLOR_NAMES.get(p.colour, '?')}, {amount}) at {where} "
+                         "that none of your sprites draws")
+    except Exception:  # noqa: BLE001  (a frame the segmentation cannot read: the sprite lines stand on their own)
+        pass
+    if not lines:
+        return []
+    if len(lines) > limit:
+        lines = lines[: limit - 1] + [f"... and {len(lines) - limit + 1} more"]
+    return [RECONCILE_HEAD] + ["      " + line for line in lines]
 
 
 def vars_line(before: SummaryView, after: SummaryView) -> str | None:

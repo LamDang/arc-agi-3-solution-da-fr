@@ -14,7 +14,8 @@ Two more requests. {"names": true} answers {"names": ["RING: list[20]", "cols: f
 "more": n}: what the model has defined in the namespace (not the preloaded built-ins, modules or
 dunders), each with a one-word summary, at most NAMES_SHOWN of them. {"replay": [{"turn": t, "code":
 ...}, ...], "cell_seconds": 20, "total_seconds": 120} re-runs those cells in order after a restart
-(a resumed run, agent._resume_conversation) in replay mode: edit_file() and undo_edit() do nothing,
+(a resumed run, agent._resume_conversation; a cell that timed out, agent._restart_kernel) in replay
+mode: edit_file() and undo_edit() do nothing,
 show_frames() makes no image, output is discarded, an exception ends only its cell, and each cell is
 cut after cell_seconds (SIGALRM), the whole replay after total_seconds; it answers {"replayed": n,
 "failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}.
@@ -54,6 +55,7 @@ from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
 NAMES_SHOWN = 40  # entries a {"names": true} answer lists before "... and N more"
+CELL_SECONDS = 120.0  # a python cell's time (KernelClient.timeout): past it the kernel is killed and restarted
 REPLAY_CELL_SECONDS = 20.0
 REPLAY_TOTAL_SECONDS = 120.0
 # What the namespace of the model's code starts with (besides np and the fixed-block classes): the built-in
@@ -70,9 +72,9 @@ RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
 # The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and click_cell
-# (moves are played by calling replica.step on copies of a State), and traced and support, which read what a
-# block of code ran on the replica against the committed engine's support map (--support FILE, readable).
-PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell", "traced", "support")
+# (moves are played by calling replica.step on copies of a State); read_file() shows the committed engine's support
+# map (--support FILE, readable) as a margin and as comments on the step code.
+PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell")
 RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
     "replica is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
@@ -329,13 +331,15 @@ class KernelClient:
 
     editor: what applies edit_file()/undo_edit() (an engine_files.EngineEditor; by default one with
     versions in <workspace>/../engine_versions). After execute(), ``last_images`` holds what
-    show_frames() made: a list of (PNG bytes, caption)."""
+    show_frames() made: a list of (PNG bytes, caption); ``last_names`` is the kernel's names() listing,
+    refreshed after every cell that ran, so the names a restart lost are known; ``restarted`` says why the
+    kernel was restarted during the last request ("timeout", "crash", "protocol"), None when it was not."""
 
     def __init__(
         self,
         workspace: Path,
         trace_dir: Path,
-        timeout: float = 120.0,
+        timeout: float = CELL_SECONDS,
         editor: Any = None,
         images: bool = True,
         log: Callable[[dict], None] | None = None,
@@ -354,9 +358,12 @@ class KernelClient:
         self.history = history
         self.play = play
         self.support = Path(support).resolve() if support else None  # the committed engine's support map (play mode)
-        self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
+        self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log,
+                                             support=self.support)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
+        self.last_names: tuple[list[str], int] = ([], 0)
+        self.restarted: str | None = None
 
     def start(self) -> None:
         cmd = [sys.executable, "-m", "engine_re.kernel", str(self.workspace), str(self.trace_dir)]
@@ -397,22 +404,32 @@ class KernelClient:
         except (BrokenPipeError, OSError):
             self.stop()
 
-    def stop(self) -> None:
+    def stop(self, reason: str | None = None) -> None:
+        """Kill the kernel; `reason` ("timeout", "crash", "protocol") marks a restart the caller should report."""
         if self.proc is not None:
             self.proc.kill()
             self.proc.wait()
             self.proc = None
+        if reason:
+            self.restarted = reason
+            self.last_names = ([], 0)
 
     def execute(self, code: str) -> str:
+        """Run a cell; the output, or the error text when the kernel died or timed out (then `restarted` says
+        why and `last_names` still lists what the kernel held before this cell)."""
         self.last_images = []
+        self.restarted = None
+        before = self.last_names
         message = self._request({"code": code}, self.timeout)
         if "error" in message:
+            self.last_names = before  # (what the restart lost; the caller reads it, then replays)
             return message["error"]
         for item in message.get("images") or []:
             try:
                 self.last_images.append((base64.b64decode(item["png"]), str(item.get("caption", ""))))
             except (KeyError, ValueError, TypeError):
                 continue
+        self.last_names = self.names()
         return message.get("output", "")
 
     def names(self) -> tuple[list[str], int]:
@@ -432,6 +449,7 @@ class KernelClient:
         message = self._request(request, total_seconds + max(30.0, cell_seconds))
         if "error" in message:
             return {"replayed": 0, "failed": [], "skipped": len(cells), "seconds": 0.0, "error": message["error"]}
+        self.last_names = self.names()
         return message
 
     def _request(self, request: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -444,24 +462,24 @@ class KernelClient:
             self.proc.stdin.write(json.dumps(request) + "\n")
             self.proc.stdin.flush()
         except BrokenPipeError:
-            self.stop()
+            self.stop("crash")
             return {"error": "The Python kernel had died; it was restarted and all variables were lost. Run your code again."}
         deadline = time.time() + timeout
         while True:
             ready, _, _ = select.select([self.proc.stdout], [], [], max(0.0, deadline - time.time()))
             if not ready:
-                self.stop()
+                self.stop("timeout")
                 return {"error": f"Timed out after {timeout:g}s. The kernel was restarted and all variables were lost."}
             line = self.proc.stdout.readline()
             if not line:
                 log = self.workspace.parent / "kernel_stderr.log"
                 tail = log.read_text(encoding="utf-8", errors="replace")[-1500:] if log.exists() else ""
-                self.stop()
+                self.stop("crash")
                 return {"error": tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."}
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
-                self.stop()
+                self.stop("protocol")
                 return {"error": "Kernel protocol error; the kernel was restarted and all variables were lost."}
             if "rpc" in message:
                 reply = self.editor.handle(message["rpc"])

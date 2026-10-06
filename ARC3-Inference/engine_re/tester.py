@@ -265,16 +265,34 @@ def run_candidate(
 
 
 def predict(
-    engine_path: Path, trace: Trace, actions: list[Any], *, scratch_root: Path | None = None,
+    engine_path: Path, trace: Trace, actions: list[Any], *, scratch_root: Path | None = None, inspect: bool = True,
 ) -> tuple[dict[str, Any], list[np.ndarray]]:
     """The engine's prediction for `actions` played after every step of `trace` (the play agent): one
     sandboxed run on the trace's actions followed by them, with the trace's unexplained steps and resync
     points, no contract tests. Returns run_candidate's (result, frames); position i is step i, so the
-    prediction for actions[j] is at len(trace) + j (missing when the engine raised an error before it)."""
+    prediction for actions[j] is at len(trace) + j (missing when the engine raised an error before it).
+    `inspect`: the state summaries (game_api.state_summary) before and after each planned move, in
+    result["inspect"][str(position)] (the batch's board no-op rule and the PLAN message's sprite list)."""
     ignore, resync = sync_points(trace.meta)
     played = [s.action.to_json() for s in trace.steps] + [a.to_json() for a in actions]
+    n = len(trace.steps)
+    positions = list(range(n, n + len(actions))) if inspect else None
     return run_candidate(engine_path, played, scratch_root=scratch_root, meta=trace_meta(trace), contract=False,
-                         ignore=ignore, resync=resync)
+                         ignore=ignore, resync=resync, inspect=positions)
+
+
+def replica_state(engine_path: Path, trace: Trace, *, scratch_root: Path | None = None) -> dict[str, Any] | None:
+    """The engine's state after every step of `trace` (game_api.state_summary of the last step's state), from one
+    sandboxed replay without the contract tests or the tracer; None when the engine raises or the trace is empty."""
+    if not len(trace):
+        return None
+    ignore, resync = sync_points(trace.meta)
+    played = [s.action.to_json() for s in trace.steps]
+    result, _ = run_candidate(engine_path, played, scratch_root=scratch_root, meta=trace_meta(trace), contract=False,
+                              ignore=ignore, resync=resync, inspect=[len(trace) - 1], trace=False)
+    found = (result.get("inspect") or {}).get(str(len(trace) - 1)) or {}
+    after = found.get("after")
+    return after if after and "sprites" in after else None
 
 
 # --- Comparing ---------------------------------------------------------------
@@ -411,6 +429,8 @@ def describe_step(
             step.frames[-1], got_frames[-1], states.get("before"), states.get("after"), crops=crops, images=images, show_vars=show_vars
         )
         lines += frame_lines
+        if regions:
+            lines += diff_report.reconcile_lines(step.frames[-1], got_frames[-1], states.get("after"))
     elif step.n_frames != len(got_frames):
         lines.append(f"    final frame: expected {'a frame' if step.n_frames else 'no frame'}, got {len(got_frames)} frame(s)")
     if match == "all" and step.n_frames and len(got_frames):
