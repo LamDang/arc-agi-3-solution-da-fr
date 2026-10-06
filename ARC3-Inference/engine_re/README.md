@@ -494,6 +494,20 @@ last message the model got (an interruption during a batch) are tested and lead 
 finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
 (`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
 
+A finished run can be forked at a turn and resumed from there with a changed harness
+(`engine_re/tools/fork_run.py`, the v12 experiments of `exp/v11-followups.md`): the fork is a copy of the
+game directory truncated to the state after turn T finished (the records the model had read by turn T + 1,
+the tests, the trace and the steps played, engine.py at its version of turn T with its versions, the
+committed engine with its support map regenerated, the pictures), with `result.json` "running" at turn T
+and `forked_from` (the source, the turn, the cost and minutes the source had spent there, which the fork
+does not count: its cost and minutes start at 0, the output tokens stay). `workspace/notes.md` starts
+over as the template and the marker `fork.json` makes the first resume's kernel replay apply the cells'
+edits to notes.md and the other workspace files (`helpers.REPLAY_FILES`), so they are rebuilt from the
+kept cells alone; files written by a cell that raises in the replay (because engine.py changed later) are
+not rebuilt. `run_play --dry-resume` does everything a resume does up to the first request on a copy of
+each game directory, prints a summary (turn, step, phase, budget, tests of engine.py and the committed
+engine, the kernel replay and its names, the last message, notes.md) and exits without any model call.
+
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
 legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5-9 (the game
 is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
@@ -539,6 +553,12 @@ uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine bes
 
 # Inspect a session
 uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game>
+
+# Fork a finished play run at turn T, check the fork without a model call, then play 100 more turns
+uv run --no-sync python -m engine_re.tools.fork_run --src runs/engine-play/<run>/<game> --turn T \
+  --out runs/engine-play/<fork>/<game>
+uv run --no-sync python -m engine_re.run_play --games <game> --out runs/engine-play/<fork> --dry-resume
+uv run --no-sync python -m engine_re.run_play --games <game> --out runs/engine-play/<fork> --max-turns T+100 ...
 
 # Test an engine by hand, as the agent sees it (images saved as PNGs)
 uv run --no-sync python -m engine_re.tester ENGINE.py TRACE_DIR --failures 1 [--level L] [--images DIR]
