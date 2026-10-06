@@ -161,7 +161,7 @@ changed during the run. Ordered by the turns they cost.
     **Decided (v12):** the base agent's limits (22) with a drop-based drain to 57K (2), and the
     PLAN message carrying every commit message of the game plus the current level's batch notes
     with their outcomes since the latest commit.
-24. **Replace the PLAN message's image with a sprite list.** The PLAN message attaches the current
+24. **Add a sprite list to the PLAN message (the image stays).** The PLAN message attaches the current
     frame as a 512x512 image (`_frame_part`, play_agent.py); the FIT message's test report carries
     its own picture. Measured on this run: a turn that carries an image grows the prompt by
     ~1.1-1.4K tokens more than a plain turn (sp80 1,792 vs 404, ls20 1,564 vs 503; the PLAN text is
@@ -177,11 +177,17 @@ changed during the run. Ordered by the turns they cost.
     segmentation's grid, which is the screen's, not the engine's (sp80's levels 1-3 use a rotated
     View, so its bins sit at y=1 on the screen and y=17 in the engine).
     In the PLAN message the replica is in step, so (a) draws the current frame exactly and is in the
-    coordinates the model plans in: print (a) in place of the image, with `vars` on the first line.
-    Out of step (the replica plays blind) and at a level start before make_level(n+1) is drawn, print
-    (b) instead, since (a) may not match the game. Keep the FIT message's picture: it is the one
-    place the game and the replica disagree, and the comparison image shows where. The image stays
-    available on request (`show_frames(recording[-1].after)`).
+    coordinates the model plans in: print (a) with the image, `vars` on its first line. Out of step
+    (the replica plays blind) and at a level start before make_level(n+1) is drawn, print (b)
+    instead, since (a) may not match the game. The FIT message keeps its comparison picture and
+    gets the reconciliation list (25).
+    **Decided (v12):** keep the image (it costs about 1K tokens a PLAN turn and the old ones are
+    hidden at the next phase message) and add the list under it. Image geometry, for reference:
+    a frame is 64x64 upscaled x8 with nearest neighbour (diff_report.UPSCALE), one panel of
+    512x512 under a 30 px title with 12 px padding, so the PLAN image is 536x554 (~6 KB PNG) and
+    the FIT comparison, two panels (yours, original) with the differing regions boxed and numbered
+    on both, 1060x554 (~9 KB). Sent as a base64 data URL with no detail parameter; the provider
+    tokenises it at its own patch size.
 25. **FIT message: a sprite-by-sprite reconciliation, not only regions.** The test report describes
     a mismatch by differing pixel regions: for each region, the colours expected and got and the
     replica's sprites drawing there (including the background), plus `state_changes` on the replica's
