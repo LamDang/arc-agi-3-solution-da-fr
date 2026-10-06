@@ -227,6 +227,7 @@ malformed call and no length finish in 600 turns of v11). What the base has and 
     used on resume, 20 s per cell, 120 s in all): after a timeout restart, replay the earlier cells
     in that mode, skipping the one that timed out, and say which names are back and which cell was
     dropped (18's message).
+    **Decided (v12):** do it.
 27. **A state line every turn.** The base rebuilds an opener at every request: what the previous
     sequence executed, "Current state: step S, level L", "Valid actions right now", the retained
     functions, the current board image. Ours restates the state only in PLAN and FIT messages, up to
@@ -234,6 +235,8 @@ malformed call and no length finish in 600 turns of v11). What the base has and 
     window: append one harness line to every turn's last tool output ("[harness] step 57, level 2,
     actions 61 of 500 (level 2: 14), plan round turn 4 of 6, output tokens 213K of 500K"), ~40
     tokens, and the budget line in FIT messages too.
+    **Decided (v12):** not every turn (too much); the line goes only in the commit_moves output,
+    after a batch, and in the FIT message. The PLAN message keeps its budget line.
 28. **What the last batch changed, in the PLAN message.** The base attaches a diff image every turn
     (changed cells since the previous turn, the rest navy) and the game-over opener a fatal-step
     diff. Our PLAN message has the batch's per-move lines but not what the board looks like now
@@ -241,11 +244,16 @@ malformed call and no length finish in 600 turns of v11). What the base has and 
     object changes from the batch's first frame to its last (the segmentation's `changes` summary,
     at most 12 lines) to the PLAN message, under the batch lines. The sprite list (24) gives the
     "now"; this gives the "since".
+    **Decided (v12):** only after a batch was played (the commit_moves output and the PLAN or FIT
+    message that follows it), not after a commit-only advance.
 29. **A cut reply continues.** The base caps a response at 12,288 tokens and a longer thought
     continues in the next request (the reply is appended, the request repeats); a context-length
     error forces a drain and a retry. Ours asks for 32,768 and never hit the cap in v11; under 22
     the agent must treat finish_reason "length" as a continuation (append the partial reply, ask
     again) and a context-length error as a drain, not as an idle turn or a provider error.
+    **Decided (v12):** not for OpenRouter runs, where the response is not capped at 12K; a per-response
+    cap, if ever adopted on a self-served model, is a request-level setting and the continuation belongs
+    in the request wrapper, not the agent loop.
 30. **A batch stops at a board no-op.** The base stops a batch of two or more after the first
     executed action that changed nothing inside the board (a 4 px border, the HUD, excluded) and
     says so with the skipped moves. Ours warns ("changes nothing in your replica") and sends the
@@ -254,8 +262,24 @@ malformed call and no length finish in 600 turns of v11). What the base has and 
     move. Compare the frame without the screen-layer sprites (or inside `HUD_BORDER`), and cut the
     batch before the first predicted board no-op when the batch has more than one move (a single
     move is a probe and goes), saying which moves were not sent and why.
-31. **Not needed now, noted:** the base's stale-state block (a second `action()` in one snippet
-    after a no-op; ours allows one commit_moves per turn), the known-no-op / known-death / repeat
-    guards and the death ledger (all off on Kaggle), the priority scheduler (62K tokens and 115
-    actions per level; not model-facing), the per-turn board image (402 tokens each, never
-    stripped; ours shows one at PLAN and FIT and hides older ones), and the tool-call markup parser.
+    **Decided (v12):** do it.
+31. **Not needed now, and why:** the stale-state block guards a second `action()` call inside one
+    python snippet after a no-op; our python cannot send moves and commit_moves is one call per turn,
+    so the case cannot occur. The known-no-op, known-death and repeat-in-state guards and the death
+    ledger are off in the Kaggle config, so the base scores were made without them; the replica does
+    their job in advance (a predicted no-op is cut by 30, a predicted game over is warned about), and
+    repeat-in-state is left to the model. The priority scheduler allocates the 10 vLLM streams among
+    games by per-level pace; it is not model-facing, and at deployment it wraps our harness unchanged.
+    The per-turn board image costs 402 tokens a turn (4K of a 57K window) and the model read it badly
+    (24); ours shows one at PLAN and FIT with the sprite list. The tool-call markup parser repairs
+    vLLM's qwen3_coder parser misses; on OpenRouter the server parses the calls and v11 had none
+    malformed in 600 turns.
+
+## Planned experiments (v12, awaiting approval)
+
+- **A. sp80, context:** 2, 22 (the 128K cap and the drain to 57K only; the per-response and
+  per-game caps stay at v11's 32K / 1.5M / 300 turns so the run isolates context handling), 23.
+- **B. ls20, prompt and messages:** prompt 13, 14, 16, 18, 19, 20, 21; messages 4, 5, 18's restart
+  message, 24, 25, 27 and 28 (after a batch only); harness 26, 30.
+- **C. sp80 and ls20, temperature:** v11 code at temperature 0, top-p 1 (v11: 0.7 / 0.95); rerun at
+  0.2 if a run loops.
