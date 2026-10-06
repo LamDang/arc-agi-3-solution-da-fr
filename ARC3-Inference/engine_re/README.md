@@ -577,9 +577,9 @@ engine, the kernel replay and its names, the last message, notes.md; on a fork, 
 phase messages were regenerated, with the head of each) and exits without any model call.
 
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
-legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5 and 8-11 (the
+legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 7 and 10-13 (the
 game is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
-code over reasoning, `notes.md`); rules 6 and 7 (v12: being stuck means a missing or wrong rule; plan from the
+code over reasoning, `notes.md`); rules 8 and 9 (v12: being stuck means a missing or wrong rule; plan from the
 winning end states) are ours. An animated step has a digest (`engine_re/animation.py`,
 `StepView.animation`): its transient cells (changed and changed back, so in no frame the model can otherwise
 reach) and a diff timeline of its frames, printed in two lines by the test report and the step messages, and

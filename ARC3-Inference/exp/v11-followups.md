@@ -385,6 +385,8 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     "Every game is solvable" now in it; `--dry-resume` prints both heads.
 37. **Plan rule numbering.** `_PLAY_PLAN_RULES` (prompts.py) numbers its rules 1-6 and then 5-11 after
     the v12 insertions. Renumber.
+    **Done (v12):** the ported rules are 7-13 (the base's six plan rules are 1-6); the references in
+    README.md, PLAY_DESIGN.md and the tests follow (the v12 rules are 8 and 9 now).
 38. **Turns left during fit rounds.** The budget line appears in PLAN messages and, since v12, after
     a batch; in a long fit round the model does not see the turns left (the B rerun believed it had 4
     turns left at turn 248 of 248). Add the turns-left count to the FIT message's budget line and to

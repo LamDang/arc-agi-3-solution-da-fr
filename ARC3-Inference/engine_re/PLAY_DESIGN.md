@@ -527,7 +527,7 @@ one is missing):
 | What | From | Where now |
 | --- | --- | --- |
 | Animation digest: transient cells (equal before and after, different in a frame between: count, box, `old>new` counts, frames) and a diff timeline (per changed frame: index, cells, box, `old>new @ (x,y)` cells or counts) | `ANIMATION_ADDENDUM`, `ANIMATION_ADDENDUM_TIMELINE`; `inference/utils/animation.py` | `engine_re/animation.py`; `StepView.animation` (# Objects); two lines in `tester.describe_step`, in the fit / advance / episode messages when their report lacks them, and in `commit_moves`' output for a matched move with transient cells; a paragraph in # Tests |
-| "the game is solvable", plus: a plan far above the baseline, or none, means a missing rule | `STEP_VERIFICATION_ADDENDUM` (second bullet) | plan rule 5 |
+| "the game is solvable", plus: a plan far above the baseline, or none, means a missing rule | `STEP_VERIFICATION_ADDENDUM` (second bullet) | plan rule 7 |
 | Colour legend, from `diff_report.COLOR_NAMES` | `GAME_OVERVIEW_ADDENDUM` | # Setup |
 | Action meanings (directional keys, SPACE, click, UNDO, RESET: it counts as an action, keeps completed levels) | `ACTION_INFO_ADDENDUM`, `UNDO_INFO_ADDENDUM`, `RESET_INFO_ADDENDUM` | # Setup, all actions (the plan message lists the advertised ones) |
 | Levels build on earlier mechanics; engine.py's rules are the starting hypothesis; new levels add mechanics "sometimes through an unfamiliar board element or a visual change" (v12 wording, item 20) | `LEVEL_TRANSFER_SYSTEM_GUIDANCE` | plan rule 10 |

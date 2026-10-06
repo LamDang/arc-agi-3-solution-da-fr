@@ -1039,38 +1039,39 @@ _PLAY_ANIMATION_AFTER = "  did. When the game animated an action, only its last 
 
 # STEP_VERIFICATION_ADDENDUM (the game is solvable), LEVEL_TRANSFER_SYSTEM_GUIDANCE, VISUAL_GAME_ADDENDUM (a scene, no
 # player assumed, no absolute-coordinate goals), PREFER_TOOL_CALLS_LINE, and the memory sections Goal model, Open
-# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 5, 8-11, before the fit rules.
-# Rules 6 (being stuck means a missing or wrong rule), 7 (plan from the end state) and the colour sentence of rule 9
-# are the v12 additions (exp/v11-followups.md 21, 16, 14).
+# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 7, 10-13, after the six
+# plan rules of _SYSTEM_PLAY and before the fit rules (numbered on from them: v11 follow-up 37). Rules 8 (being stuck
+# means a missing or wrong rule), 9 (plan from the end state) and the colour sentence of rule 11 are the v12
+# additions (exp/v11-followups.md 21, 16, 14).
 NOTES_FILE = "notes.md"
-_PLAY_PLAN_RULES = """5. If your search finds no solution under your current model of the game, remember that the game is solvable.
+_PLAY_PLAN_RULES = """7. If your search finds no solution under your current model of the game, remember that the game is solvable.
    Reconsider your mechanics, goal, search implementation, or search limits, including interactions with new
    elements. Take a targeted action to test an uncertain rule or overlooked interaction, then update your model
    from the result. A plan far above the human baseline the plan message shows, or no plan at all, means your
    replica is missing a rule, not that the level is hard.
-6. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal
+8. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal
    twice), you are probably missing a rule or one of your written rules is wrong: explore more of the game's
    mechanics (touch what you have not touched, repeat a refused move under a changed condition) rather than
    searching harder on the rules you have.
-7. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often a
+9. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often a
    few lines over the replica's State), then plan the route to the nearest one; search over moves only when the
    end state is unknown.
-8. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
+10. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
    engine.py carry them forward: they are your starting hypothesis on a new level, while you re-check anything
    contradicted by new evidence. New levels often introduce additional mechanics, sometimes through an unfamiliar
    board element or a visual change. These additions are often important for solving the level. The goal may
    remain the same but require new mechanics to reach it, or the goal itself may change.
-9. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
+11. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
    Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do
    not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board
    configuration. Use coordinates only to target actions or describe local evidence. Do not frame the objective
    as reaching a specific absolute row or column. A comparison the game makes (a piece against a legend, a key
    against a lock, a pattern against a target) may involve colour as well as shape and rotation; "recoloured" in
    an object diff is a change in its own right, not a rotation.
-10. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
+12. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
    another python call over more reasoning: the code answers what the reasoning would only guess at, and running
    it is faster than thinking your way to the same answer.
-11. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
+13. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
    the workspace, under three headings: Goal model: what winning requires. Open questions: unresolved hypotheses.
    Plan: intended next steps. Change it with edit_file(path="notes.md", edits=[...]) (read_file("notes.md") gives
    its anchors); every plan message shows it. Older parts of this conversation will eventually be dropped, so
@@ -1593,7 +1594,7 @@ def level_start_text(trace: Trace, images: bool = True, kinds: str = "") -> str:
     if not entered_level(trace):
         return ""
     shown = "the image below shows this new board" if images else "show_frames(recording[-1].after) shows this new board"
-    return LEVEL_START_PLAY.replace("__SHOWN__", shown)
+    return LEVEL_START_PLAY.replace("__SHOWN__", shown) + (f"\n\n{kinds}" if kinds else "")
 
 
 PLAN_NOTES_LINES = 40  # lines of notes.md a PLAN message shows

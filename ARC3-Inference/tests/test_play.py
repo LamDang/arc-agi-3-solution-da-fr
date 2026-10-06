@@ -1940,11 +1940,11 @@ def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
             "new mechanics to reach it, or the goal itself may change.",
             "Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.",
             # the v12 rules: stuck means a missing or wrong rule; plan from the end state; colour is part of a comparison
-            "6. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal "
+            "8. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal "
             "twice), you are probably missing a rule or one of your written rules is wrong: explore more of the game's "
             "mechanics (touch what you have not touched, repeat a refused move under a changed condition) rather than "
             "searching harder on the rules you have.",
-            "7. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often "
+            "9. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often "
             "a few lines over the replica's State), then plan the route to the nearest one; search over moves only when the "
             "end state is unknown.",
             "A comparison the game makes (a piece against a legend, a key against a lock, a pattern against a target) may "
@@ -1963,6 +1963,11 @@ def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
             "notes.md is gone.",
         ):
             assert part in plan, part
+        # The plan rules are numbered 1-13 in one sequence (v11 follow-up 37: the ported rules were 5-11 after the base's 1-6).
+        import re
+
+        rounds = text.split("Plan rounds:", 1)[1].split("Fit rounds:", 1)[0]
+        assert re.findall(r"^(\d+)\. ", rounds, re.M) == [str(i) for i in range(1, 14)]
         assert ".animation: Animation | None" in text  # the Objects reference
     assert "Colour legend" not in system_prompt(mode="single") and "notes.md" not in system_prompt(mode="step")
     assert ".animation: Animation | None" in system_prompt(mode="single")
@@ -1975,7 +1980,7 @@ def test_notes_md_round_trips_through_the_kernel_and_shows_in_the_plan_message(t
     first = ("edit_file", {"path": "notes.md", "edits": '{"op": "append", "lines": ["Goal model: reach x >= 4", "Open questions:", "Plan: RIGHT x3"]}'})
     many = "edit_file(path='notes.md', edits=[{'op': 'append', 'lines': [f'line {i}' for i in range(50)]}])"
     model = _ScriptedModel(_start() + [
-        [("python", {"code": notes}), ("commit_moves", {"actions": ["RIGHT"], "note": "one"})],
+        [first, ("python", {"code": "read_file('notes.md')"}), ("commit_moves", {"actions": ["RIGHT"], "note": "one"})],
         [("python", {"code": many}), ("commit_moves", {"actions": ["RIGHT"], "note": "two"})],
     ])
     agent = _agent(tmp_path, environments, model, turns=4)
