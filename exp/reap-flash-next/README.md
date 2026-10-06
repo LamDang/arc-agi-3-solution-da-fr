@@ -333,3 +333,41 @@ startup) and exited. The run therefore uses 20 streams. The 28-stream crash
 also took run A's first start down with it; `games.py` also wrote the
 harness patch without its final newline, which `git apply` rejects (fixed).
 `kaggle/session_pipeline_a.sh` restarts the server and plays.
+
+### Run A: 256 experts in real games
+
+`runA/`: dfranzen's harness unchanged against the 256-expert server, 20
+streams, 7 games x 4 passes, 135 minutes per run (the competition budget
+scaled to 28 runs). 21:14-23:31, no harness or server errors. Holds the
+harness output (`benchmark.json`, per-run request logs, transcripts,
+diagnostics), the server and harness logs and `compare_v3_A.json`.
+
+```
+python compare_games.py v3=<dfranzen v3 benchmark.json> A=results/kaggle-20261006/runA/benchmark.json \
+    --games tu93,cd82,re86,dc22,ls20,sb26,tr87
+```
+
+| game | v3 (full model) | A (256 experts) |
+|---|---|---|
+| cd82 | 81.2 (78/88/99/59) | 13.1 (1/7/44/1) |
+| dc22 | 42.5 (48/48/46/29) | 37.3 (48/14/48/40) |
+| ls20 | 26.9 (16/28/25/38) | 24.5 (36/6/28/29) |
+| re86 | 62.9 (58/57/58/78) | 45.2 (49/58/40/33) |
+| sb26 | 93.2 (100/79/100/94) | 67.5 (3/72/97/98) |
+| tr87 | 92.3 (100/100/71/98) | 75.5 (100/100/56/46) |
+| tu93 | 83.7 (85/69/94/88) | 58.4 (92/33/29/80) |
+| **mean** | **68.97**, 14/28 won | **45.95**, 6/28 won |
+
+Difference **-23.0 +- 5.4** (paired over games, SE from pass-to-pass
+variance). Both runs generated about the same tokens per run (215K vs
+210K), so the comparison is at equal compute; the pruned model's 2.9x
+throughput went into running 20 games at once instead of more tokens per
+game. The pruned model takes 20-60% more actions on the same tokens (e.g.
+re86 829 vs 528, ls20 616 vs 426), so it reasons less per action.
+Speculative accept length 2.63 (2.68-2.75 with the full model).
+
+Pruning to 256 experts as is loses about a third of the score. The held-out
+NLL cost (+0.067) did not predict this. Options: a milder cut (384 cost
++0.012 NLL), recovering the quality by fine-tuning the pruned model, or a
+same-day full-model run to rule out drift against v3 (v3 was played in an
+earlier session; its pass-to-pass spread is in the SE).
