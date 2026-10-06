@@ -397,3 +397,14 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     clause should come first in the refusal case: at a refused move, list the board objects never
     touched (from the recording's segmentation: pieces whose cells the player never overlapped) in
     the FIT or PLAN message.
+40. **An unexplained refusal instead of a forced rule.** When the replica predicted a solve and the
+    game refused (nothing happened), the fit round forces a committed explanation before any move;
+    in the B rerun three refusals became three increasingly wrong lock rules at 14, 5 and 14 turns
+    each (see exp/v12-forks.md, "Anatomy of a fit round"). Let the model mark such a step
+    unexplained (the out-of-step mechanism) and probe, so the refusal is explained once the real
+    mechanic is found.
+41. **Trimmed-reasoning markers can confuse a turn.** B rerun turn 192's reasoning opens with "The
+    user hasn't asked anything substantive yet, the message is just system instructions" after
+    several turns shown as "[earlier reasoning trimmed] ...". The rebuilt-context mode leaves such a
+    marker on every old turn: count such turns in its runs, and consider dropping old reasoning
+    without a marker.

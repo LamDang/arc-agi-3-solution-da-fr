@@ -378,3 +378,36 @@ baseline (159 against 73). What is still missing:
 - **Prompt numbering**: `_PLAY_PLAN_RULES` (prompts.py) continues at "5." after rule 6, so the plan
   rules read 1-6, 5-11.
 - n = 1 at temperature 0.7: the lost press at step 100 and the order of the tests are samples.
+
+## Anatomy of a fit round: the step-133 refusal in the B rerun (turns 180-194)
+
+Why a wrong hypothesis costs 50 turns: of the 56 turns between the correct hypothesis (turn 181,
+"something must recolour the legend; the patch is the candidate") and the patch (turn 236), 11 were
+batches of play and 38 were fit rounds. Each refusal at the room is a mismatch (the replica predicts
+a solve, the game shows nothing), a fit round opens, and no move can be sent until engine.py
+reproduces the refusal. The round after step 133 took 14 turns:
+
+| turns | what happened |
+| --- | --- |
+| 180-183 | Re-checking evidence the FIT message already gave: the legend's pixels at eight earlier steps, the room box pixel by pixel, the block's position against the walkable cells, a diff of step 78 against step 133. Conclusion at 183: "the win cell is right and was refused, so the lock condition is unmet". |
+| 184-187 | Route planning inside the fit round: breadth-first distances over the maze (one script crashed on an unpacking error); at 186 the bar is nearly empty, so any new route needs a lost press first; at 187 two candidates are costed, rings-then-room at 30 presses against patch-ring-room at 36 presses plus two dial hits. The cheaper one wins: the right hypothesis loses to the wrong one on price. |
+| 188 | read_file of the lock code. |
+| 189-192 | One three-line edit ("the room opens when the dial matches and every ring is collected"): the first attempt raised a syntax error in the pasted text, the second quoted an old text that did not match the file, the third replaced the lines through a hand-written substitution. The automatic test after the edit passed all 134 steps. |
+| 193-194 | The 29-press route replayed on the replica; commit_engine with a message naming the refusal as "a second part of the lock". |
+
+Four turns of redundant verification, four of route planning that would have been needed anyway,
+four lost to the editor, two of real work. The committed rule was wrong, and the next two refusals
+(steps 164 and 208) repeated the pattern with 5 and 14 turns, each ending in a more elaborate wrong
+lock. The model treats "nothing happened" as a rule to encode; the fit-first discipline makes it
+encode one before it may probe.
+
+Two changes follow (follow-ups 39 and 40): at a refusal the harness names the board objects the
+player has never touched, and when the replica predicted a solve and the game refused, the model may
+mark the step unexplained (as the out-of-step mode does) and go probe instead of committing an
+explanation first.
+
+An oddity seen at turn 192: the reasoning opens with "The user hasn't asked anything substantive
+yet, the message is just system instructions", a sign that the "[earlier reasoning trimmed]" markers
+of the compacted context confused the model for one turn; it recovered on the next call. The
+rebuilt-context mode leaves such a marker on every old turn, so this is worth watching there
+(follow-up 41).
