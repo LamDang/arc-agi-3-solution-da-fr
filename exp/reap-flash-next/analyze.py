@@ -12,7 +12,8 @@ layer is its top-N experts; every layer keeps the same N.
 Cross-validation leaves one game out: experts are chosen from the other
 games' statistics, then measured on the held-out game by coverage, the share
 of its router weight (sum of g over routed tokens) that lands on kept
-experts. The gap to in-sample coverage estimates what an unseen game loses.
+experts. Coverage needs no GPU, so it is a quick screen; what pruning costs
+is measured by held-out NLL in prune_eval.py, which is what decisions use.
 """
 from __future__ import annotations
 

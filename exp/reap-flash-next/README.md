@@ -181,10 +181,13 @@ next-token NLL increase over the full model (lower is better):
 - Noise floor: replaying the full model twice gives 96-100% top-1 agreement
   (GPU kernels are not bitwise deterministic) and NLL within 0.0007. Compare
   agreement figures with that, not with 1.0; NLL is the reliable measure.
-- Router-weight coverage on the smoke statistics, leave one game out:
-  `gate_norm` keeps 0.871 at 256 experts (worst layer 0.757) against 0.752
-  (0.627) for REAP. Its in-sample/held-out gap is larger (0.025 vs 0.011), so
-  it should gain more from the full 100-run statistics.
+- The metric is held-out NLL: rankings and expert counts are chosen by it,
+  never by the coverage `analyze.py` prints. Coverage (share of router weight
+  on kept experts) needs no GPU, so it is a quick screen, but it is not what
+  pruning costs: `gate` maximizes it by construction and still lost to
+  `gate_norm` on NLL. The ranking was chosen on the same three games it is
+  reported on, so the final choice should be confirmed on games not used for
+  any decision, and in the end on game scores.
 
 Statistics from these runs (`kaggle_v3` ar25, bp35, cd82, dc22, g50t, re86,
 tn36, tu93, plus the smoke runs) are in `reap_results.zip` from the session,
