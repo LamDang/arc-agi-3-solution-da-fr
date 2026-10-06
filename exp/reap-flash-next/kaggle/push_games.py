@@ -1,19 +1,24 @@
 """Play ARC-AGI-3 games with a pruned Flash-Next: dfranzen's submission notebook
 with one step added before the server starts.
 
-    python kaggle/push_games.py --fold a --keep 256 [--passes 4] [--maxreq 10] [--no-push]
+    python kaggle/push_games.py --fold all --keep 256 --passes 2 --maxreq 20 [--no-push]
+    python kaggle/push_games.py --fold a --keep 256 [--passes 4] [--maxreq 10]
     python kaggle/push_games.py --fold a --keep 512        # same games, unpruned baseline
 
-The added cell ranks experts from the REAP statistics of the games this run
-does NOT play (output of the `lamdang/reap-flash-next` kernel run with
-kaggle/calib.json), writes the pruned checkpoint to /tmp with
+The added cell ranks experts from the REAP statistics of the calibration
+statistics (output of the `lamdang/reap-flash-next` kernel run with
+kaggle/calib.json; with folds, only of the games this run does not play), writes the pruned checkpoint to /tmp with
 prune_checkpoint.py, and points MODEL_DIR at it. Everything else (harness,
 SGLang build and flags, speculative decoding, per-game time budget scaled to
 the competition's) is dfranzen's notebook as published, so scores compare
 with its v3 run (25 games x 4 passes, mean 46.49).
 
-Folds split the 25 public games in two (a: 13, b: 12). Running both folds
-plays every game with experts chosen without it. `--maxreq` sets the number of
+`--fold all` plays all 25 games with experts ranked from every game's
+statistics (the calibration traces and the games played are the same 25, a
+small optimism we accept). Folds a (13 games) and b (12) instead rank
+without the games played; running both plays every game held out. Wall time
+is about 532 min x runs / 110 (the per-game budget is scaled to the
+competition's GPU share): 25 games x 2 passes take about 4 hours. `--maxreq` sets the number of
 concurrent decoding requests: SGLang --max-running-requests, the harness's
 active streams, the linear-attention state cache (6 slots per request, as in
 dfranzen's 60 for 10) and the CUDA graph batch sizes. 10 is dfranzen's
@@ -33,7 +38,7 @@ import push  # noqa: E402
 
 GAMES = ("ar25 bp35 cd82 cn04 dc22 ft09 g50t ka59 lf52 lp85 ls20 m0r0 r11l re86 s5i5 sb26 sc25 sk48 sp80 su15 "
          "tn36 tr87 tu93 vc33 wa30").split()
-FOLDS = {"a": GAMES[0::2], "b": GAMES[1::2]}
+FOLDS = {"a": GAMES[0::2], "b": GAMES[1::2], "all": GAMES}
 SOURCE = "dfranzen/arc-agi-3-milestone-2-solution"
 STATS_KERNEL = "lamdang/reap-flash-next"
 
@@ -54,7 +59,8 @@ if PRUNED_RUN["keep"] < 512:
     _out = f"/tmp/flash-next-pruned-{PRUNED_RUN['keep']}"
     subprocess.run([sys.executable, str(_code / "prune_checkpoint.py"), "--model-dir", MODEL_DIR,
                     "--stats-dir", _stats[0], "--keep", str(PRUNED_RUN["keep"]), "--out", _out,
-                    "--criterion", PRUNED_RUN["criterion"], "--exclude-games", ",".join(PLAY_GAMES)], check=True)
+                    "--criterion", PRUNED_RUN["criterion"]]
+                   + ([] if PRUNED_RUN["fold"] == "all" else ["--exclude-games", ",".join(PLAY_GAMES)]), check=True)
     import shutil as _shutil
     _shutil.copy(Path(_out) / "keep.json", WORKING_DIR / "keep.json")
     MODEL_DIR = _out
@@ -122,7 +128,7 @@ def main():
     parser.add_argument("--fold", choices=sorted(FOLDS), required=True)
     parser.add_argument("--keep", type=int, default=256, help="experts per layer; 512 = unpruned baseline")
     parser.add_argument("--criterion", default="gate_norm")
-    parser.add_argument("--passes", type=int, default=4)
+    parser.add_argument("--passes", type=int, default=2)
     parser.add_argument("--maxreq", type=int, default=10)
     parser.add_argument("--user", default="lamdang")
     parser.add_argument("--kernel", help="default: flash-next-games-<keep>-<fold>")
