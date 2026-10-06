@@ -1841,6 +1841,15 @@ def test_the_raise_warning_and_the_verdict_on_levels(tmp_path: Path, environment
     out = _texts(agent, "tool")[-1]
     assert ("#3 Action(4): differs from your prediction: the final frame differs; the game solved level 0; your replica did not "
             "(levels completed: the game says 1, your replica 0)") in out
+    # The level-opening FIT message names the engine.py constants the new board's pieces match (v11 follow-up 1): the
+    # player's 1x1 blue constant of level 0 (as it is); the red wall matches none (a solid bar is never recoloured).
+    from engine_re.auto_sprites import shape_name
+
+    fit = " ".join(_texts(agent)[-1].split())
+    assert "It solves level 0: the frame after it is level 1's first frame, which make_level(1) must draw" in fit
+    assert (f"(recording[-1]). The new board's pieces match these engine.py constants: {shape_name(('9',))}; 1 piece matches none "
+            "(8x1 red at (0, 7)). Combine the constants into the new level's sprites and draw the rest from "
+            "recording[-1].pieces_after.code(). What the recorded step changed (objects): it enters level 1.") in fit
 
 
 def test_the_play_system_prompt_has_the_base_harness_guidance() -> None:
@@ -1961,6 +1970,17 @@ def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Pat
     assert "Inspect the new board for an unfamiliar element, a visual change (a colour, a frame, a legend), a changed" in plan
     assert "Reassess the goal: does the previous objective still apply, now requiring the new mechanics" in plan
     assert "Unfamiliar elements" not in plan and "You have completed the previous level" not in users[1]
+    # Under it, the level-start nudge (v11 follow-up 1): which engine.py constants the new board's pieces match (the
+    # opening's 1x1 blue player constant, as it is) and which match none (the red wall: a solid bar is never recoloured).
+    from engine_re.auto_sprites import shape_name
+    from engine_re.prompts import KINDS_HEAD
+
+    flat = " ".join(plan.split())
+    assert (f"Combine retained knowledge with new findings to plan for this board. {KINDS_HEAD} {shape_name(('9',))}; 1 piece "
+            "matches none (8x1 red at (0, 7)). Combine the constants into the new level's sprites and draw the rest from "
+            "recording[-1].pieces_after.code(). ") in flat, flat
+    assert plan.count(KINDS_HEAD) == 1 and KINDS_HEAD not in users[1]
+    assert plan.index("You have completed the previous level") < plan.index(KINDS_HEAD) < plan.index("Work out the next moves")
     sprites = plan[plan.index("Your replica's sprites now"):]
     assert sprites == ("Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={'player': #2}:\n"
                        '  [0] "border" tags=[] 64x64 colour 3 (dark grey) at (0, 0) layer -2 inert screen\n'
@@ -2041,6 +2061,41 @@ def test_the_plan_messages_sprite_list_on_the_sp80_engine() -> None:
     assert colour_text({}) == "" and colour_text(None) == ""
     pieces = pieces_list_text(sub)
     assert pieces.startswith(PIECES_HEAD + "\n  ") and "pieces on a 20x20 grid at scale 3, offset (2, 2)" in pieces.splitlines()[1]
+
+
+def test_the_level_start_nudge_names_the_engine_constants_the_new_board_matches() -> None:
+    """v11 follow-up 1 on the sp80 fixture: engine.py's pixel constants read from the file (auto_sprites.pixel_constants,
+    no code run) and, at a level start, which of them the new board's pieces match (prompts.level_kinds_text, the matcher
+    of pieces_after.code(): as they are, turned, scaled, recoloured), and the pieces that match none."""
+    from engine_re.auto_sprites import pixel_constants
+    from engine_re.prompts import KINDS_HEAD, entered_level, level_kinds_text, level_start_text
+    from engine_re.trace import Trace
+
+    constants = pixel_constants((SP80 / "engine_committed.py").read_text())
+    assert set(constants) == {"CAP", "SOURCE", "BAR", "BIN", "BLOCK"} and constants["BIN"] == ["b.b", "bbb"] and constants["BAR"] == ["99999"]
+    source = 'A = ("9",)\nB = ("55",) * 2\nC = [[1, -1], [1, 1]]\n_D = ("9",)\nE = ("9", "99")\nF = 3\nG = [str(i) for i in range(2)]\n'
+    assert pixel_constants(source) == {"A": ["9"], "B": ["55", "55"], "C": [[1, -1], [1, 1]]}  # not _D, a ragged E, F, a comprehension
+    assert pixel_constants("def f(:\n") == {}
+    trace = Trace.load(SP80 / "trace")
+    starts = trace.level_starts()
+    assert starts[1] == 11 and starts[4] == 122
+    sub = Trace(trace.game_id, trace.steps[:12], trace.meta)  # steps 0-11: step 11 enters level 1
+    assert entered_level(sub) and not entered_level(Trace(trace.game_id, trace.steps[:11], trace.meta))
+    text = level_kinds_text(sub, constants)
+    flat = " ".join(text.split())
+    assert flat == (f"{KINDS_HEAD} BIN x3 (three turned 180), BLOCK x2, BAR, SOURCE, CAP; 2 pieces match none (16x1 light grey at "
+                    "(0, 0), 64x1 green screen piece at (0, 63)). Combine the constants into the new level's sprites and draw the rest "
+                    "from recording[-1].pieces_after.code().")
+    assert len(text.splitlines()) <= 8 and all(len(line) <= 118 for line in text.splitlines())
+    assert level_start_text(sub, images=False, kinds=text).endswith("to plan for this board.\n\n" + text)
+    last = Trace(trace.game_id, trace.steps[:123], trace.meta)  # step 122 enters level 4
+    flat = " ".join(level_kinds_text(last, constants).split())
+    assert flat.startswith(f"{KINDS_HEAD} BIN x4 (three turned 180, one turned 90), BLOCK, BAR, SOURCE x2, CAP x2; 4 pieces match none (")
+    assert flat.endswith("2x2 purple at (10, 13), ...). Combine the constants into the new level's sprites and draw the rest from "
+                         "recording[-1].pieces_after.code().")
+    assert level_kinds_text(sub, {}) == "" and level_kinds_text(Trace(trace.game_id, [], trace.meta), constants) == ""
+    none = " ".join(level_kinds_text(sub, {"ODD": ["7777", "7..7"]}).split())
+    assert none.startswith("None of the new board's ") and none.endswith("draw them from recording[-1].pieces_after.code().")
 
 
 def test_the_fit_reports_sprite_by_sprite_reconciliation_on_the_sp80_engine(tmp_path: Path) -> None:

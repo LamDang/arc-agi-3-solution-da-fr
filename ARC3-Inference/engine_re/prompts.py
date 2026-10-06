@@ -24,6 +24,8 @@ from __future__ import annotations
 import copy
 import json
 import textwrap
+from collections import Counter
+from typing import Any
 
 import numpy as np
 
@@ -1268,6 +1270,7 @@ Work out the next moves on your replica, then {send}"""
 def mismatch_message(
     trace: Trace, k: int, verdict: str, dropped: int, report: str, engine_read: str = "", kernel_names: str = "",
     auto_reset: bool = True, engine_note: str = "", predicted: bool = True, support_note: str = "", budget_line: str = "",
+    level_kinds: str = "",
 ) -> str:
     """The FIT message after a move went differently from the replica's prediction: step k (the last step
     played), what differed (`verdict`, one line), how many moves of the batch were not sent, what the step
@@ -1275,7 +1278,8 @@ def mismatch_message(
     `predicted` False: no prediction was made (a step played out of step, or found when a run resumed); the
     replica as it is now does not reproduce step k. `support_note`: what the move's prediction rested on
     (support.mismatch_support_text). `budget_line`: the play agent's budget and state line, given after a batch
-    (under the "Step k:" line)."""
+    (under the "Step k:" line). `level_kinds`: when step k entered a new level, the paragraph naming the engine.py
+    constants its first frame's pieces match (level_kinds_text), its own paragraph after the `recording` line."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     notes = []
@@ -1299,7 +1303,7 @@ def mismatch_message(
 Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.{animation_note(trace, k, report)}{(chr(10) + budget_line) if budget_line else ""}
 What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + "Support: " + support_note + ".") if support_note else ""}
 `recording` now holds steps 0-{k}, and `step_to_fix` is step {k} (recording[-1]).
-
+{(chr(10) + level_kinds + chr(10)) if level_kinds else ""}
 {step_objects(trace, k)}
 
 The test report:
@@ -1397,6 +1401,91 @@ def pieces_list_text(trace: Trace) -> str:
     return PIECES_HEAD + "\n" + "\n".join("  " + line for line in str(pieces).splitlines())
 
 
+# --- The level-start nudge (v11 follow-up 1): where the new board's shapes already are in engine.py ------------
+
+KINDS_HEAD = "The new board's pieces match these engine.py constants:"
+KINDS_LISTED = 12  # constants named at most
+KINDS_UNMATCHED = 3  # pieces matching none described at most
+_COUNT_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+
+
+def _count_word(n: int) -> str:
+    return _COUNT_WORDS.get(n, str(n))
+
+
+def _reuse_words(p: Any) -> str:
+    """How a piece is drawn from its constant: 'turned 270', 'mirrored', 'scaled 2', 'recoloured 9->12', joined
+    with 'and'; "" when as it is."""
+    t = getattr(p, "transform", None) or {}
+    words = []
+    if t.get("rotation"):
+        words.append(f"turned {t['rotation']}")
+    if t.get("mirror_ud") or t.get("mirror_lr"):
+        words.append("mirrored")
+    if t.get("scale", 1) != 1:
+        words.append(f"scaled {t['scale']}")
+    if t.get("recolour"):
+        words.append("recoloured " + ", ".join(f"{a}->{b}" for a, b in t["recolour"].items()))
+    return " and ".join(words)
+
+
+def _piece_words(p: Any) -> str:
+    """'2x2 purple at (10, 13)', '1x31 yellow screen piece at (0, 2)'."""
+    colour = COLOR_NAMES.get(int(p.colour), f"colour {p.colour}")
+    return f"{p.width}x{p.height} {colour}{' screen piece' if p.screen else ''} at ({p.x}, {p.y})"
+
+
+def level_kinds_text(trace: Trace, constants: dict, limit: int = KINDS_LISTED, width: int = 118) -> str:
+    """The level-start paragraph naming which of engine.py's pixel constants (`constants`: name -> rows, as
+    auto_sprites.pixel_constants reads them from the file) the new board's pieces match, from the matcher
+    pieces_after.code() uses to reuse engine kinds (auto_sprites.plan_sprites: as they are, turned or mirrored,
+    scaled, recoloured), and the pieces that match none; "" when engine.py has no pixel constant, the trace is empty
+    or the segmentation cannot read the frame. v11 follow-up 1: the model redrew every later level by hand (11-22
+    turns a level) instead of combining the constants it already had."""
+    if not constants or not len(trace.steps):
+        return ""
+    k = len(trace.steps) - 1
+    frame = trace.steps[k].last
+    if frame is None:
+        return ""
+    try:
+        grid = segment.Segmenter(trace).grid(segment.shown_level(trace, k))
+        pieces = segment.pieces(frame, grid, known=constants)
+    except Exception:  # noqa: BLE001  (help, not the loop)
+        return ""
+    objects = [p for p in pieces if p.role == "object"]
+    matched: dict[str, list] = {}
+    unmatched = []
+    for p in objects:
+        if p.shape in constants:
+            matched.setdefault(p.shape, []).append(p)
+        else:
+            unmatched.append(p)
+    if not objects:
+        return ""
+    if not matched:
+        text = (f"None of the new board's {len(objects)} pieces matches an engine.py pixel constant (as it is, turned, scaled "
+                "or recoloured): draw them from recording[-1].pieces_after.code().")
+        return textwrap.fill(text, width)
+    items = []
+    for name, group in matched.items():
+        hows = Counter(_reuse_words(p) for p in group if _reuse_words(p))
+        item = f"{name} x{len(group)}" if len(group) > 1 else name
+        if hows:
+            item += " (" + ", ".join(f"{_count_word(n)} {how}" for how, n in hows.items()) + ")"
+        items.append(item)
+    listed = ", ".join(items[:limit]) + (f", ... and {len(items) - limit} more" if len(items) > limit else "")
+    if unmatched:
+        shown = ", ".join(_piece_words(p) for p in unmatched[:KINDS_UNMATCHED]) + (", ..." if len(unmatched) > KINDS_UNMATCHED else "")
+        n = len(unmatched)
+        text = (f"{KINDS_HEAD} {listed}; {n} piece{'s' if n > 1 else ''} match{'' if n > 1 else 'es'} none ({shown}). Combine the "
+                "constants into the new level's sprites and draw the rest from recording[-1].pieces_after.code().")
+    else:
+        text = (f"{KINDS_HEAD} {listed}; every piece matches one. Combine the constants into the new level's sprites "
+                "(recording[-1].pieces_after.code() writes them so).")
+    return textwrap.fill(text, width)
+
+
 # --- The kernel restarted after a timeout (18, 26): what was lost, what is back ------------------------------
 
 RESTART_NOTE = (
@@ -1491,11 +1580,17 @@ Reassess the goal: does the previous objective still apply, now requiring the ne
 a different objective? Combine retained knowledge with new findings to plan for this board."""
 
 
-def level_start_text(trace: Trace, images: bool = True) -> str:
-    """LEVEL_START_PLAY when the last step played entered a new level (it solved one and the game goes on); ""
-    otherwise. (The board's sprites come with the frame: the play agent's sprite list, sprite_list_text.)"""
+def entered_level(trace: Trace) -> bool:
+    """Whether the last step played entered a new level: it solved one and the game goes on."""
     steps = trace.steps
-    if len(steps) < 2 or steps[-1].levels_completed <= steps[-2].levels_completed or steps[-1].state == "WIN":
+    return len(steps) >= 2 and steps[-1].levels_completed > steps[-2].levels_completed and steps[-1].state != "WIN"
+
+
+def level_start_text(trace: Trace, images: bool = True, kinds: str = "") -> str:
+    """LEVEL_START_PLAY when the last step played entered a new level (entered_level), followed by `kinds` (the
+    paragraph naming the engine.py constants the new board's pieces match, level_kinds_text) when given; ""
+    otherwise. (The board's sprites come with the frame: the play agent's sprite list, sprite_list_text.)"""
+    if not entered_level(trace):
         return ""
     shown = "the image below shows this new board" if images else "show_frames(recording[-1].after) shows this new board"
     return LEVEL_START_PLAY.replace("__SHOWN__", shown)
@@ -1517,11 +1612,12 @@ def notes_block(notes: str | None, limit: int = PLAN_NOTES_LINES) -> str:
     return "notes.md (your goal model, open questions and plan):\n" + "\n".join("  " + line for line in lines[:limit]) + cut
 
 
-def plan_additions(text: str, trace: Trace, notes: str | None = None, images: bool = True) -> str:
+def plan_additions(text: str, trace: Trace, notes: str | None = None, images: bool = True, kinds: str = "") -> str:
     """A PLAN message (plan_message) with the ported additions: after its first paragraph, the level-start paragraph
-    when the last step entered a new level (level_start_text); before the engine.py listing (or the closing paragraph
-    when there is none), notes.md (notes_block). Compaction (elide_engine_listing) keeps both."""
-    level = level_start_text(trace, images)
+    when the last step entered a new level (level_start_text, with `kinds`: the engine.py constants the new board's
+    pieces match, level_kinds_text); before the engine.py listing (or the closing paragraph when there is none),
+    notes.md (notes_block). Compaction (elide_engine_listing) keeps both."""
+    level = level_start_text(trace, images, kinds)
     if level and "\n\n" in text:
         head, rest = text.split("\n\n", 1)
         text = f"{head}\n\n{level}\n\n{rest}"

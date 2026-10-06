@@ -17,6 +17,11 @@ changed during the run. Ordered by the turns they cost.
    the generator's cut. Instead a nudge in the level-start message naming where the shapes already
    are ("the board's pieces match these engine.py constants: BAR, BIN (turned), ...; combine them
    into the new sprites, and draw what is left from recording[-1].pieces_after.code()").
+   **Done (v12):** `prompts.level_kinds_text` (the constants read from engine.py's source by
+   `auto_sprites.pixel_constants`, matched by the generator's own matcher) under the level-start
+   paragraph of the PLAN message and in the level-opening FIT message; on sp80 level 1: "BIN x3
+   (three turned 180), BLOCK x2, BAR, SOURCE, CAP; 2 pieces match none (16x1 light grey at (0, 0),
+   64x1 green screen piece at (0, 63))".
 2. **Compaction has a floor that rises with the turns.** `_compact` trims in place and never
    drops anything: a 1,200-char tail of every old reasoning block (172 turns = ~42K tokens on
    sp80), a 200-char stub of every old tool output (~10K), the shortened arguments of every past

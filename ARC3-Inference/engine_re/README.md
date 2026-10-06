@@ -584,9 +584,16 @@ before its first predicted board no-op (the frame unchanged outside the screen-l
 goes as a probe). After a batch its output carries the budget line and what the batch changed on the board;
 the FIT message that follows a batch has the budget line too, and its report a sprite-by-sprite reconciliation
 of the replica's sprites with the game's frame (moved, recoloured, absent, or a piece no sprite draws). Each
-PLAN message shows `notes.md` (the model's goal model, open questions and plan; 40 lines at most), the
-replica's sprite list under the frame (the segmentation's pieces when out of step) and, after a solved level,
-the base's level-start paragraph. A python cell has 120 s; after a timeout the kernel restarts and the
+PLAN message shows `notes.md` (the model's goal model, open questions and plan; 40 lines at most; the file starts
+empty and the model writes its own headings, v11 follow-up 11), the replica's sprite list under the frame (the
+segmentation's pieces when out of step) and, after a solved level, the base's level-start paragraph followed by the
+level-start nudge (v11 follow-up 1, `prompts.level_kinds_text`): which of engine.py's pixel constants (read from the
+file's source by `auto_sprites.pixel_constants`, no code run) the new board's pieces match, by the matcher
+`pieces_after.code()` reuses them with (as they are, turned or mirrored, scaled, recoloured), and the pieces that
+match none ("The new board's pieces match these engine.py constants: BIN x3 (three turned 180), BLOCK x2, BAR,
+SOURCE, CAP; 2 pieces match none (16x1 light grey at (0, 0), 64x1 green screen piece at (0, 63)). Combine the
+constants into the new level's sprites and draw the rest from recording[-1].pieces_after.code()."); the FIT message
+of the step that solved the level carries the same paragraph. A python cell has 120 s; after a timeout the kernel restarts and the
 earlier cells are re-run in it, the message naming what was lost and what is back.
 
 ```bash

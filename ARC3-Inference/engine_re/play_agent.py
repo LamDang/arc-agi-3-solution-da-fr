@@ -100,7 +100,8 @@ from engine_re.prompts import (
     commit_moves_description, kernel_names_text, mismatch_message, move_text, noop_cut_text, pieces_list_text, plan_last_batch,
     plan_message, sprite_list_text, tools,
 )
-from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, plan_additions
+from engine_re.auto_sprites import pixel_constants
+from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, entered_level, level_kinds_text, plan_additions
 from engine_re.skeleton import render_skeleton
 from engine_re.tester import HUD_BORDER, StepCheck, check_step, predict, replay_test, replica_state
 from engine_re.trace import Action, Trace, action_code, parse_moves
@@ -834,6 +835,17 @@ class PlayAgent(EngineAgent):
             self.workspace.mkdir(parents=True, exist_ok=True)
             path.write_text(NOTES_TEMPLATE, encoding="utf-8")
 
+    def _level_kinds(self) -> str:
+        """The level-start nudge (prompts.level_kinds_text, v11 follow-up 1): which of engine.py's pixel constants
+        (auto_sprites.pixel_constants, read from the file) the new board's pieces match, when the last step played
+        entered a new level; "" otherwise, or when it cannot be made (help, not the loop)."""
+        if not entered_level(self.full_trace):
+            return ""
+        try:
+            return level_kinds_text(self.full_trace, pixel_constants(self.engine_path.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001
+            return ""
+
     # --- phases ----------------------------------------------------------------------------------
 
     def _budget_line(self) -> str:
@@ -945,7 +957,7 @@ class PlayAgent(EngineAgent):
             engine_note=self._engine_note(), images=self.images,
             support_note=self._plan_support() if self.out_of_sync is None else "",
         )
-        text = plan_additions(text, self.full_trace, notes=self._notes(), images=self.images)
+        text = plan_additions(text, self.full_trace, notes=self._notes(), images=self.images, kinds=self._level_kinds())
         self._log({"turn": self.result.turns, "plan": {"step": n - 1, "steps": n, "actions": self.live.actions, "level": self.live.level,
                                                         "out_of_sync": self.out_of_sync}})
         if say:
@@ -989,6 +1001,7 @@ class PlayAgent(EngineAgent):
             engine_note=self._engine_note(report=True), predicted=predicted,
             support_note=sup.mismatch_support_text(path, (self.support or {}).get("lines")),
             budget_line=self._budget_line() if after_batch else "",
+            level_kinds=self._level_kinds() if k == len(self.full_trace) - 1 else "",
         )
         self._log({"turn": self.result.turns, "step_start": {"step": k, "steps": len(self.full_trace), "report": report, "verdict": verdict}})
         if say:
