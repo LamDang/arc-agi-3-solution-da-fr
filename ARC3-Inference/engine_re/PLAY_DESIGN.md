@@ -482,9 +482,10 @@ shows `new`.
 - `tester.predict` is the same runner over the played actions plus the batch, so each planned move's path
   comes with no extra replay; `support.path_support` gives its weakest link (the least support of a line
   it ran), the untested and thin lines it runs and the compound conditions it relied on that were never
-  separated (it evaluated an operand that never decided them). The `commit_moves` output lists them
-  ("move 3 Action(5): first to run lines 512-518 (no step so far)"; "moves 1, 2: their paths are supported
-  by at least 41 steps each"), `batch_log` keeps a `support` entry per planned move (`weakest`,
+  separated (it evaluated an operand that never decided them). The `commit_moves` output lists them, each
+  move named by its step and action as the Sent lines name it (v12, item 10: "#32 Action(5): first to run
+  lines 512-518 (no step so far)"; "#30 Action(1), #31 Action(4): their paths are supported by at least 41
+  steps each"), `batch_log` keeps a `support` entry per planned move (`weakest`,
   `weakest_lines`, `untested`, `thin`, `unseparated`), the mismatch message says what the failing move's
   prediction rested on ("this step was the first to run lines 512-518"), and the fit round's test report
   lists the failing step's path with the support of its untested and thin lines.

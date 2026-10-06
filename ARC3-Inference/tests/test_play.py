@@ -1434,9 +1434,12 @@ def test_commit_moves_says_what_each_prediction_rests_on(tmp_path: Path, environ
     first = next(t for t in tools if t.startswith("Sent 3 of 4"))
     assert "Support of your replica's predictions (how many of the 1 recorded steps ran the code each move runs" in first
     head = _line(engine, "player = state.vars")
-    assert f"moves 1 Action(4), 2 Action(4), 4 Action(4): first to run lines {head}-" in first  # step() had never run
-    assert f"move 3 Action(4): first to run lines {head}-" in first and "(no step so far)" in first  # it solves the level too
-    assert "moves 1, 2, 3: their paths are supported by at least 3 steps each" in tools[-1]
+    # The moves are named as the Sent lines name them, by step and action (v11 follow-up 10): the first batch is steps 1-4.
+    assert f"\n  #1 Action(4), #2 Action(4), #4 Action(4): first to run lines {head}-" in first  # step() had never run
+    assert f"\n  #3 Action(4): first to run lines {head}-" in first and "(no step so far)" in first  # it solves the level too
+    assert "Sent 3 of 4 move(s) (steps 1-3):\n  #1 Action(4): matches" in first and "move 1" not in first and "moves 1" not in first
+    assert "\n  #4 Action(2), #5 Action(1), #6 Action(4): their paths are supported by at least 3 steps each" in tools[-1]
+    assert "Sent 3 of 3 move(s) (steps 4-6):\n  #4 Action(2): matches" in tools[-1]
     support = result.batch_log[1]["support"]
     assert [s["weakest"] for s in support] == [3, 3, 3] and all(s["untested"] == [] for s in support)
     assert result.batch_log[0]["support"][0]["untested"] and result.batch_log[0]["support"][0]["weakest"] == 0

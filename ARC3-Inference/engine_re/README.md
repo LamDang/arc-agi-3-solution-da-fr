@@ -480,7 +480,9 @@ recorded steps ran it: 0 untested, fewer than 3 thin; per `and`/`or`, whether th
 operands), saved beside the committed engine (`engine_committed.support.json`) and summarised in each
 `tests.jsonl` record. Each planned move's path is read against it from the prediction run itself: its
 weakest line, the untested lines it runs, the never-separated conditions it relies on, in the
-`commit_moves` output, `batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
+`commit_moves` output (each move named by its step and action as the Sent lines name it, "#30 Action(1): first to run
+lines ..." and "#31 Action(4), #32 Action(4): their paths are supported by at least 3 steps each"; v11 follow-up 10),
+`batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
 lists the thin rules on the last batch's path and among the outcome rules; listings and `read_file()`
 show the counts in a margin and, on every line of `step()` and the functions it calls, as a trailing
 `# support (n): ...` comment naming the last five steps that ran the line (`support.comments`; the comments

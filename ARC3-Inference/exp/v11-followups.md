@@ -59,6 +59,8 @@ changed during the run. Ordered by the turns they cost.
    **Done (v12):** `engine_re.PLAY_VERSION` and the git short sha: "engine_re.play_agent (v12, git 1a2b3c4)".
 10. **Support lines number moves by batch position** ("move 4") while the Sent lines use step
     numbers ("#30"); the well-supported summary line lacks the action name.
+    **Done (v12):** "#30 Action(1): first to run lines ..." and "#31 Action(4), #32 Action(4): their
+    paths are supported by at least 3 steps each".
 11. **notes.md headings duplicate**: the file is seeded with empty headings and the model appends
     its own below them. Seed with no headings, or merge on write.
 12. **The 1 px HUD tolerance** hides a constant 1 px offset in sp80's HUD model (steps 13-15,

@@ -544,9 +544,11 @@ class PlayAgent(EngineAgent):
                 "thin": ps["thin"][:60], "unseparated": ps["unseparated"][:6]}
 
     @staticmethod
-    def _support_lines(acts: list[Action], paths: list[dict[str, Any] | None], smap: dict[str, Any] | None) -> list[str]:
+    def _support_lines(acts: list[Action], paths: list[dict[str, Any] | None], smap: dict[str, Any] | None,
+                       first_step: int = 0) -> list[str]:
         """commit_moves' lines on what each move's prediction rests on: one per move whose path is thin, untested or
-        relies on a condition never separated, one for the others together."""
+        relies on a condition never separated, one for the others together. Each move is named as the Sent lines
+        name it, by its step and action ("#30 Action(1)"; `first_step`: the step the batch's first move would be)."""
         if smap is None or not any(paths):
             return []
         exe = smap.get("lines") or {}
@@ -554,21 +556,22 @@ class PlayAgent(EngineAgent):
                  "runs; thin: fewer than 3):"]
         solid = []
         weak: dict[str, list[str]] = {}  # the same words for several moves: one line
-        for j, (act, ps) in enumerate(zip(acts, paths), 1):
+        for j, (act, ps) in enumerate(zip(acts, paths)):
             if ps is None:
                 continue
+            label = f"#{first_step + j} {action_code(act)}"
             if ps["weakest"] is not None and ps["weakest"] >= sup.THIN_SUPPORT and not ps["unseparated"]:
-                solid.append((j, ps["weakest"]))
+                solid.append((label, ps["weakest"]))
                 continue
-            weak.setdefault(sup.move_support_text(ps, exe), []).append(f"{j} {action_code(act)}")
+            weak.setdefault(sup.move_support_text(ps, exe), []).append(label)
         for text, moves in weak.items():
-            lines.append(f"  move{'s' if len(moves) > 1 else ''} {', '.join(moves)}: {text}")
+            lines.append(f"  {', '.join(moves)}: {text}")
         if solid:
-            moves = ", ".join(str(j) for j, _ in solid)
+            moves = ", ".join(label for label, _ in solid)
             if len(solid) == 1:
-                lines.append(f"  move {moves}: its path is supported by at least {solid[0][1]} steps")
+                lines.append(f"  {moves}: its path is supported by at least {solid[0][1]} steps")
             else:
-                lines.append(f"  moves {moves}: their paths are supported by at least {min(w for _, w in solid)} steps each")
+                lines.append(f"  {moves}: their paths are supported by at least {min(w for _, w in solid)} steps each")
         return lines
 
     @staticmethod
@@ -623,7 +626,7 @@ class PlayAgent(EngineAgent):
         smap = self._fold(prediction, n)
         paths = self._move_paths(prediction, smap, n, len(acts))
         planned = list(acts)
-        self.batch_support = self._support_lines(acts, paths, smap)
+        self.batch_support = self._support_lines(acts, paths, smap, n)
         self.batch_cut = self.noop_cut = 0
         self.warnings = self._prediction_warnings(acts, prediction, frames, n) if note != AUTO_RESET_NOTE else []
         if keep is not None and 0 < keep < len(acts):  # cut before the first predicted board no-op (a probe goes alone)
