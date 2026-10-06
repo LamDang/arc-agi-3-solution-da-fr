@@ -158,20 +158,26 @@ REPLAY_DONE = (
     "The python kernel restarted and re-ran your {n} python cell{s} in order with file edits disabled, so your variables "
     "and functions are back{failed}."
 )
+# A forked run (engine_re.tools.fork_run): the cells' edits to notes.md and the other workspace files were applied.
+REPLAY_DONE_FILES = (
+    "The python kernel restarted and re-ran your {n} python cell{s} in order with edits to engine.py disabled (its versions "
+    "are kept) and the edits to notes.md and your other files applied, so your variables, functions and notes are back{failed}."
+)
 REPLAY_FAILED = "; cells that raised when re-run (as before, or because engine.py changed later): turn{s} {turns}"
 REPLAY_SKIPPED = " The last {n} cell{s} were not re-run (the replay's time ran out)."
 REPLAY_NONE = "The python kernel restarted (there were no python cells to re-run)."
 
 
-def resume_note(replay: dict[str, Any], names: str) -> str:
-    """RESUME_NOTE for a replay result (KernelClient.replay) and the kernel's names line (kernel_names_text)."""
+def resume_note(replay: dict[str, Any], names: str, files: bool = False) -> str:
+    """RESUME_NOTE for a replay result (KernelClient.replay) and the kernel's names line (kernel_names_text); `files`:
+    the replay applied the edits to files other than engine.py (a fork)."""
     n = int(replay.get("replayed") or 0)
     if not n and not replay.get("skipped"):
         text = REPLAY_NONE
     else:
         turns = sorted({int(f["turn"]) for f in replay.get("failed") or [] if f.get("turn") is not None})
         failed = REPLAY_FAILED.format(s="s" if len(turns) > 1 else "", turns=", ".join(map(str, turns))) if turns else ""
-        text = REPLAY_DONE.format(n=n, s="" if n == 1 else "s", failed=failed)
+        text = (REPLAY_DONE_FILES if files else REPLAY_DONE).format(n=n, s="" if n == 1 else "s", failed=failed)
         if replay.get("skipped"):
             text += REPLAY_SKIPPED.format(n=replay["skipped"], s="" if replay["skipped"] == 1 else "s")
     return RESUME_NOTE.format(replay=text, names=names)
@@ -528,6 +534,8 @@ class EngineAgent:
         self.pending_test: list[tuple[str, Path, bytes]] = []
         self.image_files: dict[str, str] = {}  # an image's data URL -> its saved file, for the transcript
         self.commit: dict[str, Any] | None = None  # stepwise: an accepted commit_engine, applied after the turn
+        # A resume's kernel replay applies the cells' edits to files other than engine.py (a fork: engine_re.tools.fork_run)
+        self.replay_files = False
 
     # --- tools -----------------------------------------------------------------
 
@@ -976,12 +984,13 @@ class EngineAgent:
         self.tested_hash = self.engine_hash_seen = self._engine_hash()
         # The kernel restarted empty: re-run the conversation's python cells (edits disabled), then say what it keeps.
         cells = state.get("cells") or []
-        replay = self.kernel.replay(cells)
+        replay = self.kernel.replay(cells, files=self.replay_files)
         self._log({"turn": self.result.turns, "replay": {
             "cells": len(cells), "replayed": replay.get("replayed", 0), "failed": replay.get("failed", []),
             "skipped": replay.get("skipped", 0), "seconds": replay.get("seconds", 0.0), **({"error": replay["error"]} if "error" in replay else {}),
+            **({"files": True} if self.replay_files else {}),
         }})
-        self._say("user", resume_note(replay, kernel_names_text(*self.kernel.names())))
+        self._say("user", resume_note(replay, kernel_names_text(*self.kernel.names()), files=self.replay_files))
         self._log({"turn": self.result.turns, "resumed": {"step": self.focus, "messages": len(self.messages)}})
         return True
 
