@@ -150,3 +150,11 @@ changed during the run. Ordered by the turns they cost.
     helpers' signatures. So: keep every commit message and every batch note with its outcome in
     the PLAN message (current level in full, earlier levels' commit messages only), plus the
     `plan` variable and the function listing for the rest.
+    Budget check against a 57K window, measured on this run: the system prompt is ~8.6K tokens,
+    the engine listing with its margin ~5-7K, the PLAN message body ~1.2K, a turn of conversation
+    ~1.5K (mean 1.7K / 1.5K on sp80 / ls20 over the last 30 turns, reasoning included). The
+    largest per-level log was ls20 level 2: 9 commit messages (~2.3K) and 21 batch notes (~1.7K);
+    all commit messages of a game at its end are 3.2K / 4.8K. So "all commit messages + the
+    current level's batch notes" is 4-7K at worst, and the window still holds 20-25 turns of
+    conversation. The cheaper variant, the current level's batches since the latest commit only,
+    is under 1K and loses little: a commit restates what the batches before it established.
