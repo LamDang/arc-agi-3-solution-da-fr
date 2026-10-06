@@ -49,9 +49,13 @@ changed during the run. Ordered by the turns they cost.
 
 ## Prompt
 
-13. **Nudge `traced()` in plan rule 2.** Neither game ever called `traced()` or `support()`: the
-    support text arrives for free only after a batch is sent, so the model sees a plan's weakest
-    link only after committing to it. "Rank the candidates your search finds with traced()".
+13. **Support per line in the code the model reads, instead of `traced()`.** Neither game ever
+    called `traced()` or `support()`. **Decided (v12):** remove both built-ins and their prompt text;
+    instead, when read_file or edit_file shows engine.py, every line of step() (and the functions it
+    calls) carries a trailing comment with its support: `# support (n): 31, 23, 15, 2 and 27 other`,
+    the number of passing steps that ran the line, then the last five of them newest first. The
+    support map keeps the first and last 4 steps per line (`STEPS_KEPT`, support.py:62): keep 5.
+    The margin counts stay.
 14. **Colour is part of a match.** ls20 noticed the orange legend against the blue room pattern
     (turns 185, 188) and dismissed it ("compares shapes only"); the object diff said "recoloured
     12->9" at step 210 and the model read it as a rotation. The base prompt's colour legend was
@@ -158,9 +162,18 @@ changed during the run. Ordered by the turns they cost.
     current level's batch notes" is 4-7K at worst, and the window still holds 20-25 turns of
     conversation. The cheaper variant, the current level's batches since the latest commit only,
     is under 1K and loses little: a commit restates what the batches before it established.
-    **Decided (v12):** the base agent's limits (22) with a drop-based drain to 57K (2), and the
-    PLAN message carrying every commit message of the game plus the current level's batch notes
-    with their outcomes since the latest commit.
+    **Decided (v12), revised:** no drain threshold; the context is rebuilt at every turn from the
+    transcript as: the system prompt; every commit_engine and commit_moves turn of the game (the
+    call and its output, without the reasoning); the current PLAN or FIT message at its place; every
+    turn since that message, the last 10 with their full reasoning, the earlier ones without.
+    Simulated on the v11 transcripts (chars/token calibrated on the real prompt at turn 30, 1K per
+    image): sp80 max 73K at turn 185, median 34K, 30K at turn 300 (v11 real: max 289K, median 157K);
+    ls20 max 68K at turn 232, median 33K, 36K at turn 300 (v11: 297K / 163K). At the max turn the
+    last 10 turns' reasoning is the bulk (44K / 30K, p90 reasoning 4.5K / 2.8K a turn), the commit
+    turns 12K / 16K, the phase message 6K / 3K. All commit turns at the end of the game: sp80 46
+    turns, 19K tokens (11K outputs, 8K arguments); ls20 56 turns, 24K (13K / 11K). The gap since the
+    last phase message was at most 32 / 41 turns, median 5. Never above 73K, so it fits the 128K cap
+    with room, and most turns are under 40K.
 24. **Add a sprite list to the PLAN message (the image stays).** The PLAN message attaches the current
     frame as a 512x512 image (`_frame_part`, play_agent.py); the FIT message's test report carries
     its own picture. Measured on this run: a turn that carries an image grows the prompt by
@@ -277,9 +290,25 @@ malformed call and no length finish in 600 turns of v11). What the base has and 
 
 ## Planned experiments (v12, awaiting approval)
 
-- **A. sp80, context:** 2, 22 (the 128K cap and the drain to 57K only; the per-response and
-  per-game caps stay at v11's 32K / 1.5M / 300 turns so the run isolates context handling), 23.
-- **B. ls20, prompt and messages:** prompt 13, 14, 16, 18, 19, 20, 21; messages 4, 5, 18's restart
-  message, 24, 25, 27 and 28 (after a batch only); harness 26, 30.
-- **C. sp80 and ls20, temperature:** v11 code at temperature 0, top-p 1 (v11: 0.7 / 0.95); rerun at
-  0.2 if a run loops.
+Not full runs: forks of the v11 run, resumed at a chosen turn with the change applied, 100 turns at
+most, compared with the same 100 turns of the v11 run (the reference window). A fork is a copy of
+the run directory truncated at turn T (transcript, tests, trace and visible_trace, engine.py at its
+version of turn T, the latest commit before T, notes.md rebuilt by replaying the notes edits of the
+cells up to T) that `run_play` resumes as it resumes any run (the real game replays the moves, the
+kernel replays the cells, the conversation is rebuilt under the policy in force). Base agent
+sampling, for reference: temperature 0.7, top-p 0.95, top-k 20 (the Kaggle config).
+
+- **A. context policy (23 revised):** two forks before a late breakthrough, where v11's prompt was
+  already 200K+: sp80 at turn 180 (level 2 solved at turn 210 in v11; window 180-280) and ls20 at
+  turn 100 (level 1 solved at turn 126; window 100-200). Measure: the same solve inside the window,
+  and the turns it takes.
+- **B. prompt and messages, with the harness items:** ls20 forked at turn 148, the first PLAN
+  message at level 2 (level 1 was solved at turn 126, the level-2 board drawn by turn 148); window
+  148-248, in which v11 never solved level 2. Changes: prompt 13 (support comments), 14, 16, 18, 19,
+  20, 21; messages 4, 5, 18's restart message, 24, 25, 27 and 28 (after a batch only); harness 26, 30.
+  Forking at 127 instead (the FIT message that opens level 2) would also test the drawing, with 1.
+- **C. temperature:** the two forks of A with the v11 code at temperature 0, top-p 1 (v11 and the
+  base agent: 0.7 / 0.95); rerun at 0.2 if a fork loops.
+
+Five forks of 100 turns: about a third of a game each, roughly $2 and 80 minutes per fork at v11's
+pace.
