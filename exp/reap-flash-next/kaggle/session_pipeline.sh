@@ -1,5 +1,5 @@
 #!/bin/bash
-# Overnight chain: calibration -> pruned server -> stream benchmark -> games -> wait for results to be fetched -> stop.
+# Overnight chain: calibration -> pruned server -> stream benchmark -> games. Nothing is shut down at the end.
 cd /kaggle/working
 echo "PIPELINE start $(date +%H:%M)"
 while kill -0 "$(cat calib_run.pid)" 2>/dev/null && ! grep -q CALIB_DONE calib_run.log; do sleep 30; done
@@ -14,8 +14,5 @@ echo "PIPELINE bench done $(date +%H:%M): $(grep -c '\[batch\]' bench_streams.lo
 echo "PIPELINE games start $(date +%H:%M) with $(cat streams.txt) streams"
 /usr/bin/python3 -u games.py > games.log 2>&1
 echo "GAMES_STATUS $? $(date +%H:%M)"
-# results are copied off the notebook from outside; wait up to 2 h for that, then free the GPU and end the session
-for i in $(seq 240); do [ -f fetched.flag ] && break; sleep 30; done
-echo "PIPELINE stopping $(date +%H:%M) (fetched: $([ -f fetched.flag ] && echo yes || echo no))"
-pkill -f 'sglang serve'; sleep 30
-pkill -f jupyter-server
+# no automatic shutdown: the session and the SGLang server stay up until stopped by hand
+echo "PIPELINE finished $(date +%H:%M); server left running"
