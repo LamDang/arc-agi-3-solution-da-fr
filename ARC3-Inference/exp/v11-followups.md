@@ -67,3 +67,17 @@ changed during the run. Ordered by the turns they cost.
 - Of the context kept in full after compaction (last 8 outputs, last 10 reasonings and calls),
   errored material is small: sp80 ~1.4K of ~14.6K tokens, ls20 ~0.3K of ~5K. The cost of errors is
   the turns, not the context.
+
+## Added after the run
+
+16. **Plan from the end state.** On sp80 the win is local to columns (each cavity needs a piece
+    end one column inside it with a clear drop; every other drop must land on a lower piece, never
+    on the drain; each source's drop must land on the chain), so the winning layouts can be
+    enumerated from the rules in milliseconds. The model got there by random placement sampling
+    through the pour simulator (60,000 trials, 69 layouts) after four nudges and a dozen crashed
+    move searches. A plan rule: when the goal is a configuration, enumerate the winning end states
+    from the rules first, then plan the route to the nearest one.
+17. **The replica is too slow to search directly.** A BFS over `replica.step` on deep copies of
+    the State hit the 120 s kernel timeout twice, so the model rewrote the level's rules as a
+    set-based fast model that diverged from the engine twice. A cheaper State copy, or a built-in
+    move search over `replica.step`, would remove the rewrite.
