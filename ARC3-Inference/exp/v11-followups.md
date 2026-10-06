@@ -158,3 +158,6 @@ changed during the run. Ordered by the turns they cost.
     current level's batch notes" is 4-7K at worst, and the window still holds 20-25 turns of
     conversation. The cheaper variant, the current level's batches since the latest commit only,
     is under 1K and loses little: a commit restates what the batches before it established.
+    **Decided (v12):** the base agent's limits (22) with a drop-based drain to 57K (2), and the
+    PLAN message carrying every commit message of the game plus the current level's batch notes
+    with their outcomes since the latest commit.
