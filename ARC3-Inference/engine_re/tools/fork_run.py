@@ -42,7 +42,10 @@ What the fork holds:
   wrote is left out. notes.md is written by the model's python cells (edit_file(path="notes.md", ...)), which a
   resume replays with edits disabled; the marker fork.json {"source", "turn", "steps"} makes the first resume's
   replay apply the edits to files other than engine.py (helpers.REPLAY_FILES), so notes.md and the other files
-  are rebuilt from the kept cells alone and nothing written after turn T leaks in; the marker is then removed.
+  are rebuilt from the kept cells alone and nothing written after turn T leaks in; the marker is then removed. The
+  same first resume regenerates the system message and the last PLAN or FIT message under the current prompts
+  (PlayAgent._fork_prompts; a resume otherwise sends the source's saved texts) and logs a "fork_prompts" record;
+  --dry-resume shows both.
 - artifacts/<game_id>_p0_events.jsonl (the viewer sidecar) is written from the kept trace when the real game
   is replayed (--no-verify skips it; a resume writes it anyway).
 - <out>/../config.json gets {"forks": {<game>: {"forked_from", "fork_turn", "steps"}}}; run_play keeps that key.

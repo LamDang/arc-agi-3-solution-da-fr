@@ -64,12 +64,15 @@ the turn, the budget the source had spent there, which the fork does not count: 
 minutes from the records after the transcript's "fork" record only; output tokens stay), and the marker fork.json
 makes the first resume's kernel replay apply the cells' edits to notes.md and the other workspace files (the fork's
 notes.md starts over as the template, so nothing written after the fork turn leaks in); the marker is then removed
-and a "fork" record logged. dry_resume() does everything a resume does up to the first request, for run_play's
---dry-resume.
+and a "fork" record logged. That first resume also regenerates the system message and the last PLAN or FIT message
+under the current code (_fork_prompts: a resume otherwise reuses the source's saved texts, so a changed prompt would
+never be sent), replacing them in place ("message" records with "replaces") and logging a "fork_prompts" record.
+dry_resume() does everything a resume does up to the first request, for run_play's --dry-resume.
 """
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import itertools
 import json
@@ -85,7 +88,7 @@ from engine_re import diff_report, hashline
 from engine_re import animation  # transient cells of a batch's animated moves
 from engine_re import support as sup
 from engine_re.agent import (
-    REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate,
+    REPORT_CHARS, AgentResult, Budget, EngineAgent, ModelConfig, OpenRouterClient, _truncate, message_chars, message_turn,
 )
 from engine_re.game_api import fixed_block_lines, sync_points
 from engine_re.helpers import PLAY_FUNCTIONS
@@ -93,8 +96,8 @@ from engine_re.kernel import KernelClient
 from engine_re.live_game import LiveGame
 from engine_re.prompts import (
     COMMIT_HINT_PLAY, FIT_ESCAPE, PLAN_NUDGE, RAISE_WARNING, accepted_actions_text, advance_message, batch_changes_text, batch_lines,
-    commit_moves_description, kernel_names_text, mismatch_message, move_text, noop_cut_text, pieces_list_text, plan_message,
-    sprite_list_text, tools,
+    commit_moves_description, kernel_names_text, mismatch_message, move_text, noop_cut_text, pieces_list_text, plan_last_batch,
+    plan_message, sprite_list_text, tools,
 )
 from engine_re.prompts import NOTES_FILE, NOTES_TEMPLATE, plan_additions
 from engine_re.skeleton import render_skeleton
@@ -109,6 +112,8 @@ PLAN_TURNS = 6  # turns of a plan round without commit_moves before the reminder
 COMMITTED_FILE = "engine_committed.py"  # the engine the predictions come from (the last that reproduced every step)
 SUPPORT_FILE = "engine_committed.support.json"  # its support map (engine_re.support), keyed by its sha256
 FORK_FILE = "fork.json"  # a fork not resumed yet (engine_re.tools.fork_run): the first resume rebuilds notes.md from the cells
+FORKED_HERE = "(forked here) The run continues from this state."  # a rebuilt PLAN message whose last-batch sentence is lost
+HEAD_CHARS = 200  # of a regenerated message, in dry_resume's summary
 PLAN_SUPPORT_LINES = 4  # thin or unseparated items the PLAN message lists at most
 OPENING_TEXT = (
     "The game has just started. Before your first turn the harness put level 0's first frame into make_level "
@@ -230,6 +235,7 @@ class PlayAgent(EngineAgent):
         # the last batch's prediction run, or a replay when a PLAN message needs it (the sprite list).
         self.replica_summary: tuple[str, int, dict[str, Any]] | None = None
         self.fork: dict[str, Any] | None = None  # the FORK_FILE marker of a fork not resumed yet (read by _restore)
+        self.fork_prompts: dict[str, Any] | None = None  # what the first resume of a fork regenerated (_fork_prompts)
 
     # --- the trace's out-of-step bookkeeping (kept in its meta: the tests and the kernel read it there) ---------
 
@@ -1180,8 +1186,9 @@ class PlayAgent(EngineAgent):
 
     def _resume_conversation(self) -> bool:
         rebuilt = super()._resume_conversation()
-        if self.fork is not None:  # the first resume of a fork: its notes.md was rebuilt by the replay (or could not be)
-            self._log({"turn": self.result.turns, "fork": {**self.fork, "resumed": True, "notes_rebuilt": rebuilt}})
+        fork = self.fork
+        if fork is not None:  # the first resume of a fork: its notes.md was rebuilt by the replay (or could not be)
+            self._log({"turn": self.result.turns, "fork": {**fork, "resumed": True, "notes_rebuilt": rebuilt}})
             (self.dir / FORK_FILE).unlink(missing_ok=True)
             self.fork, self.replay_files = None, False
         if not rebuilt:
@@ -1200,6 +1207,8 @@ class PlayAgent(EngineAgent):
             self.fit_round = open_round
             if self.fit_round is None:
                 self._new_fit_round(int(self.focus), "(resumed)")
+        if fork is not None:  # the source's saved system prompt and phase message would be sent: regenerate them
+            self._fork_prompts()
         seen = (last.get("plan") or last.get("step_start") or last.get("advance") or {}).get("steps")
         n = len(self.full_trace)
         if seen is not None and seen != n:  # moves were played after the last message the model got
@@ -1217,6 +1226,94 @@ class PlayAgent(EngineAgent):
             else:
                 self._enter_fit(k, "your replica does not reproduce it (found when the run resumed)", 0, predicted=False)
         return True
+
+    # --- a fork's first resume: the prompts regenerated ------------------------------------------------------------
+
+    def _fork_prompts(self) -> dict[str, Any]:
+        """A fork is an experiment with a changed harness, but a resume reuses the system message and the last PLAN or
+        FIT message saved in the transcript (the source's text, character for character). On a fork's first resume
+        both are regenerated under the current code and replaced in place (_replace_message: the same slot, turn and
+        phase tags, so the rebuilt context finds them; a later resume applies the records the same way): the system
+        message from _system_message, as a fresh run makes it; the phase message from _enter_plan's or _enter_fit's
+        builder over the restored state (_regenerate_phase). Logs {"fork_prompts": {"system": {chars_before,
+        chars_after, changed}, "phase": {kind, chars_before, chars_after | error}}}. When the phase message cannot be
+        regenerated the old one stands and the record says why; the resume goes on."""
+        record: dict[str, Any] = {}
+        heads: dict[str, str] = {}
+        system = self._system_message()
+        old = self._replace_message("system", system)
+        before = str(old["content"]) if old is not None else ""
+        record["system"] = {"chars_before": len(before), "chars_after": len(system), "changed": before != system}
+        heads["system"] = system[:HEAD_CHARS]
+        index = self._message_index(self.messages, "phase")
+        if index is not None:
+            old = self.messages[index]
+            kind = getattr(old, "phase", None) or "plan"
+            try:
+                content = self._regenerate_phase(kind, old)
+                self._replace_message("phase", content)
+                record["phase"] = {"kind": kind, "chars_before": message_chars(old), "chars_after": message_chars(self.messages[index])}
+                heads["phase"] = _message_text(self.messages[index])[:HEAD_CHARS]
+            except Exception as exc:  # noqa: BLE001  (the old message stands; the resume goes on)
+                record["phase"] = {"kind": kind, "chars_before": message_chars(old), "error": f"{type(exc).__name__}: {exc}"[:400]}
+                heads["phase"] = _message_text(old)[:HEAD_CHARS]
+        self._log({"turn": self.result.turns, "fork_prompts": record})
+        self.fork_prompts = {k: {**v, "head": heads.get(k, "")} for k, v in record.items()}
+        return record
+
+    def _regenerate_phase(self, kind: str, old: dict[str, Any]) -> str | list[dict[str, Any]]:
+        """The current phase message made again by the current code over the restored state. PLAN: _enter_plan with the
+        last-batch sentence of the old message (plan_last_batch; else the batch record's summary, else FORKED_HERE),
+        the current frame and the sprite list. FIT: _enter_fit for the same step with its "step_start" record's verdict
+        and the batch it followed (the move not sent, the move's support), or, after a commit whose engine fails a later
+        step ("advance"), that message again; the fit rounds are left as restored. The engine listing goes in when the
+        old message had one."""
+        self.listed_sha = None if self._has_engine_listing(old) else self._engine_hash()
+        turn = message_turn(old)
+        if kind == "plan":
+            return self._enter_plan(self._last_batch_text(old, turn), say=False)
+        marks = [r for r in self.records if ("step_start" in r or "advance" in r) and int(r.get("turn") or 0) == turn]
+        mark = marks[-1] if marks else {"step_start": {"step": self.focus, "verdict": "your replica does not reproduce it"}}
+        rounds, names = copy.deepcopy(self.result.fit_rounds), kernel_names_text(*self.kernel.names())
+        try:
+            if "advance" in mark:
+                a = mark["advance"]
+                k = int(a["next"])
+                self._focus_on(k)
+                self.passed = False
+                text = self._step_report("advance")
+                self.tested_hash = self._engine_hash()
+                self._log({"turn": self.result.turns, "advance": {"fixed": a.get("fixed"), "next": k, "steps": len(self.full_trace), "report": text}})
+                return self._opening_content(advance_message(self.full_trace, a.get("fixed"), k, text, True, self._engine_listing_if_changed(), names))
+            start = mark["step_start"]
+            k = int(start.get("step", self.focus))
+            batch = next((r["batch"] for r in reversed(self.records) if "batch" in r and int(r.get("turn") or 0) == turn), None)
+            after_batch = batch is not None and batch.get("mismatch") == k
+            dropped = max(0, len(batch.get("moves") or []) - int(batch.get("sent") or 0)) if after_batch else 0
+            move = next((r["move"] for r in reversed(self.records) if "move" in r and int(r["move"].get("index", -1)) == k), None)
+            path = move.get("support") if after_batch and move else None
+            return self._enter_fit(k, str(start.get("verdict") or ""), dropped, say=False, predicted=after_batch, path=path,
+                                   after_batch=after_batch)
+        finally:  # (_enter_fit opens a round: the restored rounds stand, the open one among them)
+            self.result.fit_rounds = rounds
+            self.fit_round = next((r for r in reversed(rounds) if r.get("end_turn") is None), None)
+
+    def _last_batch_text(self, old: dict[str, Any], turn: int) -> str:
+        """The last-batch sentence of a PLAN message to rebuild: the old message's (its "Game:" line, exact), else the
+        summary of that turn's batch from its records (_batch_summary over the "move" records), else FORKED_HERE."""
+        found = plan_last_batch(_message_text(old), self.game, self.full_trace, self.live.baseline_actions)
+        if found:
+            return found
+        batch = next((r["batch"] for r in reversed(self.records) if "batch" in r and int(r.get("turn") or 0) == turn), None)
+        if batch is None:
+            return FORKED_HERE
+        first, sent = int(batch.get("first_step") or 0), int(batch.get("sent") or 0)
+        moves = [r["move"] for r in self.records if "move" in r and first <= int(r["move"].get("index", -1)) < first + sent]
+        pending = {"outcomes": moves, "dropped": max(0, len(batch.get("moves") or []) - sent), "blind": bool(batch.get("blind"))}
+        try:
+            return self._batch_summary(pending)
+        except (KeyError, TypeError):
+            return FORKED_HERE
 
     def _restore(self) -> bool:
         restored = super()._restore()
@@ -1278,6 +1375,7 @@ class PlayAgent(EngineAgent):
             "engine": {"sha": self._engine_hash()[:12], "passes": first is None, "first_fail": first,
                        "passing_prefix": self.result.passing_prefix},
             "committed": None, "messages": len(self.messages), "last_message": None, "kernel": None, "replay": None, "notes": self._notes(),
+            "fork_prompts": self.fork_prompts,
         }
         if self.committed_path.exists():
             report = replay_test(self.committed_path, self.full_trace, failures=1, scratch_root=self.dir, match=self.match)
@@ -1288,9 +1386,8 @@ class PlayAgent(EngineAgent):
                                     "support_steps": smap.get("steps") if smap else None}
         if self.messages:
             last = self.messages[-1]
-            content = last.get("content")
-            text = content if isinstance(content, str) else "\n".join(p.get("text", "") for p in content if p.get("type") == "text")
-            summary["last_message"] = {"role": last["role"], "text": str(text)[:600], "chars": len(str(text))}
+            text = _message_text(last)
+            summary["last_message"] = {"role": last["role"], "text": text[:600], "chars": len(text)}
             replay = next((r["replay"] for r in reversed(self.records) if "replay" in r), None)
             summary["replay"] = replay
             names, more = self.kernel.names()
@@ -1346,6 +1443,14 @@ class PlayAgent(EngineAgent):
         state = "won" if self.live.won else "gave_up"
         return self.live.game_run(tokens, state=state, note=f"{status}; output tokens={total}",
                                   final_tokens=max(0, total - (cumulative[-1] if cumulative else 0)))
+
+
+def _message_text(message: dict[str, Any]) -> str:
+    """A message's text: the string, or its text parts joined."""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    return "\n".join(str(p.get("text", "")) for p in content or [] if p.get("type") == "text")
 
 
 __all__ = ["PlayAgent", "PlayResult"]

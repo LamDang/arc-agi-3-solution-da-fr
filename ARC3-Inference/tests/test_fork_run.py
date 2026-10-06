@@ -7,13 +7,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from engine_re.agent import RESUME_NOTE, Budget, ModelConfig
+from engine_re import prompts
+from engine_re.agent import RESUME_NOTE, Budget, ModelConfig, message_chars
 from engine_re.kernel import writes_files
 from engine_re.play_agent import COMMITTED_FILE, FORK_FILE, SUPPORT_FILE, PlayAgent
-from engine_re.prompts import NOTES_TEMPLATE
+from engine_re.prompts import NOTES_TEMPLATE, plan_last_batch
 from engine_re.tools.fork_run import ForkError, cut_records, cut_tests, cut_trace, fork_run, fork_state
 from engine_re.trace import Action, Step, Trace
-from tests.test_play import GAME, _ScriptedModel, _start, _write_game
+from tests.test_play import GAME, NOTHING, WRONG_DOWN, _ScriptedModel, _start, _write_game
 
 # --- the truncation of a synthetic transcript -----------------------------------------------------
 
@@ -235,6 +236,110 @@ def test_a_dry_resume_of_a_fork_rebuilds_the_notes_from_the_kept_cells(tmp_path:
     state = agent._rebuild_conversation()
     users = [m for m in state["messages"] if m["role"] == "user"]
     assert _text(users[-2]["content"]).startswith("Plan the next moves. Steps 0-1 pass")
+
+
+SYSTEM_MARK = "\n12. (a rule added after the source run) Every forked prompt carries this line.\n"
+
+
+def _phase_message(agent: PlayAgent) -> dict:
+    return agent.messages[agent._message_index(agent.messages, "phase")]
+
+
+def test_a_forks_first_resume_regenerates_the_system_and_plan_messages(tmp_path: Path, environments: Path, monkeypatch) -> None:
+    src = _source_run(tmp_path, environments)
+    out = tmp_path / "fork" / "twol"
+    fork_run(src, out, 3, environments)
+    source_records = [json.loads(line) for line in (src / "transcript.jsonl").read_text().splitlines()]
+    source_system = next(r["message"]["content"] for r in source_records if r.get("message", {}).get("role") == "system")
+    assert SYSTEM_MARK not in source_system
+    monkeypatch.setattr(prompts, "_SYSTEM_PLAY", prompts._SYSTEM_PLAY + SYSTEM_MARK)  # the harness changed after the source ran
+    agent = _play_agent(out, environments, _ScriptedModel([]), turns=8)
+    summary = agent.dry_resume()
+    assert summary["resumed"] and summary["phase"] == "plan"
+    fp = summary["fork_prompts"]
+    assert fp["system"]["changed"] and fp["system"]["chars_after"] == fp["system"]["chars_before"] + len(SYSTEM_MARK)
+    assert fp["system"]["head"].startswith("# Goal") and len(fp["system"]["head"]) == 200
+    assert fp["phase"]["kind"] == "plan" and "error" not in fp["phase"] and fp["phase"]["head"].startswith("Plan the next moves. Steps 0-1 pass")
+    # the conversation: one system message, with the change; the PLAN message in its slot, rebuilt under the fork's budget
+    assert [m["role"] for m in agent.messages].count("system") == 1 and agent.messages[0]["content"].endswith(SYSTEM_MARK)
+    plan = _phase_message(agent)
+    assert plan.phase == "plan" and plan.turn == 3 and agent.messages[-1]["content"].startswith(RESUME_NOTE[:30])
+    assert agent.messages.index(plan) == len(agent.messages) - 2
+    text = _text(plan["content"])
+    assert text.startswith("Plan the next moves. Steps 0-1 pass") and "Turns: 3 of 8" in text  # the source ran with 5 turns
+    assert "Your last batch: 1 move(s) sent, all as your replica predicted." in text  # the sentence of the source's message
+    assert "Goal model: reach x >= 4" in text and "Your replica's sprites now" in text
+    records = [json.loads(line) for line in (out / "transcript.jsonl").read_text().splitlines()]
+    logged = [r for r in records if "fork_prompts" in r][-1]
+    assert logged["turn"] == 3 and logged["fork_prompts"]["system"]["changed"] and logged["fork_prompts"]["phase"]["kind"] == "plan"
+    assert logged["fork_prompts"]["phase"]["chars_after"] == message_chars(plan) and "head" not in logged["fork_prompts"]["system"]
+    replaced = [r for r in records if r.get("replaces")]
+    assert [r["replaces"] for r in replaced] == ["system", "phase"] and replaced[0]["message"]["content"].endswith(SYSTEM_MARK)
+    assert sum(1 for r in records if r.get("message", {}).get("role") == "system") == 2  # the source's, kept, and the new one
+    # a second resume rebuilds the conversation with the regenerated messages, in the same slots
+    again = _play_agent(out, environments, _ScriptedModel([]), turns=8)
+    state = again._rebuild_conversation()
+    messages = state["messages"]
+    assert messages[0]["role"] == "system" and messages[0]["content"].endswith(SYSTEM_MARK)
+    assert sum(1 for m in messages if m["role"] == "system") == 1 and len(messages) == len(agent.messages)
+    plan2 = messages[again._message_index(messages, "phase")]
+    assert plan2.phase == "plan" and plan2.turn == 3 and _text(plan2["content"]) == text and messages.index(plan2) == len(messages) - 2
+    assert not any("fork_prompts" in r for r in records[: records.index(logged)])  # once: the marker is consumed
+    summary2 = again.dry_resume()
+    assert summary2["fork_prompts"] is None and summary2["fork"] is None and "Turns: 3 of 8" in _text(_phase_message(again)["content"])
+
+
+def test_a_forks_first_resume_regenerates_a_fit_message(tmp_path: Path, environments: Path, monkeypatch) -> None:
+    model = _CostedModel(_start(WRONG_DOWN) + [[("commit_moves", {"actions": ["DOWN"], "note": "probe"})], [NOTHING]])
+    src = tmp_path / "v11" / "twol"
+    result = _play_agent(src, environments, model, turns=4).run()
+    assert result.status == "budget_turns" and result.mismatches == 1 and result.phase == "fit"
+    out = tmp_path / "fork" / "twol"
+    summary = fork_run(src, out, 3, environments)
+    assert summary["phase"] == "fit" and summary["focus"] == 1
+    monkeypatch.setattr(prompts, "_SYSTEM_PLAY", prompts._SYSTEM_PLAY + SYSTEM_MARK)
+    agent = _play_agent(out, environments, _ScriptedModel([]), turns=8)
+    summary = agent.dry_resume()
+    fp = summary["fork_prompts"]
+    assert fp["system"]["changed"] and fp["phase"]["kind"] == "fit" and "error" not in fp["phase"]
+    fit = _phase_message(agent)
+    text = _text(fit["content"])
+    assert fit.phase == "fit" and fit.turn == 3 and text.startswith("Fix your replica: step 1 did not go as your replica predicted")
+    assert "What differed: the final frame differs." in text and "Turns: 3 of 8" in text  # after a batch: the budget line
+    assert len(agent.result.fit_rounds) == 1 and agent.fit_round is agent.result.fit_rounds[0] and agent.fit_round["end_turn"] is None
+    again = _play_agent(out, environments, _ScriptedModel([]), turns=8)
+    messages = again._rebuild_conversation()["messages"]
+    assert _text(messages[again._message_index(messages, "phase")]["content"]) == text and messages[0]["content"].endswith(SYSTEM_MARK)
+
+
+def test_a_phase_message_that_cannot_be_regenerated_stands(tmp_path: Path, environments: Path, monkeypatch) -> None:
+    src = _source_run(tmp_path, environments)
+    out = tmp_path / "fork" / "twol"
+    fork_run(src, out, 3, environments, verify=False)
+    agent = _play_agent(out, environments, _ScriptedModel([]), turns=8)
+    old_text = _text([json.loads(line) for line in (out / "transcript.jsonl").read_text().splitlines()][-2]["message"]["content"])
+
+    def broken(self, last_batch, say=True):
+        raise RuntimeError("no plan today")
+
+    monkeypatch.setattr(PlayAgent, "_enter_plan", broken)
+    summary = agent.dry_resume()
+    assert summary["resumed"] and summary["fork_prompts"]["phase"]["error"] == "RuntimeError: no plan today"
+    assert _text(_phase_message(agent)["content"]) == old_text and summary["fork_prompts"]["system"]["changed"] is False
+    records = [json.loads(line) for line in (out / "transcript.jsonl").read_text().splitlines()]
+    assert [r["replaces"] for r in records if r.get("replaces")] == ["system"]
+
+
+def test_the_last_batch_sentence_is_read_back_from_a_plan_message(environments: Path) -> None:
+    from engine_re.live_game import LiveGame
+
+    game = LiveGame("twol", environments)
+    game.start()
+    trace = game.trace
+    text = prompts.plan_message("twol", trace, last_batch="Your last batch: 2 move(s) sent. Then more.", budget_line="B", batch_size=4, baseline=[3, 3])
+    assert plan_last_batch(text, "twol", trace, [3, 3]) == "Your last batch: 2 move(s) sent. Then more."
+    assert plan_last_batch(text, "twol", trace, None) == "Your last batch: 2 move(s) sent. Then more. The human baseline for level 0 is 3 actions."
+    assert plan_last_batch("Game: other\nGame: twol, at level 0", "twol", trace, [3, 3]) is None
 
 
 def test_a_fork_resumes_with_its_own_budget_and_plays_on(tmp_path: Path, environments: Path) -> None:

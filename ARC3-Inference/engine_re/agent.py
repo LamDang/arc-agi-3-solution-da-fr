@@ -157,7 +157,8 @@ PYTHON_PAUSED = (
 )
 # A resumed run continues its conversation, rebuilt from transcript.jsonl: every message the model is sent is logged
 # there ("message" records; assistant turns and tool outputs as their own records), with the text the harness adds to
-# a message ("append"), and the points where old images are hidden ("hide_images") and old turns shortened ("compact").
+# a message ("append"), the points where old images are hidden ("hide_images") and old turns shortened ("compact"), and a
+# message regenerated in place ("message" with "replaces": "system" or "phase"; a fork's first resume, play_agent._fork_prompts).
 # The kernel restarts empty and re-runs the conversation's python cells (KernelClient.replay); the note says so.
 RESUME_NOTE = (
     "[harness] The run was interrupted here and has now resumed, in this same conversation. engine.py, its versions "
@@ -1353,14 +1354,28 @@ class EngineAgent:
         self.image_files[url] = str(path.relative_to(self.dir))
         return {"type": "image_url", "image_url": {"url": url}}
 
-    def _log_message(self, message: dict[str, Any]) -> None:
+    def _system_message(self) -> str:
+        """The system message of a fresh run: the prompt of the run's mode and settings (prompts.system_prompt), with the
+        analysis quota when one is set. A fork's first resume rebuilds the saved one from it (play_agent._fork_prompts)."""
+        system = system_prompt(self.match, self.interface, self.images, self.mode, self.history)
+        if self.budget.python_quota is not None:
+            system += (
+                f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
+                "engine.py (only calls that change it with edit_file() or undo_edit() run), and resumes as soon as engine.py changes."
+            )
+        return system
+
+    def _log_message(self, message: dict[str, Any], replaces: str | None = None) -> None:
         content = message.get("content")
         if isinstance(content, list):
             content = [
                 {"type": "image_file", "path": self.image_files.get(part["image_url"]["url"], "")} if part.get("type") == "image_url" else part
                 for part in content
             ]
-        self._log({"turn": self.result.turns, "message": {**message, "content": content}})
+        record: dict[str, Any] = {"turn": self.result.turns, "message": {**message, "content": content}}
+        if replaces:
+            record["replaces"] = replaces
+        self._log(record)
 
     def _say(self, role: str, content: Any, phase: str | None = None) -> None:
         """Send the model a system or user message (and log it as sent), tagged with the current turn; `phase` marks
@@ -1368,6 +1383,32 @@ class EngineAgent:
         message = TurnMessage({"role": role, "content": content}, turn=self.result.turns, phase=phase)
         self.messages.append(message)
         self._log_message(message)
+
+    @staticmethod
+    def _message_index(messages: list[dict[str, Any]], which: str) -> int | None:
+        """Where the system message ("system") or the current phase message ("phase": the last PLAN or FIT message, by its
+        tag; without one, the opening message, as the rebuilt context takes it) is in `messages`; None when absent."""
+        if which == "system":
+            return next((i for i, m in enumerate(messages) if m["role"] == "system"), None)
+        tagged = next((i for i in range(len(messages) - 1, -1, -1) if getattr(messages[i], "phase", None)), None)
+        if tagged is not None:
+            return tagged
+        return next((i for i, m in enumerate(messages) if m["role"] == "user"), None)
+
+    def _replace_message(self, which: str, content: Any) -> dict[str, Any] | None:
+        """Replace the system message or the current phase message (`which`, as _message_index takes it) in place, with
+        its turn and phase tags kept (the rebuilt context finds the phase message by them), and log the new text as a
+        "message" record that says what it replaces (`replaces`), which _rebuild_conversation applies the same way on a
+        later resume. Returns the message replaced, or None when there is none. A fork's first resume uses it: the
+        source's saved system prompt and last phase message are regenerated under the current code."""
+        index = self._message_index(self.messages, which)
+        if index is None:
+            return None
+        old = self.messages[index]
+        message = TurnMessage({"role": old["role"], "content": content}, turn=message_turn(old), phase=getattr(old, "phase", None))
+        self.messages[index] = message
+        self._log_message(message, replaces=which)
+        return old
 
     def _opening_phase(self) -> str | None:
         """The phase the opening message opens: stepwise, a step to fix ("fit"); the play agent says which."""
@@ -1394,7 +1435,7 @@ class EngineAgent:
             return None
         records = [json.loads(line) for line in transcript.read_text(encoding="utf-8").splitlines() if line.strip()]
         self._condensed, self._condensed_from = [], 0
-        starts = [i for i, r in enumerate(records) if (r.get("message") or {}).get("role") == "system"]
+        starts = [i for i, r in enumerate(records) if (r.get("message") or {}).get("role") == "system" and not r.get("replaces")]
         if not starts:
             return self._rebuild_legacy(records)
         self.messages = messages = []
@@ -1425,7 +1466,12 @@ class EngineAgent:
                 opens = phase if message.get("role") == "user" else None
                 if opens:
                     phase = None
-                messages.append(TurnMessage(message, turn=turn, phase=opens))
+                replaced = self._message_index(messages, r["replaces"]) if r.get("replaces") else None
+                if replaced is not None:  # a message regenerated in place (_replace_message): the same slot and tags
+                    old = messages[replaced]
+                    messages[replaced] = TurnMessage(message, turn=message_turn(old), phase=getattr(old, "phase", None))
+                else:
+                    messages.append(TurnMessage(message, turn=turn, phase=opens))
             elif "finish_reason" in r:
                 assistant: dict[str, Any] = {"role": "assistant", "content": r.get("content") or ""}
                 if r.get("reasoning"):
@@ -1847,15 +1893,9 @@ class EngineAgent:
             opening = self._opening_content(
                 first_user_message(self.game, self.trace, self._read_engine(fold=True, max_chars=READ_CHARS_IN_MESSAGES), done)
             )
-        system = system_prompt(self.match, self.interface, self.images, self.mode, self.history)
-        if self.budget.python_quota is not None:
-            system += (
-                f"\n\n# Analysis quota\nThe python tool pauses after {self.budget.python_quota} calls without any change to "
-                "engine.py (only calls that change it with edit_file() or undo_edit() run), and resumes as soon as engine.py changes."
-            )
         if not resumed:
             self.messages = []
-            self._say("system", system)
+            self._say("system", self._system_message())
             self._say("user", opening, phase=self._opening_phase())
         # engine.py as the session starts counts as tested, so any change to it triggers an automatic test.
         if not resumed:

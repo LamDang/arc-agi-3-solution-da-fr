@@ -335,11 +335,18 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
 35. **A fork's first plan round runs on v11's text.** The fork resumes at v11's last PLAN message, so
     B's first v12 PLAN message came only at turn 165 (fork at 148). Inherent to forking at a PLAN
     message; fork at the FIT message that opens the level, or regenerate the last phase message
-    under the new code at resume.
+    under the new code at resume. Done with 36: the first resume rebuilds the last PLAN message with
+    `_enter_plan` (the old message's last-batch sentence, the frame, the sprite list, notes.md) or the
+    FIT message with `_enter_fit` for the same step, in place (`PlayAgent._fork_prompts`); on the v11
+    ls20 fork at 148 the PLAN message goes from 20,010 to 26,776 chars, the sprite list included.
 36. **A fork resumes with the source's system prompt.** `agent.py` writes a new system message only
     for a fresh run; a resumed run reuses the one saved in its transcript. Fork B therefore ran v11's
     system prompt, character for character (34,325 chars): the v12 plan rules (14, 16, 20, 21) were
     never sent, only the messages, tool descriptions and harness changes were. On a fork's first
     resume (the marker present) rebuild the system message from the current prompts and log it;
     together with 35, regenerate the last phase message too. B must be rerun before its plan rules
-    can be judged.
+    can be judged. Done: `PlayAgent._fork_prompts` replaces the system message with the current
+    `_system_message()` and logs `{"fork_prompts": {"system": {chars_before, chars_after, changed},
+    "phase": {kind, chars_before, chars_after | error}}}`; the replacements are "message" records with
+    `"replaces"`, applied in place by later rebuilds. On the ls20 fork at 148: 34,325 -> 35,106 chars,
+    "Every game is solvable" now in it; `--dry-resume` prints both heads.

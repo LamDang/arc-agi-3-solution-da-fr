@@ -549,9 +549,19 @@ does not count: its cost and minutes start at 0, the output tokens stay). `works
 over as the template and the marker `fork.json` makes the first resume's kernel replay apply the cells'
 edits to notes.md and the other workspace files (`helpers.REPLAY_FILES`), so they are rebuilt from the
 kept cells alone; files written by a cell that raises in the replay (because engine.py changed later) are
-not rebuilt. `run_play --dry-resume` does everything a resume does up to the first request on a copy of
+not rebuilt. That first resume also regenerates the system message and the last PLAN or FIT message
+under the current code (`PlayAgent._fork_prompts`): a resume reuses the texts saved in the transcript, so a
+fork made to try a changed prompt would otherwise run the source's prompt character for character. The
+system message is rebuilt as a fresh run builds it (`prompts.system_prompt` with the run's settings), the
+phase message by `_enter_plan` (the last-batch sentence read back from the old message's "Game:" line, the
+current frame, the sprite list, notes.md) or `_enter_fit` (the same step, the verdict and batch of its
+record) over the restored state; each replaces the old one in its slot, with its turn and phase tags
+("message" records with `"replaces"`, which later rebuilds apply the same way), and a `fork_prompts`
+record logs the sizes (and, when the phase message could not be regenerated, the error: the old one then
+stands). `run_play --dry-resume` does everything a resume does up to the first request on a copy of
 each game directory, prints a summary (turn, step, phase, budget, tests of engine.py and the committed
-engine, the kernel replay and its names, the last message, notes.md) and exits without any model call.
+engine, the kernel replay and its names, the last message, notes.md; on a fork, whether the system and
+phase messages were regenerated, with the head of each) and exits without any model call.
 
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
 legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5 and 8-11 (the

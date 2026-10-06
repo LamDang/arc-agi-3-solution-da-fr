@@ -11,7 +11,8 @@ open <out>/<game>/artifacts/. Running the same command again skips finished game
 interrupted ones (the real game is replayed from the saved trace), as it resumes a fork made by
 engine_re.tools.fork_run (--max-turns is the absolute turn count: the fork turn plus the turns to play).
 --dry-resume does everything a resume does up to the first request on a copy of each game directory and
-prints a summary (turn, step, phase, messages, kernel names, tests), without any model call.
+prints a summary (turn, step, phase, messages, kernel names, tests; on a fork's first resume, whether the system and
+phase messages were regenerated under the current prompts, with the head of each), without any model call.
 """
 
 from __future__ import annotations
@@ -79,6 +80,18 @@ def dry_resume_text(summary: dict) -> str:
     if summary.get("fork"):
         f = summary["fork"]
         lines.append(f"  fork of {f.get('source')} at turn {f.get('turn')}" + (" (notes.md rebuilt by the replay)" if summary["resumed"] else ""))
+    fp = summary.get("fork_prompts") or {}
+    if fp.get("system"):
+        sy = fp["system"]
+        lines.append(f"  system message regenerated ({sy.get('chars_before')} -> {sy.get('chars_after')} chars, "
+                     f"{'changed' if sy.get('changed') else 'unchanged'}): {sy.get('head', '')!r}")
+    if fp.get("phase"):
+        ph = fp["phase"]
+        kind = str(ph.get("kind") or "phase").upper()
+        if ph.get("error"):
+            lines.append(f"  {kind} message not regenerated ({ph['error']}); the saved one stands: {ph.get('head', '')!r}")
+        else:
+            lines.append(f"  {kind} message regenerated ({ph.get('chars_before')} -> {ph.get('chars_after')} chars): {ph.get('head', '')!r}")
     r = summary.get("replay")
     if r:
         failed = sorted({int(x["turn"]) for x in r.get("failed") or [] if x.get("turn") is not None})

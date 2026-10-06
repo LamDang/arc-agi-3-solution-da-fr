@@ -1193,6 +1193,31 @@ COMMIT_HINT_PLAY = {
 }
 
 
+def _game_head(game: str, trace: Trace, baseline: list[int] | None) -> tuple[str, str]:
+    """The PLAN message's "Game:" line around its last-batch sentence: the head (game, level, status) and the tail (the
+    human baseline, or nothing)."""
+    s = trace.steps[-1]
+    level = min(s.levels_completed, max(0, s.win_levels - 1))
+    base = f" The human baseline for level {level} is {baseline[level]} actions." if baseline and level < len(baseline) else ""
+    return f"Game: {game}, at level {level} ({s.levels_completed} of {s.win_levels} levels completed), {_status_text(s)}. ", base
+
+
+def _game_line(game: str, trace: Trace, last_batch: str, baseline: list[int] | None) -> str:
+    head, base = _game_head(game, trace, baseline)
+    return head + last_batch + base
+
+
+def plan_last_batch(text: str, game: str, trace: Trace, baseline: list[int] | None = None) -> str | None:
+    """The last-batch sentence of a PLAN message `text` (what plan_message put between the state and the baseline on its
+    "Game:" line), for the same state of the game; None when no line reads as plan_message writes it now. A fork's
+    first resume regenerates its PLAN message with it (play_agent._fork_prompts)."""
+    head, base = _game_head(game, trace, baseline)
+    for line in text.splitlines():
+        if line.startswith(head) and line.endswith(base) and len(line) > len(head) + len(base):
+            return line[len(head) : len(line) - len(base)]
+    return None
+
+
 def plan_message(
     game: str, trace: Trace, *, last_batch: str, budget_line: str, batch_size: int, engine_read: str = "",
     kernel_names: str = "", baseline: list[int] | None = None, unexplained: list[int] | None = None,
@@ -1203,10 +1228,7 @@ def plan_message(
     (attached as an image by the agent), and what to do. `unexplained`: the steps played while the replica was
     out of step; `engine_note`: a sentence on engine.py changed since its commit; `support_note`: the thin or
     never-separated rules on the last batch's path and among the outcome rules (support.plan_items), one per line."""
-    s = trace.steps[-1]
     n = len(trace.steps)
-    level = min(s.levels_completed, max(0, s.win_levels - 1))
-    base = f" The human baseline for level {level} is {baseline[level]} actions." if baseline and level < len(baseline) else ""
     if out_of_sync is None:
         skipped = f" (but the unexplained ones, which are not compared: {_ranges(unexplained)})" if unexplained else ""
         head = f"Plan the next moves. Steps 0-{n - 1} pass with your replica as committed{skipped}."
@@ -1233,7 +1255,7 @@ def plan_message(
                 "RESET or level change (your replica is then back in step) and\nwhen the game ends.")
     return f"""{head}
 
-Game: {game}, at level {level} ({s.levels_completed} of {s.win_levels} levels completed), {_status_text(s)}. {last_batch}{base}
+{_game_line(game, trace, last_batch, baseline)}
 {accepted_actions_text(trace.steps[0].available_actions)}
 {budget_line}{unexplained_line}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + SUPPORT_HEAD + chr(10) + support_note) if support_note else ""}
 In python, `recording` holds every step played so far (steps 0-{n - 1}); recording[-1].after is the game's current frame
