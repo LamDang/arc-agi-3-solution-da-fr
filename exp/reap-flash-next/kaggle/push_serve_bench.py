@@ -160,9 +160,7 @@ def build(nb: dict, bench: dict) -> dict:
     precache = find("def precache(")
     launcher = find("def prepare_draft_view(")
     p = push_games._patch
-    # dfranzen's wheels are cp312; newer Kaggle images run the kernel on 3.13 but still ship python3.12
-    launcher = p(launcher, 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
-                 'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
+    launcher = push_games.patch_launcher(launcher)
     launcher = p(launcher, "MAXREQ=10,", "MAXREQ=BENCH_MAXREQ,")
     launcher = p(launcher, "CUDAGRAPH_MAXBS=10,", "CUDAGRAPH_MAXBS=BENCH_MAXREQ,")
     launcher = p(launcher, "MAMBA_CACHE=60,", "MAMBA_CACHE=BENCH_MAMBA,")

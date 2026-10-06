@@ -79,6 +79,29 @@ else:
 '''
 
 
+# SGLang sizes one expert-location map from the target model; the unpruned draft's MoE layer (512
+# experts) indexes past a pruned target's width. Without expert parallelism the map is the identity,
+# so out-of-range experts map to themselves. Inserted into the launcher after the offline install.
+SGLANG_EXPERT_MAP_PATCH = """# ---- pruned target, unpruned draft: identity expert map past the target's width ----
+_el = next(Path(VENV).glob("lib/python*/site-packages/sglang/srt/eplb/expert_location.py"))
+_src = _el.read_text()
+_old = "        if require_global_experts:\\n            num_physical_experts = cpu_map[layer_id].shape[-1]"
+if "logical_expert_id >= cpu_map.shape[1]" not in _src:
+    assert _src.count(_old) == 1, "SGLang expert_location.py changed: cannot patch"
+    _el.write_text(_src.replace(_old, "        if logical_expert_id >= cpu_map.shape[1]:\\n"
+                                      "            return [logical_expert_id]\\n" + _old))
+print("SGLang expert map patched for the pruned target")
+"""
+
+
+def patch_launcher(launcher: str) -> str:
+    """Python 3.12 venv and the expert-map patch (both needed for any pruned run)."""
+    launcher = _patch(launcher, 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
+                      'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
+    return _patch(launcher, "# ---- bundled CUDA toolkit and linker symlinks ----\n",
+                  SGLANG_EXPERT_MAP_PATCH + "\n# ---- bundled CUDA toolkit and linker symlinks ----\n")
+
+
 def _patch(source: str, old: str, new: str, count: int = 1) -> str:
     found = source.count(old)
     if found != count:
@@ -100,9 +123,8 @@ def build(nb: dict, run: dict) -> dict:
     custom, serving = find("demo_excluded_games = "), find("## 5. Start serving")
     maxreq = run["maxreq"]
     text[paths] = _patch(text[paths], "'ARC3_MAX_ACTIVE_STREAMS': 10,", f"'ARC3_MAX_ACTIVE_STREAMS': {maxreq},")
-    # dfranzen's wheels are cp312; newer Kaggle images run the kernel on 3.13 but still ship python3.12
-    text[launcher] = _patch(text[launcher], 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
-                            'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
+    # dfranzen's wheels are cp312 (newer Kaggle images run the kernel on 3.13); pruned target + full draft
+    text[launcher] = patch_launcher(text[launcher])
     text[launcher] = _patch(text[launcher], "MAXREQ=10,", f"MAXREQ={maxreq},")
     text[launcher] = _patch(text[launcher], "MEMFRAC=0.96,", f"MEMFRAC={run['memfrac']},")
     text[launcher] = _patch(text[launcher], "CUDAGRAPH_MAXBS=10,", f"CUDAGRAPH_MAXBS={maxreq},")
