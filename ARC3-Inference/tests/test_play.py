@@ -2044,7 +2044,11 @@ def test_the_plan_message_after_a_solved_level(tmp_path: Path, environments: Pat
 
 # --- v12: the kernel restart replay, the sprite list and the reconciliation on the v11 sp80 fixture ----------------
 
-SP80 = Path(__file__).with_name("fixtures") / "sp80_v11"  # the v11 run's committed engine, support map and trace (steps 0-122)
+# The v11 run's committed engine, support map and trace (steps 0-122), read from its DVC archive: an agent-written
+# engine is a run artifact, not a checked-in fixture. `dvc pull runs/engine-play/qwen38flash-v11-a.dvc` to run these.
+SP80 = Path(__file__).parents[1] / "runs" / "engine-play" / "qwen38flash-v11-a" / "sp80"
+needs_sp80 = pytest.mark.skipif(not (SP80 / "engine_committed.py").exists(),
+                                reason="dvc pull runs/engine-play/qwen38flash-v11-a.dvc")
 
 
 def test_a_timed_out_cell_restarts_the_kernel_and_the_earlier_cells_are_replayed(tmp_path: Path, environments: Path) -> None:
@@ -2082,6 +2086,7 @@ def test_a_timed_out_cell_restarts_the_kernel_and_the_earlier_cells_are_replayed
     assert any("re-ran your 3 python cells" in u for u in _texts(agent2))
 
 
+@needs_sp80
 def test_the_plan_messages_sprite_list_on_the_sp80_engine() -> None:
     """The replica's sprite list (24) from the v11 sp80 committed engine after steps 0-121 (level 3, in step): one line per
     sprite in the engine's grid with its flags, vars first; out of step, the segmentation's list of the game's frame."""
@@ -2115,6 +2120,7 @@ def test_the_plan_messages_sprite_list_on_the_sp80_engine() -> None:
     assert pieces.startswith(PIECES_HEAD + "\n  ") and "pieces on a 20x20 grid at scale 3, offset (2, 2)" in pieces.splitlines()[1]
 
 
+@needs_sp80
 def test_the_level_start_nudge_names_the_engine_constants_the_new_board_matches() -> None:
     """v11 follow-up 1 on the sp80 fixture: engine.py's pixel constants read from the file (auto_sprites.pixel_constants,
     no code run) and, at a level start, which of them the new board's pieces match (prompts.level_kinds_text, the matcher
@@ -2150,6 +2156,7 @@ def test_the_level_start_nudge_names_the_engine_constants_the_new_board_matches(
     assert none.startswith("None of the new board's ") and none.endswith("draw them from recording[-1].pieces_after.code().")
 
 
+@needs_sp80
 def test_the_fit_reports_sprite_by_sprite_reconciliation_on_the_sp80_engine(tmp_path: Path) -> None:
     """The reconciliation (25) on a constructed mismatch at sp80 step 121: the game's frame with the player one row lower,
     a block recoloured, a bin missing and an extra 2x2 piece, against the committed engine's prediction."""
@@ -2194,6 +2201,7 @@ def test_the_fit_reports_sprite_by_sprite_reconciliation_on_the_sp80_engine(tmp_
     assert RECONCILE_HEAD not in same and "final frame: matches" in same
 
 
+@needs_sp80
 def test_support_comments_on_the_sp80_engine() -> None:
     """The committed engine's listing with the v11 map: step() and the functions it calls carry the comments; the
     level functions and make_level do not. (The v11 map kept four steps at each end, so the fifth named is the
