@@ -250,16 +250,69 @@ the game does not advertise) are refused before sending, with the valid form.
   as the test pictures]. Work out the next moves on your engine, then
   commit_moves(actions, note)." When a level was just solved, it says so and
   that `make_level(L)` drew its first frame correctly (the step matched).
+  Under the frame (v12, `exp/v11-followups.md` 24), a text part lists the
+  replica's sprites as `state_now().sprites` in the engine's grid, `vars`
+  first, one line per sprite (`[i] name tags=[...] WxH at (x, y) layer L`
+  plus `rot=`, `mirror_ud`, `mirror_lr`, `scale=`, `hidden`, `inert`, `screen`
+  when they apply; `prompts.sprite_list_text`), from the batch's prediction run
+  or one sandboxed replay of the committed engine (`tester.replica_state`),
+  never the model's kernel; out of step, the segmentation's pieces of the
+  game's frame instead (`recording[-1].pieces_after`).
 - **FIT message**: `advance_message` as it is, with its first line replaced by
   "Your engine predicted a different result for step k ({action}): {one-line
   diff summary}. Steps 0-{k-1} match." and the test report (which is the
   comparison of engine and game at step k, with the picture: engine's frame
   left, game's right, regions boxed). After the commit, the harness does not
   "replay on" (there is nothing after k yet): it tests 0..k and, on pass,
-  returns to PLAN.
+  returns to PLAN. The one-line verdict says, when the two sides disagree on
+  the levels completed, "your replica predicts level n solved; the game did
+  not (levels completed: the game says n, your replica n+1)" or the converse,
+  also when the replica then raised in `make_level(n + 1)` (the runner's
+  `error_state`), instead of "raised an error" alone (v12, item 4). After the
+  regions, the report reconciles the two sides sprite by sprite
+  (`diff_report.reconcile_lines`, at most 12 lines): each visible replica
+  sprite the game's frame contradicts where it shows, with the same shape
+  found elsewhere in the frame ("yours at (5, 2); the game shows this shape
+  at (5, 3)"), the same shape at the same place in other colours, or nothing
+  there; then the frame's pieces (the segmentation on the engine's grid) no
+  sprite draws ("the game shows a 3x3 piece (blue, 5 cells) at (35, 16) that
+  none of your sprites draws"). Positions are in the engine's grid through
+  its View; border, background and sprites that match are skipped. The
+  sprites' renderings come with the state summary (`game_api.state_summary`,
+  `render`). The comparison image stays (item 25).
 - **Budget line**: actions played, turns and minutes used against the caps,
   and the level's human baseline (`metadata.json`) so the model knows what
-  "few" means.
+  "few" means. After a batch only (item 27) it is also appended to the
+  `commit_moves` output after the Sent lines and put in the FIT message under
+  the "Step k:" line, followed in the `commit_moves` output by "What the batch
+  changed on the board (steps a -> b):", the segmentation's change summary
+  from the frame before the batch to its last frame, at most 12 lines, when a
+  move was sent, the frames differ and the batch stayed in its level (item 28).
+- **Before a batch is sent** (`PlayAgent._prediction_warnings`,
+  `_first_board_noop`): a predicted game over at move k is a warning, and so
+  is a replica that raises at move k ("[harness] Warning: your replica raises
+  at move k (Action(...)): ExcType: message; the batch is sent as it is and a
+  mismatch there opens a fit round", item 5); a predicted *board no-op* cuts
+  the batch instead (item 30): a move is one when the replica's predicted
+  final frame equals the previous one outside the screen-layer sprites (the
+  boxes of `screen=True` sprites in the prediction's state summary, a
+  whole-screen border left in; a `HUD_BORDER` ring without a summary) with
+  the status and levels unchanged. A batch of two or more is cut before its
+  first such move ("[harness] Moves k-m not sent: your replica predicts move k
+  (Action(...)) changes nothing on the board; a probe of that rule goes as a
+  batch of one"; when that is move 1 nothing is sent and the call is refused);
+  a single move is a probe and goes regardless.
+- **Kernel restart** (items 18 and 26): a python cell past the kernel's 120 s
+  (`kernel.CELL_SECONDS`, stated in the python tool's description) is killed
+  and the kernel restarts empty; the agent then re-runs the run's earlier
+  cells in it (`KernelClient.replay`: edits and images off, 20 s per cell,
+  120 s in all; the cells are kept in `EngineAgent.cells`, collected from the
+  transcript on a resume, the killed cell left out) and appends to the output
+  what was lost (the names the kernel held, from its last `names()` listing),
+  the cell that timed out (its first line), that the built-ins and
+  `recording` are back, which cells were re-run, which raised or were
+  skipped, and the kernel's names now (`prompts.restart_note`; a
+  `kernel_restart` transcript record; `result.kernel_restarts`).
 
 ### 3.5 Phase rules in the agent (`engine_re/play_agent.py`, new, ~400 lines)
 
@@ -445,10 +498,15 @@ shows `new`.
 - The PLAN message lists, at most four lines under "Rules with little support", the untested, thin and
   never-separated items on the last batch's path and the outcome rules (lines setting `level_solved` or
   `game_over`) that no step ran or whose guarding and/or was never separated.
-- In python, `with traced() as run:` around `replica.step` calls records what the block ran (kernel side,
-  the same tracer on the replica's module) and reads it against the sidecar carried over to engine.py as
-  it is: `run.weakest`, `run.untested`, `run.thin`, `run.new`, `run.unseparated`; `support()` prints it.
-  A search can rank plans by evidence.
+- Every line of `step()` and of the functions it calls (transitively, resolved from the AST by name;
+  `make_level` and the level/sprite functions only if `step()` calls them: `support.step_functions`) carries,
+  in `read_file()`, in `edit_file()`'s fresh anchors and in the PLAN and FIT listings, a trailing comment
+  with its support (`support.comments`): `# support (31): 42, 41, 39, 37, 36 and 26 other` is the number of
+  passing steps that ran the line and the last five of them, newest first (the map keeps the first and last
+  `STEPS_KEPT` = 5 per line); `# support (0): untested`; `# support: new` for a line whose text changed
+  since the map was made. The comments are the harness's, not the file's: `hashline` strips them from
+  anything pasted into an edit (`strip_support_comments`). They replaced the v10/v11 `traced()` and
+  `support()` built-ins, which no game ever called (v12, `exp/v11-followups.md` 13).
 
 **Offline check (v10).** `python -m engine_re.tools.support_check <run>` replays each batch's predicting
 engine (the committed engine at that point of the transcript, from `engine_versions/` by sha256) with the
@@ -471,12 +529,13 @@ one is missing):
 | "the game is solvable", plus: a plan far above the baseline, or none, means a missing rule | `STEP_VERIFICATION_ADDENDUM` (second bullet) | plan rule 5 |
 | Colour legend, from `diff_report.COLOR_NAMES` | `GAME_OVERVIEW_ADDENDUM` | # Setup |
 | Action meanings (directional keys, SPACE, click, UNDO, RESET: it counts as an action, keeps completed levels) | `ACTION_INFO_ADDENDUM`, `UNDO_INFO_ADDENDUM`, `RESET_INFO_ADDENDUM` | # Setup, all actions (the plan message lists the advertised ones) |
-| Levels build on earlier mechanics; engine.py's rules are the starting hypothesis | `LEVEL_TRANSFER_SYSTEM_GUIDANCE` | plan rule 6 |
-| The first PLAN message of a new level: the level-start paragraph and the new board's pieces whose shape names no frame of the previous level showed (at most 8) | `LEVEL_START_USER_PROMPT` | `prompts.plan_additions` / `level_start_text` |
-| A scene of objects; no player assumed; no absolute-coordinate goals | `VISUAL_GAME_ADDENDUM` | plan rule 7 |
-| Warnings before a batch is sent: a predicted game over at move k, runs of moves that change nothing in the replica; never a refusal; kept in the batch's `batch_log` entry (`warnings`) | `DEATH_GUARD_ADDENDUM`, `NOOP_GUARD_ADDENDUM` | `PlayAgent._prediction_warnings` |
-| Prefer another python call over more reasoning; only `commit_moves` spends the level budget | `PREFER_TOOL_CALLS_LINE` | plan rule 8 |
-| `notes.md` for what is not code: Goal model, Open questions, Plan (engine.py holds the world and action models); the PLAN message shows it (40 lines at most); "older parts of this conversation will eventually be dropped, so anything you leave out ... is gone" | the memory sections of `tool_agent.py` (`_MEMORY_SECTION_MEANINGS`, `_memory_section_labels`), `SUMMARY_REQUEST_PROMPT` | plan rule 9; `PlayAgent._init_notes` / `_notes`; `edit_file(path="notes.md")` writes it directly (engine.py's versions are untouched) |
+| Levels build on earlier mechanics; engine.py's rules are the starting hypothesis; new levels add mechanics "sometimes through an unfamiliar board element or a visual change" (v12 wording, item 20) | `LEVEL_TRANSFER_SYSTEM_GUIDANCE` | plan rule 8 |
+| The first PLAN message of a new level: the level-start paragraph (the list of the new board's "unfamiliar" pieces that v10/v11 added was dropped in v12, item 19: the sprite list under the frame shows the board) | `LEVEL_START_USER_PROMPT` | `prompts.plan_additions` / `level_start_text` |
+| A scene of objects; no player assumed; no absolute-coordinate goals; a comparison the game makes may involve colour as well as shape and rotation (v12, item 14) | `VISUAL_GAME_ADDENDUM` | plan rule 9 |
+| Warnings before a batch is sent: a predicted game over at move k, a replica that raises at move k; never a refusal; kept in the batch's `batch_log` entry (`warnings`). A predicted board no-op cuts the batch instead (v12, item 30; the base's `NOOP_GUARD_ADDENDUM` warned) | `DEATH_GUARD_ADDENDUM`, `NOOP_GUARD_ADDENDUM` | `PlayAgent._prediction_warnings`, `_first_board_noop` |
+| Prefer another python call over more reasoning; only `commit_moves` spends the level budget | `PREFER_TOOL_CALLS_LINE` | plan rule 10 |
+| `notes.md` for what is not code: Goal model, Open questions, Plan (engine.py holds the world and action models); the PLAN message shows it (40 lines at most); "older parts of this conversation will eventually be dropped, so anything you leave out ... is gone" | the memory sections of `tool_agent.py` (`_MEMORY_SECTION_MEANINGS`, `_memory_section_labels`), `SUMMARY_REQUEST_PROMPT` | plan rule 11; `PlayAgent._init_notes` / `_notes`; `edit_file(path="notes.md")` writes it directly (engine.py's versions are untouched) |
+| v12 plan rules of our own (`exp/v11-followups.md` 21 and 16): every game is solvable, so being stuck means a missing or wrong rule (explore more mechanics rather than searching harder); when the goal is a configuration, enumerate the winning end states from the rules first, then plan the route to the nearest one | - | plan rules 6 and 7 |
 
 ## 4. Files
 

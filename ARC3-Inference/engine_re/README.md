@@ -477,8 +477,10 @@ operands), saved beside the committed engine (`engine_committed.support.json`) a
 weakest line, the untested lines it runs, the never-separated conditions it relies on, in the
 `commit_moves` output, `batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
 lists the thin rules on the last batch's path and among the outcome rules; listings and `read_file()`
-show the counts in a margin; `traced()`/`support()` read what python ran on the replica.
-`--cut-untested` (off) cuts a batch after the first move that runs untested code.
+show the counts in a margin and, on every line of `step()` and the functions it calls, as a trailing
+`# support (n): ...` comment naming the last five steps that ran the line (`support.comments`; the comments
+are stripped from anything pasted into an edit). `--cut-untested` (off) cuts a batch after the first move
+that runs untested code.
 `engine_re/tools/support_check.py` measures the mismatch rate by support on an archived run.
 
 `run_play.py` runs several games in parallel and writes `summary.md`, a TAAF-shaped `benchmark.json`
@@ -495,15 +497,22 @@ finished games are skipped but still give their `benchmark.json` record. The pla
 (`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
 
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
-legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5-9 (the game
-is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
-code over reasoning, `notes.md`). An animated step has a digest (`engine_re/animation.py`,
+legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5 and 8-11 (the
+game is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
+code over reasoning, `notes.md`); rules 6 and 7 (v12: being stuck means a missing or wrong rule; plan from the
+winning end states) are ours. An animated step has a digest (`engine_re/animation.py`,
 `StepView.animation`): its transient cells (changed and changed back, so in no frame the model can otherwise
 reach) and a diff timeline of its frames, printed in two lines by the test report and the step messages, and
 named in `commit_moves`' output for a matched move. `commit_moves` warns, without refusing, when the replica
-predicts a game over or moves that change nothing (`batch_log[i]["warnings"]`). Each PLAN message shows
-`notes.md` (the model's goal model, open questions and plan; 40 lines at most) and, after a solved level, the
-base's level-start paragraph with the new board's unfamiliar pieces (shapes the previous level never showed).
+predicts a game over or raises at some move (`batch_log[i]["warnings"]`), and cuts a batch of two or more
+before its first predicted board no-op (the frame unchanged outside the screen-layer sprites; a single move
+goes as a probe). After a batch its output carries the budget line and what the batch changed on the board;
+the FIT message that follows a batch has the budget line too, and its report a sprite-by-sprite reconciliation
+of the replica's sprites with the game's frame (moved, recoloured, absent, or a piece no sprite draws). Each
+PLAN message shows `notes.md` (the model's goal model, open questions and plan; 40 lines at most), the
+replica's sprite list under the frame (the segmentation's pieces when out of step) and, after a solved level,
+the base's level-start paragraph. A python cell has 120 s; after a timeout the kernel restarts and the
+earlier cells are re-run in it, the message naming what was lost and what is back.
 
 ```bash
 uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
