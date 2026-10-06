@@ -27,6 +27,7 @@ grid…", "Row 0: . . . . . ."), while summaries read like status notes
 | `deepseek/deepseek-v4.1-flash` | CoreWeave | 0.86 | Cheap: $1.2/M output. |
 | `qwen/qwen3.8-2.4t-a95b` | Alibaba, Together, Modal | 0.60-1.06 | Same family as the student. |
 | `qwen/qwen3.8-max-prime` | Alibaba (only provider) | 0.66 | |
+| `qwen/qwen3.8-max-0902` | Alibaba (only provider) | 0.56-0.65 | Tested twice. Same Max model as `max-prime` at half the price ($2/$6 per M); `max-prime` is a higher-throughput SKU. |
 | `qwen/qwen3.8-27b`, `qwen/qwen3.7-plus` | Darkbloom, Reka, Alibaba | 0.65 | |
 | `z-ai/glm-5.3`, `z-ai/glm-5.3-prime` | Z.AI, Fireworks, Decart; Alibaba | 0.69-0.94 | `glm-5.3` returned no reasoning on the tool turn on all three providers: it called the tool without thinking. |
 | `minimax/minimax-m3` | Minimax, CoreWeave | 0.80-1.06 | |
@@ -40,7 +41,7 @@ grid…", "Row 0: . . . . . ."), while summaries read like status notes
 | `sakana/fugu-max` | Sakana AI | 0.75 | Marked `reasoning.summary`, but the text reads as raw working. Unclear. |
 
 All of these are open-weight models apart from `qwen3.8-max-prime`,
-`glm-5.3-prime`, `mistral-large-4-0` and `fugu-max`.
+`qwen3.8-max-0902`, `glm-5.3-prime`, `mistral-large-4-0` and `fugu-max`.
 
 ## Summary, encrypted or nothing
 
