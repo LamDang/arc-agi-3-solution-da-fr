@@ -3,10 +3,12 @@
 This folder documents the experiments of the engine reverse-engineering agent
 ([engine_re/README.md](../engine_re/README.md)): an agent rebuilds an
 ARC-AGI-3 game engine from a recorded run, and the score is how many recorded
-steps its engine reproduces. Since v5 every experiment runs on one game, lp85.
-The five-game runs (pilots, v2-v4) and the v5 trials are written up in
+steps its engine reproduces. From v5 to v9 every experiment ran on one game,
+lp85. The five-game runs (pilots, v2-v4) and the v5 trials are written up in
 [engine_re/RESULTS.md](../engine_re/RESULTS.md); this folder adds one page per
-later series and an index of every run that played lp85.
+later series and an index of every run that played lp85. v10, the
+play-and-model agent, plays live games instead of a recording; its runs have
+their own index ([Play runs](#play-runs)).
 
 | page | runs | question |
 | --- | --- | --- |
@@ -15,6 +17,7 @@ later series and an index of every run that played lp85.
 | [v8-objects-kernel-prompt.md](v8-objects-kernel-prompt.md) | v8 | Do frame pieces, a lenient edit tool and a parsimony prompt speed it up? |
 | [v8-condense-per-turn.md](v8-condense-per-turn.md) | v8c, v6cc | Does condensing the conversation before every request save tokens? |
 | [v9-bar-tolerance.md](v9-bar-tolerance.md) | v9, v9c, v9t | Does tolerating one HUD-bar pixel unblock level 2? With the threshold condenser, with a thinking budget? |
+| [v10-play.md](v10-play.md) | v10 (sp80, ls20, ft09) | Can one agent play a live game while it fits `engine.py`, and plan its moves on that engine? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
@@ -45,7 +48,9 @@ games' mechanics.
   ```
 
 - **Archive a new run**: `dvc add runs/engine-re/<run>` (writes and stages
-  the pointer), `git commit`, then `dvc push runs/engine-re/<run>.dvc`.
+  the pointer), `git commit`, then `dvc push runs/engine-re/<run>.dvc`. Play
+  runs follow the same convention under `runs/engine-play/<run>`, with the
+  pointer `runs/engine-play/<run>.dvc`.
 - **What a run directory holds**: `config.json` (the `run_experiment`
   arguments), `run.log` (the console output, where it was kept),
   `summary.md` / `summary.json` (when the run finished), and one directory
@@ -151,3 +156,29 @@ directories hold all five games. Pilot A replayed another recording
 
 Headline: with the v9 HUD-bar tolerance the agent went from 20 to 65 of 120
 lp85 steps (v6c, v8: 20; v9 and v9c: 65), at lower cost than v8.
+
+## Play runs
+
+Runs of the play-and-model agent (`engine_re.run_play`,
+[PLAY_DESIGN.md](../engine_re/PLAY_DESIGN.md)). Each one plays the real game
+and builds `engine.py` from what it plays. There is one row per game, and
+the run directory holds every game. All numbers come from each game's
+`result.json`; the score is TAAF's formula, the same as `make score_run`.
+
+- **best / final exact** are `best.exact` and `final.exact`, followed by the
+  number of steps played. `best` is recorded at the last test that improved
+  it, so it can lag the game: ft09's `engine_best.py` replays all 78 steps.
+- **commits** are `commit_engine` calls. The batches sent with
+  `commit_moves` are in the page.
+
+| experiment | harness | code commit | model | sampling | flags | end | score | levels | actions | turns | best / final exact | minutes | cost | prompt tokens | cached | output tokens | reasoning tokens | commits | run dir (`runs/engine-play/`) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| [v10 ft09](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | won | 100.0 | 6/6 | 77 | 156 | 74 / 78 of 78 | 70.0 | $0.605 | 17.42M | 92% | 289,302 | 229,091 | 11 | `qwen38flash-v10` |
+| [v10 sp80](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 4.01 | 2/6 | 239 | 300 | 240 / 0 of 240 | 177.3 | $1.967 | 48.26M | 86% | 627,305 | 546,947 | 21 | `qwen38flash-v10` |
+| [v10 ls20](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 3.57 | 1/7 | 239 | 300 | 230 / 240 of 240 | 182.5 | $1.904 | 48.00M | 87% | 675,320 | 575,226 | 18 | `qwen38flash-v10` |
+
+Headline: the loop won ft09 in 77 actions, against the base agent's 100 and
+a human baseline of 208. It cost 2.9 times the base agent's output tokens
+and 4.7 times its cost. It passed sp80's level 1 (2/6 against 1/6), but
+stopped at 1/7 on ls20 (the base agent reached 5/7). The turn limit ended
+both unfinished games.

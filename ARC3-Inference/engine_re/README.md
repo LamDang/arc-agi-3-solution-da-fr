@@ -475,6 +475,9 @@ uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/
 
 Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level key game and a click game).
 
+The first run (sp80, ls20 and ft09, qwen3.8-flash, `runs/engine-play/qwen38flash-v10`) is written up in
+[exp/v10-play.md](../exp/v10-play.md): ft09 won in 77 actions, sp80 reached 2 of 6 levels, ls20 1 of 7.
+
 ## Run it
 
 From `ARC3-Inference/`, with `OPENROUTER_API_KEY` set and the game files in
