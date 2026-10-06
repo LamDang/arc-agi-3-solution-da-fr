@@ -121,3 +121,20 @@ changed during the run. Ordered by the turns they cost.
     tool output at 3K tokens, and 500K output tokens per game. Under the 500K cap sp80 would have
     ended around turn 210, at the level-2 solve (3/6, 28.6 instead of 47.6): the level-3 win cost
     the 113K tokens beyond the budget. ls20 (469K) fits.
+23. **What must survive a 57K drain.** With the base agent's policy (item 22) about ten turns of
+    conversation remain. engine.py, the support map, the test status and the current frame are
+    re-shown every turn, so the rules survive. What is only in old turns, and would be lost:
+    (a) rejected hypotheses and dead ends (ls20's fake-board theory, "compares shapes only"),
+    so the model can walk into them again; (b) the route in flight when it spans several batches
+    (ls20's 63-press route went out over 7 batches, the remainder lived in the reasoning of the
+    turn that computed it); (c) unexplained observations and open questions (the floor blink,
+    the orange legend) that were noticed but not modelled; (d) what was tried on this board:
+    positions visited, moves refused, probes already made; (e) the model's own helper functions
+    (the kernel keeps them, the PLAN message lists their names but not what they do).
+    Make these eviction-safe outside the conversation: a harness-written per-level log in
+    notes.md or the PLAN message (each batch's note and outcome, each refused move, each mismatch
+    and the rule it changed, each probe), a `plan` kernel variable convention (the PLAN message
+    shows the moves left in it), notes.md's "Open questions" refreshed by the harness at each
+    level change (item 15), and the kernel's user-defined functions listed with their first
+    docstring line. The base agent's analogue is its retained python functions plus an opener
+    that restates the state every turn.
