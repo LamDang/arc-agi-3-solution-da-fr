@@ -336,3 +336,10 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     B's first v12 PLAN message came only at turn 165 (fork at 148). Inherent to forking at a PLAN
     message; fork at the FIT message that opens the level, or regenerate the last phase message
     under the new code at resume.
+36. **A fork resumes with the source's system prompt.** `agent.py` writes a new system message only
+    for a fresh run; a resumed run reuses the one saved in its transcript. Fork B therefore ran v11's
+    system prompt, character for character (34,325 chars): the v12 plan rules (14, 16, 20, 21) were
+    never sent, only the messages, tool descriptions and harness changes were. On a fork's first
+    resume (the marker present) rebuild the system message from the current prompts and log it;
+    together with 35, regenerate the last phase message too. B must be rerun before its plan rules
+    can be judged.

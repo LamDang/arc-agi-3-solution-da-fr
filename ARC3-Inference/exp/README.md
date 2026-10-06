@@ -19,6 +19,7 @@ their own index ([Play runs](#play-runs)).
 | [v9-bar-tolerance.md](v9-bar-tolerance.md) | v9, v9c, v9t | Does tolerating one HUD-bar pixel unblock level 2? With the threshold condenser, with a thinking budget? |
 | [v10-play.md](v10-play.md) | v10 (sp80, ls20, ft09) | Can one agent play a live game while it fits `engine.py`, and plan its moves on that engine? |
 | [v11-play.md](v11-play.md) | v11 (sp80, ls20) | Does stepping the replica directly, with support measured by the harness and the base prompt's guidance, take the play agent further? |
+| [v12-forks.md](v12-forks.md) | v12 forks of v11: A sp80 t180, A ls20 t100, B ls20 t148 | On 100-turn forks of v11, does a context rebuilt at every request (A), or the v12 messages and harness (B), do as well as v11 over the same turns? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
@@ -179,6 +180,9 @@ the run directory holds every game. All numbers come from each game's
 | [v10 ls20](v10-play.md) | v10: play and model | `85e34e8` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 3.57 | 1/7 | 239 | 300 | 230 / 240 of 240 | 182.5 | $1.904 | 48.00M | 87% | 675,320 | 575,226 | 18 | `qwen38flash-v10` |
 | [v11 sp80](v11-play.md) | v11: replica stepped directly, support, base-prompt port | `5d2bda7` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 47.6 | 4/6 | 122 | 300 | 122 / 122 of 123 | 165.9 | $1.965 | 51.35M | 88% | 612,788 | 505,629 | 19 | `qwen38flash-v11-a` |
 | [v11 ls20](v11-play.md) | v11: replica stepped directly, support, base-prompt port | `5d2bda7` | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 300 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 231 | 300 | 232 / 232 of 232 | 135.5 | $1.937 | 52.64M | 88% | 468,632 | 376,296 | 18 | `qwen38flash-v11-a` |
+| [v12 A sp80](v12-forks.md) | v12 A: v11 forked at turn 180, rebuilt context | `2518e9e`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 280 --max-actions 500 --batch-size 10` | turn limit | 28.6 | 3/6 | 58 | 280 (181-280 forked) | 59 / 59 of 59 | 68.6 | $0.675 | 6.41M | 46% | 222,268 | 185,199 | 3 | `v12a-sp80-t180` |
+| [v12 A ls20](v12-forks.md) | v12 A: v11 forked at turn 100, rebuilt context | `2518e9e`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 200 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 112 | 200 (101-200 forked) | 112 / 112 of 113 | 38.1 | $0.556 | 5.31M | 44% | 152,444 | 124,680 | 4 | `v12a-ls20-t100` |
+| [v12 B ls20](v12-forks.md) | v12 B: v11 forked at turn 148, v12 messages and harness (v11's system prompt) | `ea685ec`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 248 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 161 | 248 (149-248 forked) | 161 / 6 of 162 | 44.7 | $0.816 | 21.89M | 86% | 133,456 | 101,539 | 5 | `v12b-ls20-t148` |
 
 Headline: the loop won ft09 in 77 actions, against the base agent's 100 and
 a human baseline of 208. It cost 2.9 times the base agent's output tokens
@@ -192,3 +196,18 @@ solved level under the human baseline. The three levels v10 never solved
 (sp80 2-3, ls20 1) all came from routes searched and verified on the
 replica. ls20 stopped at level 2 on a win rule that left out colour; the
 base agent still leads there (5/7).
+
+v12 forks: each row is a v11 game forked at turn T and played 100 more turns.
+Score, levels, actions and exact count the whole game at its end. Minutes,
+cost, tokens and commits count the fork's own turns only, summed from the
+transcript after its `fork` record, because `result.json`'s tokens include the
+source's turns. The commits marked `~*` are inferred from the start time and
+sit on unmerged worktree branches. B's final engine is an unfinished edit from
+its last turn; the committed engine passes steps 0-160. Headline: the rebuilt
+context (A) kept prompts at 83K and 68K at most, against v11's 273K and 228K
+over the same turns. sp80 solved level 2 25 turns earlier, in 18 actions
+against 21; ls20 solved level 1 as v11 did. Cost fell only 19% and 29%, as the
+cached share dropped to 44-46%. B reached the patch that recolours ls20's
+legend at turn 245 and step 161 (v11: 287 and 210); neither solved level 2 in
+the window. B ran on v11's system prompt, so its v12 plan rules were not
+tested.
