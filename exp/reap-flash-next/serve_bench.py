@@ -1,5 +1,14 @@
-"""Throughput of a running SGLang server under ARC-AGI-3 harness traffic,
-replayed from the harness's request logs. Standard library only.
+"""Throughput of a running SGLang server on ARC-AGI-3 requests from the
+harness's logs. Standard library only.
+
+batch_test (what selects the serving config): n requests at once, each the
+longest logged prompt of a different game run (about 110K tokens, close to
+the harness's context limit), each generating a fixed number of tokens. It
+answers whether n full-length requests fit (all n running, no retractions,
+peak KV use) and the decode throughput with all n running.
+
+Load/measure (below) replay whole games instead, for cache behaviour (not used
+to pick the config):
 
     python serve_bench.py --url http://127.0.0.1:8001 --model flashnext --logs DIR \\
         [--passes 2,3] [--concurrency 10,16,20] [--warmup 180] [--measure 480]
@@ -48,7 +57,7 @@ def _open(path: Path):
 
 
 def load_sessions(log_dir: Path, games=None, passes=None) -> list[dict]:
-    """[{name, requests: [(request line, completion tokens)]}] from *_pN_requests.jsonl logs."""
+    """[{name, requests: [(request line, completion tokens, prompt tokens)]}] from *_pN_requests.jsonl logs."""
     sessions = []
     for path in sorted(Path(log_dir).iterdir()):
         m = LOG_RE.match(path.name)
@@ -63,9 +72,10 @@ def load_sessions(log_dir: Path, games=None, passes=None) -> list[dict]:
                 if row.get("event") == "request":
                     pending = line
                 elif row.get("event") == "response" and pending is not None:
-                    tokens = int((row.get("usage") or {}).get("completion_tokens") or 0)
+                    usage = row.get("usage") or {}
+                    tokens = int(usage.get("completion_tokens") or 0)
                     if tokens > 0:
-                        requests.append((pending, tokens))
+                        requests.append((pending, tokens, int(usage.get("prompt_tokens") or 0)))
                     pending = None
         if requests:
             sessions.append({"name": f"{m['game']}_p{m['pass_']}", "requests": requests})
@@ -108,7 +118,7 @@ class Load:
     def _take(self):
         with self.lock:
             session = self.queue.popleft()
-            line, tokens = session["requests"][session["next"]]
+            line, tokens, _ = session["requests"][session["next"]]
             session["next"] = (session["next"] + 1) % len(session["requests"])
             return session, line, tokens
 
@@ -175,6 +185,83 @@ def measure(load: Load, concurrency: int, warmup: float, seconds: float, log=pri
         **{g.split(":")[1] + "_mean": (sum(v) / len(v) if v else None) for g, v in samples.items()},
     }
     log("[bench] " + json.dumps({k: round(v, 3) if isinstance(v, float) else v for k, v in result.items()}))
+    return result
+
+
+def longest_prompts(sessions: list[dict], n: int) -> list[tuple[str, int]]:
+    """The longest logged request of each session, longest first: (line, prompt tokens)."""
+    best = [max(s["requests"], key=lambda r: r[2]) for s in sessions]
+    best.sort(key=lambda r: -r[2])
+    return [(line, prompt) for line, _, prompt in best[:n]]
+
+
+def _send_all(url: str, model: str, lines: list[str], max_tokens: int, timeout: float) -> list[int]:
+    statuses = []
+
+    def send(line):
+        status = -1
+        try:
+            req = urllib.request.Request(f"{url}/v1/chat/completions", data=request_body(line, max_tokens, model),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                json.loads(r.read())
+                status = r.status
+        except Exception as exc:  # noqa: BLE001
+            status = getattr(exc, "code", -1)
+        statuses.append(status)
+
+    threads = [threading.Thread(target=send, args=(line,), daemon=True) for line in lines]
+    for t in threads:
+        t.start()
+    return threads, statuses
+
+
+def batch_test(url: str, model: str, prompts: list[tuple[str, int]], n: int, max_tokens: int = 4096,
+               log=print, poll: float = 2.0, timeout: float = 3600) -> dict:
+    """n requests at once, each a long logged prompt of a different game.
+    Phase 1 prefills them (1 output token) so they sit in the cache; phase 2
+    sends them again with max_tokens each: they start decoding together from
+    the cache, so decode throughput = generated tokens / phase-2 time. Phase 2
+    finding its prompts in the cache (cache_hit ~1), with all n running and
+    no retractions, means n full-length contexts fit."""
+    assert len(prompts) >= n, f"only {len(prompts)} prompts for {n} streams"
+    lines = [line for line, _ in prompts[:n]]
+    t0 = time.time()
+    threads, statuses = _send_all(url, model, lines, 1, timeout)
+    for t in threads:
+        t.join(timeout)
+    prefill_seconds, prefill_errors = time.time() - t0, sum(1 for s in statuses if s != 200)
+
+    before, t1 = scrape(url), time.time()
+    threads, statuses = _send_all(url, model, lines, max_tokens, timeout)
+    trace = []  # (running, token_usage, accept length)
+    while any(t.is_alive() for t in threads) and time.time() - t1 < timeout:
+        m = scrape(url)
+        trace.append((m.get("sglang:num_running_reqs", 0.0), m.get("sglang:token_usage", 0.0),
+                      m.get("sglang:spec_accept_length")))
+        time.sleep(poll)
+    for t in threads:
+        t.join(timeout=5)
+    seconds = time.time() - t1
+    after = scrape(url)
+    delta = {c: after.get(c, 0.0) - before.get(c, 0.0) for c in COUNTERS}
+    prompt = delta["sglang:prompt_tokens_total"]
+    accept = [a for _, _, a in trace if a]
+    result = {
+        "streams": n,
+        "shortest_prompt": prompts[n - 1][1],
+        "prefill_seconds": prefill_seconds,
+        "decode_seconds": seconds,
+        "decode_tok_s": delta["sglang:generation_tokens_total"] / seconds,
+        "max_running": max((r for r, _, _ in trace), default=0),
+        "peak_kv_usage": max((u for _, u, _ in trace), default=None),
+        "cache_hit": delta["sglang:cached_tokens_total"] / prompt if prompt else None,
+        "retracted_requests": delta["sglang:num_retracted_requests_total"],
+        "spec_accept_length": sum(accept) / len(accept) if accept else None,
+        "errors": prefill_errors + sum(1 for s in statuses if s != 200),
+    }
+    result["per_stream_tok_s"] = result["decode_tok_s"] / n
+    log("[batch] " + json.dumps({k: round(v, 3) if isinstance(v, float) else v for k, v in result.items()}))
     return result
 
 

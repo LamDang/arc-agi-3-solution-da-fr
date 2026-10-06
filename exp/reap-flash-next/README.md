@@ -72,7 +72,7 @@ kept-expert count.
 
 ## Validation done
 
-Local, CPU (`pytest tests`, 21 tests):
+Local, CPU (`pytest tests`, 22 tests):
 
 - **Tiny model** with the same architecture and a fake Intel-format checkpoint
   (`tests/tiny.py`):
@@ -195,30 +195,29 @@ not in git.
 
 ## Serving throughput, full vs pruned
 
-Before the game runs: how many concurrent requests should the pruned model
-serve? `kaggle/push_serve_bench.py` builds a notebook from dfranzen's paths,
-precaching and SGLang launcher cells (same wheels, flags and speculative
-decoding). It writes a 256-expert checkpoint from `kaggle/keep_256_smoke.json`
-(ranked on the smoke statistics; which experts are kept barely matters for
-speed). It then serves:
+Picks the serving config before the game runs: do N full-length requests
+fit on the pruned model, and how much faster does it decode than the full
+model at dfranzen's 10? `kaggle/push_serve_bench.py` builds a notebook from
+dfranzen's paths, precaching and SGLang launcher cells (same wheels, flags
+and speculative decoding). It writes a 256-expert checkpoint from
+`kaggle/keep_256_smoke.json` (ranked on the smoke statistics; which experts
+are kept barely matters for speed). It then serves:
 
 - the full model exactly as dfranzen does (10 requests, 60 state slots),
-  measured at 10 concurrent streams;
-- the pruned model sized for 28 requests, measured at 10, 16, 20 and 28 streams.
+  tested with 10 streams;
+- the pruned model sized for 28 requests, tested with 10, 16, 20 and 28 streams.
 
-`serve_bench.py` (standard library only) generates the load. It replays
-passes 2 and 3 of dfranzen's v3 logs (50 game runs) with the logged messages
-and images, and forces each reply to its logged length (`ignore_eos`). Games
-rotate through the streams like the harness, so many games' prefixes compete
-for the cache. Per setting it reports, from SGLang's metrics after a 3-minute
-warm-up and over 8 minutes:
+The test is `serve_bench.batch_test`: N requests at once, each the longest
+logged prompt of a different game run (about 100-110K tokens, near the
+harness's context limit). They are prefilled first, then sent again to
+decode 4096 tokens each from the cache. It reports:
 
-- generated and uncached-prefill tokens/s;
-- cache hit rate and retracted requests;
-- mean running and queued requests;
-- KV use and speculative accept length.
+- decode tokens/s with all N running, and the ratio to the full model at 10;
+- whether N fits: all N running, phase-2 cache hit about 1, peak KV use, no
+  retractions;
+- speculative accept length.
 
-About 1.7 hours in all.
+About 50 minutes, mostly installing and loading.
 
 ```bash
 KAGGLE_CLI=kaggle python kaggle/push_serve_bench.py

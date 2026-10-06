@@ -1,5 +1,5 @@
-"""Throughput of dfranzen's SGLang setup, full vs pruned, under replayed game
-traffic, before spending hours on game runs.
+"""Does the pruned model fit more concurrent full-length requests, and how much
+faster does it decode? Picks the serving config before the game runs.
 
     python kaggle/push_serve_bench.py [--keep-file kaggle/keep_256_smoke.json] [--concurrency 10,16,20,28] [--no-push]
 
@@ -9,13 +9,17 @@ launcher (same wheels, flags, speculative decoding), then:
 1. writes the pruned checkpoint from --keep-file (expert choice barely
    matters for speed; the default mask comes from the smoke statistics);
 2. serves the full model exactly as dfranzen does (10 requests, 60 state
-   slots) and measures it at 10 concurrent streams;
+   slots) and runs serve_bench.batch_test with 10 streams;
 3. serves the pruned model sized for the largest concurrency (state slots
-   and CUDA graphs scaled) and measures each concurrency in turn.
+   and CUDA graphs scaled) and runs the batch test at each concurrency.
 
-Load: serve_bench.py replays passes 2 and 3 of dfranzen's v3 logs (50 game
-runs), rotating games through the streams like the harness. Results go to
-/kaggle/working/serve_bench.json and a table at the end of the log.
+batch_test: n requests at once, each the longest logged prompt of a
+different game run of dfranzen's v3 logs (about 100-110K tokens, near the
+harness's context limit). They are prefilled first, then sent again to
+decode 4096 tokens each from the cache. Reported: decode tokens/s with all n
+running, cache hit, peak KV use and retractions (does n fit?), speculative
+accept length. Results go to /kaggle/working/serve_bench.json and a table at
+the end of the log.
 """
 from __future__ import annotations
 
@@ -93,8 +97,9 @@ def stop_server():
 '''
 
 RUN = '''import serve_bench
-sessions = serve_bench.load_sessions(LOG_DIR, passes={2, 3})
-print(f"{len(sessions)} sessions, {sum(len(s['requests']) for s in sessions)} requests", flush=True)
+sessions = serve_bench.load_sessions(LOG_DIR)
+prompts = serve_bench.longest_prompts(sessions, max(max(s["concurrency"]) for s in BENCH["settings"]))
+print(f"{len(sessions)} game runs; prompts of {prompts[-1][1]}-{prompts[0][1]} tokens", flush=True)
 results = []
 for setting in BENCH["settings"]:
     model_dir = FULL_MODEL_DIR if setting["model"] == "full" else PRUNED_MODEL_DIR
@@ -107,28 +112,28 @@ for setting in BENCH["settings"]:
         stop_server()
         continue
     print(f"[bench] {setting['model']} ready in {time.time() - t:.0f}s", flush=True)
-    load = serve_bench.Load(f"http://127.0.0.1:{SERVED_MODEL_PORT}", SERVED_MODEL_NAME, sessions, seed=0)
-    for c in setting["concurrency"]:
+    for n in setting["concurrency"]:
         try:
-            r = serve_bench.measure(load, c, BENCH["warmup"], BENCH["measure"], log=lambda m: print(m, flush=True))
+            r = serve_bench.batch_test(f"http://127.0.0.1:{SERVED_MODEL_PORT}", SERVED_MODEL_NAME, prompts, n,
+                                       max_tokens=BENCH["max_tokens"], log=lambda m: print(m, flush=True))
         except Exception as exc:
-            r = {"concurrency": c, "error": str(exc)}
+            r = {"streams": n, "error": str(exc)}
         results.append({"model": setting["model"], "maxreq": setting["maxreq"], **r})
         (WORKING_DIR / "serve_bench.json").write_text(json.dumps(results, indent=1))
-    load.stop()
     stop_server()
 
-print(f"\\n{'model':8} {'streams':>7} {'gen tok/s':>9} {'uncached prefill tok/s':>22} {'cache hit':>9} "
-      f"{'running':>7} {'queued':>6} {'KV use':>6} {'accept':>6} {'retracted':>9} {'errors':>6}")
+f = lambda v, p=2: "-" if v is None else f"{v:.{p}f}"
+print(f"\\n{'model':10} {'streams':>7} {'running':>7} {'decode tok/s':>12} {'per stream':>10} {'vs full@10':>10} "
+      f"{'cache hit':>9} {'peak KV':>7} {'retracted':>9} {'accept':>6} {'prefill s':>9} {'errors':>6}")
+base = next((r["decode_tok_s"] for r in results if r.get("model") == "full" and "decode_tok_s" in r), None)
 for r in results:
     if "error" in r:
-        print(f"{r['model']:8} {r.get('concurrency', '-'):>7} error: {r['error']}")
+        print(f"{r['model']:10} {r.get('streams', '-'):>7} error: {r['error']}")
         continue
-    f = lambda v, p=2: "-" if v is None else f"{v:.{p}f}"
-    print(f"{r['model']:8} {r['concurrency']:>7} {r['generated_tok_s']:>9.0f} {r['uncached_prompt_tok_s']:>22.0f} "
-          f"{f(r['cache_hit']):>9} {f(r.get('num_running_reqs_mean'), 1):>7} {f(r.get('num_queue_reqs_mean'), 1):>6} "
-          f"{f(r.get('token_usage_mean')):>6} {f(r.get('spec_accept_length_mean')):>6} "
-          f"{r['retracted_requests']:>9.0f} {r['request_errors']:>6}")
+    ratio = f"{r['decode_tok_s'] / base:.2f}x" if base else "-"
+    print(f"{r['model']:10} {r['streams']:>7} {r['max_running']:>7.0f} {r['decode_tok_s']:>12.0f} "
+          f"{r['per_stream_tok_s']:>10.1f} {ratio:>10} {f(r['cache_hit']):>9} {f(r['peak_kv_usage']):>7} "
+          f"{r['retracted_requests']:>9.0f} {f(r['spec_accept_length']):>6} {r['prefill_seconds']:>9.0f} {r['errors']:>6}")
 '''
 
 
@@ -181,8 +186,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--keep-file", default="kaggle/keep_256_smoke.json")
     parser.add_argument("--concurrency", default="10,16,20,28", help="streams to measure on the pruned model")
-    parser.add_argument("--warmup", type=float, default=180)
-    parser.add_argument("--measure", type=float, default=480)
+    parser.add_argument("--max-tokens", type=int, default=4096, help="tokens each stream generates")
     parser.add_argument("--user", default="lamdang")
     parser.add_argument("--kernel", default="flash-next-serve-bench")
     parser.add_argument("--no-push", action="store_true")
@@ -191,7 +195,7 @@ def main():
     keep_file = push.HERE.parent / args.keep_file
     keep = json.loads(keep_file.read_text())["num_experts"]
     streams = [int(c) for c in args.concurrency.split(",")]
-    bench = {"keep": keep, "keep_file": keep_file.name, "warmup": args.warmup, "measure": args.measure,
+    bench = {"keep": keep, "keep_file": keep_file.name, "max_tokens": args.max_tokens,
              "settings": [{"model": "full", "maxreq": 10, "mamba": 60, "concurrency": [10]},
                           {"model": f"pruned{keep}", "maxreq": max(streams), "mamba": 6 * max(streams),
                            "concurrency": streams}]}

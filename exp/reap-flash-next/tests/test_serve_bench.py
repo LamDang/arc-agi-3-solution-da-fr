@@ -65,7 +65,10 @@ def test_sessions_and_measurement(tmp_path):
     _write_log(tmp_path / "ef56-0123abcd_p0_requests.jsonl", 4)  # pass not selected
     sessions = serve_bench.load_sessions(tmp_path, passes={2, 3})
     assert [s["name"] for s in sessions] == ["ab12_p2", "cd34_p3"]
-    assert [t for _, t in sessions[0]["requests"]] == [7, 8, 9, 10, 11]
+    assert [t for _, t, _ in sessions[0]["requests"]] == [7, 8, 9, 10, 11]
+    assert [p for _, _, p in sessions[0]["requests"]] == [100, 101, 102, 103, 104]
+    longest = serve_bench.longest_prompts(sessions, 2)
+    assert [p for _, p in longest] == [104, 103]
     body = json.loads(serve_bench.request_body(sessions[0]["requests"][0][0], 7, "flashnext"))
     assert body["max_tokens"] == 7 and body["ignore_eos"] and body["model"] == "flashnext"
     assert body["chat_template_kwargs"] == {"preserve_thinking": True} and "action" not in body
@@ -82,3 +85,18 @@ def test_sessions_and_measurement(tmp_path):
     # every session advanced in its own order
     sent = [b["messages"][1]["content"] for b in state["bodies"]]
     assert len(sent) >= 4 and all(s.startswith("turn ") for s in sent)
+
+
+def test_batch_test(tmp_path):
+    _write_log(tmp_path / "ab12-0123abcd_p2_requests.jsonl", 3)
+    _write_log(tmp_path / "cd34-0123abcd_p2_requests.jsonl", 3)
+    sessions = serve_bench.load_sessions(tmp_path)
+    server, state = _server()
+    url = f"http://127.0.0.1:{server.server_port}"
+    result = serve_bench.batch_test(url, "flashnext", serve_bench.longest_prompts(sessions, 2), 2, max_tokens=5,
+                                    log=lambda *_: None, poll=0.05)
+    server.shutdown()
+    assert result["errors"] == 0 and result["streams"] == 2
+    assert sorted(b["max_tokens"] for b in state["bodies"]) == [1, 1, 5, 5]  # prefill, then decode
+    assert sorted(b["messages"][1]["content"] for b in state["bodies"]) == ["turn 2"] * 4
+    assert result["decode_tok_s"] > 0 and abs(result["cache_hit"] - 0.75) < 1e-9
