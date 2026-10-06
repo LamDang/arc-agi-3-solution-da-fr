@@ -74,6 +74,11 @@ def main() -> int:
     parser.add_argument("--cut-untested", action="store_true",
                         help="cut each batch after its first move whose predicted path runs engine code no recorded step has "
                              "run (PLAY_DESIGN.md 3.11; default: off, the model sees each move's support and decides)")
+    parser.add_argument("--context", choices=("compact", "rebuilt"), default="compact",
+                        help="how the conversation is bounded: 'compact' shortens it in place once a request passes 140K prompt "
+                             "tokens (the default); 'rebuilt' keeps it in full and rebuilds every request from it (the system "
+                             "prompt, one compacted-context message with the commit turns, the current PLAN or FIT message and the "
+                             "older turns since it, then the last 10 turns as they are)")
     parser.add_argument("--no-images", action="store_true", help="text-only feedback (no pictures)")
     parser.add_argument("--providers", default=None, help="comma-separated OpenRouter providers, in order, no fallback")
     parser.add_argument("--reasoning-effort", default=None)
@@ -96,7 +101,8 @@ def main() -> int:
 
     providers = [p.strip() for p in args.providers.split(",") if p.strip()] if args.providers else None
     model = ModelConfig(model=args.model, providers=providers, temperature=args.temperature, top_p=args.top_p,
-                        top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget)
+                        top_k=args.top_k, reasoning_effort=args.reasoning_effort, thinking_budget=args.thinking_budget,
+                        context=args.context)
     budget = Budget(args.max_turns, args.max_output_tokens, args.max_cost, args.max_minutes)
     runs: dict[str, dict] = {}
 

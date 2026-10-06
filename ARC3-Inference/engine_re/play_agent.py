@@ -156,9 +156,9 @@ class PlayAgent(EngineAgent):
         plan_turns: int = PLAN_TURNS,
         cut_untested: bool = False,
     ):
-        if model.context != "compact":
-            raise ValueError("the play agent bounds its context by compaction (ModelConfig.context='compact'); "
-                             "engine_re.condense does not know its plan rounds")
+        if model.context not in ("compact", "rebuilt"):
+            raise ValueError("the play agent bounds its context by compaction (ModelConfig.context='compact') or rebuilds it "
+                             "every request ('rebuilt'); engine_re.condense does not know its plan rounds")
         self.phase = "plan"  # before EngineAgent.__init__: every transcript record carries the phase
         game_dir = Path(game_dir).resolve()
         trace_dir = game_dir / "trace"
@@ -806,7 +806,7 @@ class PlayAgent(EngineAgent):
         parts: list[dict[str, Any]] = [{"type": "text", "text": text}, *self._frame_part()]
         content: str | list[dict[str, Any]] = parts if len(parts) > 1 else text
         if say:
-            self._say("user", content)
+            self._say("user", content, phase="plan")
         return content
 
     def _close_fit_round(self, how: str) -> None:
@@ -846,8 +846,11 @@ class PlayAgent(EngineAgent):
             self._hide_old_images()
         content = self._opening_content(text)
         if say:
-            self._say("user", content)
+            self._say("user", content, phase="fit")
         return content
+
+    def _opening_phase(self) -> str | None:
+        return self.phase  # set by _enter_plan / _enter_fit when the opening message was made (_stepwise_start)
 
     def _after_sync(self, last_batch: str, say: bool = True) -> str | list[dict[str, Any]] | None:
         """The engine reproduces everything played (or is out of step): a RESET after a game over, then the next
@@ -938,7 +941,7 @@ class PlayAgent(EngineAgent):
             engine_read = self._engine_listing_if_changed()
             names = kernel_names_text(*self.kernel.names())
             self._hide_old_images()
-            self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, True, engine_read, names)))
+            self._say("user", self._opening_content(advance_message(self.full_trace, fixed, k, text, True, engine_read, names)), phase="fit")
             return True
         self._keep_committed(commit["engine_sha"])
         self._focus_on(n - 1)

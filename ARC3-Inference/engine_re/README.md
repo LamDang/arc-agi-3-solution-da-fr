@@ -492,7 +492,25 @@ moves, batches and phase messages. Running the command again resumes interrupted
 is replayed from `trace/`, the conversation rebuilt from `transcript.jsonl`, and moves played after the
 last message the model got (an interruption during a batch) are tested and lead to the next message;
 finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
-(`ModelConfig.context = "compact"`); a PLAN message's engine.py listing is elided like a fit message's.
+(`ModelConfig.context = "compact"`, the default); a PLAN message's engine.py listing is elided like a fit message's.
+
+`--context rebuilt` (`ModelConfig.context = "rebuilt"`, v11 follow-up 23) never shortens the conversation: the
+one kept in memory and logged in the transcript is the full one (so a resume works as before), and every request is
+rebuilt from it by `agent.rebuilt_context`: the system prompt; one user message, the compacted context, holding in
+order (a) every turn older than the last 10 and before the current phase message in which the model called
+`commit_engine` or `commit_moves` (its text, the call with its arguments as the model wrote them and the result,
+no reasoning), (b) the current PLAN or FIT message in full (its image as the conversation holds it, the only image
+of that message) when it is older than the last 10 turns, (c) the turns after it that are older than the last 10,
+each with every call, its arguments and its output but no reasoning, then the line "The context has been
+compacted. Continue from the context above."; and the last 10 turns as they are (reasoning, calls, outputs, images,
+a phase message at its place). Each part is headed "Turn 57 (commit_moves):" / "Turn 61:". A turn is one model
+reply with everything said before the next one (its tool outputs with the harness's appends, its image message, the
+phase message, the "continue" line, the resume note); turn 0 is the system prompt and the opening message. Older
+images are still hidden as in the compact mode, `_compact` never runs (`compact` records of an earlier compact run
+are ignored on a resume in this mode) and nothing is truncated. One `rebuilt` record per request logs the
+composition (`commit_turns`, `phase_turn`, `older_turns`, the characters of each part, the estimate at 3.5
+characters a token, a `warning` above 120K). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at
+turn 185 (29 commit turns, the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
 
 Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
 legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 5-9 (the game

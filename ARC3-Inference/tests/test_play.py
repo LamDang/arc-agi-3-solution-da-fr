@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from engine_re.agent import Budget, ModelConfig
+from engine_re.agent import IMAGE_NOTE, REBUILT_CLOSING, Budget, ModelConfig, TurnMessage, rebuilt_context
 from engine_re.live_game import LiveGame, benchmark_json
 from engine_re.play_agent import PlayAgent
 from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, PLAN_CLOSING, elide_engine_listing
@@ -768,6 +768,145 @@ def test_compaction_elides_the_listing_of_older_plan_messages(tmp_path: Path, en
 def test_the_play_agent_keeps_compaction(tmp_path: Path, environments: Path) -> None:
     with pytest.raises(ValueError, match="compact"):
         PlayAgent("twol", tmp_path / "run", ModelConfig(context="condense"), Budget(), environments, client=_ScriptedModel([]))
+    agent = PlayAgent("twol", tmp_path / "run2", ModelConfig(context="rebuilt"), Budget(), environments, client=_ScriptedModel([]))
+    assert agent.rebuilt and not agent.condense
+
+
+# --- the rebuilt context ----------------------------------------------------------------------------
+
+
+def _synthetic_conversation(turns: int) -> list[TurnMessage]:
+    """A play conversation of `turns` model turns, tagged as the agent tags it: the opening PLAN message (turn 0), a
+    commit_engine at turn 3, a commit_moves at turn 5 followed by a PLAN message with an image (turn 5's tail), an
+    image message at turn 7, a commit_engine at turn 12; every other turn a python call. Every reply has reasoning."""
+    png = {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}
+    messages = [
+        TurnMessage({"role": "system", "content": "SYSTEM PROMPT"}, turn=0),
+        TurnMessage({"role": "user", "content": [{"type": "text", "text": "Plan the next moves. OPENING"}, png]}, turn=0, phase="plan"),
+    ]
+    for t in range(1, turns + 1):
+        if t == 3 or t == 12:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "commit_engine", "arguments": json.dumps({"message": f"COMMIT MESSAGE {t}"})}}
+            output = f"Committed at turn {t}."
+        elif t == 5:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "commit_moves", "arguments": json.dumps({"actions": ["Action(4)"], "note": "NOTE 5"})}}
+            output = "Sent 1 of 1 move(s)."
+        else:
+            call = {"id": f"c{t}", "type": "function", "function": {"name": "python", "arguments": json.dumps({"code": f"x = {t}\nprint(x)"})}}
+            output = f"OUTPUT {t}"
+        messages.append(TurnMessage({"role": "assistant", "content": f"TEXT {t}", "reasoning": f"REASONING {t}", "tool_calls": [call]}, turn=t))
+        messages.append(TurnMessage({"role": "tool", "tool_call_id": call["id"], "content": output}, turn=t))
+        if t == 5:
+            messages.append(TurnMessage({"role": "user", "content": [{"type": "text", "text": "Plan the next moves. PHASE 5"}, png]}, turn=t, phase="plan"))
+        if t == 7:
+            messages.append(TurnMessage({"role": "user", "content": [{"type": "text", "text": IMAGE_NOTE}, {"type": "text", "text": "CAPTION 7"}, png]}, turn=t))
+    return messages
+
+
+def _text_of(message: dict) -> str:
+    c = message["content"]
+    return c if isinstance(c, str) else "\n".join(p.get("text", "") for p in c if p.get("type") == "text")
+
+
+def _images_of(message: dict) -> int:
+    c = message["content"]
+    return 0 if isinstance(c, str) else sum(p.get("type") == "image_url" for p in c)
+
+
+def test_the_rebuilt_context_with_the_phase_message_among_the_last_turns() -> None:
+    conversation = _synthetic_conversation(14)  # the window is turns 5-14: the PLAN message of turn 5 is in it
+    view, stats = rebuilt_context(conversation, keep_turns=10)
+    assert view[0] is conversation[0] and view[0]["role"] == "system"
+    compacted = _text_of(view[1])
+    assert view[1]["role"] == "user" and not isinstance(view[1], TurnMessage)
+    assert compacted.endswith(REBUILT_CLOSING)
+    assert "Turn 3 (commit_engine):" in compacted and "COMMIT MESSAGE 3" in compacted and "Committed at turn 3." in compacted
+    assert "Turn 5" not in compacted and "the current PLAN message" not in compacted  # inside the window: sent as it is
+    assert "REASONING" not in compacted and "OUTPUT 1" not in compacted and "Turn 1" not in compacted
+    assert _images_of(view[1]) == 0
+    real = view[2:]
+    assert real == [m for m in conversation if m.turn >= 5] and all(m is n for m, n in zip(real, [m for m in conversation if m.turn >= 5]))
+    assert any(m.phase == "plan" and m.turn == 5 for m in real) and real[0]["role"] == "assistant"  # the window starts at a turn
+    assert [m["reasoning"] for m in real if m["role"] == "assistant"] == [f"REASONING {t}" for t in range(5, 15)]
+    assert stats["commit_turns"] == 1 and stats["phase_turn"] == 5 and stats["older_turns"] == 0 and not stats["phase_compacted"]
+    assert stats["recent_turns"] == 10 and stats["chars"]["phase"] == 0 and stats["chars"]["commits"] == len(compacted.split("\n\n", 1)[1].rsplit("\n\n", 1)[0])
+    assert stats["images"] == 2  # the PLAN message's and the image message's, both real
+
+
+def test_the_rebuilt_context_with_an_older_phase_message() -> None:
+    conversation = _synthetic_conversation(20)  # the window is turns 11-20: the PLAN message of turn 5 is older
+    view, stats = rebuilt_context(conversation, keep_turns=10)
+    assert view[0]["role"] == "system" and view[1]["role"] == "user"
+    parts = view[1]["content"]
+    text = _text_of(view[1])
+    heads = [line for line in text.splitlines() if line.startswith("Turn ")]
+    assert heads == ["Turn 3 (commit_engine):", "Turn 5 (commit_moves):", "Turn 5 (the current PLAN message):",
+                     "Turn 6:", "Turn 7:", "Turn 8:", "Turn 9:", "Turn 10:"]
+    assert text.endswith(REBUILT_CLOSING)
+    assert "REASONING" not in text  # never in the compacted message
+    assert "NOTE 5" in text and "Sent 1 of 1 move(s)." in text and "PHASE 5" in text
+    assert "x = 6\nprint(x)" in text and "OUTPUT 6" in text and "TEXT 6" in text  # an older turn: calls, arguments and outputs
+    assert "CAPTION 7" not in text and IMAGE_NOTE not in text  # an image message is not rendered
+    assert "Turn 1" not in heads and "OUTPUT 2" not in text  # a turn before the phase message without a commit is dropped
+    # The phase message's image is the compacted message's only one, right after its header.
+    assert _images_of(view[1]) == 1
+    i = next(i for i, p in enumerate(parts) if p.get("type") == "image_url")
+    assert parts[i - 1]["text"].endswith("Turn 5 (the current PLAN message):\n\nPlan the next moves. PHASE 5")
+    assert len(parts) == 3 and parts[2]["text"].startswith("The turns since that message")  # text, image, text
+    real = view[2:]
+    assert real == [m for m in conversation if m.turn >= 11] and real[0]["role"] == "assistant"
+    assert [m["reasoning"] for m in real if m["role"] == "assistant"] == [f"REASONING {t}" for t in range(11, 21)]
+    assert "Turn 12" not in text and any("COMMIT MESSAGE 12" in c["function"]["arguments"]  # the commit of turn 12 is real
+                                         for m in real for c in m.get("tool_calls") or [])
+    assert stats["commit_turns"] == 2 and stats["phase_turn"] == 5 and stats["phase_compacted"] and stats["older_turns"] == 5
+    assert stats["recent_turns"] == 10 and stats["images"] == 1 and stats["chars"]["phase"] == len("Plan the next moves. PHASE 5")
+    assert stats["messages"] == 2 + len(real)
+    # Every commit turn is somewhere: the older ones in the compacted message, the recent one real.
+    for t in (3, 5, 12):
+        assert f"Turn {t} (commit_" in text or any(m.turn == t for m in real)
+    # A short conversation needs no compacted message: the request is the conversation.
+    short = _synthetic_conversation(6)
+    view, stats = rebuilt_context(short, keep_turns=10)
+    assert view == short and stats["commit_turns"] == 0 and stats["recent_turns"] == 7  # turns 0-6
+
+
+def test_the_play_agent_in_rebuilt_mode(tmp_path: Path, environments: Path) -> None:
+    model = _ScriptedModel(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})], [NOTHING]])
+    config = ModelConfig(context="rebuilt", compact_prompt_tokens=0, rebuilt_keep_turns=1)
+    agent = PlayAgent("twol", tmp_path / "run", config, Budget(max_turns=4), environments, client=model, images=False, batch_size=4)
+    result = agent.run()
+    assert result.status == "budget_turns" and result.context == "rebuilt"
+    records = _records(tmp_path)
+    assert not any("compact" in r for r in records)  # never compacted, whatever the prompt size
+    rebuilt = [r for r in records if "rebuilt" in r]
+    assert [r["turn"] for r in rebuilt] == [0, 1, 2, 3] and len(model.seen) == 4
+    assert all(set(r["rebuilt"]) >= {"commit_turns", "phase_turn", "older_turns", "chars", "estimated_tokens"} for r in rebuilt)
+    assert rebuilt[-1]["rebuilt"]["commit_turns"] == 1 and rebuilt[-1]["rebuilt"]["phase_turn"] == 3
+    assert rebuilt[-1]["rebuilt"]["chars"]["total"] == sum(rebuilt[-1]["rebuilt"]["chars"][k] for k in ("system", "commits", "phase", "older", "recent"))
+    # Every message knows its turn; the transcript logs plain messages.
+    assert [m.turn for m in agent.messages] == [0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4]
+    assert [m.phase for m in agent.messages if m.phase] == ["plan", "plan", "plan"]
+    assert all("turn" not in r["message"] and "phase" not in r["message"] for r in records if "message" in r)
+    # The last request: the system prompt, the compacted context with the commit turn, then turn 3 as it is.
+    last = model.seen[-1]
+    assert last[0]["role"] == "system" and last[1]["role"] == "user"
+    text = last[1]["content"]
+    assert text.startswith("Earlier turns of this game in which you committed") and text.endswith(REBUILT_CLOSING)
+    assert "Turn 2 (commit_engine):" in text and "the rules" in text and "Turn 1" not in text and "Turn 3" not in text
+    assert [m["role"] for m in last[2:]] == ["assistant", "tool", "user"] and _texts(agent)[-1] == _text_of(last[-1])
+    # Resumed: the conversation is rebuilt with the same tags, and the next request is rebuilt from it.
+    second = _ScriptedModel([[NOTHING]])
+    agent2 = PlayAgent("twol", tmp_path / "run", config, Budget(max_turns=5), environments, client=second, images=False, batch_size=4)
+    agent2.run()
+    n = len(agent.messages)
+    assert agent2.messages[:n] == agent.messages
+    assert [(m.turn, m.phase) for m in agent2.messages[:n]] == [(m.turn, m.phase) for m in agent.messages]
+    assert agent2.messages[n].turn == 4 and "has now resumed" in agent2.messages[n]["content"]
+    first = second.seen[0]
+    text = first[1]["content"]
+    assert first[0]["role"] == "system" and "Turn 2 (commit_engine):" in text and "Turn 3 (the current PLAN message):" in text
+    assert "Plan the next moves. Steps 0-1 pass" in text and text.endswith(REBUILT_CLOSING)
+    assert [m["role"] for m in first[2:]] == ["assistant", "tool", "user"] and "has now resumed" in first[-1]["content"]
 
 
 def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> None:
