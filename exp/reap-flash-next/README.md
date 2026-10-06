@@ -72,7 +72,7 @@ kept-expert count.
 
 ## Validation done
 
-Local, CPU (`pytest tests`, 19 tests):
+Local, CPU (`pytest tests`, 21 tests):
 
 - **Tiny model** with the same architecture and a fake Intel-format checkpoint
   (`tests/tiny.py`):
@@ -192,6 +192,37 @@ next-token NLL increase over the full model (lower is better):
 Statistics from these runs (`kaggle_v3` ar25, bp35, cd82, dc22, g50t, re86,
 tn36, tu93, plus the smoke runs) are in `reap_results.zip` from the session,
 not in git.
+
+## Serving throughput, full vs pruned
+
+Before the game runs: how many concurrent requests should the pruned model
+serve? `kaggle/push_serve_bench.py` builds a notebook from dfranzen's paths,
+precaching and SGLang launcher cells (same wheels, flags and speculative
+decoding). It writes a 256-expert checkpoint from `kaggle/keep_256_smoke.json`
+(ranked on the smoke statistics; which experts are kept barely matters for
+speed). It then serves:
+
+- the full model exactly as dfranzen does (10 requests, 60 state slots),
+  measured at 10 concurrent streams;
+- the pruned model sized for 28 requests, measured at 10, 16, 20 and 28 streams.
+
+`serve_bench.py` (standard library only) generates the load. It replays
+passes 2 and 3 of dfranzen's v3 logs (50 game runs) with the logged messages
+and images, and forces each reply to its logged length (`ignore_eos`). Games
+rotate through the streams like the harness, so many games' prefixes compete
+for the cache. Per setting it reports, from SGLang's metrics after a 3-minute
+warm-up and over 8 minutes:
+
+- generated and uncached-prefill tokens/s;
+- cache hit rate and retracted requests;
+- mean running and queued requests;
+- KV use and speculative accept length.
+
+About 1.7 hours in all.
+
+```bash
+KAGGLE_CLI=kaggle python kaggle/push_serve_bench.py
+```
 
 ## Real-game test of a pruned model
 

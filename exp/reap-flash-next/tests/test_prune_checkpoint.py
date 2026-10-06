@@ -68,3 +68,19 @@ def test_pruned_checkpoint_matches_masked_router(tmp_path):
     reap_model.set_pruning(full, None)
     torch.testing.assert_close(_hidden(pruned, ids), masked, rtol=1e-5, atol=1e-5)
     assert not torch.allclose(_hidden(full, ids), masked, atol=1e-3)
+
+
+def test_keep_file_reproduces_a_pruning(tmp_path):
+    ckpt = tmp_path / "model"
+    tiny.write_checkpoint(tiny.reference_model(), ckpt)
+    config = json.loads((ckpt / "config.json").read_text())["text_config"]
+    L, E = config["num_hidden_layers"], config["num_experts"]
+    rng = np.random.default_rng(1)
+    kept = {str(layer): sorted(rng.choice(E, E // 2, replace=False).tolist()) for layer in range(L)}
+    (tmp_path / "keep.json").write_text(json.dumps({"num_experts": E // 2, "source": "x", "kept": kept,
+                                                    "criterion": "gate_norm"}))
+    out = tmp_path / "pruned"
+    subprocess.run([sys.executable, str(HERE.parent / "prune_checkpoint.py"), "--model-dir", str(ckpt),
+                    "--keep-file", str(tmp_path / "keep.json"), "--keep", str(E // 2), "--out", str(out)], check=True)
+    written = json.loads((out / "keep.json").read_text())
+    assert written["kept"] == kept and written["criterion"] == "gate_norm"

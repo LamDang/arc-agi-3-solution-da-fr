@@ -18,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CODE_FILES = ["traces.py", "render.py", "reap_model.py", "replay.py", "run_reap.py", "analyze.py", "prune_eval.py", "bench.py",
-              "prune_checkpoint.py"]
+              "prune_checkpoint.py", "serve_bench.py"]
 KAGGLE = os.environ.get("KAGGLE_CLI", "kaggle")
 
 
