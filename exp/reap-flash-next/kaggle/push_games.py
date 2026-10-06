@@ -95,6 +95,9 @@ def build(nb: dict, run: dict) -> dict:
     custom, serving = find("demo_excluded_games = "), find("## 5. Start serving")
     maxreq = run["maxreq"]
     text[paths] = _patch(text[paths], "'ARC3_MAX_ACTIVE_STREAMS': 10,", f"'ARC3_MAX_ACTIVE_STREAMS': {maxreq},")
+    # dfranzen's wheels are cp312; newer Kaggle images run the kernel on 3.13 but still ship python3.12
+    text[launcher] = _patch(text[launcher], 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
+                            'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
     text[launcher] = _patch(text[launcher], "MAXREQ=10,", f"MAXREQ={maxreq},")
     text[launcher] = _patch(text[launcher], "CUDAGRAPH_MAXBS=10,", f"CUDAGRAPH_MAXBS={maxreq},")
     # SGLang also caps running requests at max_mamba_cache_size // (state slots per request), with only a

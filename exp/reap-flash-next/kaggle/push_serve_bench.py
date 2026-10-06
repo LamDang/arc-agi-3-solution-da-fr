@@ -51,9 +51,10 @@ print("bench:", json.dumps(BENCH), "\\ncode:", CODE_DIR, "\\nlogs:", LOG_DIR, fl
 PRUNE = '''FULL_MODEL_DIR = MODEL_DIR
 PRUNED_MODEL_DIR = f"/tmp/flash-next-pruned-{BENCH['keep']}"
 _t = time.time()
-subprocess.run([sys.executable, str(CODE_DIR / "prune_checkpoint.py"), "--model-dir", FULL_MODEL_DIR,
-                "--keep-file", str(CODE_DIR / BENCH["keep_file"]), "--keep", str(BENCH["keep"]),
-                "--out", PRUNED_MODEL_DIR], check=True)
+if not Path(PRUNED_MODEL_DIR, "keep.json").exists():  # keep.json is written last
+  subprocess.run([sys.executable, str(CODE_DIR / "prune_checkpoint.py"), "--model-dir", FULL_MODEL_DIR,
+                  "--keep-file", str(CODE_DIR / BENCH["keep_file"]), "--keep", str(BENCH["keep"]),
+                  "--out", PRUNED_MODEL_DIR], check=True)
 print(f"pruned checkpoint in {time.time() - _t:.0f}s", flush=True)
 '''
 
@@ -158,6 +159,9 @@ def build(nb: dict, bench: dict) -> dict:
     precache = find("def precache(")
     launcher = find("def prepare_draft_view(")
     p = push_games._patch
+    # dfranzen's wheels are cp312; newer Kaggle images run the kernel on 3.13 but still ship python3.12
+    launcher = p(launcher, 'run(uv + ["venv", "--python", sys.executable, VENV], env=install_env)',
+                 'run(uv + ["venv", "--python", shutil.which("python3.12") or sys.executable, VENV], env=install_env)')
     launcher = p(launcher, "MAXREQ=10,", "MAXREQ=BENCH_MAXREQ,")
     launcher = p(launcher, "CUDAGRAPH_MAXBS=10,", "CUDAGRAPH_MAXBS=BENCH_MAXREQ,")
     launcher = p(launcher, "MAMBA_CACHE=60,", "MAMBA_CACHE=BENCH_MAMBA,")
