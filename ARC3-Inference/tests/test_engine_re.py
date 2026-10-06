@@ -1386,6 +1386,49 @@ def test_changes_find_recoloured_moved_reshaped_and_new_pieces() -> None:
     assert segment.summary(found).startswith("1 moved by (+1, +0) screen (SHAPE_11_1x30_")
 
 
+def test_a_piece_drawn_from_another_shape_is_described_by_its_own_pixels() -> None:
+    """v11 follow-up 8: the ls20 step-210 diff called a 6x6 orange piece SHAPE_9_3x3_710a, the 3x3 blue constant it
+    was drawn from (scaled 2 and recoloured, auto_sprites' reuse). A piece is named after its own pixels, with the
+    constant it is drawn from in brackets, in the pieces listing, the changes and the summary."""
+    import numpy as np
+
+    from engine_re import segment
+    from engine_re.auto_sprites import shape_name
+
+    frame = np.zeros((64, 64), np.int16)
+    frame[2:5, 2:5] = 9  # a 3x3 blue ring: the first piece, so the constant is named after it
+    frame[3, 3] = 0
+    frame[10:16, 10:16] = 12  # the ring scaled 2, in orange: drawn from the blue ring's constant
+    frame[12:14, 12:14] = 0
+    before = segment.pieces(frame, (64, 64))
+    ring, big = before[2], before[3]
+    assert ring.shape.startswith("SHAPE_9_3x3_") and big.shape == ring.shape and big.transform == {"scale": 2, "recolour": {9: 12}}
+    own = shape_name(("cccccc", "cccccc", "cc..cc", "cc..cc", "cccccc", "cccccc"))
+    assert segment.own_shape(big) == own and own.startswith("SHAPE_12_6x6_") and segment.own_shape(ring) == ring.shape
+    listing = str(before).splitlines()
+    assert listing[4] == f"  [3] {own}  colour 12 (orange)  6x6 at (10, 10), 32 cells  drawn from {ring.shape} scale=2, recolour={{9: 12}}"
+    assert listing[3] == f"  [2] {ring.shape}  colour 9 (blue)  3x3 at (2, 2), 8 cells"
+    gone = frame.copy()
+    gone[10:16, 10:16] = 0
+    found = segment.changes(before, segment.pieces(gone, (64, 64)))
+    assert [c.kind for c in found] == ["disappeared"]
+    assert str(found[0]) == f"disappeared: {own} ({ring.shape} scale=2, recolour={{9: 12}}) colour 12 (orange), 6x6 at (10, 10), 32 cells"
+    assert segment.summary(found) == f"1 disappeared ({own}, colour 12 (orange), 6x6, 32 cells): (10, 10)"
+    assert ring.shape not in segment.summary(found)
+    # Reshaped: the big ring loses a corner; the line names its own shape too, and the same pixels elsewhere still "move".
+    cut = frame.copy()
+    cut[10, 10] = 0
+    found = segment.changes(before, segment.pieces(cut, (64, 64)))
+    assert [c.kind for c in found] == ["reshaped"] and str(found[0]).startswith(f"reshaped: {own} ({ring.shape} scale=2")
+    moved = np.zeros((64, 64), np.int16)
+    moved[2:5, 2:5] = 9
+    moved[3, 3] = 0
+    moved[20:26, 20:26] = 12
+    moved[22:24, 22:24] = 0
+    found = segment.changes(before, segment.pieces(moved, (64, 64)))
+    assert [c.kind for c in found] == ["moved"] and segment.summary(found) == f"1 moved by (+10, +10) ({own}): (10, 10)->(20, 20)"
+
+
 def test_the_step_messages_show_what_the_step_changed(monkeypatch, two_level_trace: Trace) -> None:
     from engine_re import auto_sprites, prompts, segment
 

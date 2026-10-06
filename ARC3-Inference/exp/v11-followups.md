@@ -51,6 +51,10 @@ changed during the run. Ordered by the turns they cost.
    on level 3 because of it. Superseded by 19: the list goes.
 8. **Piece name vs description** in object diffs: a disappeared piece named
    `SHAPE_9_3x3_710a` described as "colour 12 (orange), 6x6" (stale identity carried over).
+   **Done (v12):** the name was the constant the piece was drawn from (the 3x3 blue ring scaled 2
+   and recoloured, the generator's reuse); `segment.own_shape` names a piece after its own pixels,
+   the constant in brackets: "disappeared: SHAPE_12_6x6_3c78 (SHAPE_9_3x3_7f53 scale=2,
+   recolour={9: 12}) colour 12 (orange), 6x6 at (10, 10), 32 cells".
 9. **`run_play.py` writes "(v10)"** into config.json for every run.
    **Done (v12):** `engine_re.PLAY_VERSION` and the git short sha: "engine_re.play_agent (v12, git 1a2b3c4)".
 10. **Support lines number moves by batch position** ("move 4") while the Sent lines use step
