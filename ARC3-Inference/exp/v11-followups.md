@@ -210,3 +210,52 @@ changed during the run. Ordered by the turns they cost.
     border and screen pieces are reported only as "the game shows nothing / something here", never
     as "yours here". With it the region text can shrink to its first line (where, how many px,
     which colours), and the comparison image stays.
+
+## Base agent tooling we do not have (checked against inference/agent and framework/solver)
+
+Equal or better in the play harness: the recording with frames and segmentation (base: `history`,
+`.segmentation`, `frame_diff()` with Hungarian matching; ours has stable shape names and transforms),
+the animation digest and timeline, numpy and a persistent kernel (base: a fresh 30 s subprocess per
+call, no numpy, no classes), the automatic RESET after a game over, the per-move trace of a batch
+(base: action echo and per-action trace), tool-call recovery and the degenerate-reply guard (no
+malformed call and no length finish in 600 turns of v11). What the base has and we lack:
+
+26. **Helpers that survive a kernel restart.** The base re-executes the source of every retained
+    function at the start of every snippet, so a definition is never lost; ours keeps the whole
+    namespace but loses it at a 120 s timeout (sp80 three times, ls20 twice, each followed by
+    NameErrors two or three turns later). The harness has the cells and a replay (`KernelClient.replay`,
+    used on resume, 20 s per cell, 120 s in all): after a timeout restart, replay the earlier cells
+    in that mode, skipping the one that timed out, and say which names are back and which cell was
+    dropped (18's message).
+27. **A state line every turn.** The base rebuilds an opener at every request: what the previous
+    sequence executed, "Current state: step S, level L", "Valid actions right now", the retained
+    functions, the current board image. Ours restates the state only in PLAN and FIT messages, up to
+    13 turns apart, and the budget line only in PLAN. With a 57K drain (22) ten turns is the whole
+    window: append one harness line to every turn's last tool output ("[harness] step 57, level 2,
+    actions 61 of 500 (level 2: 14), plan round turn 4 of 6, output tokens 213K of 500K"), ~40
+    tokens, and the budget line in FIT messages too.
+28. **What the last batch changed, in the PLAN message.** The base attaches a diff image every turn
+    (changed cells since the previous turn, the rest navy) and the game-over opener a fatal-step
+    diff. Our PLAN message has the batch's per-move lines but not what the board looks like now
+    versus before the batch; the object diff (`step_objects`) appears only in FIT messages. Add the
+    object changes from the batch's first frame to its last (the segmentation's `changes` summary,
+    at most 12 lines) to the PLAN message, under the batch lines. The sprite list (24) gives the
+    "now"; this gives the "since".
+29. **A cut reply continues.** The base caps a response at 12,288 tokens and a longer thought
+    continues in the next request (the reply is appended, the request repeats); a context-length
+    error forces a drain and a retry. Ours asks for 32,768 and never hit the cap in v11; under 22
+    the agent must treat finish_reason "length" as a continuation (append the partial reply, ask
+    again) and a context-length error as a drain, not as an idle turn or a provider error.
+30. **A batch stops at a board no-op.** The base stops a batch of two or more after the first
+    executed action that changed nothing inside the board (a 4 px border, the HUD, excluded) and
+    says so with the skipped moves. Ours warns ("changes nothing in your replica") and sends the
+    whole batch, and the criterion compares whole frames, so a move that only moves the budget bar
+    is not a no-op: the warning fired 4 and 2 times in v11 on games whose HUD changes at every
+    move. Compare the frame without the screen-layer sprites (or inside `HUD_BORDER`), and cut the
+    batch before the first predicted board no-op when the batch has more than one move (a single
+    move is a probe and goes), saying which moves were not sent and why.
+31. **Not needed now, noted:** the base's stale-state block (a second `action()` in one snippet
+    after a no-op; ours allows one commit_moves per turn), the known-no-op / known-death / repeat
+    guards and the death ledger (all off on Kaggle), the priority scheduler (62K tokens and 115
+    actions per level; not model-facing), the per-turn board image (402 tokens each, never
+    stripped; ours shows one at PLAN and FIT and hides older ones), and the tool-call markup parser.
