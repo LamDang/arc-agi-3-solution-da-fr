@@ -309,6 +309,43 @@ Output tokens per level, base agent against v11:
 - **Against v10**, on the same budget (300 turns, about $1.95 a game): sp80
   from 2/6 to 4/6 and from 239 to 122 actions; ls20 from 1/7 to 2/7, with
   level 1 in 65 actions against 218 unsolved.
+- **Against the agent that reads the game's code**
+  ([experiments/engine-code-access](../experiments/engine-code-access/README.md),
+  the base agent with the source of the game it plays): sp80 100, 6/6 in 143
+  actions, 162K output tokens, $0.22; ls20 100, 7/7 in 466 actions, 252K,
+  $0.46. v11 sits between the two text-only arms on sp80 and below both on
+  ls20. The code-reading run is the ceiling for a replica that was right
+  from the start: it spent a third of v11's output tokens on sp80 and a
+  ninth of its cost.
+
+**Per response.** v11's turns are shorter and less thinking-heavy than the
+base agent's responses, but there are many more of them. The base agent's
+figures come from the usage of the response lines in its request logs
+(`*_requests.jsonl.xz`; the rolling-summary requests are not in them).
+
+| per model response | sp80 v11 | sp80 base | ls20 v11 | ls20 base |
+| --- | --- | --- | --- | --- |
+| responses | 300 | 167 | 300 | 203 |
+| output tokens, mean | 2,043 | 2,999 | 1,562 | 1,936 |
+| output tokens, median | 984 | 1,458 | 814 | 1,420 |
+| thinking tokens, mean | 1,685 | 2,727 | 1,254 | 1,748 |
+| thinking share of output | 83% | 91% | 80% | 90% |
+| largest response | 18,627 | 12,288 (its cap) | 17,963 | 12,288 |
+
+- v11 thinks a third less per call on sp80 and a quarter less on ls20, and a
+  smaller share of its output is thinking, because more of it is code and
+  edits; the base agent's output is almost entirely thinking around one
+  python call. The gap is widest at the median: half of v11's turns are
+  under 1K tokens, the short tool turns (an edit, a read, a commit, a
+  one-move probe), which the base agent does not have.
+- The totals go the other way because of the call count: 613K against 501K
+  on sp80, 469K against 393K logged on ls20. Per game action, v11 spent
+  about 5K output tokens on sp80 against the base agent's 4.5K, and 2K on
+  ls20 against 0.6K, the base agent having played 866 actions there.
+- The base harness yields every 2,048 tokens and caps a response at 12,288,
+  then continues in the next request, so its "response" is a slice of a
+  longer thought; v11 has no cap, which is why its largest turns are bigger
+  while its typical turn is smaller.
 
 ## Where the tokens went
 
