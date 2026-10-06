@@ -1,6 +1,7 @@
 """Play ARC-AGI-3 games with a pruned Flash-Next: dfranzen's submission notebook
 with one step added before the server starts.
 
+    python kaggle/push_games.py --games tu93,cd82,re86,dc22,ls20,sb26,tr87 --keep 256 --passes 4 --maxreq 28
     python kaggle/push_games.py --fold all --keep 256 --passes 2 --maxreq 20 [--no-push]
     python kaggle/push_games.py --fold a --keep 256 [--passes 4] [--maxreq 10]
     python kaggle/push_games.py --fold a --keep 512        # same games, unpruned baseline
@@ -18,7 +19,11 @@ statistics (the calibration traces and the games played are the same 25, a
 small optimism we accept). Folds a (13 games) and b (12) instead rank
 without the games played; running both plays every game held out. Wall time
 is about 532 min x runs / 110 (the per-game budget is scaled to the
-competition's GPU share): 25 games x 2 passes take about 4 hours. `--maxreq` sets the number of
+competition's GPU share): 25 games x 2 passes take about 4 hours. That
+share holds only with at least as many game runs as streams (each game
+sends one request at a time), so keep games x passes >= --maxreq.
+`--games` plays a chosen set, e.g. the games whose v3 scores sit in the
+middle with low pass-to-pass spread, where a quality loss shows best. `--maxreq` sets the number of
 concurrent decoding requests: SGLang --max-running-requests, the harness's
 active streams, the linear-attention state cache (6 slots per request, as in
 dfranzen's 60 for 10) and the CUDA graph batch sizes. 10 is dfranzen's
@@ -128,7 +133,8 @@ def build(nb: dict, run: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--fold", choices=sorted(FOLDS), required=True)
+    parser.add_argument("--fold", choices=sorted(FOLDS), default="all")
+    parser.add_argument("--games", help="play only these games (comma-separated); experts ranked from all games")
     parser.add_argument("--keep", type=int, default=256, help="experts per layer; 512 = unpruned baseline")
     parser.add_argument("--criterion", default="gate_norm")
     parser.add_argument("--passes", type=int, default=2)
@@ -138,9 +144,15 @@ def main():
     parser.add_argument("--no-push", action="store_true", help="write the notebook only")
     args = parser.parse_args()
 
-    run = {"fold": args.fold, "play": FOLDS[args.fold], "all_games": GAMES, "keep": args.keep,
+    play = args.games.split(",") if args.games else FOLDS[args.fold]
+    assert set(play) <= set(GAMES), f"unknown games: {set(play) - set(GAMES)}"
+    fold = "all" if args.games else args.fold
+    runs = len(play) * args.passes
+    if runs < args.maxreq:
+        print(f"warning: {runs} game runs for {args.maxreq} streams: games get less GPU time than in the competition")
+    run = {"fold": fold, "play": play, "all_games": GAMES, "keep": args.keep,
            "criterion": args.criterion, "passes": args.passes, "maxreq": args.maxreq, "stats_kernel": STATS_KERNEL}
-    slug = args.kernel or f"flash-next-games-{args.keep}-{args.fold}"
+    slug = args.kernel or f"flash-next-games-{args.keep}-{fold if not args.games else 'sel' + str(len(play))}"
     if args.maxreq != 10:
         slug += f"-req{args.maxreq}"
     build_dir = push.HERE / "build" / slug
