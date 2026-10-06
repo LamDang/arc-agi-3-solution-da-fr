@@ -428,8 +428,22 @@ def test_builtin_functions_called_as_tools_run_as_python(tmp_path: Path, tiny_tr
     assert builtin_call_code("edit_file", {"edits": '[{"op": "append", "lines": ["x"]}]'}) == "edit_file(edits=[{'op': 'append', 'lines': ['x']}])"
     assert builtin_call_code("show_frames", {"titles": "[not json"}) == "show_frames(titles='[not json')"
     assert builtin_call_code("read_file", {"path": "engine.py", "offset": "240"}) == "read_file(path='engine.py', offset=240)"
+    # The edit_file shim (v11 follow-up 6): a Python-literal string, one dict, oldText/newText (or old/new) without an op.
+    from engine_re.agent import normalise_edits
+
+    assert builtin_call_code("edit_file", {"edits": "[{'op': 'append', 'lines': ['x']}]"}) == "edit_file(edits=[{'op': 'append', 'lines': ['x']}])"
+    assert builtin_call_code("edit_file", {"edits": '{"oldText": "a", "newText": "b"}', "path": "notes.md"}) == \
+        "edit_file(edits=[{'op': 'replace_text', 'oldText': 'a', 'newText': 'b'}], path='notes.md')"
+    assert normalise_edits({"edits": [{"old": "a", "new": "b"}, {"op": "append", "lines": ["x"]}]}) == (
+        {"edits": [{"op": "replace_text", "oldText": "a", "newText": "b"}, {"op": "append", "lines": ["x"]}]},
+        ["edit 0 has old/new and no op: replace_text assumed"])
+    assert normalise_edits({"edits": '[{"oldText": "a", "newText": "b"}]'})[1] == [
+        "edits given as a JSON string: parsed", "edit 0 has oldText/newText and no op: replace_text assumed"]
+    assert normalise_edits({"edits": {"op": "append", "lines": ["x"]}})[1] == ["edits given as one dict: wrapped in a list"]
+    assert normalise_edits({"edits": "[not json"}) == ({"edits": "[not json"}, []) and normalise_edits({"path": "x"}) == ({"path": "x"}, [])
+    assert normalise_edits({"edits": [{"op": "replace_text", "oldText": "a", "newText": "b"}]})[1] == []  # nothing to change
     tiny_trace.save(tmp_path / "trace")
-    edits = json.dumps([{"op": "replace_text", "oldText": "# ==== YOUR GAME ====", "newText": "# ==== YOUR GAME ==== (changed)"}])
+    edits = json.dumps([{"oldText": "# ==== YOUR GAME ====", "newText": "# ==== YOUR GAME ==== (changed)"}])  # no op: inferred
     model = _ScriptedModel(
         [
             [("read_file", {"offset": 1, "limit": 2})],
@@ -444,6 +458,8 @@ def test_builtin_functions_called_as_tools_run_as_python(tmp_path: Path, tiny_tr
     lines = outputs[0].splitlines()
     assert outputs[0].startswith(note) and lines[1].startswith("1#") and lines[2].startswith("2#") and "[Showing lines 1-2 of" in lines[-1]
     assert outputs[1].startswith("[harness] edit_file is a python function, not a tool; this call ran as python: edit_file(edits=[{'op': 'replace_text'")
+    assert ("\n[harness] edits given as a JSON string: parsed\n[harness] edit 0 has oldText/newText and no op: replace_text assumed\n"
+            in outputs[1])  # the shim's notes, before the python output
     assert "engine.py: replaced line" in outputs[1] and result.engine_changes == 1
     assert outputs[2].startswith("Error: unknown tool 'nonsense'. The tools are python, run_tests and commit_engine.\n\n[harness] engine.py changed")
     assert outputs[3].startswith("1\n")

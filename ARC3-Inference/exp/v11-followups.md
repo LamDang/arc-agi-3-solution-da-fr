@@ -42,6 +42,10 @@ changed during the run. Ordered by the turns they cost.
    Still relevant on the v12 forks: the A forks (v11 prompt) called edit_file as a tool 16 and 7
    times, 4 and 2 of them failing this way; the B fork (v12 prompt) never called it as a tool.
    **Decided (v12):** fix the shim (cheap).
+   **Done (v12):** `agent.normalise_edits` (in `builtin_call_code`, so a replay runs the same code): a
+   JSON or Python-literal string is parsed, one dict is wrapped, oldText/newText (old_text/new_text,
+   old/new) without an op is a replace_text; each change is a "[harness] ..." line in the tool output.
+   On sp80's 16 failures: 14 lacked the op, 2 were Python literals.
 7. **"Unfamiliar elements" in screen coordinates** while the engine may use a rotated grid
    (sp80 level 1: the 4x1 at (2,5) is (10,10) in grid terms); the bins were listed as unfamiliar
    on level 3 because of it. Superseded by 19: the list goes.

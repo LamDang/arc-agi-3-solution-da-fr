@@ -76,6 +76,7 @@ the kernel keeps; a single-mode run with a fresh conversation.
 
 from __future__ import annotations
 
+import ast
 import base64
 import copy
 import hashlib
@@ -305,9 +306,61 @@ def _truncate(text: str, limit: int = TOOL_OUTPUT_CHARS) -> str:
     return f"{text[:head]}\n...[{len(text) - head - tail} characters truncated]...\n{text[-tail:]}"
 
 
+EDIT_TEXT_KEYS = (("oldText", "newText"), ("old_text", "new_text"), ("old", "new"))  # replace_text's pair, as models spell it
+
+
+def _parse_literal(text: str) -> Any:
+    """A string argument's value: parsed as JSON, else as a Python literal (a list written with single quotes);
+    the string itself when it is neither."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        return ast.literal_eval(text)
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+        return text
+
+
+def normalise_edits(args: Any) -> tuple[Any, list[str]]:
+    """edit_file's arguments as a model sent them as a tool call, put in the shape hashline takes (v11 follow-up 6):
+    `edits` given as a JSON (or Python literal) string is parsed, one edit dict is wrapped in a list, and an edit with
+    oldText/newText (or old_text/new_text, old/new) and no op is a replace_text. Returns the arguments (a copy when
+    something changed) and one note per change, for the tool output ("[harness] ...")."""
+    if not isinstance(args, dict) or "edits" not in args:
+        return args, []
+    notes: list[str] = []
+    edits = args["edits"]
+    if isinstance(edits, str):
+        parsed = _parse_literal(edits)
+        if not isinstance(parsed, str):
+            edits = parsed
+            notes.append("edits given as a JSON string: parsed")
+    if isinstance(edits, dict):
+        edits = [edits]
+        notes.append("edits given as one dict: wrapped in a list")
+    if isinstance(edits, list):
+        fixed = []
+        for i, edit in enumerate(edits):
+            if isinstance(edit, dict) and not edit.get("op"):
+                pair = next((p for p in EDIT_TEXT_KEYS if p[0] in edit and p[1] in edit), None)
+                if pair is not None:
+                    edit = {**{k: v for k, v in edit.items() if k not in pair and k != "op"},
+                            "op": "replace_text", "oldText": edit[pair[0]], "newText": edit[pair[1]]}
+                    notes.append(f"edit {i} has {pair[0]}/{pair[1]} and no op: replace_text assumed")
+            fixed.append(edit)
+        edits = fixed
+    if not notes:
+        return args, []
+    return {**args, "edits": edits}, notes
+
+
 def builtin_call_code(name: str, args: Any) -> str:
     """`name(**args)` as python code, for a built-in function the model called as a tool: a string
-    argument that parses as JSON (an `edits` list given as text, a number as "240") is parsed first."""
+    argument that parses as JSON (an `edits` list given as text, a number as "240") is parsed first;
+    edit_file's edits are put in the shape hashline takes (normalise_edits)."""
+    if name == "edit_file":
+        args, _ = normalise_edits(args)
     parts = []
     for key, value in (args.items() if isinstance(args, dict) else []):
         if isinstance(value, str):
@@ -1114,8 +1167,10 @@ class EngineAgent:
         except json.JSONDecodeError as exc:
             return f"Error: tool arguments are not valid JSON ({exc}). Send a JSON object."
         if name in self.BUILTINS:  # a python function called as a tool: run it as python
+            notes = normalise_edits(args)[1] if name == "edit_file" else []
             call = builtin_call_code(name, args)
-            return BUILTIN_AS_TOOL.format(name=name, call=call) + self._tool_python(call)
+            return (BUILTIN_AS_TOOL.format(name=name, call=call) + "".join(f"[harness] {note}\n" for note in notes)
+                    + self._tool_python(call))
         if name not in self.TOOLS:
             listed = ", ".join(self.TOOLS[:-1]) + " and " + self.TOOLS[-1]
             return f"Error: unknown tool {name!r}. The tools are {listed}."

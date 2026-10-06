@@ -146,9 +146,14 @@ evaluate.py: candidate vs real engine on new random action sequences per level
     A tool call named after one of these functions (the model calling
     `read_file` or `edit_file` as if it were a tool) runs through the python
     tool as `name(**args)`, a string argument that parses as JSON (an `edits`
-    list given as text) parsed first; the output starts with one line saying
-    so, the call counts as a python call and the transcript keeps the name the
-    model used (`called_as`). An unknown name still gets the unknown-tool error.
+    list given as text) parsed first; `edit_file`'s edits are put in the shape
+    the editor takes (`agent.normalise_edits`, v11 follow-up 6: a JSON or Python
+    literal string parsed, one dict wrapped in a list, an edit with
+    oldText/newText but no op taken as replace_text), each change noted in the
+    output ("[harness] edits given as a JSON string: parsed"); the output starts
+    with one line saying so, the call counts as a python call and the transcript
+    keeps the name the model used (`called_as`). An unknown name still gets the
+    unknown-tool error.
 
     The kernel answers two more requests (`kernel.py`, `KernelClient`):
     `{"names": true}` lists what the model defined (everything in the
