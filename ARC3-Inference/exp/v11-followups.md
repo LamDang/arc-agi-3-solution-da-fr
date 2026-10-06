@@ -182,3 +182,25 @@ changed during the run. Ordered by the turns they cost.
     (b) instead, since (a) may not match the game. Keep the FIT message's picture: it is the one
     place the game and the replica disagree, and the comparison image shows where. The image stays
     available on request (`show_frames(recording[-1].after)`).
+25. **FIT message: a sprite-by-sprite reconciliation, not only regions.** The test report describes
+    a mismatch by differing pixel regions: for each region, the colours expected and got and the
+    replica's sprites drawing there (including the background), plus `state_changes` on the replica's
+    side and the segmentation's object diff on the game's side. The model has to put the two sides
+    together itself. sp80 step 6: "[2] rows 8-15, cols 20-39: 160 px differ, 12->9 x80, 9->12 x80;
+    yours here: #1 background (80 px), #4 player x=5 y=2 (80 px); this step: y 3->2" means "the
+    game's bar did not move", which is nowhere said; ls20 step 1 lists three of the replica's
+    sprites over one 50 px region with four colour swaps, and the model's reading of such reports
+    cost most of the fit turns (sp80 turns 17 and 64 re-read the image for the bar's row). Add, after
+    the regions, one line per replica sprite the game disagrees with, and one per piece of the real
+    frame no sprite of the replica draws:
+      #4 "player" 5x1 blue: yours at (5, 2); the game shows this shape at (5, 3) (it did not move)
+      #8 "legend_shape" 6x6: yours colour 12; the game shows it colour 9 at the same place
+      #20 "multi" 3x3: yours visible at (30, 46); the game shows nothing there
+      the game shows a 3x3 piece (blue, 5 cells) at (35, 16) that none of your sprites draws
+    The pieces are the real frame's segmentation (`step_to_fix.pieces_after`), matched to the
+    replica's sprites by rendered shape up to translation, rotation and recolour (the matcher
+    `pieces_after.code()` uses to recognise engine.py's kinds), in the engine's grid coordinates
+    (`cells_text` converts through the View). Sprites that match are not listed; the background,
+    border and screen pieces are reported only as "the game shows nothing / something here", never
+    as "yours here". With it the region text can shrink to its first line (where, how many px,
+    which colours), and the comparison image stays.
