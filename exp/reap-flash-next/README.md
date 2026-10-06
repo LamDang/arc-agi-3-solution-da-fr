@@ -72,7 +72,7 @@ kept-expert count.
 
 ## Validation done
 
-Local, CPU (`pytest tests`, 18 tests):
+Local, CPU (`pytest tests`, 19 tests):
 
 - **Tiny model** with the same architecture and a fake Intel-format checkpoint
   (`tests/tiny.py`):
@@ -192,3 +192,44 @@ next-token NLL increase over the full model (lower is better):
 Statistics from these runs (`kaggle_v3` ar25, bp35, cd82, dc22, g50t, re86,
 tn36, tu93, plus the smoke runs) are in `reap_results.zip` from the session,
 not in git.
+
+## Real-game test of a pruned model
+
+Next-token NLL on logged games is a proxy; the test that counts is playing.
+Two Kaggle runs, both on the RTX PRO 6000:
+
+1. **Calibration statistics** (`kaggle/calib.json`, kernel `lamdang/reap-flash-next`,
+   about 70 minutes): the first stretch, up to 64K tokens, of passes 0 and 1 of
+   all 25 games (3.2M tokens).
+
+   ```bash
+   KAGGLE_CLI=kaggle python kaggle/push.py --config kaggle/calib.json
+   ```
+
+2. **Games** (`kaggle/push_games.py`, kernel `lamdang/flash-next-games-<keep>-<fold>`):
+   dfranzen's submission notebook as published, plus one cell before the server
+   starts. That cell ranks experts (`gate_norm`) from the statistics of the games
+   this run does not play, writes the pruned checkpoint with
+   `prune_checkpoint.py` and points `MODEL_DIR` at it. The harness, SGLang
+   build and flags, speculative decoding and the per-game time budget (scaled
+   to the competition's) are unchanged, so scores compare with dfranzen's v3
+   run (25 games x 4 passes, mean 46.49).
+
+   ```bash
+   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold a --keep 256   # 13 games x 4 passes, ~4.6 h
+   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold b --keep 256   # the other 12 games, ~4.3 h
+   ```
+
+   Running both folds plays every game with experts chosen without it.
+   `--keep 512` runs the same games unpruned, and `--maxreq 20` lets the freed
+   memory serve more concurrent requests.
+
+`prune_checkpoint.py` keeps the top N experts of every layer, renumbered
+0..N-1, slices each router to their rows and sets `num_experts` to N. It
+copies tensor bytes without decoding them, so it needs only numpy. Shards
+without routed experts, the n-gram table, tokenizer and chat template are
+symlinked. A test checks that the pruned checkpoint computes what the full
+model computes with the same experts masked out of the router. SGLang's
+loader reads `num_experts` from the config and maps expert tensors by index.
+256 experts takes its power-of-two top-k fast path; 320 and 384 use the
+generic one. Only a GPU run shows whether its kernels accept the pruned shapes.

@@ -29,6 +29,9 @@ sh("free -g; nproc; df -h /kaggle/working /tmp | tail -2")
 wheels = Path(glob.glob("/kaggle/input/**/transformers-*.whl", recursive=True)[0]).parent
 sh(f"{sys.executable} -m pip install -q --no-index --find-links {wheels} --no-warn-conflicts "
    f"'transformers=={CONFIG['transformers']}'", check=True)
+# fast gated delta rule (~12% faster); reap_model checks it against the reference and falls back if it differs
+sh(f"{sys.executable} -m pip install -q --no-index --find-links {wheels} --no-deps --no-warn-conflicts "
+   "flash-linear-attention==0.5.2 fla-core==0.5.2 einops")
 sh(f"{sys.executable} -c \"import torch, transformers; print('torch', torch.__version__, torch.version.cuda, "
    f"torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0), 'transformers', transformers.__version__)\"")
 
