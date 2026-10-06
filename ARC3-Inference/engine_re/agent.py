@@ -76,6 +76,7 @@ the kernel keeps; a single-mode run with a fresh conversation.
 
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -262,6 +263,10 @@ class ModelConfig:
     condense_keep_turns: int = 10
     condense_chars_per_token: float = 3.0
     rebuilt_keep_turns: int = 10
+    # "rebuilt": the model's context window and the tokens reserved for its reply (None: max_tokens); the request budget
+    # is the window minus the reserve minus REQUEST_SAFETY_TOKENS, and a rebuilt request over it is shrunk (shrink_step).
+    context_window: int = 131_072
+    reply_reserve: int | None = None
 
     def __post_init__(self) -> None:
         if self.thinking_budget is not None:
@@ -388,8 +393,102 @@ def _message_text(message: dict[str, Any]) -> str:
 
 
 REBUILT_CLOSING = "The context has been compacted. Continue from the context above."
-REBUILT_WARN_TOKENS = 120_000
-REBUILT_CHARS_PER_TOKEN = 3.5
+# The token estimate of a request (the base harness's, inference/agent/tool_agent.py): the payload rendered as json
+# (ensure_ascii=False) with every image replaced by a placeholder, divided by a characters-per-token figure calibrated
+# from each response's prompt_tokens (seed 3, clamped to [1.0, 3.3]: under-counting overflows the context, the
+# dangerous direction), plus the images at their vision cost: one token per 32x32 patch plus two sentinels.
+CHARS_PER_TOKEN_SEED = 3.0
+CHARS_PER_TOKEN_MIN = 1.0
+CHARS_PER_TOKEN_MAX = 3.3
+VISION_PATCH_PIXELS = 32
+VISION_SENTINEL_TOKENS = 2
+IMAGE_TOKENS_FALLBACK = 402
+REQUEST_SAFETY_TOKENS = 512  # the budget is the window minus the reply reserve minus this
+COUNT_MARGIN_PERCENT = 2  # an exact count's margin on top: its residual against the reported prompt_tokens (engine_re.tokens)
+REBUILT_MIN_REASONING_TURNS = 3  # the last turns that always keep their reasoning (and are never touched)
+REBUILT_MIN_COMMIT_TURNS = 5  # the commit turns the compacted message always keeps
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def png_dimensions(data_url: str) -> tuple[int, int] | None:
+    """(width, height) from the IHDR of a PNG data URL, decoding only its head; None when it is not a readable PNG."""
+    marker = "base64,"
+    index = data_url.find(marker)
+    if index < 0:
+        return None
+    head = data_url[index + len(marker): index + len(marker) + 32]
+    if len(head) < 32:
+        return None
+    try:
+        raw = base64.b64decode(head, validate=True)
+    except (ValueError, TypeError):
+        return None
+    if len(raw) < 24 or not raw.startswith(_PNG_SIGNATURE) or raw[12:16] != b"IHDR":
+        return None
+    width, height = int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
+    return (width, height) if width > 0 and height > 0 else None
+
+
+def image_part_tokens(part: dict[str, Any]) -> int:
+    """The vision tokens of an image part: one per merged 32x32 patch plus the two sentinels (a 536x554 PLAN frame is
+    308, a 1060x554 test comparison 614); IMAGE_TOKENS_FALLBACK when the PNG header cannot be read."""
+    url = (part.get("image_url") or {}).get("url") or ""
+    dims = png_dimensions(url) if url else None
+    if dims is None:
+        return IMAGE_TOKENS_FALLBACK
+    width, height = dims
+    return -(-width // VISION_PATCH_PIXELS) * -(-height // VISION_PATCH_PIXELS) + VISION_SENTINEL_TOKENS
+
+
+def split_for_estimate(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """The messages with every image replaced by a short placeholder (the originals untouched), and the images' vision
+    tokens."""
+    image_tokens = 0
+    out: list[dict[str, Any]] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, list):
+            out.append(message)
+            continue
+        parts: list[Any] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "image_url":
+                image_tokens += image_part_tokens(part)
+                parts.append({"type": "image_url", "image_url": {"url": "<image>"}})
+            else:
+                parts.append(part)
+        out.append({**message, "content": parts})
+    return out, image_tokens
+
+
+def render_request(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None) -> tuple[str, int]:
+    """The request's text as the estimate and the calibration both count it (the same rendering, so an image's cost
+    cancels out between them): the payload's messages (images as placeholders), tools and tool_choice as json without
+    \\u escapes; and the images' vision tokens."""
+    scrubbed, image_tokens = split_for_estimate(messages)
+    payload: dict[str, Any] = {"messages": scrubbed}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str), image_tokens
+
+
+def estimate_request_tokens(messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, chars_per_token: float) -> dict[str, int]:
+    """The estimate of a request: {"tokens", "text_tokens", "image_tokens", "text_chars"}."""
+    rendered, image_tokens = render_request(messages, tools)
+    text_tokens = -(-len(rendered) // max(0.1, chars_per_token))
+    return {"tokens": int(text_tokens) + image_tokens, "text_tokens": int(text_tokens), "image_tokens": image_tokens,
+            "text_chars": len(rendered)}
+
+
+def is_context_length_error(error: str) -> bool:
+    """A request the provider rejected as too long (the base harness's _is_context_length_error, with OpenRouter's
+    wordings)."""
+    text = error.lower().replace("’", "'")
+    return any(s in text for s in (
+        "context length", "maximum context", "too many tokens", "context_length_exceeded",
+        "reduce the length of the input prompt", "parameter=input_tokens", '"param":"input_tokens"',
+    ))
 
 
 def _render_call(call: dict[str, Any]) -> str:
@@ -443,8 +542,12 @@ def _is_image_message(message: dict[str, Any]) -> bool:
     return isinstance(content, list) and bool(content) and content[0].get("type") == "text" and content[0].get("text") == IMAGE_NOTE
 
 
+SHRINK_STEPS = ("reasoning", "older", "commits", "phase_image")  # the order the shrink of a rebuilt request takes
+
+
 def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
-                    commit_tools: tuple[str, ...] = ("commit_engine", "commit_moves")) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                    commit_tools: tuple[str, ...] = ("commit_engine", "commit_moves"),
+                    shrink: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The messages of a request in the "rebuilt" context mode, from the full conversation (TurnMessage-tagged), and
     the composition for the "rebuilt" record. With T the latest turn and the window the last `keep_turns` turns
     (T - keep_turns < t <= T):
@@ -458,7 +561,14 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
        out when it would hold nothing;
     3. the messages of the window as they are (reasoning, tool calls, outputs, images, a phase message at its place).
 
-    Turns older than the window and before the phase message in which nothing was committed are not sent."""
+    Turns older than the window and before the phase message in which nothing was committed are not sent.
+
+    `shrink` (what shrink_step adds, when a request is over budget): "reasoning": the oldest N turns of the window are
+    sent without their reasoning (never the last REBUILT_MIN_REASONING_TURNS); "older": the older turns (c) are left
+    out; "commits": the oldest N commit turns are left out (never the last REBUILT_MIN_COMMIT_TURNS); "phase_image":
+    the phase message's images are replaced by IMAGE_PLACEHOLDER, wherever it is. The phase message's text and the
+    last REBUILT_MIN_REASONING_TURNS turns are never touched."""
+    shrink = shrink or {}
     if not messages:
         return [], {"commit_turns": 0, "phase_turn": None, "older_turns": 0, "chars": {"commits": 0, "phase": 0, "older": 0, "recent": 0}}
     system = [m for m in messages if m["role"] == "system"]
@@ -483,13 +593,33 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
         assistant = next((m for m in group if m["role"] == "assistant"), None)
         if assistant and any(c["function"]["name"] in commit_tools for c in assistant.get("tool_calls") or []):
             commits.append(render_turn(turn, group, calls=commit_tools))
+    commits_dropped = min(int(shrink.get("commits") or 0), max(0, len(commits) - REBUILT_MIN_COMMIT_TURNS))
+    commits = commits[commits_dropped:]
     older: list[str] = []
     for turn, group in after.items():
         if turn > cut:
             continue
         older.append(render_turn(turn, group, header=f"Turn {turn} (continued):" if turn == phase_turn else None))
+    older_dropped = bool(shrink.get("older")) and bool(older)
+    if older_dropped:
+        older = []
     phase_in_compacted = phase_turn <= cut
     recent = [m for i, m in enumerate(rest) if message_turn(m) > cut and (i != phase_index or not phase_in_compacted)]
+    # The window's oldest turns without their reasoning (copies; the conversation keeps it).
+    window_turns = sorted({message_turn(m) for m in recent if m["role"] == "assistant"})
+    stripped = set(window_turns[: max(0, min(int(shrink.get("reasoning") or 0), len(window_turns) - REBUILT_MIN_REASONING_TURNS))])
+    if stripped:
+        recent = [TurnMessage({k: v for k, v in m.items() if k != "reasoning"}, turn=message_turn(m), phase=getattr(m, "phase", None))
+                  if m["role"] == "assistant" and message_turn(m) in stripped and m.get("reasoning") else m for m in recent]
+    phase_image_dropped = False
+    if shrink.get("phase_image") and rest and message_images(rest[phase_index]):
+        phase_message = rest[phase_index]
+        hidden = TurnMessage({**phase_message, "content": [
+            {"type": "text", "text": IMAGE_PLACEHOLDER} if p.get("type") == "image_url" else p for p in phase_message["content"]]},
+            turn=phase_turn, phase=getattr(phase_message, "phase", None))
+        rest = [hidden if i == phase_index else m for i, m in enumerate(rest)]
+        recent = [hidden if m is phase_message else m for m in recent]
+        phase_image_dropped = True
     parts: list[dict[str, Any]] = []
     sections: list[str] = []
     if commits:
@@ -532,7 +662,30 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
         "older_turns": len(older), "recent_turns": len({message_turn(m) for m in recent}), "chars": chars,
         "images": sum(message_images(m) for m in out), "messages": len(out),
     }
+    applied = {"reasoning": len(stripped), "older": older_dropped, "commits": commits_dropped, "phase_image": phase_image_dropped}
+    if any(applied.values()):
+        stats["shrink"] = applied
     return out, stats
+
+
+def shrink_step(shrink: dict[str, Any], stats: dict[str, Any], keep_turns: int = 10) -> dict[str, Any] | None:
+    """The next shrink state after `shrink` gave the view with `stats`, in the order of SHRINK_STEPS: one more turn of
+    the window without reasoning (while more than REBUILT_MIN_REASONING_TURNS turns keep it), then the older turns
+    out, then one more commit turn out (while more than REBUILT_MIN_COMMIT_TURNS stay), then the phase message's
+    image out; None when every step is taken."""
+    applied = stats.get("shrink") or {}
+    reasoning = int(shrink.get("reasoning") or 0)
+    # (one more only when the last one took effect: rebuilt_context caps the count at the turns the window has)
+    if reasoning < keep_turns - REBUILT_MIN_REASONING_TURNS and applied.get("reasoning", 0) == reasoning:
+        return {**shrink, "reasoning": reasoning + 1}
+    if not shrink.get("older") and stats.get("older_turns"):
+        return {**shrink, "older": True}
+    commits = int(shrink.get("commits") or 0)
+    if applied.get("commits", 0) == commits and int(stats.get("commit_turns") or 0) > REBUILT_MIN_COMMIT_TURNS:
+        return {**shrink, "commits": commits + 1}
+    if not shrink.get("phase_image") and stats.get("images"):
+        return {**shrink, "phase_image": True}
+    return None
 
 
 class OpenRouterClient:
@@ -713,8 +866,17 @@ class EngineAgent:
         if model.context not in ("compact", "condense", "rebuilt"):
             raise ValueError(f"ModelConfig.context must be 'compact', 'condense' or 'rebuilt', got {model.context!r}")
         self.condense = model.context == "condense"
-        # "rebuilt": the conversation is never shortened; every request is rebuilt from it (rebuilt_context).
+        # "rebuilt": the conversation is never shortened; every request is rebuilt from it (rebuilt_context) and kept under
+        # the budget by its estimate, whose characters-per-token figure is calibrated from every response (seed 3; the
+        # ceiling is lowered for the run when the provider rejects a request as too long).
         self.rebuilt = model.context == "rebuilt"
+        self.chars_per_token = CHARS_PER_TOKEN_SEED
+        self.chars_ceiling = CHARS_PER_TOKEN_MAX
+        self._calibrations = 0
+        self.context_overflows = 0  # requests the provider rejected as too long (each retried once after a further shrink)
+        # The exact count, when a tokenizer is at hand (engine_re.tokens.TokenCounter: the chat template and the model's
+        # tokenizer, or the server's /tokenize); the calibrated estimate otherwise.
+        self.counter: Any = None
         # Every message the model is sent, in full. With context "condense" nothing is ever shortened in place: each
         # request gets self._condensed (the condensed view of self.messages[:self._condensed_from], computed the last
         # time the condenser fired; empty before) followed by the messages added since (see _context).
@@ -967,32 +1129,107 @@ class EngineAgent:
 
         return self._condensed + hide_but_latest(self.messages[self._condensed_from :])
 
-    def _rebuilt_view(self, messages: list[dict[str, Any]] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Context "rebuilt": the messages of the next request (rebuilt_context over the conversation, or over
-        `messages`) and the composition record: the counts, the characters of each part (and of the system prompt),
-        the estimate at REBUILT_CHARS_PER_TOKEN, and a warning when it passes REBUILT_WARN_TOKENS."""
+    def _context_budget(self) -> int:
+        """Context "rebuilt": the tokens a request may take, the window minus the reply reserve minus the safety margin."""
+        reserve = self.model.max_tokens if self.model.reply_reserve is None else int(self.model.reply_reserve)
+        return max(1024, int(self.model.context_window) - reserve - REQUEST_SAFETY_TOKENS)
+
+    def _rebuilt_view(self, messages: list[dict[str, Any]] | None = None, extra_steps: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Context "rebuilt": the messages of the next request (rebuilt_context over the conversation, or over `messages`)
+        and the composition record: the counts, the characters of each part (and of the system prompt), the estimate
+        (estimate_request_tokens with the calibrated chars_per_token, the images at their vision cost), the budget, and
+        the shrink steps taken (shrink_step, in order) while the estimate was over the budget, plus `extra_steps` more
+        (after a rejected request). A warning when it is still over after every step; nothing is ever truncated."""
         messages = self.messages if messages is None else messages
-        view, stats = rebuilt_context(messages, keep_turns=self.model.rebuilt_keep_turns, commit_tools=self._commit_tools())
+        tools = self._tools()
+        budget = self._context_budget()
+        shrink: dict[str, Any] = {}
+        forced = 0
+        while True:
+            view, stats = rebuilt_context(messages, keep_turns=self.model.rebuilt_keep_turns, commit_tools=self._commit_tools(), shrink=shrink)
+            estimate = self._count_request(view, tools)
+            if estimate["tokens"] + estimate["margin"] <= budget:
+                if forced >= extra_steps:
+                    break
+                forced += 1
+            following = shrink_step(shrink, stats, self.model.rebuilt_keep_turns)
+            if following is None:
+                break
+            shrink = following
         system_chars = sum(message_chars(m) for m in view if m["role"] == "system")
         stats["chars"]["system"] = system_chars
-        total = system_chars + sum(stats["chars"][k] for k in ("commits", "phase", "older", "recent"))
-        stats["chars"]["total"] = total
-        stats["estimated_tokens"] = int(total / REBUILT_CHARS_PER_TOKEN)
-        if stats["estimated_tokens"] > REBUILT_WARN_TOKENS:
-            stats["warning"] = (f"the rebuilt prompt is estimated at {stats['estimated_tokens']:,} tokens ({total:,} characters at "
-                                f"{REBUILT_CHARS_PER_TOKEN} per token), over {REBUILT_WARN_TOKENS:,}; nothing was truncated")
+        stats["chars"]["total"] = system_chars + sum(stats["chars"][k] for k in ("commits", "phase", "older", "recent"))
+        stats.update({k: v for k, v in estimate.items() if k != "tokens"}, estimated_tokens=estimate["tokens"], budget=budget)
+        if estimate["tokens"] + estimate["margin"] > budget:
+            stats["warning"] = (f"the rebuilt request is {'counted' if estimate['exact'] else 'estimated'} at {estimate['tokens']:,} "
+                                f"tokens (+{estimate['margin']} margin), over the budget of {budget:,}, after every shrink step; sent as it is")
         return view, stats
+
+    def _count_request(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+        """The tokens of a request: counted exactly with self.counter (engine_re.tokens.TokenCounter) when there is one,
+        with a margin of COUNT_MARGIN_PERCENT (the counter's residual against the reported prompt_tokens, 1.5-2.3%
+        under on the v11 run; REQUEST_SAFETY_TOKENS is in the budget already); otherwise estimated at the calibrated
+        chars_per_token (estimate_request_tokens), with no margin beyond the clamp's haircut. "exact" says which."""
+        if self.counter is not None:
+            try:
+                counted = self.counter.count(messages, tools)
+            except Exception as exc:  # noqa: BLE001  (a counter that fails falls back to the estimate, once noted)
+                print(f"[{self.game}] the tokenizer failed ({type(exc).__name__}: {exc}); the estimate is used from here on", flush=True)
+                self._log({"turn": self.result.turns, "tokenizer_error": f"{type(exc).__name__}: {exc}"[:300]})
+                self.counter = None
+            else:
+                return {"tokens": counted["tokens"], "text_tokens": counted["text_tokens"], "image_tokens": counted["image_tokens"],
+                        "reasoning_tokens": counted.get("reasoning_tokens", 0),
+                        "margin": counted["tokens"] * COUNT_MARGIN_PERCENT // 100, "exact": True}
+        estimate = estimate_request_tokens(messages, tools, self.chars_per_token)
+        return {"tokens": estimate["tokens"], "text_tokens": estimate["text_tokens"], "image_tokens": estimate["image_tokens"],
+                "text_chars": estimate["text_chars"], "chars_per_token": round(self.chars_per_token, 3), "margin": 0, "exact": False}
 
     def _commit_tools(self) -> tuple[str, ...]:
         """The tools whose turns the rebuilt context keeps from before the current phase message."""
         return tuple(t for t in self.TOOLS if t.startswith("commit_"))
 
-    def _rebuilt_request(self) -> list[dict[str, Any]]:
-        view, stats = self._rebuilt_view()
+    def _rebuilt_request(self, extra_steps: int = 0) -> list[dict[str, Any]]:
+        view, stats = self._rebuilt_view(extra_steps=extra_steps)
         self._log({"turn": self.result.turns, "rebuilt": {k: v for k, v in stats.items() if k != "turn"}})
         if stats.get("warning"):
             print(f"[{self.game}] turn {self.result.turns}: warning: {stats['warning']}", flush=True)
         return view
+
+    def _calibrate_from_usage(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, usage: dict[str, Any] | None) -> None:
+        """The characters-per-token figure of the next estimate, from the request just served: its text as the estimate
+        renders it (render_request, the images subtracted at the same cost the estimate adds) over its prompt_tokens; the
+        last measurement, clamped to [CHARS_PER_TOKEN_MIN, chars_ceiling]. A "token_calibration" record when it moves by
+        0.05 or more (or the first time)."""
+        try:
+            prompt_tokens = int((usage or {}).get("prompt_tokens") or 0)
+        except (TypeError, ValueError):
+            return
+        if prompt_tokens <= 0 or not messages:
+            return
+        rendered, image_tokens = render_request(messages, tools)
+        text_tokens = prompt_tokens - image_tokens
+        if text_tokens <= 0 or not rendered:
+            return
+        measured = len(rendered) / text_tokens
+        clamped = min(self.chars_ceiling, max(CHARS_PER_TOKEN_MIN, measured))
+        previous, self.chars_per_token = self.chars_per_token, clamped
+        if abs(clamped - previous) >= 0.05 or self._calibrations == 0:
+            self._log({"turn": self.result.turns, "token_calibration": {
+                "chars_per_token": round(clamped, 4), "measured": round(measured, 4), "ceiling": self.chars_ceiling,
+                "prompt_tokens": prompt_tokens, "image_tokens": image_tokens, "text_chars": len(rendered)}})
+        self._calibrations += 1
+
+    def _context_overflow(self, error: str) -> None:
+        """The provider rejected the request as too long: the divisor's ceiling comes down for the run (to the figure in
+        use less a tenth, so every later estimate is higher) and the request is rebuilt with one more shrink step."""
+        self.context_overflows += 1
+        self.chars_ceiling = max(CHARS_PER_TOKEN_MIN, min(self.chars_ceiling, self.chars_per_token) * 0.9)
+        self.chars_per_token = min(self.chars_per_token, self.chars_ceiling)
+        self._log({"turn": self.result.turns, "context_overflow": {
+            "error": error[:300], "ceiling": round(self.chars_ceiling, 4), "chars_per_token": round(self.chars_per_token, 4)}})
+        print(f"[{self.game}] turn {self.result.turns}: the provider rejected the request as too long; retrying with a further "
+              f"shrink step and the chars-per-token ceiling at {self.chars_ceiling:.2f}", flush=True)
 
     def _condensed_view(self, messages: list[dict[str, Any]], records: list[dict[str, Any]]) -> Any:
         """engine_re.condense over a full conversation and the transcript records logged up to that point; a copy of
@@ -1053,6 +1290,11 @@ class EngineAgent:
                 advances.append({"turn": record["turn"], "fixed": record["advance"]["fixed"], "next": record["advance"]["next"]})
             self.prior_minutes = max(self.prior_minutes, float(record.get("elapsed_min") or 0.0))
         self.result.advances = commits or advances
+        calibration = next((r["token_calibration"] for r in reversed(self.records) if "token_calibration" in r), None)
+        if calibration:  # the last figure of the interrupted run, so the first estimate is not the seed again
+            self.chars_ceiling = float(calibration.get("ceiling") or self.chars_ceiling)
+            self.chars_per_token = min(self.chars_ceiling, float(calibration.get("chars_per_token") or self.chars_per_token))
+            self._calibrations = 1
         if commits:
             self.result.commit_message = commits[-1].get("message")
             if commits[-1].get("next") is None:  # that commit made the whole recording pass (run() replays to confirm)
@@ -1598,11 +1840,22 @@ class EngineAgent:
                 if reason:
                     self.result.status = reason
                     break
-                response = self.client.chat(self._context(), self._tools())
+                request, tools = self._context(), self._tools()
+                try:
+                    response = self.client.chat(request, tools)
+                except RuntimeError as exc:
+                    # Rejected as too long (rebuilt: the count or the estimate was wrong): once more, shrunk one step further.
+                    if not self.rebuilt or not is_context_length_error(str(exc)):
+                        raise
+                    self._context_overflow(str(exc))
+                    request = self._rebuilt_request(extra_steps=1)
+                    response = self.client.chat(request, tools)
                 self.result.provider_errors = len(getattr(self.client, "provider_errors", []))
                 self.result.turns += 1
                 usage = response.get("usage") or {}
                 self.result.usage.add(usage)
+                if self.rebuilt:
+                    self._calibrate_from_usage(request, tools, usage)
                 choice = response["choices"][0]
                 message = choice["message"]
                 tool_calls = message.get("tool_calls") or []

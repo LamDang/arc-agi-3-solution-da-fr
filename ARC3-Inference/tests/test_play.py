@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from engine_re.agent import IMAGE_NOTE, REBUILT_CLOSING, Budget, ModelConfig, TurnMessage, rebuilt_context
+from engine_re.agent import (
+    IMAGE_NOTE, IMAGE_PLACEHOLDER, IMAGE_TOKENS_FALLBACK, REBUILT_CLOSING, Budget, ModelConfig, TurnMessage, image_part_tokens,
+    is_context_length_error, rebuilt_context, render_request, shrink_step, split_for_estimate,
+)
 from engine_re.live_game import LiveGame, benchmark_json
 from engine_re.play_agent import PlayAgent
 from engine_re.prompts import ENGINE_ELIDED, ENGINE_HEADER, PLAN_CLOSING, elide_engine_listing
@@ -868,6 +871,175 @@ def test_the_rebuilt_context_with_an_older_phase_message() -> None:
     short = _synthetic_conversation(6)
     view, stats = rebuilt_context(short, keep_turns=10)
     assert view == short and stats["commit_turns"] == 0 and stats["recent_turns"] == 7  # turns 0-6
+
+
+class _StubCounter:
+    """A tokenizer stub: one token per `chars` characters of the request's json, the images at their vision cost."""
+
+    def __init__(self, chars: float = 4.0):
+        self.chars = chars
+        self.calls = 0
+
+    def count(self, messages, tools=None):
+        self.calls += 1
+        rendered, image_tokens = render_request(messages, tools)
+        text = int(len(rendered) / self.chars)
+        return {"tokens": text + image_tokens, "text_tokens": text, "image_tokens": image_tokens}
+
+    def describe(self) -> str:
+        return "stub"
+
+
+def _png_part(width: int, height: int) -> dict:
+    """An image part whose data URL is a PNG header of that size (enough for png_dimensions)."""
+    import base64
+    import struct
+
+    header = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", width, height) + b"\x08\x02\x00\x00\x00" + b"\x00" * 8
+    return {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(header).decode()}}
+
+
+def test_image_parts_count_at_their_vision_cost() -> None:
+    assert image_part_tokens(_png_part(536, 554)) == 17 * 18 + 2 == 308  # the PLAN frame
+    assert image_part_tokens(_png_part(1060, 554)) == 34 * 18 + 2 == 614  # the test comparison
+    assert image_part_tokens({"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}) == IMAGE_TOKENS_FALLBACK
+    scrubbed, tokens = split_for_estimate([{"role": "user", "content": [{"type": "text", "text": "t"}, _png_part(64, 64)]}])
+    assert tokens == 6 and scrubbed[0]["content"][1]["image_url"]["url"] == "<image>"
+    assert is_context_length_error("OpenRouter HTTP 400: This model's maximum context length is 131072 tokens")
+    assert is_context_length_error("HTTP 400: too many tokens") and not is_context_length_error("HTTP 500: internal error")
+
+
+def test_the_shrink_steps_in_order() -> None:
+    conversation = _synthetic_conversation(20)  # window 11-20, the PLAN message of turn 5 older, 2 commit turns before it
+    shrink: dict = {}
+    taken = []
+    for _ in range(20):
+        view, stats = rebuilt_context(conversation, keep_turns=10, shrink=shrink)
+        following = shrink_step(shrink, stats, keep_turns=10)
+        if following is None:
+            break
+        shrink = following
+        taken.append({k: v for k, v in shrink.items()})
+    # reasoning of the window's oldest turns first (7 of the 10, never the last 3), then the older turns, then the
+    # commit turns (only 2 here, under the floor of 5: untouched), then the phase message's image.
+    assert [t.get("reasoning") for t in taken[:7]] == [1, 2, 3, 4, 5, 6, 7]
+    assert taken[7] == {"reasoning": 7, "older": True} and taken[8] == {"reasoning": 7, "older": True, "phase_image": True}
+    assert len(taken) == 9
+    view, stats = rebuilt_context(conversation, keep_turns=10, shrink=taken[-1])
+    real = view[2:]
+    assistants = [m for m in real if m["role"] == "assistant"]
+    assert [bool(m.get("reasoning")) for m in assistants] == [False] * 7 + [True] * 3  # the last 3 keep theirs
+    assert all(m.get("reasoning") for m in conversation if m["role"] == "assistant")  # the conversation is untouched
+    text = _text_of(view[1])
+    assert "The turns since that message" not in text and "Turn 3 (commit_engine):" in text and "PHASE 5" in text
+    assert _images_of(view[1]) == 0 and IMAGE_PLACEHOLDER in text and stats["images"] == 0  # (the turn-7 image message is older)
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True}
+
+
+def test_the_rebuilt_request_is_counted_and_shrunk_to_the_budget(tmp_path: Path, environments: Path) -> None:
+    agent = PlayAgent("twol", tmp_path / "run", ModelConfig(context="rebuilt", context_window=40_000, reply_reserve=1_000),
+                      Budget(), environments, client=_ScriptedModel([]), images=False)
+    assert agent._context_budget() == 40_000 - 1_000 - 512
+    agent.messages = _synthetic_conversation(20)
+    for m in agent.messages:
+        if m["role"] == "assistant":
+            m["reasoning"] = "reasoning " * 1500  # 15K chars a turn: the window alone is far over the budget
+    agent.counter = _StubCounter(chars=4.0)
+    view, stats = agent._rebuilt_view()
+    assert stats["exact"] and stats["budget"] == 38_488 and stats["margin"] == stats["estimated_tokens"] * 2 // 100
+    assert stats["estimated_tokens"] + stats["margin"] <= stats["budget"]
+    assert stats["shrink"]["reasoning"] >= 1 and not stats["shrink"].get("older")  # stopped as soon as it fitted
+    assistants = [m for m in view if m["role"] == "assistant"]
+    assert assistants[-1].get("reasoning") and not assistants[0].get("reasoning")
+    # Too big to ever fit: every step is taken, the request is sent as it is with a warning, nothing truncated.
+    agent.model.context_window = 12_000
+    view, stats = agent._rebuilt_view()
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True} and "warning" in stats
+    assert all(m.get("reasoning") for m in [m for m in view if m["role"] == "assistant"][-3:])
+    assert "PHASE 5" in _text_of(view[1])
+    # Without a counter: the calibrated estimate, no margin, and the same shrink loop.
+    agent.counter = None
+    agent.model.context_window = 40_000
+    view, stats = agent._rebuilt_view()
+    assert not stats["exact"] and stats["chars_per_token"] == 3.0 and stats["margin"] == 0 and stats["estimated_tokens"] <= stats["budget"]
+
+
+def test_the_calibration_clamps_and_logs(tmp_path: Path, environments: Path) -> None:
+    agent = PlayAgent("twol", tmp_path / "run", ModelConfig(context="rebuilt"), Budget(), environments, client=_ScriptedModel([]), images=False)
+    messages = [{"role": "system", "content": "s" * 4000}, {"role": "user", "content": [{"type": "text", "text": "u"}, _png_part(536, 554)]}]
+    rendered, image_tokens = render_request(messages, agent._tools())
+    assert image_tokens == 308
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + len(rendered) // 10})  # 10 chars a token
+    assert agent.chars_per_token == 3.3  # the ceiling
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + len(rendered) * 5})
+    assert agent.chars_per_token == 1.0  # the floor
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + int(len(rendered) / 2.8)})
+    assert abs(agent.chars_per_token - 2.8) < 0.01 and agent._calibrations == 3
+    records = [r["token_calibration"] for r in agent.records if "token_calibration" in r]
+    assert [r["chars_per_token"] for r in records] == [3.3, 1.0, pytest.approx(2.8, abs=0.01)]
+    assert records[0]["measured"] == pytest.approx(10.0, abs=0.01) and records[0]["image_tokens"] == 308
+    agent._calibrate_from_usage(messages, agent._tools(), {"prompt_tokens": 308 + int(len(rendered) / 2.82)})
+    assert len([r for r in agent.records if "token_calibration" in r]) == 3  # a move under 0.05 is not logged
+    agent._calibrate_from_usage(messages, agent._tools(), {})  # no usage: nothing changes
+    assert abs(agent.chars_per_token - 2.82) < 0.01
+    # A rejected request lowers the ceiling for the run and the figure in use with it.
+    agent._context_overflow("OpenRouter HTTP 400: maximum context length exceeded")
+    assert agent.chars_ceiling == pytest.approx(2.82 * 0.9, abs=0.01) and agent.chars_per_token == agent.chars_ceiling
+    assert agent.context_overflows == 1 and any("context_overflow" in r for r in agent.records)
+
+
+def test_a_context_length_error_is_retried_once_after_a_further_shrink(tmp_path: Path, environments: Path) -> None:
+    class Rejecting(_ScriptedModel):
+        def __init__(self, turns):
+            super().__init__(turns)
+            self.rejected = False
+
+        def chat(self, messages, tools):
+            if len(self.seen) == 2 and not self.rejected:  # the third request: rejected once
+                self.rejected = True
+                raise RuntimeError('OpenRouter HTTP 400: {"error": "This model\'s maximum context length is 131072 tokens"}')
+            return super().chat(messages, tools)
+
+    model = Rejecting(_start() + [[("commit_moves", {"actions": ["RIGHT"], "note": "one"})], [NOTHING]])
+    agent = PlayAgent("twol", tmp_path / "run2", ModelConfig(context="rebuilt"), Budget(max_turns=4), environments, client=model,
+                      images=False, batch_size=4)
+    result = agent.run()
+    assert result.status == "budget_turns" and agent.context_overflows == 1 and len(model.seen) == 4
+    records = _records_at(tmp_path / "run2")
+    overflow = [r for r in records if "context_overflow" in r]
+    # (the scripted usage says 10 prompt tokens, so the calibration sits at the 3.3 ceiling: the rejection takes it to 2.97)
+    assert len(overflow) == 1 and overflow[0]["turn"] == 2 and overflow[0]["context_overflow"]["ceiling"] == pytest.approx(2.97, abs=0.01)
+    rebuilt = [r for r in records if "rebuilt" in r]
+    assert [r["turn"] for r in rebuilt] == [0, 1, 2, 2, 3]  # the rejected request's record, then the retry's
+    assert rebuilt[3]["rebuilt"]["chars_per_token"] <= 2.97 and not rebuilt[3]["rebuilt"]["exact"]
+    calibrations = [r for r in records if "token_calibration" in r]
+    assert calibrations and calibrations[0]["turn"] == 1  # from the first response on
+
+
+def _records_at(folder: Path) -> list[dict]:
+    return [json.loads(line) for line in (folder / "transcript.jsonl").read_text().splitlines()]
+
+
+def test_the_real_tokenizer_counts_a_request() -> None:
+    from engine_re.tokens import TokenCounter, tokenizer_folder
+
+    folder = tokenizer_folder(None)
+    if folder is None:
+        pytest.skip("no tokenizer files (ARC3_TOKENIZER unset, the default not cached)")
+    counter = TokenCounter(folder)
+    assert counter.count_text("hello world") == 2
+    messages = [{"role": "system", "content": "Be brief."}, {"role": "assistant", "content": "ok", "reasoning": "why"},
+                {"role": "user", "content": [{"type": "text", "text": "Look:"}, _png_part(536, 554)]}]
+    text, blocks, images = counter.render(messages, None)
+    assert text.startswith("<|im_start|>system\nBe brief.<|im_end|>\n") and text.endswith("<|im_start|>assistant\n")
+    assert "<|im_start|>assistant\nok<|im_end|>" in text and blocks == ["<think>\nwhy\n</think>\n\n"] and len(images) == 1
+    counted = counter.count(messages, None)
+    assert counted["image_tokens"] == 308 and counted["reasoning_tokens"] == counter.count_text(blocks[0]) > 0
+    assert counted["tokens"] == counter.count_text(text) + counted["reasoning_tokens"] + 308
+    tools = [{"type": "function", "function": {"name": "python", "description": "run", "parameters": {"type": "object", "properties": {}}}}]
+    with_tools, _, _ = counter.render(messages, tools)
+    assert "# Tools" in with_tools and '"name": "python"' in with_tools
+    assert TokenCounter(folder, reasoning="template").count(messages, None)["reasoning_tokens"] == 0
 
 
 def test_the_play_agent_in_rebuilt_mode(tmp_path: Path, environments: Path) -> None:

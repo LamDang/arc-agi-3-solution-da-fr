@@ -508,9 +508,34 @@ reply with everything said before the next one (its tool outputs with the harnes
 phase message, the "continue" line, the resume note); turn 0 is the system prompt and the opening message. Older
 images are still hidden as in the compact mode, `_compact` never runs (`compact` records of an earlier compact run
 are ignored on a resume in this mode) and nothing is truncated. One `rebuilt` record per request logs the
-composition (`commit_turns`, `phase_turn`, `older_turns`, the characters of each part, the estimate at 3.5
-characters a token, a `warning` above 120K). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at
-turn 185 (29 commit turns, the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
+composition (`commit_turns`, `phase_turn`, `older_turns`, the characters of each part, the count, the budget and
+the shrink steps). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at turn 185 (29 commit turns,
+the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
+
+The request is kept under the model's window (`--context-window`, 131,072) minus the reply reserve
+(`--reply-reserve`, the model's `max_tokens` by default) minus 512. Before each request the rebuilt view is
+counted exactly (`engine_re/tokens.py`, `TokenCounter`): the messages and the tool schemas rendered through the
+model's chat template (jinja2 on tokenizer_config.json's `chat_template`, as transformers renders it; the
+assistant `reasoning` of every turn counted as the `<think>` block the template writes, since the provider keeps
+every turn's reasoning in the prompt while Qwen3's template alone keeps only the last round's), tokenized with
+`tokenizers`, every image at its vision cost ((w/32)·(h/32)+2 at the PNG's real size: 308 for a PLAN frame, 614
+for a test comparison), plus a margin of 2% (`COUNT_MARGIN_PERCENT`, the counter's residual). The tokenizer files
+come from `--tokenizer <dir or Hugging Face id>` (else `$ARC3_TOKENIZER`, else `Qwen/Qwen3-8B` through
+`huggingface_hub`, cached under `~/.cache/huggingface`); `--tokenizer-endpoint <url>` posts the chat messages to
+a vLLM server's `/tokenize` instead (exact, template included). Without a tokenizer the request is estimated from
+its json (`estimate_request_tokens`: images as placeholders, divided by a characters-per-token figure calibrated
+from each response's `prompt_tokens` as the base harness does: the last measurement, seed 3, clamped to [1.0,
+3.3]; a `token_calibration` record when it moves by 0.05). While the count (or estimate) is over the budget the
+view is shrunk in this order (`shrink_step`): the reasoning of the window's oldest turns, one at a time, never
+the last 3; the older turns since the phase message; the oldest commit turns one by one, never the last 5; the
+phase message's image; the phase message's text and the last 3 turns are never touched, and a request still over
+after every step is sent as it is with a `warning`. A request the provider rejects as too long (an HTTP 400
+naming the context length) is retried once with one more shrink step, after the calibration's ceiling comes down
+to 0.9 of the figure in use (`context_overflow` record). `engine_re/tools/count_check.py` checks the counter
+against a run's reported `prompt_tokens`: on the v11 sp80 run (compact mode, before its first compaction, so the
+request is the conversation) the count is 1.5-2.3% under at turns 5-34 (21.9K-141.6K tokens); on the v12a-ls20
+fork's own rebuilt turns (101-199) 1.5-2.2% under (median -1.8%), where the calibrated estimate gives real/estimate
+median 1.001, 0.91-1.04, against 1.18-1.35 (median 1.26) for the earlier chars/3.5 estimate.
 
 A finished run can be forked at a turn and resumed from there with a changed harness
 (`engine_re/tools/fork_run.py`, the v12 experiments of `exp/v11-followups.md`): the fork is a copy of the

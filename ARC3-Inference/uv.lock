@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.12"
 
 [[package]]
@@ -151,9 +151,12 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "arcengine" },
+    { name = "huggingface-hub" },
+    { name = "jinja2" },
     { name = "matplotlib" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "tokenizers" },
     { name = "tufa-arc-agi-framework" },
 ]
 
@@ -170,12 +173,15 @@ server = [
 [package.metadata]
 requires-dist = [
     { name = "arcengine", specifier = "==0.9.3" },
+    { name = "huggingface-hub", specifier = ">=0.30" },
+    { name = "jinja2", specifier = ">=3.1" },
     { name = "matplotlib", specifier = "==3.10.6" },
     { name = "ninja", marker = "extra == 'server'", specifier = "==1.13.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.0.2" },
     { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "requests", specifier = "==2.32.5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.15.6" },
+    { name = "tokenizers", specifier = ">=0.22.0" },
     { name = "tufa-arc-agi-framework", editable = "../tufa-arc-agi-framework" },
     { name = "vllm", marker = "extra == 'server'", url = "https://wheels.vllm.ai/8fbe3f303fbf995afe4c409309aa8e889235339e/vllm-0.17.2rc1.dev150%2Bg8fbe3f303-cp38-abi3-manylinux_2_31_x86_64.whl" },
 ]
