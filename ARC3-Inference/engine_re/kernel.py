@@ -13,11 +13,14 @@ request (base64 PNG and caption), for the harness to attach.
 Two more requests. {"names": true} answers {"names": ["RING: list[20]", "cols: function", ...],
 "more": n}: what the model has defined in the namespace (not the preloaded built-ins, modules or
 dunders), each with a one-word summary, at most NAMES_SHOWN of them. {"replay": [{"turn": t, "code":
-...}, ...], "cell_seconds": 20, "total_seconds": 120} re-runs those cells in order after a restart
-(a resumed run, agent._resume_conversation) in replay mode: edit_file() and undo_edit() do nothing,
+...}, ...], "cell_seconds": 20, "total_seconds": 120, "files": false} re-runs those cells in order after a
+restart (a resumed run, agent._resume_conversation) in replay mode: edit_file() and undo_edit() do nothing,
 show_frames() makes no image, output is discarded, an exception ends only its cell, and each cell is
 cut after cell_seconds (SIGALRM), the whole replay after total_seconds; it answers {"replayed": n,
-"failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}.
+"failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}. With "files" true (a forked run, whose
+notes.md starts over: engine_re.tools.fork_run) edit_file() applies its edits to files other than
+engine.py, and once the total time is up the cells that write files are still run (each within
+cell_seconds), so notes.md is rebuilt whole; the others are skipped as usual.
 
 The kernel runs sandboxed (engine_re.guard): it can read the workspace and the
 trace, write only the workspace, and cannot start processes or open
@@ -40,6 +43,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import select
 import signal
 import subprocess
@@ -197,11 +201,23 @@ def user_names(namespace: dict[str, Any], preloaded: dict[str, Any], limit: int 
     return names[:limit], max(0, len(names) - limit)
 
 
+_WRITES_FILES = re.compile(r"edit_file\(\s*(path\s*=|['\"])|notes\.md|\.write_text\(|open\([^)]*,\s*(mode\s*=\s*)?['\"][wa]")
+
+
+def writes_files(code: str) -> bool:
+    """Whether a cell looks like it writes a workspace file (edit_file with a path, notes.md, write_text, open for
+    writing): the cells a replay with files on still runs once its total time is up."""
+    return bool(_WRITES_FILES.search(code))
+
+
 def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtins: dict[str, Any],
-                 cell_seconds: float = REPLAY_CELL_SECONDS, total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
+                 cell_seconds: float = REPLAY_CELL_SECONDS, total_seconds: float = REPLAY_TOTAL_SECONDS,
+                 files: bool = False) -> dict[str, Any]:
     """Re-run the model's earlier cells ({"turn", "code"}) in order, in replay mode (helpers.REPLAY: no edits,
     no images), output discarded, an exception ending only its cell, each cell cut after `cell_seconds` and
-    the whole replay after `total_seconds`. Returns the counts, the cells that raised and the seconds taken."""
+    the whole replay after `total_seconds`. `files` (helpers.REPLAY_FILES): edits to files other than engine.py
+    are applied, and the cells that write files (writes_files) run even after the total time is up. Returns
+    the counts, the cells that raised and the seconds taken."""
     from engine_re import helpers
 
     started = time.time()
@@ -213,16 +229,20 @@ def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtin
 
     previous = signal.signal(signal.SIGALRM, alarm)
     helpers.REPLAY = True
+    helpers.REPLAY_FILES = bool(files)
     try:
-        for i, cell in enumerate(cells):
+        for cell in cells:
+            code = str(cell.get("code") or "")
             remaining = total_seconds - (time.time() - started)
             if remaining <= 0:
-                skipped = len(cells) - i
-                break
+                if not (files and writes_files(code)):
+                    skipped += 1
+                    continue
+                remaining = cell_seconds  # (time is up: a file-writing cell still runs, within its own limit)
             status: dict[str, str] = {}
             signal.setitimer(signal.ITIMER_REAL, max(0.01, min(cell_seconds, remaining)))
             try:
-                _run(str(cell.get("code") or ""), namespace, builtins, status)
+                _run(code, namespace, builtins, status)
             except BaseException as exc:  # noqa: BLE001  (the alarm fired outside the cell's own handler)
                 status["error"] = f"{type(exc).__name__}: {exc}"[:200]
             finally:
@@ -231,6 +251,7 @@ def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtin
                 failed.append({"turn": cell.get("turn"), "error": status["error"]})
     finally:
         helpers.REPLAY = False
+        helpers.REPLAY_FILES = False
         helpers.take_shown()
         signal.signal(signal.SIGALRM, previous)
     return {"replayed": len(cells) - skipped, "failed": failed, "skipped": skipped, "seconds": round(time.time() - started, 2)}
@@ -307,6 +328,7 @@ def main() -> int:
             result = replay_cells(
                 list(request["replay"] or []), namespace, builtins,
                 float(request.get("cell_seconds") or REPLAY_CELL_SECONDS), float(request.get("total_seconds") or REPLAY_TOTAL_SECONDS),
+                files=bool(request.get("files")),
             )
             protocol.write(json.dumps(result) + "\n")
             protocol.flush()
@@ -422,14 +444,17 @@ class KernelClient:
         return list(message.get("names") or []), int(message.get("more") or 0)
 
     def replay(self, cells: list[dict[str, Any]], cell_seconds: float = REPLAY_CELL_SECONDS,
-               total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
-        """Re-run earlier python cells ({"turn", "code"}) in the kernel's replay mode (see the module). Returns
+               total_seconds: float = REPLAY_TOTAL_SECONDS, files: bool = False) -> dict[str, Any]:
+        """Re-run earlier python cells ({"turn", "code"}) in the kernel's replay mode (see the module; `files`: the
+        edits to files other than engine.py are applied, for a fork whose notes.md starts over). Returns
         {"replayed", "failed": [{"turn", "error"}], "skipped", "seconds"}; "error" says why when the kernel
         could not do it."""
         if not cells:
             return {"replayed": 0, "failed": [], "skipped": 0, "seconds": 0.0}
-        request = {"replay": cells, "cell_seconds": cell_seconds, "total_seconds": total_seconds}
-        message = self._request(request, total_seconds + max(30.0, cell_seconds))
+        request = {"replay": cells, "cell_seconds": cell_seconds, "total_seconds": total_seconds, "files": bool(files)}
+        # (with files on, the file-writing cells may run after the total time: each within cell_seconds)
+        extra = sum(cell_seconds for c in cells if writes_files(str(c.get("code") or ""))) if files else 0.0
+        message = self._request(request, total_seconds + extra + max(30.0, cell_seconds))
         if "error" in message:
             return {"replayed": 0, "failed": [], "skipped": len(cells), "seconds": 0.0, "error": message["error"]}
         return message
