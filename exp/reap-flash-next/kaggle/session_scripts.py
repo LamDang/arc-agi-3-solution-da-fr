@@ -10,10 +10,13 @@ with `python3 -u SCRIPT > LOG 2>&1`:
   patch, --max-running-requests 28, 168 state slots, mem fraction 0.93) and
   exits once the server is ready; the server keeps running.
 - bench_streams.py: serve_bench.batch_test at 10, 16, 20 and 28 streams
-  against that server.
+  against that server; pick_streams.py writes the stream count with the most
+  decode throughput among those that fit (no retractions or errors, cache
+  hit >= 0.9) to /kaggle/working/streams.txt.
 - games.py: dfranzen's harness cells (patch, environment, benchmark, run)
   without his server launcher, against the running server, with
-  ARC3_MAX_ACTIVE_STREAMS = --streams, the chosen games and passes. Output in
+  ARC3_MAX_ACTIVE_STREAMS from streams.txt (else --streams), the chosen
+  games and passes. Output in
   /kaggle/working/games.
 
 Code (prune_checkpoint.py, serve_bench.py, analyze.py) is expected in
@@ -70,6 +73,17 @@ else:
     raise SystemExit("server not ready")
 '''
 
+PICK = '''import json
+from pathlib import Path
+# most decode throughput among stream counts that fit: no retractions, no errors, prompts found in the cache
+rows = json.loads(Path("/kaggle/working/serve_bench.pruned.json").read_text())
+fits = [r for r in rows if r.get("errors") == 0 and r.get("retracted_requests") == 0 and (r.get("cache_hit") or 0) >= 0.9]
+pool = fits or [r for r in rows if r.get("errors") == 0] or [{"streams": 10, "decode_tok_s": 0}]
+best = max(pool, key=lambda r: r.get("decode_tok_s") or 0)
+Path("/kaggle/working/streams.txt").write_text(str(best["streams"]))
+print("chosen streams:", best["streams"], "fitting:", [r["streams"] for r in fits], flush=True)
+'''
+
 BENCH = '''import json, sys
 from pathlib import Path
 sys.path.insert(0, "/kaggle/working/code")
@@ -105,9 +119,14 @@ def games_script(nb: dict, run: dict) -> str:
     env = push_games._patch(env, "!rm -Rf $BUNDLE_DIR\n", "shutil.rmtree(BUNDLE_DIR, ignore_errors=True)\n")
     env = push_games._patch(env, "!cp -a $ORIG_BUNDLE_DIR $BUNDLE_DIR\n",
                             "subprocess.run(['cp', '-a', ORIG_BUNDLE_DIR, str(BUNDLE_DIR)], check=True)\n")
-    env = push_games._patch(env, "'ARC3_MAX_ACTIVE_STREAMS': 10,", f"'ARC3_MAX_ACTIVE_STREAMS': {run['streams']},")
+    # streams.txt (written by pick_streams.py from the benchmark) overrides --streams
+    env = push_games._patch(env, "'ARC3_MAX_ACTIVE_STREAMS': 10,",
+                            f"'ARC3_MAX_ACTIVE_STREAMS': STREAMS,")
+    env = "from pathlib import Path as _P\n" + (
+        f"STREAMS = int(_P('/kaggle/working/streams.txt').read_text()) if _P('/kaggle/working/streams.txt').exists() "
+        f"else {run['streams']}\nprint('active streams:', STREAMS, flush=True)\n") + env
     assert "!" not in "".join(l.lstrip()[:1] for l in env.splitlines()), "shell magic left in the setup cell"
-    out += [env, f"PRUNED_RUN = {json.dumps(run)}",
+    out += [env, f"PRUNED_RUN = {json.dumps(run)}", "PRUNED_RUN['streams'] = STREAMS",
             "PLAY_GAMES = PRUNED_RUN['play']",
             "EXCLUDED_GAMES = [g for g in PRUNED_RUN['all_games'] if g not in PLAY_GAMES]",
             install, sources]
@@ -152,6 +171,7 @@ def main():
              + launcher + SERVE_TAIL)
     (out / "serve_pruned.py").write_text(serve)
     (out / "bench_streams.py").write_text(BENCH.replace("__STREAMS__", "[10, 16, 20, 28]"))
+    (out / "pick_streams.py").write_text(PICK)
     play = args.games.split(",")
     run = {"fold": "all", "play": play, "all_games": push_games.GAMES, "keep": args.keep, "criterion": "gate_norm",
            "passes": args.passes, "streams": args.streams, "memfrac": MEMFRAC, "server_maxreq": SERVER_MAXREQ}
