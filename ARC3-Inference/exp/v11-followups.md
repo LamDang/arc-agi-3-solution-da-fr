@@ -316,3 +316,23 @@ sampling, for reference: temperature 0.7, top-p 0.95, top-k 20 (the Kaggle confi
 Three forks of 100 turns: about a third of a game each, roughly $2 and 80 minutes per fork at v11's
 pace. One subagent implements each experiment on its own worktree branch; a fork tool
 (`engine_re/tools/fork_run.py`) is shared.
+
+## Observed on the v12 forks (14:06 UTC check-in)
+
+32. **Sprite list without colours (24).** B's PLAN list names `legend_shape` and `room_shape` but not
+    their colours, so the orange-against-blue mismatch that blocks ls20 level 2 is invisible in it.
+    Add the main colour (index and name) to each line.
+33. **Rebuilt-mode token estimate ~25% low.** `estimated_tokens` (chars / 3.5) gave 67.0K against
+    82.8K real at sp80 turn 233 and 53.8K against 67.3K at ls20 turn 120. Calibrate on the real
+    prompt_tokens as the base agent does (chars per token from the last response), since the 120K
+    warning depends on it.
+34. **Rebuilt mode hides kernel side effects and old listings.** A-ls20 turn 155 set
+    `replica.LEVELS[2]["cost"]` inside a cell; by turn 169 the turn was out of the window, the file
+    said 2 and the kernel 1, and four turns went to a "stale replica" hunt. 9 and 7 read_file calls
+    in the A windows against 0 in v11's. Candidates: list the kernel's user names with their defining
+    turn in the compacted message, and keep the latest engine listing in it when the current phase
+    message does not carry one.
+35. **A fork's first plan round runs on v11's text.** The fork resumes at v11's last PLAN message, so
+    B's first v12 PLAN message came only at turn 165 (fork at 148). Inherent to forking at a PLAN
+    message; fork at the FIT message that opens the level, or regenerate the last phase message
+    under the new code at resume.
