@@ -2029,6 +2029,34 @@ def test_openrouter_client_asks_again_after_a_provider_error(monkeypatch):
     assert len(client.provider_errors) == 1 and "upstream failed" in client.provider_errors[0]
 
 
+
+def test_openrouter_client_asks_again_after_the_providers_input_filter_flags_the_request(monkeypatch):
+    """Alibaba's data_inspection_failed (HTTP 400, a false positive on game text) is a provider error asked again,
+    not the end of the game; any other 400 still raises."""
+    from engine_re import agent as agent_mod
+
+    flagged = ('{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"data: {\\"error\\":'
+               '{\\"code\\":\\"data_inspection_failed\\"}}"}}}')
+
+    class Resp:
+        def __init__(self, status, data=None, text=""):
+            self.status_code, self.data, self.text, self.headers = status, data, text, {}
+
+        def json(self):
+            return self.data
+
+    ok = {"choices": [{"finish_reason": "tool_calls", "message": {"content": "", "tool_calls": []}}], "usage": {}}
+    answers = [Resp(400, text=flagged), Resp(200, ok)]
+    client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(), api_key="test")
+    monkeypatch.setattr(client.session, "post", lambda *a, **k: answers.pop(0))
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda s: None)
+    assert client.chat([], [])["choices"][0]["finish_reason"] == "tool_calls"
+    assert len(client.provider_errors) == 1 and "data_inspection_failed" in client.provider_errors[0]
+
+    answers[:] = [Resp(400, text='{"error":{"message":"bad request"}}')]
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        client.chat([], [])
+
 def test_openrouter_client_can_pin_providers(monkeypatch):
     from engine_re import agent as agent_mod
 

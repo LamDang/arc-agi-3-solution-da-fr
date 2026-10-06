@@ -807,6 +807,13 @@ class OpenRouterClient:
                 error = f"{type(exc).__name__}: {exc}"
                 self.provider_errors.append(error)
             else:
+                if resp.status_code == 400 and "data_inspection_failed" in resp.text:
+                    # Alibaba's input filter flagging game text ("may contain inappropriate content"): a false
+                    # positive that a second ask usually passes, so it is a provider error, not the end of the game.
+                    error = f"HTTP 400 data_inspection_failed: {resp.text[:300]}"
+                    self.provider_errors.append(error)
+                    time.sleep(min(60.0, 2.0 * 2 ** attempt) + random.random())
+                    continue
                 if resp.status_code != 200:  # not retryable, or ARC3_HTTP_RETRIES ran out
                     raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:1000]}")
                 data = resp.json()
