@@ -109,3 +109,15 @@ changed during the run. Ordered by the turns they cost.
     a refused move in a changed condition) rather than searching harder on the rules you have.
     ls20 level 2 was refused three times with the dial matched and spent 100 actions on a
     fake-board theory before touching the one object it had never touched.
+22. **Adopt the base agent's deployment limits.** The Kaggle submission config (`params.yaml`,
+    the write-up's settings table) bounds the base agent by: context window 131,072 tokens with a
+    drain to 59,392 once the limit is reached (hysteresis: trim a large block, then let it grow),
+    12,288 output tokens per response (a longer thought continues in the next request), 3,072
+    tokens of tool output per call, 500K output tokens and 240 minutes per game. The play harness
+    has: a 140K compaction threshold with no cap (prompts reached 289K and 297K), 32,768 output
+    tokens per response with unbounded thinking (largest turn 18.6K), 8,000 characters of tool
+    output (about 2-3K tokens), 300 turns, 1.5M output tokens and $6 per game. Match them: cap the
+    prompt at 128K and drain to 58K by dropping (item 2 is the mechanism), cap a response at 12K,
+    tool output at 3K tokens, and 500K output tokens per game. Under the 500K cap sp80 would have
+    ended around turn 210, at the level-2 solve (3/6, 28.6 instead of 47.6): the level-3 win cost
+    the 113K tokens beyond the budget. ls20 (469K) fits.
