@@ -87,3 +87,10 @@ changed during the run. Ordered by the turns they cost.
     (sp80 twice, ls20 once). State it in the python tool description: "a cell has 120 s; a longer
     one is killed and the kernel restarts without your variables; bound searches by time
     (`time.time()`) and keep the best result in a variable you print".
+    The timeout message itself ("Timed out after 120s. The kernel was restarted and all variables
+    were lost.") is explicit but does not say what was lost: the model found out through
+    NameErrors on its helpers two and three turns later (sp80 turns 135, 163). The kernel knows
+    the names it held (its `names` request): list them in the message ("lost: pour, path_to,
+    STATIC, ... 14 names; the harness built-ins and `recording` are back; re-run the cells that
+    defined them") and say which cell timed out and roughly where it was (the search's own
+    progress prints are lost with it).
