@@ -229,8 +229,10 @@ Next-token NLL on logged games is a proxy; the test that counts is playing.
 Two Kaggle runs, both on the RTX PRO 6000:
 
 1. **Calibration statistics** (`kaggle/calib.json`, kernel `lamdang/reap-flash-next`,
-   about 70 minutes): the first stretch, up to 64K tokens, of passes 0 and 1 of
-   all 25 games (3.2M tokens).
+   about 50 minutes): the whole first stretch of pass 0 of all 25 games, up to
+   the harness's first history trim at about 116K tokens (at most 3M tokens).
+   Full length rather than truncated, because the games run near the context
+   limit and only the late tokens show how experts are routed at long context.
 
    ```bash
    KAGGLE_CLI=kaggle python kaggle/push.py --config kaggle/calib.json
