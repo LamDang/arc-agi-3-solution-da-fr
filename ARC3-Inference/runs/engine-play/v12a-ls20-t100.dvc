@@ -1,0 +1,6 @@
+outs:
+- md5: 75ca10bce4c1c91447d3aea1975c13b8.dir
+  size: 4581172
+  nfiles: 91
+  hash: md5
+  path: v12a-ls20-t100
