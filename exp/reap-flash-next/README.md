@@ -310,3 +310,26 @@ served, keeps a similar share of router weight in every band: 0.908 (0-32K),
 0.919, 0.914 and 0.913 (96K+). Some experts are more active at long context,
 but the ranking over all positions covers long context as well as short
 context.
+
+### Stream benchmark
+
+`bench/`: `serve_bench.batch_test` on the 256-expert model (server sized for
+28 requests, 168 state slots, mem fraction 0.93) with N prompts of 118-121K
+tokens, against the full model as dfranzen serves it (10 requests, same
+test, measured earlier the same day).
+
+| model | streams | running | decode tok/s | vs full | peak KV | cache hit | accept len |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| full | 10 | 6 | 294 | 1.00 | 0.89 | 0.52 | 2.75 |
+| 256 experts | 10 | 10 | 632 | 2.15 | 0.46 | 1.00 | 2.69 |
+| 256 experts | 16 | 16 | 790 | 2.69 | 0.73 | 1.00 | 2.71 |
+| 256 experts | 20 | 20 | 865 | 2.94 | 0.91 | 1.00 | 2.81 |
+| 256 experts | 28 | — | OOM | | | | |
+
+The pruned KV pool is 2.59M tokens (19 requests at the full 131K context;
+the full model's 796K holds 6). At 28 the server ran out of memory in the
+linear-attention short convolution during prefill (0.7 GB free after
+startup) and exited. The run therefore uses 20 streams. The 28-stream crash
+also took run A's first start down with it; `games.py` also wrote the
+harness patch without its final newline, which `git apply` rejects (fixed).
+`kaggle/session_pipeline_a.sh` restarts the server and plays.
