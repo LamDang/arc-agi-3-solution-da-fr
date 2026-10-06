@@ -14,17 +14,27 @@ the harness replays the recording and asks to fix the first step that breaks; th
 recording up to it (`recording` and `step_to_fix`; with history=False only `step_to_fix`) and the
 tests replay steps 0 to it. When they pass and the agent submits engine.py with commit_engine, the
 harness replays on and, in the same conversation, names the next step that breaks (episode_message is
-the first message, advance_message each next one).
+the first message, advance_message each next one). "play" (v10, engine_re.play_agent): the same agent
+playing a live game, with plan rounds (plan_message, the commit_moves tool) and fit rounds
+(mismatch_message, then advance_message as in "step").
 """
 
 from __future__ import annotations
 
 import copy
+import json
+import textwrap
+from collections import Counter
+from typing import Any
+
+import numpy as np
 
 from engine_re import segment
-from engine_re.kernel import PRELOADED, PRELOADED_HISTORY, PRELOADED_STEP
-from engine_re.tester import MAX_FAILURES
-from engine_re.trace import Trace
+from engine_re import animation  # the ported animation digest
+from engine_re.diff_report import COLOR_NAMES, colour_text
+from engine_re.kernel import CELL_SECONDS, PRELOADED, PRELOADED_HISTORY, PRELOADED_PLAY, PRELOADED_STEP
+from engine_re.tester import MAX_FAILURES, _ranges as _tester_ranges
+from engine_re.trace import Trace, action_code
 
 _SYSTEM = """# Goal
 You are given a recording of someone playing a game: every action they took and every frame the game
@@ -170,6 +180,12 @@ step_to_fix: StepView  the step to fix: recording[-1]
 step_to_fix: StepView  the recorded step that breaks, the only one shown (later steps are not loaded;
     steps 0 to step_to_fix.index - 1 already pass, and replay_step(i) replays them on your engine)
 """,
+    "play": """
+## The game so far: data from the game
+recording: list[StepView]  every step played so far, in order: recording[0] is the RESET that started the
+    game, recording[-1] the last step played; recording[-1].after is the game's current frame
+step_to_fix: StepView  in a fit round, the step your replica got wrong: recording[-1]
+""",
 }
 
 _STEP_VIEW = """StepView: a recorded step
@@ -200,6 +216,27 @@ The recorded action (a step's .action; it prints as Action(id=6, x=39, y=17) but
   computes it when it hands the click to step() (Action.cell below).
 """
 
+# --- Ported from the base harness: the animation digest (StepView.animation, engine_re.animation) ----------
+_STEP_VIEW_ANIMATION = """  .animation: Animation | None  an animated step's digest, None for one frame; print() shows it. .transient:
+      the cells that changed and changed back (in no frame you can otherwise reach), with .transient_bbox (x0,
+      y0, x1, y1), .transient_transitions ({"old>new": cells}) and .transient_frames (first, last); .timeline: one
+      entry per frame that changed anything against the frame before it (frame 0 against .before): .frame,
+      .changed, .bbox, and .cells ("old>new @ (x,y) ...") when few, else .transitions ({"old>new": count})
+"""
+_STEP_VIEW_ANIMATION_AFTER = "  .frames: np.ndarray  int8 (n, 64, 64): every frame the action returned, in order; n > 1: animated\n"
+
+
+def _insert(text: str, anchor: str, addition: str, before: bool = False) -> str:
+    """`text` with `addition` put right after (or before) `anchor`, which must occur exactly once."""
+    if text.count(anchor) != 1:
+        raise ValueError(f"prompt anchor not found exactly once: {anchor[:60]!r}")
+    at = text.index(anchor) + (0 if before else len(anchor))
+    return text[:at] + addition + text[at:]
+
+
+_STEP_VIEW = _insert(_STEP_VIEW, _STEP_VIEW_ANIMATION_AFTER, _STEP_VIEW_ANIMATION)
+# --- end of the animation digest's reference ------------------------------------------------------------------
+
 _ENGINE = """
 ## engine.py: your two functions and the FIXED block's classes (the classes are preloaded in python too)
 make_level(n: int) -> State  level n's first state (0-based): grid, every sprite, vars. The harness calls
@@ -209,9 +246,10 @@ step(state: State, action: Action) -> None  apply one action to the state, in pl
     it. A level ends when it sets state.status (below)
 After every action the harness draws the state (Drawing) and records the outcome and levels completed;
 the tests compare both with the recording.
-engine: module  engine.py as it is now, in python: engine.make_level(n), engine.step(state, action), its
+replica: module  engine.py as it is now, in python: replica.make_level(n), replica.step(state, action), its
     constants and helpers. It is loaded again whenever the file changed since the last use, so it never goes
     stale after an edit. Never `import engine` (that copy would go stale; the kernel refuses it).
+    replica.step fills in a click's action.cell when it is None, as the harness does.
 Sprite(pixels, x=0, y=0, layer=0, name="", tags=(), visible=True, collidable=True, blocking="pixel",
     rotation=0, mirror_ud=False, mirror_lr=False, scale=1, screen=False)  == compares identity. It prints as
     the code that builds it, with the fields that differ from their defaults, e.g.
@@ -240,7 +278,8 @@ Sprite(pixels, x=0, y=0, layer=0, name="", tags=(), visible=True, collidable=Tru
   .collides_with(other, ignore_mode=False) -> bool  both collidable, neither blocking "none", both on the
       grid or both on the screen, and overlapping (by pixels other than -1 if either blocks by "pixel");
       ignore_mode=True skips the collidable and "none" checks
-Action(id, x=0, y=0, cell=None)  what step() receives: the harness builds it for each action but RESET
+Action(id, x=0, y=0, cell=None)  what step() receives: the harness builds it for each action but RESET.
+    It prints as the code that builds it, cell left out: Action(4), Action(6, x=12, y=40)
   .id: int  1 up, 2 down, 3 left, 4 right, 5 interact, 6 click, 7 undo
   .x, .y: int  a click's screen pixel (column, row), 0-63; 0 for other actions
   .cell: tuple[int, int] | None  a click's grid cell (gx, gy) under (x, y) in this state's grid and view;
@@ -377,11 +416,33 @@ _SUMMARIZE = {
 """,
     "step": "",
 }
+_SUMMARIZE["play"] = _SUMMARIZE["history"]
 
-_NAMES = {"single": PRELOADED, "history": PRELOADED_HISTORY, "step": PRELOADED_STEP}
+_PLAY_BUILTINS = """state_now() -> State  your replica's State now: engine.py loaded fresh and every step played so far replayed
+    through it with the harness rules; prints the level, status and vars; returns a copy (.level is the
+    level being played). It is the game as your replica models it; the game's own frame is recording[-1].after.
+click_cell(state, x, y) -> tuple | None  the grid cell under screen pixel (x, y) on this state: the action.cell
+    the harness gives step() for a click there (replica.step fills it in when an Action's cell is None).
+To play moves on your replica, call it directly on copies of a State: s = copy.deepcopy(state_now());
+    replica.step(s, Action(1)) plays UP (ids: 1 UP, 2 DOWN, 3 LEFT, 4 RIGHT, 5 SPACE, 6 click, 7 UNDO, 0 RESET).
+    The Actions you step your replica with are what commit_moves sends, as python prints them: print(moves)
+    shows [Action(4), Action(6, x=12, y=40)], and commit_moves takes ["Action(4)", "Action(6, x=12, y=40)"] or
+    that printed list as one string. step() never gets a RESET (Action(0)): a RESET is a fresh
+    replica.make_level(n), and after s.status == "level_solved" the next level is replica.make_level(n + 1).
+    render_state(s) draws a State and show_frames(...) shows it. Searching over moves (a BFS calling
+    replica.step on copies) is a short function in python: write it when the level needs it.
+"""
+
+# replay_step's level argument, as the modes whose run_tests has `level` describe it, and as the play mode does.
+_REPLAY_LEVEL = "level=L starts at level L's start, as run_tests(level=L) does;"
+_REPLAY_LEVEL_PLAY = "level=L starts at make_level(L) and replays only that level's steps;"
+
+_NAMES = {"single": PRELOADED, "history": PRELOADED_HISTORY, "step": PRELOADED_STEP, "play": PRELOADED_PLAY}
 
 
 def _variant(mode: str, history: bool) -> str:
+    if mode == "play":
+        return "play"
     return "single" if mode == "single" else "history" if history else "step"
 
 
@@ -390,22 +451,29 @@ def objects_reference(mode: str = "single", history: bool = True, images: bool =
     the parts every mode shares (StepView and the recorded action, engine.py's functions and classes,
     a frame's pieces, the built-in functions)."""
     variant = _variant(mode, history)
-    return (
+    builtins = _BUILTINS.replace("__SHOW_FRAMES__", _SHOW_FRAMES[images])
+    if variant == "play":  # run_tests has no level there
+        builtins = builtins.replace(_REPLAY_LEVEL, _REPLAY_LEVEL_PLAY)
+    text = (
         _OBJECTS_HEAD.replace("__NAMES__", ", ".join(_NAMES[variant]))
         + _RECORDED[variant] + _STEP_VIEW + _ENGINE + _PIECES
-        + _BUILTINS.replace("__SHOW_FRAMES__", _SHOW_FRAMES[images]) + _SUMMARIZE[variant]
+        + builtins + _SUMMARIZE[variant]
+        + (_PLAY_BUILTINS if variant == "play" else "")
     )
+    return text.replace("your engine", "your replica") if variant == "play" else text  # the play mode's word for engine.py
 
 
 _PYTHON = """Run Python in a kernel that is persistent for the whole run: every variable, function and import you
 define stays until the run ends, so define helpers and data once and reuse them instead of retyping them.
 Prints what your code prints plus the value of the last expression. Long output is cut, so print compact
-summaries or small crops, never whole frames. Preloaded: np (numpy), the engine classes Sprite, Action,
-View, State, and
+summaries or small crops, never whole frames. A cell has __CELL_SECONDS__ s: a longer one is killed and the kernel
+restarts without your variables (the harness then re-runs your earlier cells, not the one that timed out),
+so bound searches by time (time.time()) and keep the best result so far in a variable you print.
+Preloaded: np (numpy), the engine classes Sprite, Action, View, State, and
   __NAMES__
 The system prompt's # Objects section documents each of them (fields, signatures, return values). These
 names are reserved: code that defines or assigns any of them is rejected before it runs. engine.py
-changes only through edit_file() and undo_edit() called here."""
+changes only through edit_file() and undo_edit() called here.""".replace("__CELL_SECONDS__", f"{CELL_SECONDS:g}")
 
 _RUN_TESTS = """Run the contract tests, then replay the recording in order: from step 0, or from the start of level L
 (make_level(L)) when level=L is given. Stops after `failures` failing steps (1 to 10, default 1).
@@ -491,6 +559,13 @@ _COMMIT = """Submit engine.py as your engine. Runs the tests first: if anything 
 session goes on; it ends when every test passes. message: """ + _COMMIT_MESSAGE
 
 
+# The play mode's third Tests item: the frames compared are the real game's.
+_REPORT_IMAGES_PLAY = {
+    True: "your frame and the game's frame as images\n  with the differing regions boxed and numbered",
+    False: "the regions where your frame differs from the\n  game's, numbered, with their pixels",
+}
+
+
 def system_prompt(
     match: str = "final", interface: str = "simple", images: bool = True, mode: str = "single", history: bool = True
 ) -> str:
@@ -501,8 +576,9 @@ def system_prompt(
         raise ValueError("the agent offers only the simple interface (make_level/step)")
     if match != "final":
         raise ValueError("the simple interface produces one frame per action, so it is scored with match='final'")
-    text = {"single": _SYSTEM, "step": _SYSTEM_STEP}[mode]
-    return text.replace("__OBJECTS__", objects_reference(mode, history, images)).replace("__REPORT_IMAGES__", _REPORT_IMAGES[images])
+    text = _SYSTEM_PLAY if mode == "play" else {"single": _SYSTEM, "step": _SYSTEM_STEP}[mode]  # _SYSTEM_PLAY: defined below
+    shown = (_REPORT_IMAGES_PLAY if mode == "play" else _REPORT_IMAGES)[images]
+    return text.replace("__OBJECTS__", objects_reference(mode, history, images)).replace("__REPORT_IMAGES__", shown)
 
 
 SYSTEM_PROMPT = system_prompt()
@@ -521,6 +597,12 @@ def tools(images: bool = True, mode: str = "single", history: bool = True) -> li
         run_tests["description"] = _RUN_TESTS_STEP if images else _RUN_TESTS_STEP.replace("(images, regions,", "(regions with their pixels,")
         del run_tests["parameters"]["properties"]["level"]
         schemas[2]["function"]["description"] = _COMMIT_STEP
+    elif mode == "play":
+        run_tests = schemas[1]["function"]
+        run_tests["description"] = _RUN_TESTS_PLAY if images else _RUN_TESTS_PLAY.replace("(images, regions,", "(regions with their pixels,")
+        del run_tests["parameters"]["properties"]["level"]
+        schemas[2]["function"]["description"] = _COMMIT_PLAY
+        schemas.append(copy.deepcopy(_COMMIT_MOVES_TOOL))
     return schemas
 
 
@@ -674,12 +756,13 @@ ENGINE_CLOSING = "\n\nFix step "  # the paragraph after the listing in both mess
 
 
 def elide_engine_listing(text: str) -> str:
-    """`text` with its engine.py listing (ENGINE_HEADER up to the closing "Fix step ..." paragraph, or to the
-    end) replaced by ENGINE_ELIDED; unchanged when it has none."""
+    """`text` with its engine.py listing (ENGINE_HEADER up to the closing paragraph: "Fix step ..." in a fix
+    message, "Work out the next moves ..." in a PLAN message (ENGINE_CLOSINGS), or to the end) replaced by
+    ENGINE_ELIDED; unchanged when it has none."""
     start = text.find(ENGINE_HEADER)
     if start < 0:
         return text
-    end = text.rfind(ENGINE_CLOSING)
+    end = max(text.rfind(closing) for closing in ENGINE_CLOSINGS)
     if end <= start:
         return text[:start] + ENGINE_ELIDED
     return text[:start] + ENGINE_ELIDED + text[end:]
@@ -714,7 +797,7 @@ def episode_message(game: str, trace: Trace, k: int, report: str, engine_read: s
 
 Game: {game}. {passed}
 Step {k}: {_action_text(s.action)}, played in level {level}. The game returned {s.n_frames} frame(s) for it; the tests compare
-the last.{(" " + " ".join(notes)) if notes else ""}
+the last.{(" " + " ".join(notes)) if notes else ""}{animation_note(trace, k, report)}
 {shown}
 
 {step_objects(trace, k)}
@@ -770,7 +853,7 @@ def advance_message(
     shown = (f"`recording` now holds the recording up to step {k}, and `step_to_fix` is step {k}." if history
              else f"`step_to_fix` is now step {k}.")
     return f"""{passed}
-Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}
+Step {k}: {_action_text(s.action)}, played in level {level}; {s.n_frames} frame(s), the tests compare the last.{(" " + " ".join(notes)) if notes else ""}{animation_note(trace, k, report)}
 {shown}
 
 {step_objects(trace, k)}
@@ -798,3 +881,750 @@ The current test report of engine.py:
 engine.py now, as read_file() shows it:
 
 {engine_read}"""
+
+
+# --- The play-and-model agent (v10, engine_re.play_agent) -------------------------------------------
+
+_SYSTEM_PLAY = """# Goal
+You are playing a game you have never seen, and the way you play it is to build engine.py, your replica of
+the game in Python (in python, the built-in `replica`), as you go. The harness alternates two rounds in this
+one conversation:
+- Plan: your replica reproduces every step played so far. Look at the game's current frame, use your
+  replica to work out what to do (state_now(), then replica.step on copies of it), and send the moves with
+  commit_moves(actions, note): the Actions you stepped your replica with, as python prints them.
+  The harness predicts each move with your replica, sends it to the game, and compares. As long as
+  the game does what your replica predicted it sends the next move; at the first difference it stops the
+  batch and opens a fit round on that step.
+- Fit: "step k did not go as predicted". You see the game's result, fix engine.py so that it reproduces
+  every step so far (the tests replay them all), and submit it with commit_engine(message). Then you plan
+  again. commit_moves refuses to send anything while the tests fail, so there is no playing on a wrong
+  replica: fix first.
+The score is the official one: each level solved scores (human baseline / your actions in that level)^2,
+a level not solved scores 0, and later levels weigh more (level n counts n + 1 times). Actions are the
+cost; turns and tokens are not. A RESET counts as an action. Win the game in as few actions as you can;
+a move you cannot predict is still worth sending when it teaches you a rule, as long as it is cheap.
+Make the tests pass with the most parsimonious model (Occam's razor): the fewest rules and assumptions
+that account for every step observed so far.
+
+""" + _SYSTEM[_SYSTEM.index("# Setup") : _SYSTEM.index("# Tests")].replace(
+    "(given in the first message)", "(every plan message lists them)").replace(
+    "the workspace, the recording and the Python installation", "the workspace, the steps played so far and the Python installation",
+).replace(
+    "- The harness runs your engine. It calls make_level(n) once per level and hands step() a fresh copy of\n"
+    "  that state whenever the level starts (on entering it and after every RESET); RESET never reaches step().",
+    "- engine.py is your replica of the game, and the harness runs it. It calls make_level(n) once per level\n"
+    "  and hands step() a fresh copy of that state whenever the level starts (on entering it and after every\n"
+    "  RESET); RESET never reaches step().") + """# Tests (run_tests; commit_engine and commit_moves run them too)
+- Contract: the fixed block is unchanged; make_level(n) returns a valid State for every level reached so
+  far; step() accepts every advertised action; the same actions always give the same result.
+- Acceptance: every step played so far is replayed in order. After every action, your final frame (every
+  pixel) and the game status (NOT_FINISHED / WIN / GAME_OVER, levels completed) must equal what the game
+  did. When the game animated an action, only its last frame is compared.
+- The report stops at the first failing step (or after up to 10, if you ask). For it you get:
+  __REPORT_IMAGES__;
+  for a click, the grid cell it lands on and your sprites there; for each region, the colours and
+  your sprites there; what your step() printed; and the python command that reproduces the step.
+- commit_moves checks each move the same way, live: your replica's final frame and status for the move
+  against the game's.
+
+# Support: how much of your replica the steps played have tested
+The harness records which lines of engine.py each step runs. A line's support is the number of steps played so
+far that ran it: 0 is untested (a guess no step has checked), fewer than 3 is thin. A condition `A and B` is
+separated when some step had A true and B false and some step had A false (`A or B`: each part true on some
+step); a compound never separated cannot be told from a simpler rule by the steps so far. You see it in the margin
+of read_file() and of the engine listing (the count left of each line; new: changed since your last commit) and,
+on every line of step() and of the functions it calls, in a trailing comment the harness adds to the listing:
+`# support (31): 42, 41, 39, 37, 36 and 26 other` is how many steps ran the line and the last five of them, newest
+first; `# support (0): untested` a line no step ran; `# support: new` a line changed since the map was made.
+These comments are not in the file (edit_file drops them from anything you paste). You also see it in
+commit_moves' output (each move's weakest line, e.g. "first to run lines 512-518"), in the fit message and the
+test report (the failing step's untested and thin lines), and in the plan message (thin rules on your last batch's
+path, and the outcome rules). Trust these counts over comments of your own in engine.py.
+
+__OBJECTS__
+# How to work
+Plan rounds:
+1. Look at the current frame (the message shows it; recording[-1].after holds it) and at your replica's
+   state (state_now()). What is the goal of the level? What have your moves changed so far?
+2. Try moves on your replica in python: replica.step(s, Action(...)) on copies of state_now() shows what
+   your model predicts (render_state(s) draws the result). Search over it in python when the level needs
+   it: a BFS over moves calling replica.step on copies is a short function, and your replica is the point
+   of having one.
+3. Send a batch with commit_moves(actions, note): the moves you are confident about, the shortest way you
+   see to the goal. The actions are the Actions you played on your replica, as python prints them: when
+   print(moves) shows [Action(4), Action(6, x=12, y=40)], send ["Action(4)", "Action(6, x=12, y=40)"].
+   When your replica has never seen a kind of move (a key it has no rule for, a click on
+   something it does not model), send that move in a short batch of 1-3 to learn its effect, instead of a
+   long plan built on a guess; do not study the frame for many turns first: the game's answer to a move
+   shows its rule faster than analysis. The note says what the batch is meant to do.
+4. Important rules should be tested in different conditions a few times. A rule is important when your planned
+   path depends on it (the weakest link of a batch) or when it decides the outcome (sets level_solved or
+   game_over). When such a rule is thin, prefer a cheap batch that exercises it in a new situation before
+   building a long plan on it.
+5. A rule written as `A and B` or `A or B` is only established once the steps separate its parts: steps where A
+   held and B did not, and steps where A did not hold. When the support says a compound condition was never
+   separated, test each part on its own (a move where only one of them holds) before trusting the combination,
+   and until a step separates them prefer the simplest condition the steps cannot tell from it (Occam).
+6. After a game over the harness restarts the level with a RESET (it counts as an action). After a solved
+   level the batch stops: the next level is new, plan it afresh.
+Fit rounds:
+1. Look at what the step did: compare step_to_fix.before with step_to_fix.after, and read the report's
+   regions and what the click hit.
+2. Find the simplest rule that explains this step and agrees with what engine.py already does for the
+   earlier steps: the fewest rules and assumptions that account for every step so far, and no rule the
+   steps give no evidence for. Per-level constants in the level data (a rate, a budget, a size) are fine
+   when the steps give no evidence of a formula: do not hunt for one. When a step contradicts a rule you
+   wrote, replace it with the simplest rule that explains all the steps so far.
+   Do not over-engineer your replica on one observation: one step supports one rule, not a general mechanism
+   with cases, so write the simplest code that makes every step pass, with no branches, special cases or
+   hidden variables for situations not seen yet. Explore instead (cheap moves that exercise the rule in other
+   conditions) and refactor once several steps show its shape: a rule is worth generalising when its support
+   comes from steps in different conditions, not before.
+   A long line or a strip of small blocks flush against a screen edge, outside the playing grid, that
+   shrinks or changes on every action is almost always a step or time budget (a HUD bar), not a game
+   mechanic: model it as a per-level budget drawn proportionally and rounded to the nearest pixel,
+   e.g. round(length * moves / budget), with the budget a per-level constant that fits the steps seen
+   so far. Being one pixel off on such a bar is tolerated by the tests (a warning, not a failure), so do
+   not spend turns on it. Such a budget is also the game's way of losing: watch it when you plan.
+3. Change engine.py with edit_file(), run the tests and fix what they report (an earlier step that now
+   breaks counts too). When they pass, call commit_engine(message): what you changed and why. Then plan.
+4. When the step starts a new level (the frame after it shows the next level), make_level must draw
+   that level: step_to_fix.pieces_after.code() gives code for its first frame. Reuse the sprite kinds
+   engine.py already has where they fit. Only draw the new level's first frame; model its mechanics
+   when one of its steps fails.
+5. Do not model or write code for what has not been observed. Keep engine.py's comments up to date with
+   the rules you found: older parts of this conversation are shortened as it grows, and engine.py is
+   what stays. Define helpers and data once in python: the kernel keeps them for the whole run.
+Never hard-code frames or anything keyed to the step number. Print whatever helps you debug inside
+step(); the test report and replay_step show it.
+"""
+
+# --- Ported from the base harness's prompt (inference/agent/prompts.py, inference/agent/tool_agent.py) -----------
+# Its sentences, verbatim where they apply, adapted to the replica, commit_moves, numpy frames of colours 0-15 and
+# clicks Action(6, x, y) (PLAY_DESIGN.md, "Ported from the base harness"). Each block goes in at an anchor of
+# _SYSTEM_PLAY (_insert raises when an anchor is missing, so a change to the text around it is caught at import).
+
+# GAME_OVERVIEW_ADDENDUM's colour legend, and ACTION_INFO_ADDENDUM, UNDO_INFO_ADDENDUM, RESET_INFO_ADDENDUM: in # Setup,
+# after the action list.
+_PLAY_COLOUR_LEGEND = textwrap.fill(
+    "- Colour legend: " + ", ".join(f"{c} {name}" for c, name in sorted(COLOR_NAMES.items())) + ".",
+    width=110, subsequent_indent="  ",
+) + "\n"
+_PLAY_ACTION_MEANINGS = """- Action meanings (use only the actions the game advertises; every plan message lists them):
+  - UP, DOWN, LEFT and RIGHT (Action(1) to Action(4)) are directional controls; what they affect depends on the
+    game.
+  - When available, SPACE (Action(5)) performs a game-specific action, such as interacting, selecting, rotating,
+    attaching/detaching, or executing. Test its effect rather than assuming what it does.
+  - When available, a click Action(6, x=x, y=y) clicks a board location. Pass integer x and y from 0 to 63.
+    Coordinates are zero-based from the top-left: y (the row) increases downward and x (the column) increases
+    rightward.
+  - When available, UNDO (Action(7)) reverses a previous action, usually the last turn. Check what it restores.
+    It cannot recover a failed attempt after game over.
+  - RESET (Action(0)) usually restores the current level to its starting state, including the
+    remaining-action/time bar, while keeping completed levels. Use it to recover from an unrecoverable position or
+    start a different approach. RESET itself counts as one action, and actions already spent still count toward
+    your score. Send it with commit_moves like any move; after a game over the harness sends it for you.
+"""
+_PLAY_SETUP_AFTER = "  advertises a fixed subset of them (every plan message lists them).\n"
+
+# ANIMATION_ADDENDUM and ANIMATION_ADDENDUM_TIMELINE: in # Tests, after the sentence on animated actions.
+_PLAY_ANIMATION = """  One action can return a short animation: a step's .frames holds every frame and .after, its final frame, is
+  the board it settled on. Transient cells changed and then changed BACK during the animation, so they appear in
+  no frame you can otherwise reach - not in .before, not in .after. For an animated step the test report and the
+  messages print step.animation: the transient cells (how many, where, their colour changes old>new and the
+  frames they differ in) and a diff timeline of the frames, which shows which cells changed at each frame.
+  Whatever the action did may be visible only there: read it before concluding that a move did nothing.
+"""
+_PLAY_ANIMATION_AFTER = "  did. When the game animated an action, only its last frame is compared.\n"
+
+# STEP_VERIFICATION_ADDENDUM (the game is solvable), LEVEL_TRANSFER_SYSTEM_GUIDANCE, VISUAL_GAME_ADDENDUM (a scene, no
+# player assumed, no absolute-coordinate goals), PREFER_TOOL_CALLS_LINE, and the memory sections Goal model, Open
+# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 7, 10-13, after the six
+# plan rules of _SYSTEM_PLAY and before the fit rules (numbered on from them: v11 follow-up 37). Rules 8 (being stuck
+# means a missing or wrong rule), 9 (plan from the end state) and the colour sentence of rule 11 are the v12
+# additions (exp/v11-followups.md 21, 16, 14).
+NOTES_FILE = "notes.md"
+_PLAY_PLAN_RULES = """7. If your search finds no solution under your current model of the game, remember that the game is solvable.
+   Reconsider your mechanics, goal, search implementation, or search limits, including interactions with new
+   elements. Take a targeted action to test an uncertain rule or overlooked interaction, then update your model
+   from the result. A plan far above the human baseline the plan message shows, or no plan at all, means your
+   replica is missing a rule, not that the level is hard.
+8. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal
+   twice), you are probably missing a rule or one of your written rules is wrong: explore more of the game's
+   mechanics (touch what you have not touched, repeat a refused move under a changed condition) rather than
+   searching harder on the rules you have.
+9. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often a
+   few lines over the replica's State), then plan the route to the nearest one; search over moves only when the
+   end state is unknown.
+10. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
+   engine.py carry them forward: they are your starting hypothesis on a new level, while you re-check anything
+   contradicted by new evidence. New levels often introduce additional mechanics, sometimes through an unfamiliar
+   board element or a visual change. These additions are often important for solving the level. The goal may
+   remain the same but require new mechanics to reach it, or the goal itself may change.
+11. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
+   Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do
+   not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board
+   configuration. Use coordinates only to target actions or describe local evidence. Do not frame the objective
+   as reaching a specific absolute row or column. A comparison the game makes (a piece against a legend, a key
+   against a lock, a pattern against a target) may involve colour as well as shape and rotation; "recoloured" in
+   an object diff is a change in its own right, not a rotation.
+12. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
+   another python call over more reasoning: the code answers what the reasoning would only guess at, and running
+   it is faster than thinking your way to the same answer.
+13. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
+   the workspace, under three headings: Goal model: what winning requires. Open questions: unresolved hypotheses.
+   Plan: intended next steps. Change it with edit_file(path="notes.md", edits=[...]) (read_file("notes.md") gives
+   its anchors); every plan message shows it. Older parts of this conversation will eventually be dropped, so
+   anything you leave out of engine.py and notes.md is gone.
+"""
+_PLAY_PLAN_RULES_BEFORE = "Fit rounds:\n1. Look at what the step did"
+
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_SETUP_AFTER, _PLAY_COLOUR_LEGEND + _PLAY_ACTION_MEANINGS)
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_ANIMATION_AFTER, _PLAY_ANIMATION)
+_SYSTEM_PLAY = _insert(_SYSTEM_PLAY, _PLAY_PLAN_RULES_BEFORE, _PLAY_PLAN_RULES, before=True)
+# --- end of the ported guidance in the system prompt -----------------------------------------------------------
+
+_RUN_TESTS_PLAY = """Run the contract tests, then replay every step played so far through engine.py, in order. Stops after
+`failures` failing steps (1 to 10, default 1). Reports how many steps pass before the first failure, the
+first failure in full (images, regions, what a click hit, your sprites there, what step() printed, the
+replay_step command), and one line per further failure."""
+
+_COMMIT_PLAY = """Submit engine.py as your fix. Runs the tests first (every step played so far): if any fails you get the
+report and the fit round goes on; when they all pass, the fix is kept and the harness asks you to plan the
+next moves. message: """ + _COMMIT_MESSAGE
+
+_COMMIT_MOVES = """Send moves to the game, in order. The moves are the Actions you stepped your replica with, as python
+prints them: "Action(4)", "Action(6, x=12, y=40)" (a click; the harness computes its cell), "Action(0)" for
+RESET. First the tests run on engine.py (every step played so far): if any fails, nothing is sent and you
+get the report (fix engine.py first). Otherwise each move is predicted with your replica, sent to the game,
+and the game's result is compared with the prediction (final frame, status, levels completed): on a match
+the next move is sent; at the first difference the batch stops, the moves after it are not sent, and a fit
+round opens on that step. The batch also stops when a level is solved or the game ends. The output also says
+what each move's prediction rested on (its weakest line's support, untested lines, conditions never separated).
+At most __BATCH__ moves per call, one call per turn."""
+
+_COMMIT_MOVES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "commit_moves",
+        "description": _COMMIT_MOVES,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "description": 'The moves, in order, as python prints an Action: "Action(4)", "Action(6, x=12, y=40)" (a '
+                                   'click at screen pixel x, the column, and y, the row, 0-63), "Action(0)" for RESET; a printed '
+                                   'list "[Action(4), Action(0)]" as one string is taken too, and so are the labels "UP", "DOWN", '
+                                   '"LEFT", "RIGHT", "SPACE", "RESET", "UNDO" and {"click": [x, y]}. Only the actions this game '
+                                   "advertises.",
+                    "items": {},
+                    "minItems": 1,
+                },
+                "note": {
+                    "type": "string",
+                    "description": "One or two sentences: what this batch is meant to do and what your replica predicts.",
+                },
+            },
+            "required": ["actions", "note"],
+        },
+    },
+}
+
+
+def commit_moves_description(batch_size: int) -> str:
+    return _COMMIT_MOVES.replace("__BATCH__", str(int(batch_size)))
+
+
+def _status_text(step) -> str:
+    if step.state == "WIN":
+        return "the game is won"
+    if step.state == "GAME_OVER":
+        return "the game is over (only RESET is accepted now)"
+    return "playing"
+
+
+_KEY_NAMES = {1: "UP", 2: "DOWN", 3: "LEFT", 4: "RIGHT", 5: "SPACE", 7: "UNDO"}
+
+
+def move_text(action) -> str:
+    """A move as the play messages name it: the Action as python prints it (commit_moves takes it back as it is),
+    with the key's name: "Action(4) (RIGHT)", "Action(0) (RESET)", "Action(6, x=12, y=40) (a click)"."""
+    name = "a click" if action.id == 6 else "RESET" if action.id == 0 else _KEY_NAMES.get(action.id, f"ACTION{action.id}")
+    return f"{action_code(action)} ({name})"
+
+
+def accepted_actions_text(available: list[int]) -> str:
+    """The actions a game accepts, as commit_moves takes them (the Action as python prints it), in one sentence."""
+    parts = [f"Action({a}) {_KEY_NAMES[a]}" for a in sorted(available) if a in _KEY_NAMES]
+    if 6 in available:
+        parts.append("clicks Action(6, x=x, y=y) (x the column, y the row, screen pixels 0-63)")
+    parts.append("Action(0) RESET (restarts the level; it counts as an action)")
+    return "The game accepts: " + ", ".join(parts) + "."
+
+
+def _ranges(indices: list[int]) -> str:
+    return _tester_ranges(sorted(indices))
+
+
+# The paragraph after the engine.py listing in a PLAN message (elide_engine_listing keeps it).
+PLAN_CLOSING = "\n\nWork out the next moves"
+ENGINE_CLOSINGS = (ENGINE_CLOSING, PLAN_CLOSING)
+
+# The PLAN message's support items (support.plan_items) come under this line.
+SUPPORT_HEAD = "Rules with little support (recorded steps that ran the line; thin: fewer than 3):"
+
+# The play agent's notes, appended to the turn's last tool output.
+PLAN_NUDGE = (
+    "\n\n[harness] {n} turns in this plan round without commit_moves. The goal is to play: send a short batch now, even "
+    "a probing one of 1-3 moves; your replica only improves from what the game answers."
+)
+FIT_ESCAPE = (
+    "\n\n[harness] {n} turn(s) on step {k} without an accepted commit. You may now play on with your replica out of step with "
+    "the game: commit_moves(actions, note) then sends moves although the tests fail; they are not checked against your "
+    "replica, and the steps from {k} on are marked unexplained (the tests replay them but do not compare them). Your "
+    "replica is back in step at the first RESET or level change the game makes: a RESET does it at once (it restarts the "
+    "level, losing its progress, and costs one action), or you play blind to the end of the level (make_level must then "
+    "draw the next level's start). Or keep fixing step {k} and commit_engine(message) as usual."
+)
+COMMIT_HINT_PLAY = {
+    "fit": (
+        "\n\nSteps 0-{k} pass{skipped}. You can now call commit_engine(message) to submit the fix, or keep refining first; "
+        "after the commit you plan the next moves."
+    ),
+    "plan": "\n\nSteps 0-{k} pass{skipped} with engine.py as it is now: commit_moves sends moves with it (and commits it).",
+}
+
+
+def _game_head(game: str, trace: Trace, baseline: list[int] | None) -> tuple[str, str]:
+    """The PLAN message's "Game:" line around its last-batch sentence: the head (game, level, status) and the tail (the
+    human baseline, or nothing)."""
+    s = trace.steps[-1]
+    level = min(s.levels_completed, max(0, s.win_levels - 1))
+    base = f" The human baseline for level {level} is {baseline[level]} actions." if baseline and level < len(baseline) else ""
+    return f"Game: {game}, at level {level} ({s.levels_completed} of {s.win_levels} levels completed), {_status_text(s)}. ", base
+
+
+def _game_line(game: str, trace: Trace, last_batch: str, baseline: list[int] | None) -> str:
+    head, base = _game_head(game, trace, baseline)
+    return head + last_batch + base
+
+
+def plan_last_batch(text: str, game: str, trace: Trace, baseline: list[int] | None = None) -> str | None:
+    """The last-batch sentence of a PLAN message `text` (what plan_message put between the state and the baseline on its
+    "Game:" line), for the same state of the game; None when no line reads as plan_message writes it now. A fork's
+    first resume regenerates its PLAN message with it (play_agent._fork_prompts)."""
+    head, base = _game_head(game, trace, baseline)
+    for line in text.splitlines():
+        if line.startswith(head) and line.endswith(base) and len(line) > len(head) + len(base):
+            return line[len(head) : len(line) - len(base)]
+    return None
+
+
+def plan_message(
+    game: str, trace: Trace, *, last_batch: str, budget_line: str, batch_size: int, engine_read: str = "",
+    kernel_names: str = "", baseline: list[int] | None = None, unexplained: list[int] | None = None,
+    out_of_sync: int | None = None, engine_note: str = "", images: bool = True, support_note: str = "",
+) -> str:
+    """The PLAN message: the replica reproduces every step so far (or, out of step since `out_of_sync`, plays
+    blind); the game's state, the last batch's outcome, the actions it accepts, the budget, the current frame
+    (attached as an image by the agent), and what to do. `unexplained`: the steps played while the replica was
+    out of step; `engine_note`: a sentence on engine.py changed since its commit; `support_note`: the thin or
+    never-separated rules on the last batch's path and among the outcome rules (support.plan_items), one per line."""
+    n = len(trace.steps)
+    if out_of_sync is None:
+        skipped = f" (but the unexplained ones, which are not compared: {_ranges(unexplained)})" if unexplained else ""
+        head = f"Plan the next moves. Steps 0-{n - 1} pass with your replica as committed{skipped}."
+        about_now = "state_now() is your replica's state now"
+        unexplained_line = (
+            "\nUnexplained steps were played while your replica was out of step with the game; replay_step(k) shows one when "
+            "you want to come back to it." if unexplained else ""
+        )
+    else:
+        head = (
+            f"Plan the next moves. Your replica is out of step with the game since step {out_of_sync}: moves are sent without "
+            "being checked, and steps are unexplained (not compared by the tests) until it is back in step, at the first RESET "
+            "(at once; it restarts the level and costs one action) or level change (then make_level must draw the new "
+            "level's start)."
+        )
+        about_now = "state_now() is your replica's state with every step replayed on it, the unexplained ones too, so it may differ from the game"
+        unexplained_line = f"\nUnexplained so far: steps {_ranges(unexplained)}." if unexplained else ""
+    shown = "(shown below)" if images else "(show_frames(recording[-1].after) shows it)"
+    if out_of_sync is None:
+        send = (f"commit_moves(actions, note): up to {batch_size} moves, sent one by one and\neach checked against your replica's "
+                "prediction; the batch stops at the first difference (a fit round opens), after a\nsolved level and when the game ends.")
+    else:
+        send = (f"commit_moves(actions, note): up to {batch_size} moves, sent one by one,\nunchecked; the batch stops at the first "
+                "RESET or level change (your replica is then back in step) and\nwhen the game ends.")
+    return f"""{head}
+
+{_game_line(game, trace, last_batch, baseline)}
+{accepted_actions_text(trace.steps[0].available_actions)}
+{budget_line}{unexplained_line}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + SUPPORT_HEAD + chr(10) + support_note) if support_note else ""}
+In python, `recording` holds every step played so far (steps 0-{n - 1}); recording[-1].after is the game's current frame
+{shown}. {about_now}; replica.step(s, Action(...)) on a copy of it plays a move, and commit_moves sends those Actions as
+python prints them (Action(4), Action(6, x=12, y=40)).
+{(chr(10) + kernel_names) if kernel_names else ""}{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
+Work out the next moves on your replica, then {send}"""
+
+
+def mismatch_message(
+    trace: Trace, k: int, verdict: str, dropped: int, report: str, engine_read: str = "", kernel_names: str = "",
+    auto_reset: bool = True, engine_note: str = "", predicted: bool = True, support_note: str = "", budget_line: str = "",
+    level_kinds: str = "",
+) -> str:
+    """The FIT message after a move went differently from the replica's prediction: step k (the last step
+    played), what differed (`verdict`, one line), how many moves of the batch were not sent, what the step
+    changed piece by piece, the test report (the comparison, with its picture), engine.py and the task.
+    `predicted` False: no prediction was made (a step played out of step, or found when a run resumed); the
+    replica as it is now does not reproduce step k. `support_note`: what the move's prediction rested on
+    (support.mismatch_support_text). `budget_line`: the play agent's budget and state line, given after a batch
+    (under the "Step k:" line). `level_kinds`: when step k entered a new level, the paragraph naming the engine.py
+    constants its first frame's pieces match (level_kinds_text), its own paragraph after the `recording` line."""
+    s = trace.steps[k]
+    level = trace.steps[k - 1].levels_completed if k > 0 else 0
+    notes = []
+    if s.state == "WIN":
+        notes.append(f"It solves level {level}, the last one: the game is won.")
+    elif s.levels_completed > level:
+        notes.append(
+            f"It solves level {level}: the frame after it is level {s.levels_completed}'s first frame, which "
+            f"make_level({s.levels_completed}) must draw (step_to_fix.pieces_after.code() gives code for it; reuse the "
+            "sprite kinds engine.py already has where they fit)."
+        )
+    if s.state == "GAME_OVER":
+        notes.append("After it the game is over; " + (
+            "the harness will RESET the level once your replica reproduces it." if auto_reset else "only RESET is accepted now."))
+    left = "" if not dropped else f" The {dropped} move{'s' if dropped > 1 else ''} after it in your batch {'were' if dropped > 1 else 'was'} not sent."
+    before = "Step 0 matches" if k == 1 else f"Steps 0-{k - 1} match" if k > 1 else "It is the game's first frame"
+    keep = f", keeping steps 0-{k - 1} passing" if k > 0 else ""
+    title = f"step {k} did not go as your replica predicted" if predicted else f"your replica does not reproduce step {k}"
+    return f"""Fix your replica: {title}.
+
+Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.{animation_note(trace, k, report)}{(chr(10) + budget_line) if budget_line else ""}
+What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + "Support: " + support_note + ".") if support_note else ""}
+`recording` now holds steps 0-{k}, and `step_to_fix` is step {k} (recording[-1]).
+{(chr(10) + level_kinds + chr(10)) if level_kinds else ""}
+{step_objects(trace, k)}
+
+The test report:
+
+{report.strip()}
+{(chr(10) + kernel_names) if kernel_names else ""}{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
+Fix step {k}{keep}; commit_engine(message) when the tests pass, then plan the next moves."""
+
+
+# --- After a batch: what it changed on the board (the segmentation's change summary) and the no-op cut ----------
+
+BATCH_CHANGES_LINES = 12  # lines of the change summary commit_moves' output shows at most
+
+
+def batch_changes_text(trace: Trace, first: int, last: int, limit: int = BATCH_CHANGES_LINES) -> str:
+    """"What the batch changed on the board (steps a -> b):" and the segmentation's change summary from the frame
+    before step `first` to step `last`'s frame; "" when the frames are equal, the batch entered another level (the
+    next message shows the new board), or the segmentation cannot read the frames."""
+    if last < first or first < 1:
+        return ""
+    steps = trace.steps
+    before, after = steps[first - 1], steps[last]
+    if before.last is None or after.last is None or np.array_equal(before.last, after.last):
+        return ""
+    if segment.shown_level(trace, last) != segment.shown_level(trace, first - 1):
+        return ""
+    try:
+        seg = segment.Segmenter(trace, last)
+        found = segment.changes(seg.pieces(first - 1), seg.pieces(last))
+        text = segment.summary(found, limit)
+    except Exception as exc:  # noqa: BLE001  (a frame the segmentation cannot read must not stop the run)
+        return f"What the batch changed on the board (steps {first - 1} -> {last}): not available ({type(exc).__name__}: {exc})."
+    return (f"What the batch changed on the board (steps {first - 1} -> {last}; x, y in the screen grid, recording[k].changes "
+            "has each step):\n" + "\n".join("  " + line for line in text.splitlines()))
+
+
+NOOP_CUT = ("[harness] Moves {first}-{last} not sent: your replica predicts move {first} ({action}) changes nothing on the "
+            "board; a probe of that rule goes as a batch of one.")
+NOOP_REFUSED = ("Not sent: your replica predicts move 1 ({action}) changes nothing on the board, so the batch was cut before "
+                "it and nothing was sent; a probe of that rule goes as a batch of one.")
+RAISE_WARNING = ("[harness] Warning: your replica raises at move {k} ({action}): {error}; the batch is sent as it is and a "
+                 "mismatch there opens a fit round.")
+
+
+def noop_cut_text(first: int, last: int, action) -> str:
+    """The note when a batch is cut before its first predicted board no-op, move `first` (1-based) of `last`."""
+    if first == 1:
+        return NOOP_REFUSED.format(action=action_code(action))
+    return NOOP_CUT.format(first=first, last=last, action=action_code(action))
+
+
+# --- The PLAN message's sprite list under the frame (24) ----------------------------------------------------
+
+SPRITES_HEAD = "Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={vars}:"
+PIECES_HEAD = "The game's current frame segmented (recording[-1].pieces_after; screen grid):"
+
+
+def sprite_list_text(summary: dict) -> str:
+    """The replica's sprites from a game_api.state_summary, one line each: "[i] name tags=[...] WxH colour 12 (orange)
+    at (x, y) layer L" (the main colour of its pixels, "multi (...)" when none holds most: diff_report.colour_text)
+    plus rot=90, mirror_ud, mirror_lr, scale=2, hidden, inert (not collidable) and screen when they apply, under
+    SPRITES_HEAD with the state's vars."""
+    vars_text = ", ".join(f"{k!r}: {v}" for k, v in (summary.get("vars") or {}).items())
+    lines = [SPRITES_HEAD.format(vars="{" + vars_text + "}")]
+    for i, e in enumerate(summary.get("sprites") or []):
+        tags = "[" + ", ".join(repr(str(t)) for t in e.get("tags") or []) + "]"
+        name = json.dumps(str(e.get("name", "")))
+        colour = colour_text(e.get("colours"))
+        parts = [f"[{i}] {name} tags={tags} {e.get('w')}x{e.get('h')}" + (f" {colour}" if colour else "")
+                 + f" at ({e.get('x')}, {e.get('y')}) layer {e.get('layer')}"]
+        if e.get("rotation", 0):
+            parts.append(f"rot={e['rotation']}")
+        for flag in ("mirror_ud", "mirror_lr"):
+            if e.get(flag):
+                parts.append(flag)
+        if e.get("scale", 1) != 1:
+            parts.append(f"scale={e['scale']}")
+        if e.get("visible") is not True:
+            parts.append("hidden")
+        if e.get("collidable") is not True:
+            parts.append("inert")
+        if e.get("screen") is True:
+            parts.append("screen")
+        lines.append("  " + " ".join(parts))
+    return "\n".join(lines)
+
+
+def pieces_list_text(trace: Trace) -> str:
+    """The segmentation of the game's current frame (recording[-1].pieces_after), for a PLAN message whose replica
+    is out of step with the game; "" when the segmentation cannot read the frame."""
+    try:
+        pieces = segment.Segmenter(trace).pieces(len(trace.steps) - 1)
+    except Exception:  # noqa: BLE001
+        return ""
+    return PIECES_HEAD + "\n" + "\n".join("  " + line for line in str(pieces).splitlines())
+
+
+# --- The level-start nudge (v11 follow-up 1): where the new board's shapes already are in engine.py ------------
+
+KINDS_HEAD = "The new board's pieces match these engine.py constants:"
+KINDS_LISTED = 12  # constants named at most
+KINDS_UNMATCHED = 3  # pieces matching none described at most
+_COUNT_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+
+
+def _count_word(n: int) -> str:
+    return _COUNT_WORDS.get(n, str(n))
+
+
+def _reuse_words(p: Any) -> str:
+    """How a piece is drawn from its constant: 'turned 270', 'mirrored', 'scaled 2', 'recoloured 9->12', joined
+    with 'and'; "" when as it is."""
+    t = getattr(p, "transform", None) or {}
+    words = []
+    if t.get("rotation"):
+        words.append(f"turned {t['rotation']}")
+    if t.get("mirror_ud") or t.get("mirror_lr"):
+        words.append("mirrored")
+    if t.get("scale", 1) != 1:
+        words.append(f"scaled {t['scale']}")
+    if t.get("recolour"):
+        words.append("recoloured " + ", ".join(f"{a}->{b}" for a, b in t["recolour"].items()))
+    return " and ".join(words)
+
+
+def _piece_words(p: Any) -> str:
+    """'2x2 purple at (10, 13)', '1x31 yellow screen piece at (0, 2)'."""
+    colour = COLOR_NAMES.get(int(p.colour), f"colour {p.colour}")
+    return f"{p.width}x{p.height} {colour}{' screen piece' if p.screen else ''} at ({p.x}, {p.y})"
+
+
+def level_kinds_text(trace: Trace, constants: dict, limit: int = KINDS_LISTED, width: int = 118) -> str:
+    """The level-start paragraph naming which of engine.py's pixel constants (`constants`: name -> rows, as
+    auto_sprites.pixel_constants reads them from the file) the new board's pieces match, from the matcher
+    pieces_after.code() uses to reuse engine kinds (auto_sprites.plan_sprites: as they are, turned or mirrored,
+    scaled, recoloured), and the pieces that match none; "" when engine.py has no pixel constant, the trace is empty
+    or the segmentation cannot read the frame. v11 follow-up 1: the model redrew every later level by hand (11-22
+    turns a level) instead of combining the constants it already had."""
+    if not constants or not len(trace.steps):
+        return ""
+    k = len(trace.steps) - 1
+    frame = trace.steps[k].last
+    if frame is None:
+        return ""
+    try:
+        grid = segment.Segmenter(trace).grid(segment.shown_level(trace, k))
+        pieces = segment.pieces(frame, grid, known=constants)
+    except Exception:  # noqa: BLE001  (help, not the loop)
+        return ""
+    objects = [p for p in pieces if p.role == "object"]
+    matched: dict[str, list] = {}
+    unmatched = []
+    for p in objects:
+        if p.shape in constants:
+            matched.setdefault(p.shape, []).append(p)
+        else:
+            unmatched.append(p)
+    if not objects:
+        return ""
+    if not matched:
+        text = (f"None of the new board's {len(objects)} pieces matches an engine.py pixel constant (as it is, turned, scaled "
+                "or recoloured): draw them from recording[-1].pieces_after.code().")
+        return textwrap.fill(text, width)
+    items = []
+    for name, group in matched.items():
+        hows = Counter(_reuse_words(p) for p in group if _reuse_words(p))
+        item = f"{name} x{len(group)}" if len(group) > 1 else name
+        if hows:
+            item += " (" + ", ".join(f"{_count_word(n)} {how}" for how, n in hows.items()) + ")"
+        items.append(item)
+    listed = ", ".join(items[:limit]) + (f", ... and {len(items) - limit} more" if len(items) > limit else "")
+    if unmatched:
+        shown = ", ".join(_piece_words(p) for p in unmatched[:KINDS_UNMATCHED]) + (", ..." if len(unmatched) > KINDS_UNMATCHED else "")
+        n = len(unmatched)
+        text = (f"{KINDS_HEAD} {listed}; {n} piece{'s' if n > 1 else ''} match{'' if n > 1 else 'es'} none ({shown}). Combine the "
+                "constants into the new level's sprites and draw the rest from recording[-1].pieces_after.code().")
+    else:
+        text = (f"{KINDS_HEAD} {listed}; every piece matches one. Combine the constants into the new level's sprites "
+                "(recording[-1].pieces_after.code() writes them so).")
+    return textwrap.fill(text, width)
+
+
+# --- The kernel restarted after a timeout (18, 26): what was lost, what is back ------------------------------
+
+RESTART_NOTE = (
+    "[harness] {why} Lost: {lost}. The cell that {what} (starting `{head}`) was not re-run: bound searches by "
+    "time (time.time()) and keep the best result so far in a variable you print. The harness built-ins and `recording` "
+    "are back. {replay}\n{names}"
+)
+RESTART_WHY = {
+    "timeout": "This cell ran longer than {seconds:g} s, so it was killed and the kernel was restarted.",
+    "crash": "This cell crashed the kernel (out of memory or a fatal error), so the kernel was restarted.",
+    "protocol": "This cell broke the kernel's protocol, so the kernel was restarted.",
+}
+RESTART_REPLAYED = ("Your earlier {n} python cell{s} were re-run in order with file edits disabled, so what they defined "
+                    "is back{failed}{skipped}.")
+RESTART_NONE = "There were no earlier python cells to re-run."
+
+
+def restart_note(reason: str, seconds: float, lost: tuple[list[str], int], head: str, replay: dict, names: str) -> str:
+    """The note appended to a python output after the kernel was restarted: why (`reason`: "timeout", "crash" or
+    "protocol"), the names the kernel held before the cell (`lost`: a names() listing), the cell's first line
+    (`head`), the replay of the earlier cells (KernelClient.replay's result) and the kernel's names now (`names`:
+    kernel_names_text)."""
+    shown, more = lost
+    lost_text = (", ".join(shown) + (f", ... and {more} more" if more else "")) if shown else "nothing you had defined (the kernel held no names of yours)"
+    if shown:
+        lost_text += f" ({len(shown) + more} name{'s' if len(shown) + more != 1 else ''})"
+    n = int(replay.get("replayed") or 0)
+    if not n and not replay.get("skipped"):
+        replayed = RESTART_NONE
+    else:
+        turns = sorted({int(f["turn"]) for f in replay.get("failed") or [] if f.get("turn") is not None})
+        failed = f"; cells that raised when re-run: turn{'s' if len(turns) > 1 else ''} {', '.join(map(str, turns))}" if turns else ""
+        skipped = f"; the last {replay['skipped']} cell(s) were not re-run (the replay's time ran out)" if replay.get("skipped") else ""
+        replayed = RESTART_REPLAYED.format(n=n, s="" if n == 1 else "s", failed=failed, skipped=skipped)
+    what = "timed out" if reason == "timeout" else "crashed the kernel" if reason == "crash" else "broke the kernel"
+    why = RESTART_WHY.get(reason, RESTART_WHY["crash"]).format(seconds=seconds)
+    return RESTART_NOTE.format(why=why, lost=lost_text, what=what, head=head, replay=replayed, names=names)
+
+
+def batch_lines(trace: Trace, first: int, outcomes: list[dict]) -> list[str]:
+    """One line per move of a batch: "#12 Action(1): matches (level 0, 1 frame)" or what differed; `outcomes` are
+    the play agent's per-move records ({"index", "label", "ok", "verdict", "frames", "level", "state"}; "ok"
+    None: sent while the replica was out of step, not checked)."""
+    lines = []
+    for o in outcomes:
+        if o["ok"] is None:
+            what = "sent, not checked (your replica is out of step)"
+        elif o["ok"]:
+            what = "matches your prediction"
+        else:
+            what = f"differs from your prediction: {o['verdict']}"
+        extra = []
+        if o.get("warning"):
+            extra.append(o["warning"])
+        if o.get("state") == "WIN":
+            extra.append("the game is WON")
+        elif o.get("state") == "GAME_OVER":
+            extra.append("GAME OVER")
+        elif o.get("level_solved"):
+            extra.append(f"level {o['level']} solved")
+        if o.get("resync"):
+            extra.append("your replica is back in step with the game here")
+        tail = f" ({', '.join(extra)})" if extra else ""
+        lines.append(f"  #{o['index']} {o['label']}: {what}{tail}")
+    return lines
+
+
+# --- Ported from the base harness: the animation digest in the step messages, and the PLAN message's additions -------
+
+
+def animation_note(trace: Trace, k: int, report: str = "") -> str:
+    """The animation digest of step k (engine_re.animation.report_lines) on new lines, for a message that says how many
+    frames the game returned; "" for a step of one frame, or when `report` (the test report the message carries) has
+    it already."""
+    s = trace.steps[k]
+    if s.n_frames <= 1:
+        return ""
+    lines = animation.report_lines(trace.steps[k - 1].last if k > 0 else None, s.frames, k, indent="")
+    if not lines or lines[0].strip() in report:
+        return ""
+    return "\n" + "\n".join(lines)
+
+
+# LEVEL_START_USER_PROMPT (the first message after a level is completed), adapted: the new board is recording[-1].after.
+LEVEL_START_PLAY = """You have completed the previous level. recording[-1].after now contains the starting board of the next level; __SHOWN__.
+Build a new plan for this layout rather than continuing the previous level's action sequence.
+Start from the mechanics you established on the previous level (the rules in engine.py); do not rediscover them without
+reason. Inspect the new board for an unfamiliar element, a visual change (a colour, a frame, a legend), a changed
+arrangement, or interactions your previous understanding does not explain. New elements and visual changes often
+introduce mechanics needed to solve this level, so prioritize small, informative tests when their behavior is unclear.
+Reassess the goal: does the previous objective still apply, now requiring the new mechanics, or does the evidence suggest
+a different objective? Combine retained knowledge with new findings to plan for this board."""
+
+
+def entered_level(trace: Trace) -> bool:
+    """Whether the last step played entered a new level: it solved one and the game goes on."""
+    steps = trace.steps
+    return len(steps) >= 2 and steps[-1].levels_completed > steps[-2].levels_completed and steps[-1].state != "WIN"
+
+
+def level_start_text(trace: Trace, images: bool = True, kinds: str = "") -> str:
+    """LEVEL_START_PLAY when the last step played entered a new level (entered_level), followed by `kinds` (the
+    paragraph naming the engine.py constants the new board's pieces match, level_kinds_text) when given; ""
+    otherwise. (The board's sprites come with the frame: the play agent's sprite list, sprite_list_text.)"""
+    if not entered_level(trace):
+        return ""
+    shown = "the image below shows this new board" if images else "show_frames(recording[-1].after) shows this new board"
+    return LEVEL_START_PLAY.replace("__SHOWN__", shown) + (f"\n\n{kinds}" if kinds else "")
+
+
+PLAN_NOTES_LINES = 40  # lines of notes.md a PLAN message shows
+NOTES_TEMPLATE = ""  # notes.md as the play agent creates it: empty, the model writes its own headings (v11 follow-up 11)
+NOTES_EMPTY = ('notes.md holds nothing yet: keep the goal model, the open questions and the plan there, under those three '
+               'headings, with edit_file(path="notes.md", edits=[{"op": "append", "lines": [...]}]) (the file is empty).')
+
+
+def notes_block(notes: str | None, limit: int = PLAN_NOTES_LINES) -> str:
+    """notes.md for a PLAN message: its first `limit` lines, with a note when the rest is cut."""
+    if notes is None or not notes.strip():
+        return NOTES_EMPTY
+    lines = notes.rstrip("\n").splitlines()
+    cut = (f'\n  [cut: {len(lines) - limit} more line(s) of notes.md not shown; read_file("notes.md") shows them. Keep it short.]'
+           if len(lines) > limit else "")
+    return "notes.md (your goal model, open questions and plan):\n" + "\n".join("  " + line for line in lines[:limit]) + cut
+
+
+def plan_additions(text: str, trace: Trace, notes: str | None = None, images: bool = True, kinds: str = "") -> str:
+    """A PLAN message (plan_message) with the ported additions: after its first paragraph, the level-start paragraph
+    when the last step entered a new level (level_start_text, with `kinds`: the engine.py constants the new board's
+    pieces match, level_kinds_text); before the engine.py listing (or the closing paragraph when there is none),
+    notes.md (notes_block). Compaction (elide_engine_listing) keeps both."""
+    level = level_start_text(trace, images, kinds)
+    if level and "\n\n" in text:
+        head, rest = text.split("\n\n", 1)
+        text = f"{head}\n\n{level}\n\n{rest}"
+    block = notes_block(notes) + "\n\n"
+    if ENGINE_HEADER in text:
+        return text.replace(ENGINE_HEADER, block + ENGINE_HEADER, 1)
+    closing = PLAN_CLOSING.strip()
+    at = text.rfind(closing)
+    return text if at < 0 else text[:at] + block + text[at:]

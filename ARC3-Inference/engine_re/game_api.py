@@ -301,14 +301,26 @@ STATUSES = ("playing", "level_solved", "game_over")
 _CANONICAL: types.ModuleType | None = None
 
 
+def _action_repr(action: Any) -> str:
+    from engine_re.trace import action_code  # (trace imports nothing of this module; imported here all the same)
+
+    return action_code(action)
+
+
 def canonical() -> types.ModuleType:
-    """A module holding the interface classes and helpers, defined from FIXED_INTERFACE."""
+    """A module holding the interface classes and helpers, defined from FIXED_INTERFACE.
+
+    Its Action prints as the code that builds it, cell left out: Action(4), Action(6, x=3, y=4), Action(0)
+    (trace.action_code), the form commit_moves takes back as it is. That repr is set here, on the harness side,
+    and not in the FIXED block, so the block, and every engine.py written with it, stays as it was (an engine's
+    own Action keeps the dataclass repr, Action(id=4, x=0, y=0, cell=None), which commit_moves takes too)."""
     global _CANONICAL
     if _CANONICAL is None:
         module = types.ModuleType("engine_re_fixed_interface")
         sys.modules[module.__name__] = module
         # dont_inherit: compile the block as engine.py would, without this file's __future__ imports.
         exec(compile(FIXED_INTERFACE, "<fixed interface>", "exec", dont_inherit=True), module.__dict__)
+        module.Action.__repr__ = _action_repr
         _CANONICAL = module
     return _CANONICAL
 
@@ -526,27 +538,34 @@ def last_lines(text: str, lines: int = 20, chars: int = 1500, width: int = 200) 
 # --- Where each sprite is drawn (failure reports) ---------------------------------------
 
 
-def sprite_footprints(state: Any) -> list[np.ndarray | None]:
-    """For each sprite of state.sprites, in list order: a 64x64 bool mask of the screen pixels it
-    draws, as if it were visible (after rotation, scale, clipping to the grid and the view
-    transform), or None when it draws nothing on the screen."""
+def sprite_renders(state: Any) -> list[np.ndarray | None]:
+    """For each sprite of state.sprites, in list order: a 64x64 int16 screen of the colours it draws, as if
+    it were visible and alone (after rotation, scale, clipping to the grid and the view transform), -1 where
+    it draws nothing; None when it draws nothing at all."""
     w, h = int(state.grid[0]), int(state.grid[1])
     view = _view(state)
     s, ox, oy = geometry((w, h), getattr(view, "scale", None) if view is not None else None)
-    masks: list[np.ndarray | None] = []
+    out: list[np.ndarray | None] = []
     for sprite in list(state.sprites):
         try:
             px = sprite_pixels(sprite)
             if px.ndim != 2 or px.size == 0:
-                masks.append(None)
+                out.append(None)
                 continue
-            canvas = np.zeros((64, 64), np.int16)
-            _place(canvas, np.where(px >= 0, 1, -1).astype(np.int16), sprite, w, h, s, ox, oy)
-            mask = view_transform(canvas, view) == 1
-            masks.append(mask if mask.any() else None)
-        except Exception:  # noqa: BLE001  (a malformed sprite simply has no footprint)
-            masks.append(None)
-    return masks
+            canvas = np.full((64, 64), -1, np.int16)
+            _place(canvas, np.where(px >= 0, px, -1).astype(np.int16), sprite, w, h, s, ox, oy)
+            drawn = view_transform(canvas, view)
+            out.append(drawn if (drawn >= 0).any() else None)
+        except Exception:  # noqa: BLE001  (a malformed sprite simply draws nothing)
+            out.append(None)
+    return out
+
+
+def sprite_footprints(state: Any) -> list[np.ndarray | None]:
+    """For each sprite of state.sprites, in list order: a 64x64 bool mask of the screen pixels it
+    draws, as if it were visible (after rotation, scale, clipping to the grid and the view
+    transform), or None when it draws nothing on the screen."""
+    return [None if r is None else r >= 0 for r in sprite_renders(state)]
 
 
 def _short_value(value: Any, index: dict[int, int], depth: int = 0) -> str:
@@ -575,8 +594,9 @@ def _short_value(value: Any, index: dict[int, int], depth: int = 0) -> str:
 
 def state_summary(state: Any) -> dict[str, Any]:
     """A JSON-ready description of a State for failure reports: grid, view, status, a short form of
-    state.vars, and for every sprite its fields and where it draws (screen bounding box and a
-    packed mask, see unpack_footprint). The candidate process computes it; the tester reads it."""
+    state.vars, and for every sprite its fields and where it draws (screen bounding box, a packed mask
+    and the colours it draws there, see unpack_footprint and unpack_render). The candidate process
+    computes it; the tester reads it."""
     sprites = list(state.sprites)
     index = {id(s): i for i, s in enumerate(sprites)}
     view = _view(state)
@@ -599,8 +619,9 @@ def state_summary(state: Any) -> dict[str, Any]:
             out["vars"][str(k)] = _short_value(v, index)
     except Exception:  # noqa: BLE001
         out["vars"] = {"?": "state.vars could not be read"}
-    masks = sprite_footprints(state)
-    for sprite, mask in zip(sprites, masks):
+    renders = sprite_renders(state)
+    for sprite, drawn in zip(sprites, renders):
+        mask = None if drawn is None else drawn >= 0
         # oid tells the same sprite object apart in two summaries of one state (before and after a
         # step), as long as the caller keeps the objects alive in between.
         entry: dict[str, Any] = {"oid": id(sprite)}
@@ -612,7 +633,11 @@ def state_summary(state: Any) -> dict[str, Any]:
         entry["tags"] = [str(t) for t in getattr(sprite, "tags", ()) or ()]
         try:
             entry["w"], entry["h"] = int(sprite.width), int(sprite.height)
-            entry["pixels_crc"] = zlib.crc32(np.asarray(sprite.pixels, dtype=np.int16).tobytes())
+            px = np.asarray(sprite.pixels, dtype=np.int16)
+            entry["pixels_crc"] = zlib.crc32(px.tobytes())
+            opaque = px[px >= 0].astype(np.int64)
+            counts = np.bincount(opaque, minlength=16) if opaque.size else np.zeros(16, np.int64)
+            entry["colours"] = {str(c): int(n) for c, n in enumerate(counts.tolist()) if n}  # colour -> opaque pixels
         except Exception:  # noqa: BLE001
             entry["w"] = entry["h"] = 0
             entry["pixels_crc"] = None
@@ -621,6 +646,7 @@ def state_summary(state: Any) -> dict[str, Any]:
             r0, c0, r1, c1 = int(rows.min()), int(cols.min()), int(rows.max()), int(cols.max())
             entry["box"] = [r0, c0, r1, c1]
             entry["mask"] = base64.b64encode(np.packbits(mask[r0 : r1 + 1, c0 : c1 + 1]).tobytes()).decode("ascii")
+            entry["render"] = base64.b64encode(drawn[r0 : r1 + 1, c0 : c1 + 1].astype(np.int8).tobytes()).decode("ascii")
         out["sprites"].append(entry)
     return out
 
@@ -636,6 +662,20 @@ def unpack_footprint(entry: dict[str, Any]) -> np.ndarray | None:
     mask = np.zeros((64, 64), bool)
     mask[r0 : r1 + 1, c0 : c1 + 1] = bits.reshape(h, w).astype(bool)
     return mask
+
+
+def unpack_render(entry: dict[str, Any]) -> np.ndarray | None:
+    """The 64x64 int16 screen of the colours a sprite of a state_summary draws, -1 where it draws nothing
+    (None if nowhere, or for a summary made before renders were kept)."""
+    box = entry.get("box")
+    if not box or "render" not in entry:
+        return None
+    r0, c0, r1, c1 = box
+    h, w = r1 - r0 + 1, c1 - c0 + 1
+    crop = np.frombuffer(base64.b64decode(entry["render"]), np.int8)[: h * w].reshape(h, w)
+    out = np.full((64, 64), -1, np.int16)
+    out[r0 : r1 + 1, c0 : c1 + 1] = crop
+    return out
 
 
 # --- Running a game -----------------------------------------------------------------
@@ -718,6 +758,27 @@ class GameRunner:
         elif outcome == "game_over":
             self.status = "GAME_OVER"
         return self._observation([render(self.state)])
+
+    def resync(self, level: int, score: int, action: Any) -> dict[str, Any]:
+        """Back in step with the real game after unexplained steps (the play agent's escape hatch,
+        PLAY_DESIGN.md 3.6): the runner is put at level `level` with `score` levels completed. A RESET is
+        then performed as usual (the level restarts from make_level); any other action is not given to
+        step(): the real game entered the level with it, so the observation shows the level's start."""
+        self.level, self.score, self.status = int(level), int(score), "NOT_FINISHED"
+        if int(action.id) == 0:
+            return self.perform(action)
+        self.state = self.fresh(self.level)
+        return self._observation([render(self.state)])
+
+
+def sync_points(meta: dict[str, Any] | None) -> tuple[set[int], dict[int, dict[str, int]]]:
+    """The unexplained steps (`ignore`: replayed, never compared) and the resync points (`resync`: step ->
+    {"level", "score"}, GameRunner.resync before that step) a trace's meta holds (the play agent's escape
+    hatch); empty for a recording."""
+    meta = meta or {}
+    ignore = {int(i) for i in meta.get("ignore") or []}
+    resync = {int(k): {"level": int(v["level"]), "score": int(v["score"])} for k, v in (meta.get("resync") or {}).items()}
+    return ignore, resync
 
 
 # --- Contract tests -----------------------------------------------------------------

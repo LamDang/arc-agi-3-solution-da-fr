@@ -13,10 +13,18 @@ private. In the stepwise harness (the kernel's --focus K) the recording on disk 
     show_frames(*frames, titles=None, boxes=None)          look at frames as images
     replay_step(i, state=None, action=None)                run one step of engine.py and explain it
     summarize_levels()                                     each level's first frame, steps and end
-    engine                                                 engine.py as it is now, reloaded after a change
+    replica                                                engine.py as it is now, reloaded after a change
+    state_now(), click_cell(state, x, y)                   (play) the replica's state now; a click's grid cell
+
+In the play mode read_file() shows engine.py with each line's support in a margin and, on the lines of step()
+and the functions it calls, a trailing `# support (n): ...` comment (engine_re.support.comments), read from the
+committed engine's support map (SUPPORT_PATH).
 
 The kernel's replay mode (REPLAY, set while the harness re-runs the python cells of a resumed
-conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image.
+conversation): edit_file() and undo_edit() do nothing and show_frames() makes no image. With REPLAY_FILES
+(a forked run, engine_re.tools.fork_run: its notes.md starts over as the template), edit_file() still
+applies edits to files other than engine.py, so the cells rebuild notes.md and the other files the model
+wrote; engine.py's edits stay off (its versions are kept with the fork).
 
 Each StepView also has the frames' segmentation (engine_re.segment), computed when first used and
 only from the steps loaded: .grid, .pieces_before, .pieces_after (whose .code() writes sprites that
@@ -32,6 +40,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import copy
+import json
 import hashlib
 import re
 import sys
@@ -42,7 +51,10 @@ from typing import Any, Callable
 import numpy as np
 
 from engine_re import diff_report, game_api, hashline, segment, tester
+from engine_re import support as _support
+from engine_re import animation  # StepView.animation
 from engine_re.auto_sprites import kinds_summary
+from engine_re.game_api import click_cell  # noqa: F401  (a play built-in: action.cell for a click, as the harness computes it)
 from engine_re.trace import Action as _TraceAction, Trace
 
 HEX = "0123456789abcdef"
@@ -55,6 +67,10 @@ MAX_SHOWN = 4  # frames per show_frames() call
 # The built-in functions, as the kernel preloads them (the model may call one as a tool by mistake: the
 # harness then runs it as python).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step", "summarize_levels")
+# The play-and-model agent (engine_re.play_agent) adds two: the replica's state after everything played, and
+# the grid cell a click lands on (the Action.cell the harness computes for a click). Moves are played by
+# calling replica.step on copies of a State directly.
+PLAY_FUNCTIONS = FUNCTIONS + ("state_now", "click_cell")
 
 # Set by the kernel (load_trace).
 trace: Trace = None  # type: ignore[assignment]
@@ -66,6 +82,8 @@ IMAGES = True  # False: show_frames() prints hex views instead of making images
 _RPC: Callable[[dict], dict] | None = None  # sends edit/undo requests to the harness
 _SHOWN: list[dict[str, str]] = []  # images made by show_frames() during the current request
 REPLAY = False  # the kernel is re-running earlier cells: no edits, no images (engine_re.kernel.replay_cells)
+REPLAY_FILES = False  # in replay mode: edits to files other than engine.py are applied (a fork rebuilds notes.md)
+SUPPORT_PATH: Path | None = None  # the committed engine's support map (the play kernel's --support): read_file's margin and comments
 
 _API = game_api.canonical()
 Sprite, Action, View, State = _API.Sprite, _API.Action, _API.View, _API.State
@@ -87,8 +105,11 @@ def read_file(path: str = "engine.py", offset: int | None = None, limit: int | N
         print(f"{path} does not exist")
         return
     fold = game_api.fixed_block_lines(text) if _is_engine(path) else None
+    smap = _support_map() if _is_engine(path) else None
+    margin = _support.margins(smap, text) if smap else None
+    comments = _support.comments(smap, text) if smap else None
     try:
-        print(hashline.render_read(text, offset, limit, fold=fold, name=str(path)))
+        print(hashline.render_read(text, offset, limit, fold=fold, name=str(path), margin=margin, comments=comments))
     except hashline.EditError as exc:
         print(exc)
 
@@ -96,7 +117,7 @@ def read_file(path: str = "engine.py", offset: int | None = None, limit: int | N
 def edit_file(path: str = "engine.py", edits: Any = None) -> None:
     """Apply anchored edits to a file (engine.py through the harness); prints what changed, a
     syntax check and fresh anchors, or why nothing was applied."""
-    if REPLAY:
+    if REPLAY and (_is_engine(path) or not REPLAY_FILES):
         print("edit_file(): skipped, the kernel is replaying earlier cells")
         return
     if edits is None:
@@ -161,10 +182,13 @@ def _load_engine() -> types.ModuleType:
     return module
 
 
-class _EngineModule:
-    """The `engine` built-in: engine.py as it is now. An attribute access loads the file again
-    (_load_engine) when its content changed since the last load, else uses the module loaded then; so
-    engine.step(...) and engine.make_level(...) never go stale after an edit, as `import engine` would."""
+class _ReplicaModule:
+    """The `replica` built-in: engine.py, the model's replica of the game, as it is now. An attribute access
+    loads the file again (_load_engine) when its content changed since the last load, else uses the module
+    loaded then; so replica.step(...) and replica.make_level(...) never go stale after an edit, as `import
+    engine` would. replica.step(state, action) fills in a click's action.cell when it is None, as the harness
+    does before it calls step() (click_cell), so an Action written as it prints, Action(6, x=3, y=4), plays
+    the same click in python as in the game (the module's own step, engine.py's, is unchanged)."""
 
     def __init__(self) -> None:
         self._sha: str | None = None
@@ -179,16 +203,33 @@ class _EngineModule:
         return self._module
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._current(), name)
+        value = getattr(self._current(), name)
+        if name == "step" and callable(value):
+            return _with_click_cell(self._current(), value)
+        return value
 
     def __dir__(self) -> list[str]:
         return [n for n in dir(self._current()) if not n.startswith("__")]
 
     def __repr__(self) -> str:
-        return "<engine: engine.py as it is now (loaded again whenever the file changed)>"
+        return "<replica: engine.py as it is now (loaded again whenever the file changed)>"
 
 
-engine = _EngineModule()
+def _with_click_cell(module: types.ModuleType, step: Callable[..., Any]) -> Callable[..., Any]:
+    """engine.py's step(state, action), a click without a cell getting the one the harness would give it."""
+
+    def run(state: Any, action: Any) -> Any:
+        if getattr(action, "id", None) == 6 and getattr(action, "cell", None) is None and hasattr(state, "grid"):
+            cls = getattr(module, "Action", None) or Action
+            x, y = int(action.x), int(action.y)
+            action = cls(id=6, x=x, y=y, cell=click_cell(state, x, y))
+        return step(state, action)
+
+    run.__doc__, run.__name__ = step.__doc__, getattr(step, "__name__", "step")
+    return run
+
+
+replica = _ReplicaModule()
 
 
 # --- Drawing and looking ----------------------------------------------------------------------
@@ -313,6 +354,14 @@ class StepView:
         """What changed from .pieces_before to .pieces_after (None for step 0)."""
         _visible(self.index)
         return _SEGMENTER.changes(self.index)
+
+    @property
+    def animation(self) -> animation.Animation | None:
+        """The digest of an animated step's frames (engine_re.animation): its transient cells and its timeline;
+        None when the action returned one frame."""
+        if not hasattr(self, "_animation"):
+            self._animation = animation.digest(self.before, self.frames)
+        return self._animation
 
     def __repr__(self) -> str:
         what = _ACTION_WORDS.get(self.action.id, str(self.action))
@@ -442,6 +491,23 @@ def _quietly(fn: Callable[[], Any], what: str) -> Any:
         raise
 
 
+def _replay_recorded(game: game_api.GameRunner, k: int) -> Any:
+    """Replay recorded step k on `game` as the tests do: at a resync point (the play agent's escape hatch)
+    the runner is put back at the level's start; an error at an unexplained step is not raised (the engine
+    is out of step with the game there)."""
+    ignore, resync = game_api.sync_points(trace.meta)
+    action = trace.steps[k].action
+    if k in resync:
+        return _quietly(lambda: game.resync(resync[k]["level"], resync[k]["score"], action), f"while replaying step {k}")
+    if k in ignore:
+        try:
+            with contextlib.redirect_stdout(game_api.PrintCapture(0, 0)):
+                return game.perform(action)
+        except Exception:  # noqa: BLE001
+            return None
+    return _quietly(lambda: game.perform(action), f"while replaying step {k}")
+
+
 def _steps_text(first: int, last: int) -> str:
     return f"step {first}" if first == last else f"steps {first}-{last}"
 
@@ -507,11 +573,11 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
             print("\n".join(lines))
             return None, copy.deepcopy(after)
         for k in range(entry + 1, i):
-            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
+            _replay_recorded(game, k)
         start = f"started at level {level}, after replaying {_steps_text(entry + 1, i - 1)}" if i > entry + 1 else f"at the start of level {level}"
     else:
         for k in range(i):
-            _quietly(lambda k=k: game.perform(steps[k].action), f"while replaying step {k}")
+            _replay_recorded(game, k)
         start = f"after replaying {_steps_text(0, i - 1)}" if i else "fresh"
     act = _as_action(action, i)
     live = game.state
@@ -520,10 +586,14 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
     before = copy.deepcopy(live)
     level_before = game.level
     print(f"replay_step({i}): {act} on your engine {start} (level {level_before})")
+    resync = game_api.sync_points(trace.meta)[1].get(i) if recorded and state is None else None
+    if resync is not None:
+        print(f"step {i} is where your engine was put back in step with the game: the runner restarts level {resync['level']} "
+              "here" + ("" if act.id == 0 else " without calling step()"))
     capture = game_api.PrintCapture()
     try:
         with contextlib.redirect_stdout(capture):
-            obs = game.perform(act)
+            obs = game.resync(resync["level"], resync["score"], act) if resync is not None else game.perform(act)
     except Exception:
         _print_output(capture)
         print("your engine raised an error in this step:")
@@ -545,11 +615,71 @@ def replay_step(i: int, state: Any = None, action: Any = None, *, level: int | N
             return before, copy.deepcopy(after_state)
         text, _ = tester.describe_step(
             steps[i], fields, obs["frames"], level_before, states={"before": before_summary, "after": after_summary}, crops=True,
-            show_vars=False,
+            show_vars=False, before_frame=steps[i - 1].last if i else None,
         )
         print(f"compared with the recording after step {i}{note} (expected = the original, got = yours):")
         print("\n".join(text.splitlines()[1:]))
     return before, copy.deepcopy(after_state)
+
+
+# --- Playing on the replica (the play-and-model agent) --------------------------------------------
+
+
+def _runner(module: types.ModuleType) -> game_api.GameRunner:
+    return game_api.GameRunner(module, trace.steps[0].win_levels, trace.steps[0].available_actions)
+
+
+def _replay_all(game: game_api.GameRunner) -> None:
+    for k in range(len(trace.steps)):
+        _replay_recorded(game, k)
+
+
+def _vars_text(state: Any, limit: int = 160) -> str:
+    try:
+        text = repr(dict(getattr(state, "vars", {}) or {}))
+    except Exception:  # noqa: BLE001
+        text = "?"
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def state_now() -> Any:
+    """Your replica's State now: engine.py loaded fresh, every step played so far replayed through it
+    (the harness rules: RESET, level changes, WIN, GAME_OVER). Prints the level, the status and the
+    vars; returns a copy of the State (its .level is the level being played). The game as your replica
+    models it, not the game itself: the real frame after the last step is recording[-1].after."""
+    capture = game_api.PrintCapture()
+    try:
+        with contextlib.redirect_stdout(capture):
+            module = _load_engine()
+    except Exception:
+        _print_output(capture, "loading engine.py")
+        raise
+    if not game_api.is_simple_engine(module):
+        raise TypeError("engine.py must define make_level(n) and step(state, action)")
+    game = _runner(module)
+    _replay_all(game)
+    state = game.state
+    n = len(trace.steps)
+    if state is None:
+        print(f"state_now(): your replica has no state after replaying steps 0-{n - 1} ({game.status})")
+        return None
+    print(f"state_now(): your replica after replaying steps 0-{n - 1}: level {game.level}, {game.status}, "
+          f"{game.score} level(s) completed, {len(state.sprites)} sprites, vars={_vars_text(state)}")
+    return copy.deepcopy(state)
+
+
+# --- Support: the committed engine's map, for read_file's margin and comments (the play agent) --------------
+
+
+def _support_map() -> dict[str, Any] | None:
+    """The committed engine's support map (SUPPORT_PATH), or None when there is none yet."""
+    if SUPPORT_PATH is None:
+        return None
+    try:
+        return json.loads(Path(SUPPORT_PATH).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
 
 
 # --- Code for a frame's pieces --------------------------------------------------------------------
@@ -619,5 +749,5 @@ class _LevelCode(str):
 
 __all__ = [
     "Sprite", "Action", "View", "State", "recording", "read_file", "edit_file", "undo_edit", "render_state", "show_frames",
-    "replay_step", "summarize_levels", "engine",
+    "replay_step", "summarize_levels", "replica",
 ]

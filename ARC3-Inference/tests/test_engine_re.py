@@ -428,8 +428,22 @@ def test_builtin_functions_called_as_tools_run_as_python(tmp_path: Path, tiny_tr
     assert builtin_call_code("edit_file", {"edits": '[{"op": "append", "lines": ["x"]}]'}) == "edit_file(edits=[{'op': 'append', 'lines': ['x']}])"
     assert builtin_call_code("show_frames", {"titles": "[not json"}) == "show_frames(titles='[not json')"
     assert builtin_call_code("read_file", {"path": "engine.py", "offset": "240"}) == "read_file(path='engine.py', offset=240)"
+    # The edit_file shim (v11 follow-up 6): a Python-literal string, one dict, oldText/newText (or old/new) without an op.
+    from engine_re.agent import normalise_edits
+
+    assert builtin_call_code("edit_file", {"edits": "[{'op': 'append', 'lines': ['x']}]"}) == "edit_file(edits=[{'op': 'append', 'lines': ['x']}])"
+    assert builtin_call_code("edit_file", {"edits": '{"oldText": "a", "newText": "b"}', "path": "notes.md"}) == \
+        "edit_file(edits=[{'op': 'replace_text', 'oldText': 'a', 'newText': 'b'}], path='notes.md')"
+    assert normalise_edits({"edits": [{"old": "a", "new": "b"}, {"op": "append", "lines": ["x"]}]}) == (
+        {"edits": [{"op": "replace_text", "oldText": "a", "newText": "b"}, {"op": "append", "lines": ["x"]}]},
+        ["edit 0 has old/new and no op: replace_text assumed"])
+    assert normalise_edits({"edits": '[{"oldText": "a", "newText": "b"}]'})[1] == [
+        "edits given as a JSON string: parsed", "edit 0 has oldText/newText and no op: replace_text assumed"]
+    assert normalise_edits({"edits": {"op": "append", "lines": ["x"]}})[1] == ["edits given as one dict: wrapped in a list"]
+    assert normalise_edits({"edits": "[not json"}) == ({"edits": "[not json"}, []) and normalise_edits({"path": "x"}) == ({"path": "x"}, [])
+    assert normalise_edits({"edits": [{"op": "replace_text", "oldText": "a", "newText": "b"}]})[1] == []  # nothing to change
     tiny_trace.save(tmp_path / "trace")
-    edits = json.dumps([{"op": "replace_text", "oldText": "# ==== YOUR GAME ====", "newText": "# ==== YOUR GAME ==== (changed)"}])
+    edits = json.dumps([{"oldText": "# ==== YOUR GAME ====", "newText": "# ==== YOUR GAME ==== (changed)"}])  # no op: inferred
     model = _ScriptedModel(
         [
             [("read_file", {"offset": 1, "limit": 2})],
@@ -444,6 +458,8 @@ def test_builtin_functions_called_as_tools_run_as_python(tmp_path: Path, tiny_tr
     lines = outputs[0].splitlines()
     assert outputs[0].startswith(note) and lines[1].startswith("1#") and lines[2].startswith("2#") and "[Showing lines 1-2 of" in lines[-1]
     assert outputs[1].startswith("[harness] edit_file is a python function, not a tool; this call ran as python: edit_file(edits=[{'op': 'replace_text'")
+    assert ("\n[harness] edits given as a JSON string: parsed\n[harness] edit 0 has oldText/newText and no op: replace_text assumed\n"
+            in outputs[1])  # the shim's notes, before the python output
     assert "engine.py: replaced line" in outputs[1] and result.engine_changes == 1
     assert outputs[2].startswith("Error: unknown tool 'nonsense'. The tools are python, run_tests and commit_engine.\n\n[harness] engine.py changed")
     assert outputs[3].startswith("1\n")
@@ -988,7 +1004,7 @@ def test_the_tools_are_python_run_tests_and_commit_engine() -> None:
     python = TOOLS[0]["function"]["description"]
     assert "# Objects" in python and "edit_file() and undo_edit()" in python
     objects = system_prompt()[system_prompt().index("# Objects") : system_prompt().index("# How to work")]
-    assert "engine: module  engine.py as it is now" in objects and "Never `import engine`" in objects
+    assert "replica: module  engine.py as it is now" in objects and "Never `import engine`" in objects
     for text in (python, objects):  # the kernel's persistence, said plainly
         assert "persistent for the whole run" in text and "define helpers and data once and reuse them" in text
     for name in ("read_file(", "edit_file(", "undo_edit(", "render_state(", "show_frames(", "replay_step(",
@@ -1368,6 +1384,49 @@ def test_changes_find_recoloured_moved_reshaped_and_new_pieces() -> None:
     found = segment.changes(step, segment.pieces(step_moved, grid))
     assert [(c.kind, c.dx, c.dy) for c in found] == [("moved", 1, 0)] and str(found[0]).startswith("moved: screen piece SHAPE_11_1x30_")
     assert segment.summary(found).startswith("1 moved by (+1, +0) screen (SHAPE_11_1x30_")
+
+
+def test_a_piece_drawn_from_another_shape_is_described_by_its_own_pixels() -> None:
+    """v11 follow-up 8: the ls20 step-210 diff called a 6x6 orange piece SHAPE_9_3x3_710a, the 3x3 blue constant it
+    was drawn from (scaled 2 and recoloured, auto_sprites' reuse). A piece is named after its own pixels, with the
+    constant it is drawn from in brackets, in the pieces listing, the changes and the summary."""
+    import numpy as np
+
+    from engine_re import segment
+    from engine_re.auto_sprites import shape_name
+
+    frame = np.zeros((64, 64), np.int16)
+    frame[2:5, 2:5] = 9  # a 3x3 blue ring: the first piece, so the constant is named after it
+    frame[3, 3] = 0
+    frame[10:16, 10:16] = 12  # the ring scaled 2, in orange: drawn from the blue ring's constant
+    frame[12:14, 12:14] = 0
+    before = segment.pieces(frame, (64, 64))
+    ring, big = before[2], before[3]
+    assert ring.shape.startswith("SHAPE_9_3x3_") and big.shape == ring.shape and big.transform == {"scale": 2, "recolour": {9: 12}}
+    own = shape_name(("cccccc", "cccccc", "cc..cc", "cc..cc", "cccccc", "cccccc"))
+    assert segment.own_shape(big) == own and own.startswith("SHAPE_12_6x6_") and segment.own_shape(ring) == ring.shape
+    listing = str(before).splitlines()
+    assert listing[4] == f"  [3] {own}  colour 12 (orange)  6x6 at (10, 10), 32 cells  drawn from {ring.shape} scale=2, recolour={{9: 12}}"
+    assert listing[3] == f"  [2] {ring.shape}  colour 9 (blue)  3x3 at (2, 2), 8 cells"
+    gone = frame.copy()
+    gone[10:16, 10:16] = 0
+    found = segment.changes(before, segment.pieces(gone, (64, 64)))
+    assert [c.kind for c in found] == ["disappeared"]
+    assert str(found[0]) == f"disappeared: {own} ({ring.shape} scale=2, recolour={{9: 12}}) colour 12 (orange), 6x6 at (10, 10), 32 cells"
+    assert segment.summary(found) == f"1 disappeared ({own}, colour 12 (orange), 6x6, 32 cells): (10, 10)"
+    assert ring.shape not in segment.summary(found)
+    # Reshaped: the big ring loses a corner; the line names its own shape too, and the same pixels elsewhere still "move".
+    cut = frame.copy()
+    cut[10, 10] = 0
+    found = segment.changes(before, segment.pieces(cut, (64, 64)))
+    assert [c.kind for c in found] == ["reshaped"] and str(found[0]).startswith(f"reshaped: {own} ({ring.shape} scale=2")
+    moved = np.zeros((64, 64), np.int16)
+    moved[2:5, 2:5] = 9
+    moved[3, 3] = 0
+    moved[20:26, 20:26] = 12
+    moved[22:24, 22:24] = 0
+    found = segment.changes(before, segment.pieces(moved, (64, 64)))
+    assert [c.kind for c in found] == ["moved"] and segment.summary(found) == f"1 moved by (+10, +10) ({own}): (10, 10)->(20, 20)"
 
 
 def test_the_step_messages_show_what_the_step_changed(monkeypatch, two_level_trace: Trace) -> None:
@@ -1854,7 +1913,7 @@ def test_the_kernel_lists_what_the_model_defined_and_replays_cells(tmp_path: Pat
     try:
         assert kernel.names() == ([], 0) and kernel_names_text([], 0) == KERNEL_KEEPS_NOTHING
         kernel.execute("import os, numpy\nRING = list(range(20))\ndef cols(a): return a\nL1 = {1: 2, 2: 3, 3: 4}\n"
-                       "f0 = np.zeros((64, 64))\nbest = (1, 2)\nst = engine.make_level(0)\nclass K: pass\nn = None\ns = 'ab'")
+                       "f0 = np.zeros((64, 64))\nbest = (1, 2)\nst = replica.make_level(0)\nclass K: pass\nn = None\ns = 'ab'")
         names, more = kernel.names()
         assert names == ["RING: list[20]", "cols: function", "L1: dict[3]", "f0: ndarray(64, 64)", "best: tuple[2]", "st: State",
                          "K: class", "n: None", "s: str[2]"] and more == 0  # not the built-ins, np, modules or dunders
@@ -1885,7 +1944,7 @@ def test_the_kernel_lists_what_the_model_defined_and_replays_cells(tmp_path: Pat
         kernel.stop()
 
 
-def test_the_engine_builtin_always_reflects_the_current_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
+def test_the_replica_builtin_always_reflects_the_current_engine_py(tmp_path: Path, tiny_trace: Trace) -> None:
     from engine_re.kernel import ENGINE_IMPORT_NOTE
     from engine_re.skeleton import render_skeleton
 
@@ -1895,16 +1954,18 @@ def test_the_engine_builtin_always_reflects_the_current_engine_py(tmp_path: Path
     (workspace / "engine.py").write_text(render_skeleton("tiny", [1, 2, 3, 4]), encoding="utf-8")
     kernel = KernelClient(workspace, tmp_path / "trace", timeout=60)
     try:
-        assert kernel.execute("print(engine.make_level(0).grid, callable(engine.step), 'make_level' in dir(engine))").split() == ["(64,", "64)", "True", "True"]
-        for code in ("import engine", "from engine import step", "import engine as e", "engine = 3"):
+        assert kernel.execute("print(replica.make_level(0).grid, callable(replica.step), 'make_level' in dir(replica))").split() == ["(64,", "64)", "True", "True"]
+        for code in ("import engine", "from engine import step", "import engine as e", "import engine as replica", "replica = 3"):
             out = kernel.execute(code)
-            assert "nothing was run" in out and "engine" in out, code
+            assert "nothing was run" in out and "built-in replica" in out, code
             assert (ENGINE_IMPORT_NOTE in out) == ("import" in code), code
+        assert ENGINE_IMPORT_NOTE.startswith("replica is a built-in") and "use replica.step(...)" in ENGINE_IMPORT_NOTE
         kernel.execute("edit_file(edits=[{'op': 'append', 'lines': ['X_MARK = 7']}])")
-        assert kernel.execute("engine.X_MARK").strip() == "7"  # reloaded after the change
+        assert kernel.execute("replica.X_MARK").strip() == "7"  # reloaded after the change
         kernel.execute("undo_edit()")
-        assert "AttributeError" in kernel.execute("engine.X_MARK")
-        assert kernel.execute("engine").startswith("<engine: engine.py as it is now")
+        assert "AttributeError" in kernel.execute("replica.X_MARK")
+        assert kernel.execute("replica").startswith("<replica: engine.py as it is now")
+        assert "NameError" in kernel.execute("engine")  # one name for the built-in, in every mode
     finally:
         kernel.stop()
 
@@ -2369,7 +2430,7 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
         assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
     view = helpers.StepView(tiny_trace, 1)
     lazy = {k for k, v in vars(helpers.StepView).items() if isinstance(v, property)}
-    assert lazy == {"grid", "pieces_before", "pieces_after", "changes"}
+    assert lazy == {"grid", "pieces_before", "pieces_after", "changes", "animation"}
     public = {k for k in vars(view) if not k.startswith("_")} | lazy
     assert members["StepView"] == public, members["StepView"] ^ public
     # A frame's pieces: Piece lists what it adds to Sprite; Pieces, Change and GridGuess everything they have.
@@ -2389,8 +2450,21 @@ def test_the_objects_reference_matches_the_code(tiny_trace: Trace) -> None:
     assert members["GridGuess"] == own(GridGuess)
     recorded = {f.name for f in dataclasses.fields(RecordedAction)} | {"name"}
     assert members["The recorded action"] == recorded and not hasattr(view.action, "cell")
+    # The play mode (engine_re.play_agent) has the same classes and two more built-ins, documented as helpers has them.
+    from engine_re.kernel import PRELOADED_PLAY
+
+    play = objects_reference("play", True, True)
+    play_members = _objects_members(play)
+    assert all(play_members[k] == v for k, v in members.items())
+    for name in FUNCTIONS + ("summarize_levels", "state_now", "click_cell"):
+        documented = re.search(rf"^{name}\((.*?)\) ->", play, re.M).group(1)
+        args = [a.split("=")[0].split(":")[0].strip().lstrip("*") for a in documented.split(",")]
+        assert [a for a in args if a] == list(inspect.signature(getattr(helpers, name)).parameters), name
+    assert set(PRELOADED_PLAY) - {"recording", "step_to_fix", "replica"} == set(helpers.PLAY_FUNCTIONS)
+    assert all(re.search(rf"^{name}[(:]", play, re.M) for name in PRELOADED_PLAY), PRELOADED_PLAY
+    assert "run_tests(level=L)" not in play and "run_tests(level=L)" in text
     # Every mode shares these parts; the recorded steps python holds differ.
-    for mode, history in (("single", True), ("step", True), ("step", False)):
+    for mode, history in (("single", True), ("step", True), ("step", False), ("play", True)):
         prompt = system_prompt(mode=mode, history=history)
         for part in ("StepView: a recorded step", "A recorded step has no State or vars:", "Piece: a Sprite",
                      "State(grid, sprites=[]", "replay_step(i, state=None, action=None, *, level=None) -> tuple[State | None, State]"):

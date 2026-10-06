@@ -1,0 +1,458 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reading console. A header comparing the run with the previous one, game tabs, a turn strip, then a key-moments index beside the turn log. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --sunk: #eef1f5;
+  --fg: #19202b;
+  --muted: #5a6475;
+  --line: #d9dee6;
+  --accent: #1e6fd9;
+  --note-bg: #fff4e6;
+  --note-fg: #7a3b00;
+  --harness-bg: #eef6ff;
+  --harness-fg: #10345f;
+  --fit-bg: #fff0f0;
+  --fit-fg: #6b1a14;
+  --arc-grey: #8a93a3;
+  --arc-blue: #1e93ff;
+  --arc-green: #3fae2a;
+  --arc-red: #e5372d;
+  --arc-yellow: #f2c400;
+  --arc-purple: #a356d6;
+  --arc-orange: #ff851b;
+  --font-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.1rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+    --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+    --fit-bg: #3a1a1a; --fit-fg: #ffc9c3;
+    --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c; --arc-yellow: #ffdc00;
+    --arc-purple: #b77ae6; --arc-orange: #ff9a45;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+  --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+  --fit-bg: #3a1a1a; --fit-fg: #ffc9c3;
+  --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c; --arc-yellow: #ffdc00;
+  --arc-purple: #b77ae6; --arc-orange: #ff9a45;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--step-0); line-height: 1.55; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 64px; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: var(--step-3); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 600; }
+.lede { color: var(--muted); max-width: 76ch; margin: 6px 0 0; }
+.built { color: var(--muted); font-size: var(--step--1); margin: 4px 0 0; }
+table.cmp { border-collapse: collapse; font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+table.cmp th, table.cmp td { text-align: right; padding: 4px 10px; border-bottom: 1px solid var(--line); }
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
+table.cmp thead th { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.72rem; }
+.cmp-box { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 8px 14px; display: grid; gap: 2px; text-align: left; }
+.tab b { font-family: var(--font-display); font-size: var(--step-1); }
+.tab span { font-size: var(--step--1); color: var(--muted); }
+.tab[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tab:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-size: var(--step-0); }
+.strip-box { display: grid; gap: 6px; }
+.strip { display: flex; align-items: flex-end; height: 46px; gap: 1px; background: var(--sunk); border-radius: 6px; padding: 4px; overflow: hidden; }
+.strip button { flex: 1 1 0; min-width: 0; border: 0; padding: 0; cursor: pointer; border-radius: 1px; background: var(--arc-grey); height: 30%; opacity: 0.55; }
+.strip button.k-fit { background: var(--arc-grey); height: 45%; opacity: 0.8; }
+.strip button.k-edit { background: var(--arc-blue); height: 60%; opacity: 1; }
+.strip button.k-commit { background: var(--arc-purple); height: 80%; opacity: 1; }
+.strip button.k-batch-ok { background: var(--arc-green); height: 100%; opacity: 1; }
+.strip button.k-batch-bad { background: var(--arc-red); height: 100%; opacity: 1; }
+.strip button.k-solved { background: var(--arc-yellow); height: 100%; opacity: 1; }
+.strip button.k-nudge { background: var(--arc-orange); height: 70%; opacity: 1; }
+.axis { display: flex; justify-content: space-between; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--step--1); color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.cols { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } .index { position: static !important; max-height: none !important; } }
+.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: auto; display: grid; gap: 4px; align-content: start; padding-right: 4px; }
+.index h3 { font-size: var(--step-0); font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 6px 0 4px; }
+.moment { font: inherit; text-align: left; border: 0; background: none; color: var(--fg); cursor: pointer; padding: 6px 8px; border-radius: 6px; display: grid; grid-template-columns: 3.4em minmax(0, 1fr); gap: 6px; font-size: var(--step--1); line-height: 1.4; }
+.moment:hover { background: var(--sunk); }
+.moment .tn { font-family: var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.moment .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+.log { display: grid; gap: 14px; min-width: 0; }
+.wrap > *, .log > *, .turn > *, .block > *, .cols > * { min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; }
+.controls input[type="search"] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.controls label { display: inline-flex; gap: 6px; align-items: center; font-size: var(--step--1); color: var(--muted); cursor: pointer; }
+.count { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.given { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.given summary { cursor: pointer; font-weight: 700; }
+.turn { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; min-width: 0; scroll-margin-top: 80px; }
+.turn.fit-turn { border-left: 4px solid var(--arc-red); }
+.turn.plan-turn { border-left: 4px solid var(--arc-blue); }
+.turn.flash { box-shadow: 0 0 0 2px var(--accent); }
+.thead { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; }
+.thead h3 { font-size: var(--step-1); font-family: var(--font-display); }
+.thead .meta { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip { font-size: 0.75rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--sunk); color: var(--fg); letter-spacing: 0.02em; }
+.chip::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: 0; background: var(--arc-grey); }
+.chip.c-edit::before { background: var(--arc-blue); }
+.chip.c-ok::before { background: var(--arc-green); }
+.chip.c-bad::before { background: var(--arc-red); }
+.chip.c-nudge::before { background: var(--arc-orange); }
+.chip.c-commit::before { background: var(--arc-purple); }
+.chip.c-solved::before { background: var(--arc-yellow); }
+.note { background: var(--note-bg); color: var(--note-fg); border-radius: 6px; padding: 8px 10px; font-size: var(--step--1); }
+.note b { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; margin-right: 6px; }
+.reason { color: var(--muted); font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.content { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.lbl { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 700; }
+.block { display: grid; gap: 4px; min-width: 0; }
+pre.code { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; background: var(--sunk); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre; tab-size: 4; }
+pre.out { margin: 0; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: pre; }
+.harness { background: var(--harness-bg); color: var(--harness-fg); border-radius: 6px; padding: 8px 10px; }
+.harness.fit { background: var(--fit-bg); color: var(--fit-fg); }
+.harness pre { margin: 4px 0 0; font-family: var(--font-mono); font-size: 0.76rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.moves { display: grid; gap: 2px; font-family: var(--font-mono); font-size: 0.78rem; }
+.moves .ok { color: var(--arc-green); }
+.moves .bad { color: var(--arc-red); }
+.pics { display: flex; flex-wrap: wrap; gap: 10px; }
+.pics figure { margin: 0; display: grid; gap: 4px; max-width: 100%; }
+.pics img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 4px; background: var(--sunk); }
+.pics figcaption { font-size: 0.75rem; color: var(--muted); max-width: 60ch; }
+.more { font: inherit; font-size: var(--step--1); border: 0; background: none; color: var(--accent); cursor: pointer; padding: 0; justify-self: start; }
+mark { background: var(--arc-yellow); color: #19202b; border-radius: 2px; }
+.loading { color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .turn.flash { transition: box-shadow 0.3s; } }
+</style>
+
+<div class="wrap">
+  <header id="head">
+    <h1 id="title">__TITLE__</h1>
+    <p class="lede" id="lede"></p>
+    <p class="built" id="built"></p>
+  </header>
+  <div class="cmp-box" id="cmp" hidden></div>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+  <section id="game" aria-live="polite"><p class="loading">Unpacking transcripts…</p></section>
+</div>
+
+<script type="application/octet-stream" id="data">__DATA__</script>
+<script>
+const LABEL = { budget_time: "time limit", budget_turns: "turn limit", budget_cost: "cost limit", budget_actions: "action limit", finished: "gave up", won: "won", running: "running", error: "error", idle: "idle" };
+let DATA = null, current = null;
+
+async function unpack() {
+  const b64 = document.getElementById("data").textContent.trim();
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return JSON.parse(await new Response(stream).text());
+}
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid != null) e.append(kid);
+  return e;
+}
+
+function argsOf(call) {
+  try { return JSON.parse(call.args || "{}"); } catch { return { raw: call.args }; }
+}
+
+function fmtScore(s) { return s == null ? "–" : (Math.round(s * 10) / 10).toFixed(1); }
+
+function kindOf(turn) {
+  const names = turn.calls.map((c) => c.name);
+  if (turn.batch) {
+    if (turn.moves.some((m) => m.level_solved)) return "solved";
+    return turn.batch.mismatch != null ? "batch-bad" : "batch-ok";
+  }
+  if (turn.commit) return "commit";
+  if (turn.edits.length || names.includes("edit_file")) return "edit";
+  if (turn.nudges) return "nudge";
+  return turn.phase === "fit" ? "fit" : "plan";
+}
+
+function collapsible(text, cls, maxLines) {
+  const lines = text.split("\n");
+  const pre = el("pre", { class: cls });
+  const box = el("div", { class: "block" }, pre);
+  if (lines.length <= maxLines) { pre.textContent = text; return box; }
+  pre.textContent = lines.slice(0, maxLines).join("\n");
+  const btn = el("button", { class: "more", type: "button", text: `Show all ${lines.length} lines` });
+  btn.addEventListener("click", () => {
+    const open = btn.dataset.open === "1";
+    pre.textContent = open ? lines.slice(0, maxLines).join("\n") : text;
+    btn.textContent = open ? `Show all ${lines.length} lines` : "Show less";
+    btn.dataset.open = open ? "0" : "1";
+  });
+  box.append(btn);
+  return box;
+}
+
+function pics(images) {
+  const box = el("div", { class: "pics" });
+  for (const im of images) box.append(el("figure", {}, el("img", { src: im.src, alt: im.caption || "frame", loading: "lazy" }), el("figcaption", { text: im.caption || "" })));
+  return box;
+}
+
+function renderTurn(game, turn, opts) {
+  const k = kindOf(turn);
+  const head = el("div", { class: "thead" },
+    el("h3", { text: `Turn ${turn.t}` }),
+    el("span", { class: "meta", text: `${turn.phase || ""}${turn.step != null ? " · step " + turn.step : ""} · ${(turn.min ?? 0).toFixed(1)} min · prompt ${Math.round((turn.tok[0] || 0) / 1000)}K tok · reasoning ${turn.reasoning.length.toLocaleString()} chars` }));
+  for (const c of turn.calls) {
+    const cls = c.name === "commit_engine" ? "c-commit" : c.name === "edit_file" ? "c-edit" : c.name === "commit_moves" ? (turn.batch && turn.batch.mismatch != null ? "c-bad" : "c-ok") : "";
+    head.append(el("span", { class: `chip ${cls}`, text: c.name }));
+  }
+  if (turn.batch) head.append(el("span", { class: `chip ${turn.batch.mismatch != null ? "c-bad" : "c-ok"}`, text: `${turn.batch.matched}/${turn.batch.sent} matched of ${turn.batch.moves.length}` }));
+  if (k === "solved") head.append(el("span", { class: "chip c-solved", text: "level solved" }));
+  if (turn.moves.some((m) => m.state === "GAME_OVER")) head.append(el("span", { class: "chip c-bad", text: "game over" }));
+  if (turn.tests.length) head.append(el("span", { class: "chip", text: "auto test: " + turn.tests[turn.tests.length - 1].slice(0, 60) }));
+  if (turn.nudges) head.append(el("span", { class: "chip c-nudge", text: "reminder" }));
+
+  const card = el("article", { class: `turn ${turn.phase === "fit" ? "fit-turn" : "plan-turn"}`, id: `${game}-t${turn.t}` }, head);
+  if (turn.images.length && opts.images) card.append(pics(turn.images));
+
+  if (opts.reasoning && turn.reasoning) {
+    const tail = turn.reasoning.length > 700 ? "…" + turn.reasoning.slice(-700) : turn.reasoning;
+    const p = el("p", { class: "reason", text: tail });
+    const box = el("div", { class: "block" }, el("span", { class: "lbl", text: "Reasoning (end)" }), p);
+    if (turn.reasoning.length > 700) {
+      const btn = el("button", { class: "more", type: "button", text: "Show the full reasoning" });
+      btn.addEventListener("click", () => {
+        const open = btn.dataset.open === "1";
+        p.textContent = open ? tail : turn.reasoning;
+        btn.textContent = open ? "Show the full reasoning" : "Show only the end";
+        btn.dataset.open = open ? "0" : "1";
+      });
+      box.append(btn);
+    }
+    card.append(box);
+  }
+  if (turn.content && turn.content.trim()) {
+    card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: "Message" }), el("p", { class: "content", text: turn.content.trim() })));
+  }
+  turn.calls.forEach((c, i) => {
+    const a = argsOf(c);
+    if (opts.code) {
+      let body;
+      if (c.name === "python") body = a.code ?? a.raw ?? "";
+      else if (c.name === "commit_moves") body = `actions: ${typeof a.actions === "string" ? a.actions : JSON.stringify(a.actions)}\nnote: ${a.note ?? ""}`;
+      else if (c.name === "commit_engine") body = a.message ?? "";
+      else if (c.name === "edit_file") body = typeof a.edits === "string" ? a.edits : JSON.stringify(a.edits ?? a, null, 1);
+      else body = JSON.stringify(a, null, 2);
+      card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: `Call: ${c.name}` }), collapsible(body, "code", 18)));
+    }
+    const out = turn.outputs[i];
+    if (opts.outputs && out != null) {
+      card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: `Output${out.as ? " (" + out.as + " called as a tool)" : ""}` }), collapsible(out.text, "out", c.name === "commit_moves" ? 40 : 14)));
+    }
+  });
+  if (turn.moves.length) {
+    const list = el("div", { class: "moves" });
+    for (const m of turn.moves) {
+      const sup = m.support ? ` · support ${m.support.weakest}${m.support.untested && m.support.untested.length ? " (untested lines " + m.support.untested.join(",") + ")" : ""}` : "";
+      list.append(el("div", { class: m.ok ? "ok" : "bad", text: `#${m.index} ${m.label}: ${m.ok ? "matched" : "differs: " + (m.verdict || "")}${m.level_solved ? " · level solved" : ""}${m.state === "GAME_OVER" ? " · GAME OVER" : ""}${sup}` }));
+    }
+    card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: "Moves sent" }), list));
+  }
+  if (turn.edits.length) card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: "engine.py" }), el("p", { class: "content", text: turn.edits.join("; ") })));
+  if (turn.commit) card.append(el("div", { class: "block" }, el("span", { class: "lbl", text: `Committed (version ${turn.commit.version})` }), el("p", { class: "content", text: turn.commit.message || "" })));
+  for (const h of turn.harness) {
+    if (h.kind === "message" && !opts.messages) continue;
+    const lines = h.text.split("\n");
+    const pre = el("pre", { text: lines.slice(0, 50).join("\n") + (lines.length > 50 ? "\n…" : "") });
+    const label = h.kind === "message" ? (h.phase === "fit" ? "Harness: FIT message to the model" : "Harness: PLAN message to the model") : h.kind === "fit" ? "Harness" : "Harness: appended to the output";
+    card.append(el("div", { class: `harness ${h.phase === "fit" ? "fit" : ""}` }, el("span", { class: "lbl", text: label }), h.kind === "fit" ? el("p", { class: "content", text: h.text }) : pre));
+  }
+  if (turn.after_images && turn.after_images.length && opts.images) card.append(pics(turn.after_images));
+  return card;
+}
+
+function matches(turn, q) {
+  if (!q) return true;
+  const hay = [turn.reasoning, turn.content, ...turn.calls.map((c) => c.args), ...turn.outputs.map((o) => o.text), ...turn.harness.map((h) => h.text), turn.commit ? turn.commit.message : ""].join("\n").toLowerCase();
+  return hay.includes(q);
+}
+
+function remember(key, value) { try { localStorage.setItem(key, value); } catch {} }
+function recall(key) { try { return localStorage.getItem(key); } catch { return null; } }
+
+function jumpTo(game, t) {
+  const node = document.getElementById(`${game}-t${t}`);
+  if (!node) return false;
+  node.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  node.classList.add("flash");
+  setTimeout(() => node.classList.remove("flash"), 1400);
+  return true;
+}
+
+function showGame(game, focusTurn) {
+  current = game;
+  remember("play-transcripts-game", game);
+  for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", b.dataset.game === game ? "true" : "false");
+  const g = DATA.games[game];
+  const m = g.meta;
+  const root = document.getElementById("game");
+  root.replaceChildren();
+
+  const stats = el("div", { class: "stats" });
+  const pt = m.phase_turns || {};
+  for (const [k, v] of [["state", `${LABEL[m.status] || m.status}${m.status === "running" ? " (" + (m.phase || "") + ")" : ""}`], ["score", fmtScore(m.score)], ["levels", `${m.levels}/${m.win_levels}`],
+    ["actions", `${m.actions}${m.per_level ? " (" + m.per_level.filter((x) => x).join(" ") + ")" : ""}`], ["baseline", m.baseline ? m.baseline.join(" ") : "–"],
+    ["turns", `${m.turns} (plan ${pt.plan || 0} / fit ${pt.fit || 0})`], ["batches", `${m.batches} · ${m.moves} moves · ${m.mismatches} mismatches`], ["fit rounds", m.fit_rounds],
+    ["minutes", Math.round(m.minutes || 0)], ["output tokens", `${Math.round((m.out || 0) / 1000)}K`], ["cost", `$${(m.cost || 0).toFixed(2)}`]]) {
+    stats.append(el("span", {}, `${k} `, el("b", { text: String(v) })));
+  }
+  root.append(el("div", { class: "block" }, el("h2", { text: game }), stats));
+
+  const strip = el("div", { class: "strip", role: "list", "aria-label": "Turns, coloured by what happened" });
+  for (const turn of g.turns) {
+    const k = kindOf(turn);
+    const b = el("button", { type: "button", class: `k-${k}`, title: `Turn ${turn.t} (${(turn.min ?? 0).toFixed(0)} min, ${turn.phase || ""}): ${k.replace("-", " ")}`, "aria-label": `Turn ${turn.t}` });
+    b.addEventListener("click", () => jumpOrReveal(game, turn.t));
+    strip.append(b);
+  }
+  const last = g.turns[g.turns.length - 1];
+  const axis = el("div", { class: "axis" }, el("span", { text: "turn 1 · 0 min" }), el("span", { text: `turn ${last.t} · ${Math.round(last.min || 0)} min` }));
+  const legend = el("div", { class: "legend" });
+  for (const [c, t] of [["--arc-grey", "python only (plan: short, fit: taller)"], ["--arc-blue", "engine edited"], ["--arc-purple", "commit_engine"], ["--arc-green", "batch sent, all matched"], ["--arc-red", "batch stopped by a mismatch"], ["--arc-yellow", "level solved"], ["--arc-orange", "harness reminder"]]) {
+    const i = el("i"); i.style.background = `var(${c})`; legend.append(el("span", {}, i, t));
+  }
+  root.append(el("div", { class: "strip-box" }, strip, axis, legend));
+
+  const given = el("details", { class: "given" }, el("summary", { text: "What the agent was given: the system prompt" }),
+    el("div", { class: "block" }, el("span", { class: "lbl", text: "System prompt" }), collapsible(DATA.system || "", "out", 30)));
+
+  const index = el("aside", { class: "index", "aria-label": "Key moments" }, el("h3", { text: "Key moments" }));
+  const moments = [];
+  for (const turn of g.turns) {
+    const k = kindOf(turn);
+    if (turn.batch) {
+      const b = turn.batch;
+      const text = `${b.matched}/${b.sent} matched of ${b.moves.length}${b.mismatch != null ? " · stops at step " + b.mismatch : ""}: ${(b.note || "").slice(0, 90)}${(b.note || "").length > 90 ? "…" : ""}`;
+      moments.push([turn.t, k === "solved" ? "--arc-yellow" : b.mismatch != null ? "--arc-red" : "--arc-green", text]);
+    }
+    if (turn.commit) moments.push([turn.t, "--arc-purple", `commit v${turn.commit.version}: ${(turn.commit.message || "").slice(0, 90)}…`]);
+    if (turn.moves.some((mv) => mv.state === "GAME_OVER")) moments.push([turn.t, "--arc-red", "game over"]);
+    if (turn.nudges) moments.push([turn.t, "--arc-orange", "reminder to send a batch"]);
+  }
+  for (const [t, c, text] of moments) {
+    const dot = el("span", { class: "dot" }); dot.style.background = `var(${c})`;
+    const b = el("button", { class: "moment", type: "button" }, el("span", { class: "tn", text: `t${t}` }), el("span", {}, dot, text));
+    b.addEventListener("click", () => jumpOrReveal(game, t));
+    index.append(b);
+  }
+
+  const q = el("input", { type: "search", id: "q", placeholder: "Search reasoning, code, outputs and messages", "aria-label": "Search the transcript" });
+  const mk = (id, label, checked) => {
+    const box = el("input", { type: "checkbox", id }); box.checked = checked;
+    return [box, el("label", { for: id }, box, label)];
+  };
+  const [cbR, lR] = mk("show-reasoning", "Reasoning", true);
+  const [cbC, lC] = mk("show-code", "Code", true);
+  const [cbO, lO] = mk("show-outputs", "Outputs", true);
+  const [cbM, lM] = mk("show-messages", "Harness messages", false);
+  const [cbI, lI] = mk("show-images", "Pictures", true);
+  const [cbK, lK] = mk("only-key", "Only key moments", false);
+  const count = el("span", { class: "count" });
+  const controls = el("div", { class: "controls" }, q, lR, lC, lO, lM, lI, lK, count);
+  const list = el("div", { class: "log" });
+  const log = el("div", { class: "log" }, controls, given, list);
+
+  function draw() {
+    const query = q.value.trim().toLowerCase();
+    const opts = { reasoning: cbR.checked, code: cbC.checked, outputs: cbO.checked, messages: cbM.checked, images: cbI.checked };
+    list.replaceChildren();
+    let n = 0;
+    for (const turn of g.turns) {
+      const k = kindOf(turn);
+      if (cbK.checked && !(turn.batch || turn.commit || turn.nudges || k === "solved")) continue;
+      if (!matches(turn, query)) continue;
+      list.append(renderTurn(game, turn, opts));
+      n++;
+    }
+    count.textContent = `${n} of ${g.turns.length} turns`;
+  }
+  let timer = null;
+  q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(draw, 200); });
+  for (const cb of [cbR, cbC, cbO, cbM, cbI, cbK]) cb.addEventListener("change", draw);
+  draw();
+  root.append(el("div", { class: "cols" }, index, log));
+
+  window.jumpOrReveal = (gm, t) => {
+    if (!jumpTo(gm, t)) { q.value = ""; cbK.checked = false; draw(); jumpTo(gm, t); }
+  };
+  if (focusTurn) setTimeout(() => jumpOrReveal(game, focusTurn), 50);
+}
+function jumpOrReveal(game, t) { window.jumpOrReveal(game, t); }
+
+function renderComparison() {
+  const box = document.getElementById("cmp");
+  const games = Object.keys(DATA.games);
+  if (!games.length) return;
+  const cmpName = DATA.compare_name;
+  const table = el("table", { class: "cmp" });
+  const head = el("tr", {}, el("th", { text: "game" }), el("th", { text: "run" }), el("th", { text: "state" }), el("th", { text: "score" }), el("th", { text: "levels" }), el("th", { text: "actions" }), el("th", { text: "turns" }), el("th", { text: "batches" }), el("th", { text: "mismatches" }), el("th", { text: "cost" }));
+  table.append(el("thead", {}, head));
+  const body = el("tbody");
+  for (const g of games) {
+    const m = DATA.games[g].meta;
+    body.append(el("tr", {}, el("td", { text: g }), el("td", { text: DATA.run }), el("td", { text: LABEL[m.status] || m.status }), el("td", { text: fmtScore(m.score) }), el("td", { text: `${m.levels}/${m.win_levels}` }),
+      el("td", { text: String(m.actions) }), el("td", { text: String(m.turns) }), el("td", { text: String(m.batches) }), el("td", { text: String(m.mismatches) }), el("td", { text: `$${(m.cost || 0).toFixed(2)}` })));
+    const c = DATA.compare[g];
+    if (c) body.append(el("tr", {}, el("td", { text: "" }), el("td", { text: cmpName }), el("td", { text: LABEL[c.status] || c.status }), el("td", { text: fmtScore(c.score) }), el("td", { text: `${c.levels}/${c.win_levels}` }),
+      el("td", { text: String(c.actions) }), el("td", { text: String(c.turns) }), el("td", { text: String(c.batches) }), el("td", { text: String(c.mismatches) }), el("td", { text: `$${(c.cost || 0).toFixed(2)}` })));
+  }
+  table.append(body);
+  box.replaceChildren(table);
+  box.hidden = false;
+}
+
+(async () => {
+  try {
+    DATA = await unpack();
+  } catch (err) {
+    document.getElementById("game").replaceChildren(el("p", { class: "loading", text: "This browser could not unpack the transcripts (it needs gzip DecompressionStream support)." }));
+    return;
+  }
+  document.getElementById("lede").textContent = DATA.lede || "";
+  document.getElementById("built").textContent = `Built ${DATA.built} from ${DATA.run}` + (DATA.compare_name ? `, compared with ${DATA.compare_name}` : "") + ". The page is rebuilt as the run goes on.";
+  renderComparison();
+  const tabs = document.getElementById("tabs");
+  for (const [game, g] of Object.entries(DATA.games)) {
+    const m = g.meta;
+    const b = el("button", { class: "tab", type: "button", role: "tab", "data-game": game },
+      el("b", { text: game }), el("span", { text: `${LABEL[m.status] || m.status} · ${m.levels}/${m.win_levels} levels · ${m.actions} actions · ${m.turns} turns` }));
+    b.addEventListener("click", () => showGame(game));
+    tabs.append(b);
+  }
+  const hash = location.hash.slice(1);
+  const hm = hash.match(/^([a-z0-9]+)-t(\d+)$/);
+  if (hm && DATA.games[hm[1]]) showGame(hm[1], Number(hm[2]));
+  else if (DATA.games[hash]) showGame(hash);
+  else showGame(DATA.games[recall("play-transcripts-game")] ? recall("play-transcripts-game") : Object.keys(DATA.games)[0]);
+})();
+</script>

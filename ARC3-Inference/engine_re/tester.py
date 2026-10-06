@@ -43,6 +43,18 @@ step (the runner captures prints per step), and the ``replay_step`` command that
 reproduces it in the analysis kernel. With ``images=True`` the report also
 carries a picture of both final frames with the regions boxed
 (``TestReport.images``).
+
+A trace played by the play agent (engine_re.play_agent) may hold unexplained steps, played while the
+engine was out of step with the game (its escape hatch, PLAY_DESIGN.md 3.6): ``ignore`` (steps replayed
+and compared but never failing, left out of ``exact``, ``total`` and ``passing_prefix``) and ``resync``
+(step -> {"level", "score"}: before that step the engine is put back at the level's start,
+``game_api.GameRunner.resync``). Both default to what the trace's meta holds (``game_api.sync_points``).
+
+Support (PLAY_DESIGN.md 3.11): the runner records the engine lines and conditions each step executed; a
+full replay (no level scope) folds those of its passing steps into a support map (``TestReport.support``,
+``engine_re.support``), whose summary goes with ``summary()`` (tests.jsonl). For the first failing step
+explained in full, the report lists the lines it ran with their support (the untested and thin ones, the
+conditions no passing step separated).
 """
 
 from __future__ import annotations
@@ -61,7 +73,9 @@ from typing import Any
 import numpy as np
 
 from engine_re import diff_report
-from engine_re.game_api import describe_contract, last_lines
+from engine_re import support as sup
+from engine_re import animation  # the digest of an animated step
+from engine_re.game_api import describe_contract, last_lines, sync_points
 from engine_re.guard import sandbox_env
 from engine_re.trace import Step, Trace
 
@@ -84,6 +98,7 @@ class StepCheck:
     final_ok: bool
     problems: list[str] = field(default_factory=list)
     warning: str | None = None  # the step passes with this tolerated difference (see HUD_BORDER)
+    ignored: bool = False  # an unexplained step (see `ignore`): replayed, never failing, not counted
 
 
 @dataclass
@@ -119,6 +134,8 @@ class TestReport:
     images: list[TestImage] = field(default_factory=list)
     signature: str = ""  # of the failure: the same first failing step, counts and differing regions give the same one
     tolerated: list[int] = field(default_factory=list)  # steps passing with a one-pixel border difference (HUD_BORDER)
+    ignored: list[int] = field(default_factory=list)  # unexplained steps in the scope: replayed, not counted
+    support: dict[str, Any] | None = None  # full replay: the support map of the passing steps (engine_re.support)
 
     @property
     def passed(self) -> bool:
@@ -141,8 +158,9 @@ class TestReport:
         return "the contract tests fail the same way"
 
     def summary(self) -> dict[str, Any]:
-        out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text", "images")}
+        out = {k: v for k, v in asdict(self).items() if k not in ("checks", "text", "images", "support")}
         out["passed"] = self.passed
+        out["support"] = self.support["summary"] if self.support else None  # one line: untested, thin, supported, ...
         return out
 
 
@@ -178,13 +196,17 @@ def run_candidate(
     meta: dict[str, Any] | None = None,
     inspect: list[int | str] | None = None,
     contract: bool = True,
+    ignore: Any = None,
+    resync: dict[int, dict[str, int]] | None = None,
+    trace: bool = True,
 ) -> tuple[dict[str, Any], list[np.ndarray]]:
     """Run the engine on ``actions`` in a sandboxed process.
 
     Returns the runner's result (per-step state fields, error) and the frames
     of each completed step. ``inspect``: action positions (and "start") whose
     states to describe (result["inspect"]); ``contract=False`` skips the
-    contract tests."""
+    contract tests. ``ignore`` and ``resync``: action positions (see the module
+    docstring and candidate_runner). ``trace=False``: no support data (the runner's --no-trace)."""
     engine_path = Path(engine_path).resolve()
     scratch = Path(tempfile.mkdtemp(prefix="cand_", dir=Path(scratch_root).resolve() if scratch_root else None))
     try:
@@ -216,6 +238,12 @@ def run_candidate(
             cmd += ["--inspect", json.dumps(list(inspect))]
         if not contract:
             cmd.append("--no-contract")
+        if ignore:
+            cmd += ["--ignore", json.dumps(sorted(int(i) for i in ignore))]
+        if resync:
+            cmd += ["--resync", json.dumps({str(k): v for k, v in resync.items()})]
+        if not trace:
+            cmd.append("--no-trace")
         try:
             proc = subprocess.run(
                 cmd, cwd=scratch, env=sandbox_env(str(scratch)), capture_output=True, text=True, timeout=total_timeout
@@ -234,6 +262,37 @@ def run_candidate(
         return result, per_step
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def predict(
+    engine_path: Path, trace: Trace, actions: list[Any], *, scratch_root: Path | None = None, inspect: bool = True,
+) -> tuple[dict[str, Any], list[np.ndarray]]:
+    """The engine's prediction for `actions` played after every step of `trace` (the play agent): one
+    sandboxed run on the trace's actions followed by them, with the trace's unexplained steps and resync
+    points, no contract tests. Returns run_candidate's (result, frames); position i is step i, so the
+    prediction for actions[j] is at len(trace) + j (missing when the engine raised an error before it).
+    `inspect`: the state summaries (game_api.state_summary) before and after each planned move, in
+    result["inspect"][str(position)] (the batch's board no-op rule and the PLAN message's sprite list)."""
+    ignore, resync = sync_points(trace.meta)
+    played = [s.action.to_json() for s in trace.steps] + [a.to_json() for a in actions]
+    n = len(trace.steps)
+    positions = list(range(n, n + len(actions))) if inspect else None
+    return run_candidate(engine_path, played, scratch_root=scratch_root, meta=trace_meta(trace), contract=False,
+                         ignore=ignore, resync=resync, inspect=positions)
+
+
+def replica_state(engine_path: Path, trace: Trace, *, scratch_root: Path | None = None) -> dict[str, Any] | None:
+    """The engine's state after every step of `trace` (game_api.state_summary of the last step's state), from one
+    sandboxed replay without the contract tests or the tracer; None when the engine raises or the trace is empty."""
+    if not len(trace):
+        return None
+    ignore, resync = sync_points(trace.meta)
+    played = [s.action.to_json() for s in trace.steps]
+    result, _ = run_candidate(engine_path, played, scratch_root=scratch_root, meta=trace_meta(trace), contract=False,
+                              ignore=ignore, resync=resync, inspect=[len(trace) - 1], trace=False)
+    found = (result.get("inspect") or {}).get(str(len(trace) - 1)) or {}
+    after = found.get("after")
+    return after if after and "sprites" in after else None
 
 
 # --- Comparing ---------------------------------------------------------------
@@ -338,12 +397,14 @@ def describe_step(
     images: bool = False,
     printed: str | None = None,
     show_vars: bool = True,
+    before_frame: np.ndarray | None = None,
 ) -> tuple[str, list[diff_report.Region]]:
     """Detailed explanation of one failing step, and the numbered regions of its final frame.
 
     ``before`` is the level the step was played in (levels completed before it); ``states`` the
     candidate's state summaries {"before": ..., "after": ...} if available; ``printed`` what the
-    engine printed during the step."""
+    engine printed during the step; ``before_frame`` the frame before it, for an animated step's digest
+    (engine_re.animation)."""
     lines = [f"--- Step {step.index}: {step.action}   (played in level {before})"]
     lines += diff_report.click_lines(step.action, (states or {}).get("before"))
     if got is None or got_frames is None:
@@ -359,6 +420,8 @@ def describe_step(
         lines.append(f"    frames: expected {step.n_frames}, got {len(got_frames)}")
     elif step.n_frames > 1:
         lines.append(f"    (the original animated this action over {step.n_frames} frames; only the last is compared)")
+    if step.n_frames > 1:
+        lines += animation.report_lines(before_frame, step.frames, step.index)
     regions: list[diff_report.Region] = []
     if step.n_frames and len(got_frames):
         states = states or {}
@@ -366,6 +429,8 @@ def describe_step(
             step.frames[-1], got_frames[-1], states.get("before"), states.get("after"), crops=crops, images=images, show_vars=show_vars
         )
         lines += frame_lines
+        if regions:
+            lines += diff_report.reconcile_lines(step.frames[-1], got_frames[-1], states.get("after"))
     elif step.n_frames != len(got_frames):
         lines.append(f"    final frame: expected {'a frame' if step.n_frames else 'no frame'}, got {len(got_frames)} frame(s)")
     if match == "all" and step.n_frames and len(got_frames):
@@ -476,6 +541,8 @@ def replay_test(
     match: str = "final",
     images: bool = False,
     crops: bool | None = None,
+    ignore: Any = None,
+    resync: dict[int, dict[str, int]] | None = None,
 ) -> TestReport:
     """Test an engine against the recording (see the module docstring).
 
@@ -484,7 +551,9 @@ def replay_test(
     None reports everything. stop_on_fail=True means failures=1. The counts always cover the scope.
     details: with failures=None, how many failing steps to explain.
     images: also draw the explained steps' frames (TestReport.images).
-    crops: include hex-digit crops of the regions (default: when there are no images)."""
+    crops: include hex-digit crops of the regions (default: when there are no images).
+    ignore, resync: unexplained steps and resync points by step index (see the module docstring);
+    None: the trace's own (trace.meta)."""
     if match not in MATCH_MODES:
         raise ValueError(f"match must be one of {MATCH_MODES}")
     if level is not None and from_level is not None:
@@ -526,7 +595,14 @@ def replay_test(
         mode += "; the report stops at the first failure" if failures == 1 else f"; the report stops after {failures} failing steps"
     meta = trace_meta(trace)
     actions = [s.action.to_json() for s in steps]
-    result, got_frames = run_candidate(engine_path, actions, start_level=start_level, scratch_root=scratch_root, meta=meta)
+    index_of = {s.index: k for k, s in enumerate(steps)}
+    meta_ignore, meta_resync = sync_points(trace.meta)
+    ignore_steps = meta_ignore if ignore is None else {int(i) for i in ignore}
+    resync_steps = meta_resync if resync is None else {int(k): v for k, v in resync.items()}
+    ignore_pos = {index_of[i] for i in ignore_steps if i in index_of}
+    resync_pos = {index_of[i]: v for i, v in resync_steps.items() if i in index_of}
+    result, got_frames = run_candidate(engine_path, actions, start_level=start_level, scratch_root=scratch_root, meta=meta,
+                                       ignore=ignore_pos, resync=resync_pos)
     contract = result.get("contract")
     got_steps = result.get("steps", [])
 
@@ -534,13 +610,24 @@ def replay_test(
     for k, step in enumerate(steps):
         got = got_steps[k] if k < len(got_steps) else None
         frames = got_frames[k] if k < len(got_frames) else None
-        checks.append(check_step(step, got, frames, match))
-    exact = sum(c.ok for c in checks)
-    final = sum(c.final_ok for c in checks)
+        check = check_step(step, got, frames, match)
+        if k in ignore_pos:  # unexplained: compared, never failing, not counted
+            check = StepCheck(check.index, True, check.final_ok, [], None, ignored=True)
+        checks.append(check)
+    counted = [c for c in checks if not c.ignored]
+    exact = sum(c.ok for c in counted)
+    final = sum(c.final_ok for c in counted)
+    total = len(counted)
+    ignored_steps = [c.index for c in checks if c.ignored]
     failing = [c.index for c in checks if not c.ok]
     first_fail = failing[0] if failing else None
-    index_of = {s.index: k for k, s in enumerate(steps)}
     played_in = levels_before(trace)
+    support_map = None
+    if level is None and from_level is None:  # a full replay: what its passing steps support
+        passing = {str(k): steps[k].index for k, c in enumerate(checks) if c.ok and not c.ignored}
+        engine_bytes = Path(engine_path).read_bytes()
+        support_map = sup.fold_result(result, passing, engine_bytes.decode("utf-8", "replace"),
+                                      hashlib.sha256(engine_bytes).hexdigest())
 
     start_frame = None
     start_frame_diff = None
@@ -562,9 +649,9 @@ def replay_test(
     if start_bad:
         passing_prefix = 0
     elif first_fail is None:
-        passing_prefix = len(steps) if error is None else 0
+        passing_prefix = total if error is None else 0
     else:
-        passing_prefix = index_of[first_fail]
+        passing_prefix = sum(not c.ignored for c in checks[: index_of[first_fail]])
 
     # What to explain in detail: "start" (a level's start frame) and/or step positions in `steps`;
     # with `failures`, the first failure in detail and the next ones (`compact`) one line each.
@@ -598,6 +685,7 @@ def replay_test(
         second, second_frames = run_candidate(
             engine_path, actions[:limit], start_level=start_level, scratch_root=scratch_root, meta=meta,
             inspect=[t for t in wanted if t == "start" or int(t) < limit], contract=False,
+            ignore={k for k in ignore_pos if k < limit}, resync={k: v for k, v in resync_pos.items() if k < limit},
         )
         inspected = second.get("inspect") or {}
         second_prints = second.get("prints") or {}
@@ -621,8 +709,11 @@ def replay_test(
             lines.append(f"{head} {what}{extra}." + ("" if not contract_failures else " The contract tests above must pass too."))
         elif first_fail is not None:
             k = index_of[first_fail]
+            skipped = any(c.ignored for c in checks[:k])
             if not k:
                 ok = "no step passes before it"
+            elif skipped:
+                ok = f"{passing_prefix} step(s) pass before it (steps {steps[0].index}-{first_fail - 1}, the unexplained ones not counted)"
             elif k == 1:
                 ok = f"1 step passes before it (step {first_fail - 1})"
             else:
@@ -634,9 +725,9 @@ def replay_test(
         if contract:
             lines.append(head)
         if match == "final":
-            lines.append(f"  {exact}/{len(steps)} steps match (final frame and state; animation frames are not compared).")
+            lines.append(f"  {exact}/{total} steps match (final frame and state; animation frames are not compared).")
         else:
-            lines.append(f"  {exact}/{len(steps)} steps match exactly; {final}/{len(steps)} final frames match.")
+            lines.append(f"  {exact}/{total} steps match exactly; {final}/{total} final frames match.")
         if first_fail is None and error is None:
             lines.append("  ALL STEPS MATCH." if not contract_failures else "  All steps match, but the contract tests above must pass too.")
         elif first_fail is not None:
@@ -647,7 +738,7 @@ def replay_test(
             by_level.setdefault(played_in[step.index], []).append(check)
         if len(by_level) > 1 or entry is None:
             parts = [
-                f"level {lvl} (steps {cs[0].index}-{cs[-1].index}): {sum(c.ok for c in cs)}/{len(cs)}"
+                f"level {lvl} (steps {cs[0].index}-{cs[-1].index}): {sum(c.ok and not c.ignored for c in cs)}/{sum(not c.ignored for c in cs)}"
                 for lvl, cs in sorted(by_level.items())
             ]
             lines.append("  Per level (by levels_completed before the step): " + "; ".join(parts))
@@ -659,6 +750,12 @@ def replay_test(
                 lines.append(
                     f"  Level start frame (step {entry}'s final frame vs your engine's render right after set_level({start_level})): {verdict}."
                 )
+    if ignored_steps:
+        back = sorted(steps[k].index for k in resync_pos)
+        lines.append(
+            f"  Unexplained steps {_ranges(ignored_steps)} (played while your replica was out of step with the game): replayed, "
+            "never failing, not counted" + (f"; your engine is put back at the level's start at step {_ranges(back)}" if back else "") + "."
+        )
     tolerated = [c.index for c in checks if c.warning]
     if tolerated or start_warning:
         lines.append("  WARNING (tolerated, not a failure): a HUD bar's rounding, most likely; nothing to fix unless it grows.")
@@ -719,8 +816,11 @@ def replay_test(
         text, regions = describe_step(
             step, got, frames, played_in[step.index], crashed_here, match,
             states=inspected.get(str(k)), crops=crops, images=images, printed=printed(str(k)),
+            before_frame=trace[step.index - 1].last if step.index else None,
         )
         lines.append(text)
+        if support_map is not None and str(k) in result.get("executed", {}):
+            lines += sup.path_lines_text(support_map, result["executed"][str(k)], (result.get("evaluated") or {}).get(str(k)))
         if not first_regions:
             first_regions = [r.core for r in regions]
         if step.index in inspected.get("nondeterministic", []):
@@ -765,7 +865,7 @@ def replay_test(
     return TestReport(
         mode=mode,
         first_step=steps[0].index if steps else (entry + 1 if entry is not None else 0),
-        total=len(steps),
+        total=total,
         exact=exact,
         final_frame=final,
         first_fail=first_fail,
@@ -785,6 +885,8 @@ def replay_test(
         detail_steps=detail_steps,
         images=report_images,
         tolerated=tolerated,
+        ignored=ignored_steps,
+        support=support_map,
     )
 
 

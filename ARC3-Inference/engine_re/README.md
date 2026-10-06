@@ -61,7 +61,7 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   - `python(code)`: a kernel that is persistent for the whole run (the prompt
     says so plainly: define helpers and data once). Its namespace holds `np`,
     the fixed-block classes, `recording` (the recorded steps), seven functions
-    (`helpers.py`) and `engine`; nothing else is preloaded. These names are
+    (`helpers.py`) and `replica`; nothing else is preloaded. These names are
     reserved: code that binds one (`def`, assignment, parameter, loop
     variable, import as) is refused before it runs
     (`kernel.reserved_bindings`). They are named so that they do not collide
@@ -132,19 +132,28 @@ evaluate.py: candidate vs real engine on new random action sequences per level
       first frame (`recording[k].after`), its guessed grid, the steps played in
       it and their actions, animated steps, RESETs and game overs, and the step
       that solved it.
-    - `engine`: engine.py as it is now (`helpers._EngineModule`): an attribute
-      access loads the file again when its content hash changed since the last
-      load, so `engine.step(...)` and `engine.make_level(...)` never go stale
-      after an edit. Every `import engine` / `from engine import ...` /
-      `import engine as e` is refused by the reserved-name check with a note
-      saying to use the built-in.
+    - `replica`: engine.py, the model's replica of the game, as it is now
+      (`helpers._ReplicaModule`; named so that it is not taken for the real
+      game's engine, arcengine): an attribute access loads the file again when
+      its content hash changed since the last load, so `replica.step(...)` and
+      `replica.make_level(...)` never go stale after an edit; `replica.step`
+      fills in a click's `action.cell` when it is None, as the harness does.
+      Every `import engine` / `from engine import ...` / `import engine as e`
+      is refused by the reserved-name check with a note saying to use the
+      built-in. The file stays `engine.py` (and `--engine` stays the flag of
+      `evaluate.py` and the tester).
 
     A tool call named after one of these functions (the model calling
     `read_file` or `edit_file` as if it were a tool) runs through the python
     tool as `name(**args)`, a string argument that parses as JSON (an `edits`
-    list given as text) parsed first; the output starts with one line saying
-    so, the call counts as a python call and the transcript keeps the name the
-    model used (`called_as`). An unknown name still gets the unknown-tool error.
+    list given as text) parsed first; `edit_file`'s edits are put in the shape
+    the editor takes (`agent.normalise_edits`, v11 follow-up 6: a JSON or Python
+    literal string parsed, one dict wrapped in a list, an edit with
+    oldText/newText but no op taken as replace_text), each change noted in the
+    output ("[harness] edits given as a JSON string: parsed"); the output starts
+    with one line saying so, the call counts as a python call and the transcript
+    keeps the name the model used (`called_as`). An unknown name still gets the
+    unknown-tool error.
 
     The kernel answers two more requests (`kernel.py`, `KernelClient`):
     `{"names": true}` lists what the model defined (everything in the
@@ -424,6 +433,184 @@ evaluate.py: candidate vs real engine on new random action sequences per level
   clicks aimed mostly at object pixels; occasional RESET; RESET after a game
   over), and the steps are compared exactly as in the tests.
 
+## The play-and-model agent (v10 and on, `play_agent.py`; the version is `engine_re.PLAY_VERSION`)
+
+The same agent playing a live game instead of fitting a recording: one conversation that alternates a
+plan round (the game's current frame and the actions it accepts; in python `state_now()`, the replica's
+state after everything played, on copies of which the model plays moves by calling `replica.step`
+directly; then `commit_moves(actions, note)` with the very Actions it stepped its replica with, as python
+prints them) and the stepwise fit round above. The play prompts call engine.py "your replica" and the real
+game "the game". The kernel's `Action` (the fixed block's, `game_api.canonical`) prints as the code that
+builds it, its cell left out: `Action(4)`, `Action(6, x=12, y=40)`, `Action(0)` for RESET
+(`trace.action_code`). `commit_moves` takes that text as it is, item by item (`["Action(4)", "Action(6,
+x=12, y=40)"]`) or as one printed list (`"[Action(4), Action(0)]"`), besides the labels (`"UP"`,
+`{"click": [x, y]}`, `MOUSE(row=, col=)`; `trace.parse_moves`); a given cell is ignored, the harness
+computes it. The play messages name moves in the same form (`#12 Action(4): matches your prediction`).
+The repr is set on the harness side: the FIXED block is unchanged, and an engine's own `Action` keeps the
+dataclass repr (`Action(id=4, x=0, y=0, cell=None)`), which `commit_moves` takes too. `commit_moves` runs the full test first
+and sends nothing while a step fails (a fit round opens on it); otherwise engine.py becomes the committed
+engine (`engine_committed.py`; a `commit_engine` earlier in the same turn is the batch's commit), each move
+is predicted with it in one sandboxed run (`tester.predict`), sent to the real game
+(`live_game.LiveGame`, the arcengine game stepped directly, every step kept in a growing `Trace`) and
+compared by the tests' rule (`tester.check_step`; a one-pixel HUD-bar difference is a match, its warning
+shown); the batch stops at the first difference (a fit round opens on that step, with the comparison as
+the test report), after a solved level and when the game ends. One batch per turn; a batch is cut to the
+actions left in `--max-actions`. After a game over the harness RESETs the level itself (checked like any
+move; `--no-auto-reset` leaves it to the model). A commit whose engine passes the fit round's step but
+fails a later one gets that step (`advance_message`), as in the stepwise harness; engine.py edited after
+a batch in the same turn is tested automatically and the next message says whether it still reproduces
+every step. After `--plan-turns` turns (6) of a plan round without `commit_moves` a reminder to send a
+short batch is appended to the turn's last output (`plan_nudge`); the test nudge only runs in fit rounds.
+
+The escape hatch (`--fit-turns N`, off by default; PLAY_DESIGN.md 3.6): after N turns in one fit round
+without an accepted commit, the model is told it may play on with its replica out of step. `commit_moves`
+then sends moves although the tests fail, unchecked; the steps from the failing one on are unexplained
+(`ignore`: the tests replay them, an error there does not stop the replay, they never fail and are not
+counted in `exact`, `total` or `passing_prefix`), up to the first RESET or level change the game makes, a
+resync point (`resync`: `game_api.GameRunner.resync` puts the engine at that level's start, performing
+the RESET, or showing the new level without calling `step()`); there every step is tested again and the
+loop goes on. Both live in the trace's meta, so the tests (`tester.replay_test`, `candidate_runner
+--ignore/--resync`), the kernel (`state_now`, `replay_step`) and a resumed run see them;
+`result.json` lists them (`unexplained`, `resync`, `out_of_sync`) and the PLAN message names them.
+
+Support (PLAY_DESIGN.md 3.11, `support.py`): the runner compiles the engine with its conditions wrapped
+in a recorder (line numbers kept) and traces, per step, the lines of the model's part it executed and
+the conditions it evaluated. A full replay folds its passing steps into a support map (per line, how many
+recorded steps ran it: 0 untested, fewer than 3 thin; per `and`/`or`, whether the steps separated its
+operands), saved beside the committed engine (`engine_committed.support.json`) and summarised in each
+`tests.jsonl` record. Each planned move's path is read against it from the prediction run itself: its
+weakest line, the untested lines it runs, the never-separated conditions it relies on, in the
+`commit_moves` output (each move named by its step and action as the Sent lines name it, "#30 Action(1): first to run
+lines ..." and "#31 Action(4), #32 Action(4): their paths are supported by at least 3 steps each"; v11 follow-up 10),
+`batch_log`'s `support`, the mismatch message and the fit report; the PLAN message
+lists the thin rules on the last batch's path and among the outcome rules; listings and `read_file()`
+show the counts in a margin and, on every line of `step()` and the functions it calls, as a trailing
+`# support (n): ...` comment naming the last five steps that ran the line (`support.comments`; the comments
+are stripped from anything pasted into an edit). `--cut-untested` (off) cuts a batch after the first move
+that runs untested code.
+`engine_re/tools/support_check.py` measures the mismatch rate by support on an archived run.
+
+`run_play.py` runs several games in parallel and writes `config.json` (its `harness` names the harness version,
+`engine_re.PLAY_VERSION`, and the git short sha: "engine_re.play_agent (v12, git 1a2b3c4)"), `summary.md`, a TAAF-shaped `benchmark.json`
+(`make score_run SCORE_RUN_DIR=<out>` scores it; `final_score` is TAAF's formula, 0 without baselines)
+and, per game, `trace/`, the viewer event sidecar `artifacts/<game_id>_p0_events.jsonl` (the base
+harness's name; `trace.trace_from_run(<out>/<game>, game, environment_files)` rebuilds and verifies the
+trace from it) and `result.json` with the play fields (`PlayResult`: score, actions per level, batches
+with their one-line differences, mismatches, fit rounds with their length and outcome, turns per phase,
+nudges, unexplained steps). Every transcript record carries its `phase`; `show_transcript` prints the
+moves, batches and phase messages. Running the command again resumes interrupted games: the real game
+is replayed from `trace/`, the conversation rebuilt from `transcript.jsonl`, and moves played after the
+last message the model got (an interruption during a batch) are tested and lead to the next message;
+finished games are skipped but still give their `benchmark.json` record. The play mode keeps compaction
+(`ModelConfig.context = "compact"`, the default); a PLAN message's engine.py listing is elided like a fit message's.
+
+`--context rebuilt` (`ModelConfig.context = "rebuilt"`, v11 follow-up 23) never shortens the conversation: the
+one kept in memory and logged in the transcript is the full one (so a resume works as before), and every request is
+rebuilt from it by `agent.rebuilt_context`: the system prompt; one user message, the compacted context, holding in
+order (a) every turn older than the last 10 and before the current phase message in which the model called
+`commit_engine` or `commit_moves` (its text, the call with its arguments as the model wrote them and the result,
+no reasoning), (b) the current PLAN or FIT message in full (its image as the conversation holds it, the only image
+of that message) when it is older than the last 10 turns, followed, when that message carries no engine.py listing
+(a PLAN or FIT message lists the file only when it changed), by the current engine.py as `read_file` shows it, with
+the support margin and comments, under "engine.py now (as read_file shows it):" (v11 follow-up 34: the model
+otherwise reads the file again or trusts a stale listing; `PlayAgent.REBUILT_LISTING_CHARS`, 20,000 characters at
+most), (c) the turns after it that are older than the last 10, each with every call, its arguments and its output
+but no reasoning, then the line "The context has been compacted. Continue from the context above."; and the last 10
+turns as they are (reasoning, calls, outputs, images, a phase message at its place). Each part is headed "Turn 57
+(commit_moves):" / "Turn 61:". A turn is one model
+reply with everything said before the next one (its tool outputs with the harness's appends, its image message, the
+phase message, the "continue" line, the resume note); turn 0 is the system prompt and the opening message. Older
+images are still hidden as in the compact mode, `_compact` never runs (`compact` records of an earlier compact run
+are ignored on a resume in this mode) and nothing is truncated. One `rebuilt` record per request logs the
+composition (`commit_turns`, `phase_turn`, `listing` (whether the engine.py listing was appended), `older_turns`, the
+characters of each part, the count, the budget and the shrink steps). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at turn 185 (29 commit turns,
+the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
+
+The request is kept under the model's window (`--context-window`, 131,072) minus the reply reserve
+(`--reply-reserve`, the model's `max_tokens` by default) minus 512. Before each request the rebuilt view is
+counted exactly (`engine_re/tokens.py`, `TokenCounter`): the messages and the tool schemas rendered through the
+model's chat template (jinja2 on tokenizer_config.json's `chat_template`, as transformers renders it; the
+assistant `reasoning` of every turn counted as the `<think>` block the template writes, since the provider keeps
+every turn's reasoning in the prompt while Qwen3's template alone keeps only the last round's), tokenized with
+`tokenizers`, every image at its vision cost ((w/32)·(h/32)+2 at the PNG's real size: 308 for a PLAN frame, 614
+for a test comparison), plus a margin of 2% (`COUNT_MARGIN_PERCENT`, the counter's residual). The tokenizer files
+come from `--tokenizer <dir or Hugging Face id>` (else `$ARC3_TOKENIZER`, else `Qwen/Qwen3-8B` through
+`huggingface_hub`, cached under `~/.cache/huggingface`); `--tokenizer-endpoint <url>` posts the chat messages to
+a vLLM server's `/tokenize` instead (exact, template included). Without a tokenizer the request is estimated from
+its json (`estimate_request_tokens`: images as placeholders, divided by a characters-per-token figure calibrated
+from each response's `prompt_tokens` as the base harness does: the last measurement, seed 3, clamped to [1.0,
+3.3]; a `token_calibration` record when it moves by 0.05). While the count (or estimate) is over the budget the
+view is shrunk in this order (`shrink_step`): the reasoning of the window's oldest turns, one at a time, never
+the last 3; the older turns since the phase message; the engine.py listing appended after the phase message; the
+oldest commit turns one by one, never the last 5; the phase message's image; the phase message's text and the last
+3 turns are never touched, and a request still over
+after every step is sent as it is with a `warning`. A request the provider rejects as too long (an HTTP 400
+naming the context length) is retried once with one more shrink step, after the calibration's ceiling comes down
+to 0.9 of the figure in use (`context_overflow` record). `engine_re/tools/count_check.py` checks the counter
+against a run's reported `prompt_tokens`: on the v11 sp80 run (compact mode, before its first compaction, so the
+request is the conversation) the count is 1.5-2.3% under at turns 5-34 (21.9K-141.6K tokens); on the v12a-ls20
+fork's own rebuilt turns (101-199) 1.5-2.2% under (median -1.8%), where the calibrated estimate gives real/estimate
+median 1.001, 0.91-1.04, against 1.18-1.35 (median 1.26) for the earlier chars/3.5 estimate.
+
+A finished run can be forked at a turn and resumed from there with a changed harness
+(`engine_re/tools/fork_run.py`, the v12 experiments of `exp/v11-followups.md`): the fork is a copy of the
+game directory truncated to the state after turn T finished (the records the model had read by turn T + 1,
+the tests, the trace and the steps played, engine.py at its version of turn T with its versions, the
+committed engine with its support map regenerated, the pictures), with `result.json` "running" at turn T
+and `forked_from` (the source, the turn, the cost and minutes the source had spent there, which the fork
+does not count: its cost and minutes start at 0, the output tokens stay). `workspace/notes.md` starts
+over as the template and the marker `fork.json` makes the first resume's kernel replay apply the cells'
+edits to notes.md and the other workspace files (`helpers.REPLAY_FILES`), so they are rebuilt from the
+kept cells alone; files written by a cell that raises in the replay (because engine.py changed later) are
+not rebuilt. That first resume also regenerates the system message and the last PLAN or FIT message
+under the current code (`PlayAgent._fork_prompts`): a resume reuses the texts saved in the transcript, so a
+fork made to try a changed prompt would otherwise run the source's prompt character for character. The
+system message is rebuilt as a fresh run builds it (`prompts.system_prompt` with the run's settings), the
+phase message by `_enter_plan` (the last-batch sentence read back from the old message's "Game:" line, the
+current frame, the sprite list, notes.md) or `_enter_fit` (the same step, the verdict and batch of its
+record) over the restored state; each replaces the old one in its slot, with its turn and phase tags
+("message" records with `"replaces"`, which later rebuilds apply the same way), and a `fork_prompts`
+record logs the sizes (and, when the phase message could not be regenerated, the error: the old one then
+stands). `run_play --dry-resume` does everything a resume does up to the first request on a copy of
+each game directory, prints a summary (turn, step, phase, budget, tests of engine.py and the committed
+engine, the kernel replay and its names, the last message, notes.md; on a fork, whether the system and
+phase messages were regenerated, with the head of each) and exits without any model call.
+
+Guidance ported from the base harness's prompt (PLAY_DESIGN.md 3.11): the play system prompt has the colour
+legend and the actions' meanings in # Setup, the animation sentences in # Tests, and plan rules 7 and 10-13 (the
+game is solvable, levels build on earlier mechanics, no player assumed and no absolute-coordinate goals, prefer
+code over reasoning, `notes.md`); rules 8 and 9 (v12: being stuck means a missing or wrong rule; plan from the
+winning end states) are ours. An animated step has a digest (`engine_re/animation.py`,
+`StepView.animation`): its transient cells (changed and changed back, so in no frame the model can otherwise
+reach) and a diff timeline of its frames, printed in two lines by the test report and the step messages, and
+named in `commit_moves`' output for a matched move. `commit_moves` warns, without refusing, when the replica
+predicts a game over or raises at some move (`batch_log[i]["warnings"]`), and cuts a batch of two or more
+before its first predicted board no-op (the frame unchanged outside the screen-layer sprites; a single move
+goes as a probe). After a batch its output carries the budget line and what the batch changed on the board;
+the FIT message that follows a batch has the budget line too, and its report a sprite-by-sprite reconciliation
+of the replica's sprites with the game's frame (moved, recoloured, absent, or a piece no sprite draws). Each
+PLAN message shows `notes.md` (the model's goal model, open questions and plan; 40 lines at most; the file starts
+empty and the model writes its own headings, v11 follow-up 11), the replica's sprite list under the frame (the
+segmentation's pieces when out of step) and, after a solved level, the base's level-start paragraph followed by the
+level-start nudge (v11 follow-up 1, `prompts.level_kinds_text`): which of engine.py's pixel constants (read from the
+file's source by `auto_sprites.pixel_constants`, no code run) the new board's pieces match, by the matcher
+`pieces_after.code()` reuses them with (as they are, turned or mirrored, scaled, recoloured), and the pieces that
+match none ("The new board's pieces match these engine.py constants: BIN x3 (three turned 180), BLOCK x2, BAR,
+SOURCE, CAP; 2 pieces match none (16x1 light grey at (0, 0), 64x1 green screen piece at (0, 63)). Combine the
+constants into the new level's sprites and draw the rest from recording[-1].pieces_after.code()."); the FIT message
+of the step that solved the level carries the same paragraph. A python cell has 120 s; after a timeout the kernel restarts and the
+earlier cells are re-run in it, the message naming what was lost and what is back.
+
+```bash
+uv run --no-sync python -m engine_re.run_play --games sp80,ls20,ft09 --out runs/engine-play/<name> \
+  --model qwen/qwen3.8-flash --max-turns 300 --max-minutes 240 --max-cost 6 --max-actions 500 --batch-size 10
+```
+
+Tests: `uv run --no-sync pytest tests/test_play.py` (a scripted model on a two-level key game and a click game).
+
+The first run (sp80, ls20 and ft09, qwen3.8-flash, `runs/engine-play/qwen38flash-v10`) is written up in
+[exp/v10-play.md](../exp/v10-play.md): ft09 won in 77 actions, sp80 reached 2 of 6 levels, ls20 1 of 7.
+
 ## Run it
 
 From `ARC3-Inference/`, with `OPENROUTER_API_KEY` set and the game files in
@@ -448,6 +635,12 @@ uv run --no-sync python -m engine_re.evaluate runs/engine-re/<name> --engine bes
 
 # Inspect a session
 uv run --no-sync python -m engine_re.show_transcript runs/engine-re/<name>/<game>
+
+# Fork a finished play run at turn T, check the fork without a model call, then play 100 more turns
+uv run --no-sync python -m engine_re.tools.fork_run --src runs/engine-play/<run>/<game> --turn T \
+  --out runs/engine-play/<fork>/<game>
+uv run --no-sync python -m engine_re.run_play --games <game> --out runs/engine-play/<fork> --dry-resume
+uv run --no-sync python -m engine_re.run_play --games <game> --out runs/engine-play/<fork> --max-turns T+100 ...
 
 # Test an engine by hand, as the agent sees it (images saved as PNGs)
 uv run --no-sync python -m engine_re.tester ENGINE.py TRACE_DIR --failures 1 [--level L] [--images DIR]

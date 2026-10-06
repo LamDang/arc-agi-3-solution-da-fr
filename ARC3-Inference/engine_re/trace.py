@@ -18,6 +18,7 @@ Step 0 is always the RESET that starts the game.
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import os
@@ -183,6 +184,156 @@ def parse_action_label(label: str) -> Action:
     if text.startswith("ACTION") and text[6:].isdigit():
         return Action(int(text[6:]))
     raise ValueError(f"unrecognised action label {label!r}")
+
+
+def move_label(action: Action) -> str:
+    """The harness's label for an action: UP, DOWN, LEFT, RIGHT, SPACE, UNDO, RESET or MOUSE(row=r, col=c)
+    (the event logs' form, which parse_action_label reads back)."""
+    if action.id == 6:
+        return f"MOUSE(row={action.y}, col={action.x})"
+    return next((label for label, i in MODEL_LABELS.items() if i == action.id), ACTION_NAMES[action.id])
+
+
+def action_code(action: Any) -> str:
+    """An action as the code that builds the fixed block's Action: "Action(4)", "Action(6, x=12, y=40)",
+    "Action(0)" for RESET. It is how the kernel's Action prints (game_api.canonical) and how the play mode's
+    messages name moves, and commit_moves takes it back as it is (parse_move). The cell is left out: the harness
+    computes it for a click."""
+    aid = int(action.id)
+    x, y = getattr(action, "x", None), getattr(action, "y", None)
+    if aid == 6:
+        return f"Action(6, x={x}, y={y})"
+    if x or y:  # (a key with a position, which only code can make: shown, and ignored when sent)
+        return f"Action({aid}, x={x}, y={y})"
+    return f"Action({aid})"
+
+
+_ACTION_FIELDS = ("id", "x", "y", "cell")
+
+
+def _action_from_call(node: ast.Call, text: str) -> Action:
+    """The action a call Action(id, x=0, y=0, cell=None) builds, its arguments being literals (the printed form of
+    the fixed block's Action, its dataclass form Action(id=6, x=3, y=4, cell=(1, 2)) or the recorded action's
+    Action(id=1, x=None, y=None)). The cell is ignored: the harness computes it."""
+    if len(node.args) > len(_ACTION_FIELDS) or any(isinstance(a, ast.Starred) for a in node.args):
+        raise ValueError(f"not an action: {text!r}")
+    values: dict[str, Any] = {}
+    try:
+        for name, arg in zip(_ACTION_FIELDS, node.args):
+            values[name] = ast.literal_eval(arg)
+        for kw in node.keywords:
+            if kw.arg not in _ACTION_FIELDS or kw.arg in values:
+                raise ValueError(f"not an action: {text!r} (Action takes id, x, y and cell)")
+            values[kw.arg] = ast.literal_eval(kw.value)
+    except (ValueError, SyntaxError, TypeError) as exc:
+        raise ValueError(str(exc) if str(exc).startswith("not an action") else f"not an action: {text!r}") from None
+    aid = values.get("id")
+    if isinstance(aid, bool) or not isinstance(aid, int) or aid not in ACTION_NAMES:
+        raise ValueError(f"not an action: {text!r} (the id must be 0 RESET, 1-5, 6 click or 7)")
+    if aid != 6:
+        return Action(aid)
+    x, y = values.get("x"), values.get("y")
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in (x, y)):
+        raise ValueError(f"the click {text!r} needs its screen pixel: Action(6, x=12, y=40)")
+    return Action(6, x=int(x), y=int(y))
+
+
+def _call_node(text: str) -> ast.Call | None:
+    """The call `text` is when it is Action(...) (or module.Action(...)), else None."""
+    try:
+        node = ast.parse(text.strip(), mode="eval").body
+    except SyntaxError:
+        return None
+    if isinstance(node, ast.Call):
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+        if name == "Action":
+            return node
+    return None
+
+
+def parse_move(item: Any) -> Action:
+    """An action as the model gives it to commit_moves: the fixed block's Action as python prints it
+    ("Action(4)", "Action(6, x=12, y=40)", "Action(0)" for RESET; the dataclass form "Action(id=6, x=12,
+    y=40, cell=(1, 2))" too, its cell ignored) or an Action object, a label ("UP", "RESET", "ACTION3",
+    "MOUSE(row=46, col=12)"), an action id, a click as {"click": [x, y]}, {"x": x, "y": y},
+    {"action": "MOUSE", "row": r, "col": c}, (6, x, y) or "click 12 46" / "click(12, 46)" (x then y);
+    {"action": "UP"} or {"id": 1} for the others. Raises ValueError with the accepted forms otherwise."""
+    if isinstance(item, Action):
+        return item
+    if isinstance(item, bool):
+        raise ValueError(f"not an action: {item!r}")
+    if isinstance(item, int):
+        if item in ACTION_NAMES and item != 6:
+            return Action(item)
+        raise ValueError(f"action id {item} needs a click position: give Action(6, x=x, y=y)" if item == 6 else f"unknown action id {item}")
+    if not isinstance(item, (tuple, list, dict, str)) and isinstance(getattr(item, "id", None), int):  # the fixed block's Action
+        return parse_move(action_code(item))
+    if isinstance(item, (tuple, list)):
+        if len(item) == 3 and int(item[0]) == 6:
+            return Action(6, x=int(item[1]), y=int(item[2]))
+        if len(item) == 2 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in item):
+            return Action(6, x=int(item[0]), y=int(item[1]))
+        raise ValueError(f"not an action: {item!r} (a click is Action(6, x=x, y=y))")
+    if isinstance(item, dict):
+        if "click" in item:
+            x, y = item["click"]
+            return Action(6, x=int(x), y=int(y))
+        if "row" in item and "col" in item:
+            return Action(6, x=int(item["col"]), y=int(item["row"]))
+        if "x" in item and "y" in item and item.get("action", item.get("id", "MOUSE")) in ("MOUSE", "ACTION6", 6, "click"):
+            return Action(6, x=int(item["x"]), y=int(item["y"]))
+        if "action" in item:
+            return parse_move(item["action"])
+        if "id" in item:
+            return parse_move(int(item["id"]))
+        raise ValueError(f"not an action: {item!r}")
+    if isinstance(item, str):
+        text = item.strip()
+        call = _call_node(text)
+        if call is not None:
+            return _action_from_call(call, text)
+        match = re.fullmatch(r"(?:click|mouse)\s*\(?\s*(-?\d+)\s*[, ]\s*(-?\d+)\s*\)?", text, re.IGNORECASE)
+        if match:
+            return Action(6, x=int(match.group(1)), y=int(match.group(2)))
+        try:
+            return parse_action_label(text)
+        except ValueError:
+            pass
+        words = {"UP": 1, "DOWN": 2, "LEFT": 3, "RIGHT": 4, "SPACE": 5, "INTERACT": 5, "UNDO": 7, "RESET": 0}
+        if text.upper() in words:
+            return Action(words[text.upper()])
+        raise ValueError(
+            f"unrecognised action {item!r}: give an Action as python prints it, e.g. \"Action(4)\", \"Action(6, x=12, y=40)\" "
+            "(x the column, y the row, 0-63) or \"Action(0)\" for RESET, or a label: UP, DOWN, LEFT, RIGHT, SPACE, UNDO, RESET"
+        )
+    raise ValueError(f"not an action: {item!r}")
+
+
+def parse_moves(value: Any) -> list[Action]:
+    """The moves of commit_moves' `actions`: a list of moves (each one as parse_move takes it), or one string
+    holding a printed list of them, as python prints a list of Actions: "[Action(4), Action(6, x=12, y=40)]"
+    (labels and dicts may be in it too). Raises ValueError otherwise."""
+    if isinstance(value, (list, tuple)):
+        return [parse_move(item) for item in value]
+    if not isinstance(value, str):
+        raise ValueError(f"not a list of actions: {value!r}")
+    text = value.strip()
+    try:
+        node = ast.parse(text, mode="eval").body
+    except SyntaxError:
+        node = None
+    if not isinstance(node, (ast.List, ast.Tuple)):
+        return [parse_move(text)]
+    moves = []
+    for element in node.elts:
+        source = ast.get_source_segment(text, element) or ""
+        try:
+            item = source if isinstance(element, (ast.Call, ast.Name)) else ast.literal_eval(element)  # (a bare name: UP)
+        except ValueError:
+            raise ValueError(f"not an action: {source!r}") from None
+        moves.append(parse_move(item))
+    return moves
 
 
 def events_path(run_dir: Path, game: str, pass_index: int = 0) -> Path:

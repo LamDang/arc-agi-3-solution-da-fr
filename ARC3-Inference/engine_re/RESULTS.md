@@ -676,7 +676,7 @@ engine yourself, pull its run (for example
 `dvc pull runs/engine-re/results-v2-main.dvc`) and copy
 `runs/engine-re/results-<config>/<game>/engine_best.py` into a game directory.
 
-## Later experiments (v6-v9)
+## Later experiments (v6-v10)
 
 The stepwise harness (v6), sampling and reasoning effort (v7), frame pieces
 and a parsimony prompt (v8), two context condensers and the HUD-bar tolerance
@@ -685,3 +685,22 @@ commands, results and every run's DVC pointer are in
 [exp/README.md](../exp/README.md). Headline: with the v9 tolerance of one
 HUD-bar pixel at the frame border, the agent went from 20 to 65 of 120 lp85
 steps (v6c and v8: 20; v9: 65, for $0.36).
+
+v10, the play-and-model agent, plays a live game while it fits `engine.py`
+and plans its moves on that engine. It ran on sp80, ls20 and ft09, one
+sample each, with 300 turns per game ([exp/v10-play.md](../exp/v10-play.md),
+run `runs/engine-play/qwen38flash-v10`).
+
+- **ft09:** won in 77 actions, against the base play agent's 100 and a
+  human baseline of 208. It used 289,302 output tokens, $0.61 and 70
+  minutes, against the base agent's 101K, $0.13 and 31 minutes.
+- **sp80:** 2 of 6 levels against the base agent's 1, a score of 4.01
+  against 3.74.
+- **ls20:** 1 of 7 levels against the base agent's 5. The agent dropped a
+  correct unlock rule for a wrong one that also reproduced every step, and
+  the turn limit came first.
+
+Held-out, the engines match 24% of random steps on ft09, 89% on sp80 and
+100% on ls20. On ft09 most misses come from clicks off the tiles, which the
+agent never played and which cost nothing in the real game. With the HUD
+row masked out, ft09 matches 79%, and levels 0-3 match 100%.

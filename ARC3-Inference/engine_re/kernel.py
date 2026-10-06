@@ -1,6 +1,6 @@
 """The agent's persistent Python kernel.
 
-    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history]]
+    python -m engine_re.kernel WORKSPACE TRACE_DIR [--no-images] [--focus K [--history] [--play [--support FILE]]]
 
 Reads one JSON request per line on stdin ({"code": ...}), runs it in a
 namespace that persists between requests (a {"focus": k} request, from the stepwise harness, reloads
@@ -13,11 +13,15 @@ request (base64 PNG and caption), for the harness to attach.
 Two more requests. {"names": true} answers {"names": ["RING: list[20]", "cols: function", ...],
 "more": n}: what the model has defined in the namespace (not the preloaded built-ins, modules or
 dunders), each with a one-word summary, at most NAMES_SHOWN of them. {"replay": [{"turn": t, "code":
-...}, ...], "cell_seconds": 20, "total_seconds": 120} re-runs those cells in order after a restart
-(a resumed run, agent._resume_conversation) in replay mode: edit_file() and undo_edit() do nothing,
+...}, ...], "cell_seconds": 20, "total_seconds": 120, "files": false} re-runs those cells in order after a
+restart (a resumed run, agent._resume_conversation; a cell that timed out, agent._restart_kernel) in replay
+mode: edit_file() and undo_edit() do nothing,
 show_frames() makes no image, output is discarded, an exception ends only its cell, and each cell is
 cut after cell_seconds (SIGALRM), the whole replay after total_seconds; it answers {"replayed": n,
-"failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}.
+"failed": [{"turn", "error"}, ...], "skipped": m, "seconds": s}. With "files" true (a forked run, whose
+notes.md starts over: engine_re.tools.fork_run) edit_file() applies its edits to files other than
+engine.py, and once the total time is up the cells that write files are still run (each within
+cell_seconds), so notes.md is rebuilt whole; the others are skipped as usual.
 
 The kernel runs sandboxed (engine_re.guard): it can read the workspace and the
 trace, write only the workspace, and cannot start processes or open
@@ -40,6 +44,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import select
 import signal
 import subprocess
@@ -54,25 +59,33 @@ from engine_re.guard import sandbox_env
 
 MAX_OUTPUT_CHARS = 200_000
 NAMES_SHOWN = 40  # entries a {"names": true} answer lists before "... and N more"
+CELL_SECONDS = 120.0  # a python cell's time (KernelClient.timeout): past it the kernel is killed and restarted
 REPLAY_CELL_SECONDS = 20.0
 REPLAY_TOTAL_SECONDS = 120.0
 # What the namespace of the model's code starts with (besides np and the fixed-block classes): the built-in
-# functions, and `engine`, engine.py as it is now (helpers._EngineModule).
+# functions, and `replica`, engine.py (the model's replica of the game) as it is now (helpers._ReplicaModule).
 FUNCTIONS = ("read_file", "edit_file", "undo_edit", "render_state", "show_frames", "replay_step")
-PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels", "engine")
+PRELOADED = ("recording",) + FUNCTIONS + ("summarize_levels", "replica")
 # Names the model's code may not rebind: the built-ins, the recording and the fixed-block classes.
 RESERVED = PRELOADED + ("Sprite", "Action", "View", "State")
 # The stepwise harness (--focus K): `step_to_fix`, the step to fix, instead of the recording, and no
 # summarize_levels; with --history also `recording`, the recording so far (steps 0..K, all the trace on disk
 # holds, recording[K] being step_to_fix), and summarize_levels.
-PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("engine",)
+PRELOADED_STEP = ("step_to_fix",) + FUNCTIONS + ("replica",)
 RESERVED_STEP = PRELOADED_STEP + ("Sprite", "Action", "View", "State")
 PRELOADED_HISTORY = PRELOADED + ("step_to_fix",)
 RESERVED_HISTORY = PRELOADED_HISTORY + ("Sprite", "Action", "View", "State")
+# The play-and-model agent (--play, with --focus K --history): the recording so far plus state_now and click_cell
+# (moves are played by calling replica.step on copies of a State); read_file() shows the committed engine's support
+# map (--support FILE, readable) as a margin and as comments on the step code.
+PRELOADED_PLAY = PRELOADED_HISTORY + ("state_now", "click_cell")
+RESERVED_PLAY = PRELOADED_PLAY + ("Sprite", "Action", "View", "State")
 ENGINE_IMPORT_NOTE = (
-    "engine is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
-    "engine.step(...), engine.make_level(...) directly"
+    "replica is a built-in that always reflects the current engine.py (an import would go stale after an edit): use "
+    "replica.step(...), replica.make_level(...) directly"
 )
+# How code that imports engine.py is reported (as a binding of the built-in `replica`, which it would duplicate).
+_ENGINE_IMPORTS = ("import engine", "from engine import")
 
 
 def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> list[tuple[str, int, str]]:
@@ -93,12 +106,12 @@ def reserved_bindings(tree: ast.AST, reserved: tuple[str, ...] = RESERVED) -> li
         elif isinstance(node, ast.arg):
             hit(node.arg, node, f"a parameter named {node.arg}")
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            # Any import of the engine module is refused (that copy would go stale; `engine` is the built-in).
+            # Any import of engine.py is refused (that copy would go stale; `replica` is the built-in).
             if isinstance(node, ast.ImportFrom) and not node.level and (node.module or "").split(".")[0] == "engine":
-                hit("engine", node, "from engine import")
+                hit("replica", node, "from engine import")
             for alias in node.names:
                 if isinstance(node, ast.Import) and alias.name.split(".")[0] == "engine":
-                    hit("engine", node, f"import engine as {alias.asname}" if alias.asname else "import engine")
+                    hit("replica", node, f"import engine as {alias.asname}" if alias.asname else "import engine")
                 else:
                     bound = alias.asname or alias.name.split(".")[0]
                     hit(bound, node, f"import as {bound}")
@@ -121,7 +134,7 @@ def _reserved_error(found: list[tuple[str, int, str]], reserved: tuple[str, ...]
         f"Error: nothing was run. This code would replace the harness's built-in {names} ({where}).\n"
         f"These names are reserved: {', '.join(reserved)}. Give your own functions and variables other names.\n"
     )
-    if any(name == "engine" and how.startswith(("import", "from engine")) for name, _, how in found):
+    if any(name == "replica" and how.startswith(_ENGINE_IMPORTS) for name, _, how in found):
         text += ENGINE_IMPORT_NOTE + ".\n"
     return text
 
@@ -190,11 +203,23 @@ def user_names(namespace: dict[str, Any], preloaded: dict[str, Any], limit: int 
     return names[:limit], max(0, len(names) - limit)
 
 
+_WRITES_FILES = re.compile(r"edit_file\(\s*(path\s*=|['\"])|notes\.md|\.write_text\(|open\([^)]*,\s*(mode\s*=\s*)?['\"][wa]")
+
+
+def writes_files(code: str) -> bool:
+    """Whether a cell looks like it writes a workspace file (edit_file with a path, notes.md, write_text, open for
+    writing): the cells a replay with files on still runs once its total time is up."""
+    return bool(_WRITES_FILES.search(code))
+
+
 def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtins: dict[str, Any],
-                 cell_seconds: float = REPLAY_CELL_SECONDS, total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
+                 cell_seconds: float = REPLAY_CELL_SECONDS, total_seconds: float = REPLAY_TOTAL_SECONDS,
+                 files: bool = False) -> dict[str, Any]:
     """Re-run the model's earlier cells ({"turn", "code"}) in order, in replay mode (helpers.REPLAY: no edits,
     no images), output discarded, an exception ending only its cell, each cell cut after `cell_seconds` and
-    the whole replay after `total_seconds`. Returns the counts, the cells that raised and the seconds taken."""
+    the whole replay after `total_seconds`. `files` (helpers.REPLAY_FILES): edits to files other than engine.py
+    are applied, and the cells that write files (writes_files) run even after the total time is up. Returns
+    the counts, the cells that raised and the seconds taken."""
     from engine_re import helpers
 
     started = time.time()
@@ -206,16 +231,20 @@ def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtin
 
     previous = signal.signal(signal.SIGALRM, alarm)
     helpers.REPLAY = True
+    helpers.REPLAY_FILES = bool(files)
     try:
-        for i, cell in enumerate(cells):
+        for cell in cells:
+            code = str(cell.get("code") or "")
             remaining = total_seconds - (time.time() - started)
             if remaining <= 0:
-                skipped = len(cells) - i
-                break
+                if not (files and writes_files(code)):
+                    skipped += 1
+                    continue
+                remaining = cell_seconds  # (time is up: a file-writing cell still runs, within its own limit)
             status: dict[str, str] = {}
             signal.setitimer(signal.ITIMER_REAL, max(0.01, min(cell_seconds, remaining)))
             try:
-                _run(str(cell.get("code") or ""), namespace, builtins, status)
+                _run(code, namespace, builtins, status)
             except BaseException as exc:  # noqa: BLE001  (the alarm fired outside the cell's own handler)
                 status["error"] = f"{type(exc).__name__}: {exc}"[:200]
             finally:
@@ -224,6 +253,7 @@ def replay_cells(cells: list[dict[str, Any]], namespace: dict[str, Any], builtin
                 failed.append({"turn": cell.get("turn"), "error": status["error"]})
     finally:
         helpers.REPLAY = False
+        helpers.REPLAY_FILES = False
         helpers.take_shown()
         signal.signal(signal.SIGALRM, previous)
     return {"replayed": len(cells) - skipped, "failed": failed, "skipped": skipped, "seconds": round(time.time() - started, 2)}
@@ -234,6 +264,8 @@ def main() -> int:
     images = "--no-images" not in sys.argv[3:]
     focus = int(sys.argv[sys.argv.index("--focus") + 1]) if "--focus" in sys.argv[3:] else None
     history = "--history" in sys.argv[3:]
+    play = "--play" in sys.argv[3:]
+    support_file = Path(sys.argv[sys.argv.index("--support") + 1]).resolve() if "--support" in sys.argv[3:] else None
     import numpy as np
 
     import scipy.ndimage  # noqa: F401
@@ -244,13 +276,17 @@ def main() -> int:
     helpers.load_trace(Trace.load(trace_dir), focus)
     helpers.ENGINE_PATH = workspace / "engine.py"
     helpers.IMAGES = images
+    helpers.SUPPORT_PATH = support_file
     api = game_api.canonical()
     namespace: dict[str, Any] = {"__name__": "__main__", "np": np}
     namespace.update({name: getattr(api, name) for name in ("Sprite", "Action", "View", "State")})
     if focus is None:
         names, reserved = PRELOADED, RESERVED
     else:
-        names, reserved = (PRELOADED_HISTORY, RESERVED_HISTORY) if history else (PRELOADED_STEP, RESERVED_STEP)
+        if play:
+            names, reserved = PRELOADED_PLAY, RESERVED_PLAY
+        else:
+            names, reserved = (PRELOADED_HISTORY, RESERVED_HISTORY) if history else (PRELOADED_STEP, RESERVED_STEP)
         namespace["step_to_fix"] = helpers.recording[focus]
     namespace.update({name: getattr(helpers, name) for name in names if name != "step_to_fix"})
     builtins = {name: namespace[name] for name in reserved}
@@ -267,7 +303,8 @@ def main() -> int:
         return json.loads(reply) if reply else {"ok": False, "text": "the harness did not answer"}
 
     helpers._RPC = rpc
-    guard.install(read_roots=[str(trace_dir)], write_roots=[str(workspace)], protected=[str(workspace / "engine.py")])
+    guard.install(read_roots=[str(trace_dir)] + ([str(support_file)] if support_file else []), write_roots=[str(workspace)],
+                  protected=[str(workspace / "engine.py")])
 
     while True:
         line = sys.stdin.readline()
@@ -293,6 +330,7 @@ def main() -> int:
             result = replay_cells(
                 list(request["replay"] or []), namespace, builtins,
                 float(request.get("cell_seconds") or REPLAY_CELL_SECONDS), float(request.get("total_seconds") or REPLAY_TOTAL_SECONDS),
+                files=bool(request.get("files")),
             )
             protocol.write(json.dumps(result) + "\n")
             protocol.flush()
@@ -315,18 +353,22 @@ class KernelClient:
 
     editor: what applies edit_file()/undo_edit() (an engine_files.EngineEditor; by default one with
     versions in <workspace>/../engine_versions). After execute(), ``last_images`` holds what
-    show_frames() made: a list of (PNG bytes, caption)."""
+    show_frames() made: a list of (PNG bytes, caption); ``last_names`` is the kernel's names() listing,
+    refreshed after every cell that ran, so the names a restart lost are known; ``restarted`` says why the
+    kernel was restarted during the last request ("timeout", "crash", "protocol"), None when it was not."""
 
     def __init__(
         self,
         workspace: Path,
         trace_dir: Path,
-        timeout: float = 120.0,
+        timeout: float = CELL_SECONDS,
         editor: Any = None,
         images: bool = True,
         log: Callable[[dict], None] | None = None,
         focus: int | None = None,
         history: bool = False,
+        play: bool = False,
+        support: Path | None = None,
     ):
         from engine_re.engine_files import EngineEditor
 
@@ -336,16 +378,23 @@ class KernelClient:
         self.images = images
         self.focus = focus
         self.history = history
-        self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log)
+        self.play = play
+        self.support = Path(support).resolve() if support else None  # the committed engine's support map (play mode)
+        self.editor = editor or EngineEditor(self.workspace / "engine.py", self.workspace.parent / "engine_versions", self.workspace.parent, log,
+                                             support=self.support)
         self.proc: subprocess.Popen | None = None
         self.last_images: list[tuple[bytes, str]] = []
+        self.last_names: tuple[list[str], int] = ([], 0)
+        self.restarted: str | None = None
 
     def start(self) -> None:
         cmd = [sys.executable, "-m", "engine_re.kernel", str(self.workspace), str(self.trace_dir)]
         if not self.images:
             cmd.append("--no-images")
         if self.focus is not None:
-            cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else [])
+            cmd += ["--focus", str(self.focus)] + (["--history"] if self.history else []) + (["--play"] if self.play else [])
+            if self.play and self.support is not None:
+                cmd += ["--support", str(self.support)]
         self.proc = subprocess.Popen(
             cmd,
             cwd=self.workspace,
@@ -377,22 +426,32 @@ class KernelClient:
         except (BrokenPipeError, OSError):
             self.stop()
 
-    def stop(self) -> None:
+    def stop(self, reason: str | None = None) -> None:
+        """Kill the kernel; `reason` ("timeout", "crash", "protocol") marks a restart the caller should report."""
         if self.proc is not None:
             self.proc.kill()
             self.proc.wait()
             self.proc = None
+        if reason:
+            self.restarted = reason
+            self.last_names = ([], 0)
 
     def execute(self, code: str) -> str:
+        """Run a cell; the output, or the error text when the kernel died or timed out (then `restarted` says
+        why and `last_names` still lists what the kernel held before this cell)."""
         self.last_images = []
+        self.restarted = None
+        before = self.last_names
         message = self._request({"code": code}, self.timeout)
         if "error" in message:
+            self.last_names = before  # (what the restart lost; the caller reads it, then replays)
             return message["error"]
         for item in message.get("images") or []:
             try:
                 self.last_images.append((base64.b64decode(item["png"]), str(item.get("caption", ""))))
             except (KeyError, ValueError, TypeError):
                 continue
+        self.last_names = self.names()
         return message.get("output", "")
 
     def names(self) -> tuple[list[str], int]:
@@ -402,16 +461,20 @@ class KernelClient:
         return list(message.get("names") or []), int(message.get("more") or 0)
 
     def replay(self, cells: list[dict[str, Any]], cell_seconds: float = REPLAY_CELL_SECONDS,
-               total_seconds: float = REPLAY_TOTAL_SECONDS) -> dict[str, Any]:
-        """Re-run earlier python cells ({"turn", "code"}) in the kernel's replay mode (see the module). Returns
+               total_seconds: float = REPLAY_TOTAL_SECONDS, files: bool = False) -> dict[str, Any]:
+        """Re-run earlier python cells ({"turn", "code"}) in the kernel's replay mode (see the module; `files`: the
+        edits to files other than engine.py are applied, for a fork whose notes.md starts over). Returns
         {"replayed", "failed": [{"turn", "error"}], "skipped", "seconds"}; "error" says why when the kernel
         could not do it."""
         if not cells:
             return {"replayed": 0, "failed": [], "skipped": 0, "seconds": 0.0}
-        request = {"replay": cells, "cell_seconds": cell_seconds, "total_seconds": total_seconds}
-        message = self._request(request, total_seconds + max(30.0, cell_seconds))
+        request = {"replay": cells, "cell_seconds": cell_seconds, "total_seconds": total_seconds, "files": bool(files)}
+        # (with files on, the file-writing cells may run after the total time: each within cell_seconds)
+        extra = sum(cell_seconds for c in cells if writes_files(str(c.get("code") or ""))) if files else 0.0
+        message = self._request(request, total_seconds + extra + max(30.0, cell_seconds))
         if "error" in message:
             return {"replayed": 0, "failed": [], "skipped": len(cells), "seconds": 0.0, "error": message["error"]}
+        self.last_names = self.names()
         return message
 
     def _request(self, request: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -424,24 +487,24 @@ class KernelClient:
             self.proc.stdin.write(json.dumps(request) + "\n")
             self.proc.stdin.flush()
         except BrokenPipeError:
-            self.stop()
+            self.stop("crash")
             return {"error": "The Python kernel had died; it was restarted and all variables were lost. Run your code again."}
         deadline = time.time() + timeout
         while True:
             ready, _, _ = select.select([self.proc.stdout], [], [], max(0.0, deadline - time.time()))
             if not ready:
-                self.stop()
+                self.stop("timeout")
                 return {"error": f"Timed out after {timeout:g}s. The kernel was restarted and all variables were lost."}
             line = self.proc.stdout.readline()
             if not line:
                 log = self.workspace.parent / "kernel_stderr.log"
                 tail = log.read_text(encoding="utf-8", errors="replace")[-1500:] if log.exists() else ""
-                self.stop()
+                self.stop("crash")
                 return {"error": tail + "\nThe Python kernel crashed (out of memory or a fatal error); it was restarted and all variables were lost."}
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
-                self.stop()
+                self.stop("protocol")
                 return {"error": "Kernel protocol error; the kernel was restarted and all variables were lost."}
             if "rpc" in message:
                 reply = self.editor.handle(message["rpc"])

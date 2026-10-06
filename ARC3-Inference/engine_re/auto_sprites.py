@@ -44,6 +44,7 @@ colour is the border colour (so its edge cannot be seen), the largest one.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 from collections import Counter
 from dataclasses import dataclass, field
@@ -303,6 +304,49 @@ def shape_name(rows: tuple[str, ...]) -> str:
     colours = sorted({ch for row in rows for ch in row if ch != "."}, key=lambda ch: int(ch, 16))
     digest = hashlib.sha1("\n".join(rows).encode()).hexdigest()[:4]
     return f"SHAPE_{'_'.join(str(int(ch, 16)) for ch in colours)}_{len(rows[0])}x{len(rows)}_{digest}"
+
+
+def pixel_constants(source: str) -> dict[str, object]:
+    """engine.py's module-level pixel constants read from its source without running it: every top-level
+    `NAME = <literal>` (one target, not starting with "_") whose value is a tuple or list literal of strings or of
+    rows of numbers (negative ones allowed), or such a literal times an int (`("...",) * 3`, as sprite_code writes
+    a repeated row), kept when as_shape reads it as a pixel array. A constant built any other way (a comprehension,
+    a call) is not seen; the kernel's Pieces.code() loads the module instead and sees them all."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return {}
+
+    def literal(node: ast.AST) -> object:
+        if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)) and not isinstance(node.value, bool):
+            return node.value
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant) \
+                and isinstance(node.operand.value, int):
+            return -node.operand.value
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return [literal(e) for e in node.elts]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+            left, right = literal(node.left), literal(node.right)
+            if isinstance(left, list) and isinstance(right, int) and 0 < right <= 64:
+                return left * right
+            if isinstance(right, list) and isinstance(left, int) and 0 < left <= 64:
+                return right * left
+        raise ValueError("not a pixel literal")
+
+    found: dict[str, object] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        name = node.targets[0].id
+        if name.startswith("_"):
+            continue
+        try:
+            value = literal(node.value)
+        except (ValueError, RecursionError):
+            continue
+        if isinstance(value, list) and as_shape(value) is not None:
+            found[name] = value
+    return found
 
 
 def _describe_shape(rows: tuple[str, ...], count: int, screen: bool) -> str:

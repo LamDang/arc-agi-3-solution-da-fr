@@ -48,7 +48,21 @@ except ImportError:
 NIBBLES = "ZPMQVRWSNKTXJBYH"
 HASH_CHARS = 3
 _ANCHOR_RE = re.compile(r"^([0-9]+)\s*#\s*([^\s:]+)(?:\s*:(.*))?$", re.S)
-_DISPLAY_PREFIX_RE = re.compile(rf"^\s*\+?\s*(?:\d+\s*#\s*|#\s*)[{NIBBLES}]{{2,4}}:")
+# A read_file() line ("12#ABC:"), with the support margin in front when it has one ("  41| 12#ABC:", "new| ").
+_DISPLAY_PREFIX_RE = re.compile(rf"^\s*(?:(?:\d+|new|·)?\s*\|\s*)?\+?\s*(?:\d+\s*#\s*|#\s*)[{NIBBLES}]{{2,4}}:")
+MARGIN_WIDTH = 4  # the support margin's width (engine_re.support.margins: a count, "new", "·" or blank)
+MARGIN_NOTE = ("[left of each line: its support, how many recorded steps ran it (0: untested; new: changed since your "
+               "last commit; blank: not run by steps); after each line of step() and the functions it calls, a "
+               "`# support (n): ...` comment naming the last five steps that ran it, newest first: the harness's, not "
+               "the file's]")
+# A support comment as render_read appends it (engine_re.support.comment_text): "  # support (31): 42, 41 and 29
+# other", "  # support (0): untested", "  # support: new". Never part of the file: an edit that pastes one loses it.
+SUPPORT_COMMENT_RE = re.compile(r"[ \t]*# support(?: \(\d+\): [^\n]*|: new)$")
+
+
+def strip_support_comments(text: str) -> str:
+    """`text` without the support comments read_file() appends (pasted back into an edit, they are not content)."""
+    return "\n".join(SUPPORT_COMMENT_RE.sub("", line) for line in text.split("\n"))
 _SIGNIFICANT_RE = re.compile(r"\w")
 _KEYS = {"op", "pos", "end", "lines", "oldText", "newText", "name"}
 _OPS = ("replace", "append", "prepend", "replace_text", "replace_def")
@@ -77,6 +91,13 @@ def line_hash(lines: list[str], index: int, width: int = HASH_CHARS) -> str:
     return "".join(NIBBLES[(h >> (4 * k)) & 15] for k in reversed(range(width)))
 
 
+def text_hash(line: str, width: int = 6) -> str:
+    """The hash of one line's own text (not its neighbours, unlike line_hash), in the anchors' alphabet: what the
+    support map keys lines by, so a line that only moved keeps its key (engine_re.support)."""
+    h = _digest(_norm(line).encode("utf-8"))
+    return "".join(NIBBLES[(h >> (4 * k)) & 15] for k in reversed(range(width)))
+
+
 def split_lines(text: str) -> tuple[list[str], bool]:
     """The visible lines of a text and whether it ends with a newline."""
     text = text.replace("\r\n", "\n")
@@ -98,11 +119,14 @@ def anchor(lines: list[str], line: int) -> str:
     return f"{line}#{line_hash(lines, line - 1)}"
 
 
-def format_lines(lines: list[str], start: int, end: int, width: int | None = None) -> list[str]:
-    """Lines start..end (1-based, inclusive, clipped to the file) as 'LINE#HASH:content'."""
+def format_lines(lines: list[str], start: int, end: int, width: int | None = None, comments: dict[int, str] | None = None) -> list[str]:
+    """Lines start..end (1-based, inclusive, clipped to the file) as 'LINE#HASH:content'; `comments` (line -> a
+    support comment, engine_re.support.comments) are appended after two spaces."""
     start, end = max(1, start), min(len(lines), end)
     width = width or len(str(end))
-    return [f"{n:>{width}}#{line_hash(lines, n - 1)}:{lines[n - 1]}" for n in range(start, end + 1)]
+    comments = comments or {}
+    return [f"{n:>{width}}#{line_hash(lines, n - 1)}:{lines[n - 1]}" + (f"  {comments[n]}" if n in comments else "")
+            for n in range(start, end + 1)]
 
 
 def render_read(
@@ -112,10 +136,15 @@ def render_read(
     max_chars: int = 6000,
     fold: tuple[int, int] | None = None,
     name: str = "engine.py",
+    margin: dict[int, str] | None = None,
+    comments: dict[int, str] | None = None,
 ) -> str:
     """What read_file() prints: the lines with anchors, from `offset` (1-based) for `limit` lines, cut to
     about `max_chars` characters with the offset to continue from. With `fold` (first, last line of
-    the FIXED block) and no offset, the block's inner lines are folded into one note."""
+    the FIXED block) and no offset, the block's inner lines are folded into one note. `margin`: a label per
+    line (engine_re.support.margins), printed in front of it as "  41| "; the listing then starts with
+    MARGIN_NOTE. `comments`: a trailing comment per line (engine_re.support.comments: the support of the step
+    code), appended after two spaces."""
     lines, _ = split_lines(text)
     total = len(lines)
     if not total:
@@ -128,19 +157,22 @@ def render_read(
         return f"Offset {start} is beyond the end of {name} ({total} lines). Use offset=1 to read from the start."
     end = min(total, start - 1 + limit) if limit else total
     width = len(str(end))
-    out: list[str] = []
-    size = 0
+    out: list[str] = [MARGIN_NOTE] if margin is not None else []
+    size = len(out[0]) + 1 if out else 0
     n = start
     folded = fold if offset is None and fold and fold[1] - fold[0] > 1 else None
+    pad = f"{'':>{MARGIN_WIDTH}}  " if margin is not None else ""
     while n <= end:
         if folded and n == folded[0] + 1:
-            note = (f"{'':>{width}}  [lines {folded[0] + 1}-{folded[1] - 1}: the FIXED block, folded; it cannot be edited. "
+            note = (f"{pad}{'':>{width}}  [lines {folded[0] + 1}-{folded[1] - 1}: the FIXED block, folded; it cannot be edited. "
                     f"read_file(offset={folded[0] + 1}, limit={folded[1] - folded[0] - 1}) shows it]")
             out.append(note)
             size += len(note) + 1
             n = folded[1]
             continue
-        line = format_lines(lines, n, n, width)[0]
+        line = format_lines(lines, n, n, width, comments)[0]
+        if margin is not None:
+            line = f"{margin.get(n, ''):>{MARGIN_WIDTH}}| {line}"
         if out and size + len(line) + 1 > max_chars:
             out.append(f"\n[Showing lines {start}-{n - 1} of {total}. Use offset={n} to continue.]")
             return "\n".join(out)
@@ -168,7 +200,7 @@ class Anchor:
 def parse_anchor(ref: object) -> Anchor:
     if not isinstance(ref, str):
         raise EditError(f'[E_BAD_REF] An anchor must be a string like "12#MQV", got {ref!r}.')
-    core = re.sub(r"^\s*[>+-]*\s*", "", ref).rstrip()
+    core = re.sub(r"^\s*(?:(?:\d+|new|·)?\s*\|\s*)?[>+-]*\s*", "", ref).rstrip()  # a support margin ("41| ") is dropped
     match = _ANCHOR_RE.match(core)
     if not match:
         if re.fullmatch(r"\d+", core):
@@ -183,7 +215,8 @@ def parse_anchor(ref: object) -> Anchor:
 
 
 def _as_lines(value: object, index: int) -> list[str]:
-    """`lines` given as a list of strings or as one string (split on newlines)."""
+    """`lines` given as a list of strings or as one string (split on newlines); a support comment copied from
+    read_file() output is dropped (it is the harness's, not content)."""
     if isinstance(value, str):
         text = value.replace("\r\n", "\n")
         if text.endswith("\n"):
@@ -193,6 +226,7 @@ def _as_lines(value: object, index: int) -> list[str]:
         out = [part for v in value for part in v.replace("\r\n", "\n").split("\n")]
     else:
         raise EditError(f'[E_BAD_OP] Edit {index}: "lines" must be a list of strings or one string.')
+    out = [SUPPORT_COMMENT_RE.sub("", line) for line in out]
     for line in out:
         if _DISPLAY_PREFIX_RE.match(line):
             raise EditError(
@@ -376,7 +410,7 @@ def _validate(edits: object) -> list[dict]:
                 raise EditError(f'[E_BAD_OP] Edit {index}: replace_text takes only string "oldText" and "newText".')
             if not old.strip():
                 raise EditError(f"[E_BAD_OP] Edit {index}: replace_text needs a non-empty oldText.")
-            item.update(old=old.replace("\r\n", "\n"), new=new.replace("\r\n", "\n"))
+            item.update(old=strip_support_comments(old.replace("\r\n", "\n")), new=strip_support_comments(new.replace("\r\n", "\n")))
             out.append(item)
             continue
         if "oldText" in edit or "newText" in edit:
@@ -697,9 +731,10 @@ def _failure_messages(failures: list[_Failure], lines: list[str], shift) -> list
     return out
 
 
-def fresh_anchors(text: str, regions: list[tuple[int, int]], max_lines: int = ANCHOR_LINES) -> list[str]:
+def fresh_anchors(text: str, regions: list[tuple[int, int]], max_lines: int = ANCHOR_LINES,
+                  comments: dict[int, str] | None = None) -> list[str]:
     """Anchors around each changed region of the new text: the region with one line of context when
-    it has at most `max_lines` lines, else its first and last lines with context."""
+    it has at most `max_lines` lines, else its first and last lines with context. `comments`: as render_read."""
     lines, _ = split_lines(text)
     total = len(lines)
     if not total:
@@ -708,14 +743,14 @@ def fresh_anchors(text: str, regions: list[tuple[int, int]], max_lines: int = AN
     for first, last in regions:
         if last < first:  # a deletion: the lines around the gap
             a, b = max(1, first - 1), min(total, first)
-            out += format_lines(lines, a, b) + ["   ..."]
+            out += format_lines(lines, a, b, comments=comments) + ["   ..."]
             continue
         a, b = max(1, first - 1), min(total, last + 1)
         if last - first + 1 <= max_lines:
-            out += format_lines(lines, a, b)
+            out += format_lines(lines, a, b, comments=comments)
         else:
-            out += format_lines(lines, a, min(total, first + 1))
+            out += format_lines(lines, a, min(total, first + 1), comments=comments)
             out.append(f"   ... ({last - first - 3} more new lines) ...")
-            out += format_lines(lines, max(1, last - 1), b)
+            out += format_lines(lines, max(1, last - 1), b, comments=comments)
         out.append("   ...")
     return out[:-1] if out and out[-1] == "   ..." else out

@@ -18,6 +18,10 @@ environment_files/
 !**/runs/engine-re/
 **/runs/engine-re/*
 !**/runs/engine-re/*.dvc
+# engine_re play runs (the play-and-model agent): one DVC pointer per run in runs/engine-play/.
+!**/runs/engine-play/
+**/runs/engine-play/*
+!**/runs/engine-play/*.dvc
 
 # Node (figure tooling, if reintroduced)
 node_modules/

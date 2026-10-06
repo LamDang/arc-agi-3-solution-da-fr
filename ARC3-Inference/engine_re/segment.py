@@ -26,7 +26,9 @@ from typing import Any, Callable
 import numpy as np
 
 from engine_re import game_api
-from engine_re.auto_sprites import COLOR_NAMES, GridGuess, Placement, SpriteCode, guess_grid, plan_sprites, sprite_code
+from engine_re.auto_sprites import (
+    COLOR_NAMES, HEX, GridGuess, Placement, SpriteCode, guess_grid, plan_sprites, shape_name, sprite_code,
+)
 
 _API = game_api.canonical()
 KINDS = ("moved", "recoloured", "reshaped", "appeared", "disappeared")
@@ -54,12 +56,39 @@ def _colour_text(colour: int) -> str:
     return f"{colour} ({COLOR_NAMES.get(colour, '?')})"
 
 
+def own_shape(p: Any) -> str:
+    """The stable name of a piece's own pixels as drawn (auto_sprites.shape_name): its `shape` when it is drawn as it
+    is; a piece drawn from another shape turned, mirrored, scaled or recoloured (a `transform`) is named after its
+    own pixels, so a 6x6 orange piece drawn from SHAPE_9_3x3_710a scaled 2 and recoloured is a SHAPE_12_6x6_...: a
+    piece is described by what it looks like, never by the constant it was drawn from (v11 follow-up 8)."""
+    shape = getattr(p, "shape", "") or ""
+    if getattr(p, "role", "object") != "object" or not getattr(p, "transform", None):
+        return shape
+    px = _drawn(p)
+    if not px.size:
+        return shape
+    return shape_name(tuple("".join("." if v < 0 else HEX[v] for v in row) for row in px.tolist()))
+
+
+def _transform_text(p: Any) -> str:
+    """'SHAPE_9_3x3_710a scale=2, recolour={9: 12}': the constant a piece is drawn from and how; "" when none."""
+    transform = getattr(p, "transform", None)
+    if not transform:
+        return ""
+    return f"{getattr(p, 'shape', '')} " + ", ".join(f"{k}={v}" for k, v in transform.items())
+
+
 def _label(p: Any) -> str:
-    """'SHAPE_9_2x2_7cf8', 'screen piece SHAPE_14_1x31_ee7b', 'the border', 'the background'."""
+    """'SHAPE_9_2x2_7cf8', 'screen piece SHAPE_14_1x31_ee7b', 'the border', 'the background'; a piece drawn from
+    another shape is its own shape with that in brackets: 'SHAPE_12_6x6_56c3 (SHAPE_9_3x3_710a scale=2, recolour={9: 12})'."""
     role = getattr(p, "role", "object")
     if role in ("border", "background"):
         return f"the {role}"
-    return ("screen piece " if p.screen else "") + (getattr(p, "shape", "") or "piece")
+    name = own_shape(p) or "piece"
+    drawn_from = _transform_text(p)
+    if drawn_from:
+        name += f" ({drawn_from})"
+    return ("screen piece " if p.screen else "") + name
 
 
 class Pieces(list):
@@ -95,12 +124,12 @@ class Pieces(list):
         lines = [f"{len(self)} pieces on a {g.width}x{g.height} grid at scale {g.scale}, offset ({g.x_offset}, {g.y_offset}) "
                  "(x, y, size in grid cells; in screen pixels for screen pieces):"]
         for i, p in enumerate(self):
-            name = p.role if p.role != "object" else _label(p)
+            name = p.role if p.role != "object" else ("screen piece " if p.screen else "") + (own_shape(p) or "piece")
             text = f"  [{i}] {name}  colour {_colour_text(p.colour)}  {p.width}x{p.height} at ({p.x}, {p.y})"
             if p.role == "object":
                 text += f", {_amount(p.size, p.screen)}"
             if p.transform:
-                text += "  " + ", ".join(f"{k}={v}" for k, v in p.transform.items())
+                text += "  drawn from " + _transform_text(p)
             if p.children and p.role == "object":
                 text += f"  encloses {p.children}"
             lines.append(text)
@@ -434,14 +463,14 @@ def summary(found: list[Change], limit: int = 12) -> str:
         elif c.kind == "reshaped":
             key = (c.kind, id(c))
         else:
-            key = (c.kind, getattr(p, "shape", ""), p.colour, p.screen)
+            key = (c.kind, own_shape(p), p.colour, p.screen)
         groups.setdefault(key, []).append(c)
     lines = []
     for key, group in groups.items():
         kind, n = key[0], len(group)
         first = group[0].after if group[0].after is not None else group[0].before
         screen = " screen" if first.screen else ""
-        shapes = sorted({getattr(c.after if c.after is not None else c.before, "shape", "") for c in group})
+        shapes = sorted({own_shape(c.after if c.after is not None else c.before) for c in group})
         shape_text = shapes[0] if len(shapes) == 1 else f"{len(shapes)} shapes"
         if kind == "moved":
             head = f"{n} moved by ({group[0].dx:+d}, {group[0].dy:+d}){screen} ({shape_text}): "
