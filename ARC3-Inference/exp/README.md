@@ -183,6 +183,7 @@ the run directory holds every game. All numbers come from each game's
 | [v12 A sp80](v12-forks.md) | v12 A: v11 forked at turn 180, rebuilt context | `2518e9e`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 280 --max-actions 500 --batch-size 10` | turn limit | 28.6 | 3/6 | 58 | 280 (181-280 forked) | 59 / 59 of 59 | 68.6 | $0.675 | 6.41M | 46% | 222,268 | 185,199 | 3 | `v12a-sp80-t180` |
 | [v12 A ls20](v12-forks.md) | v12 A: v11 forked at turn 100, rebuilt context | `2518e9e`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 200 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 112 | 200 (101-200 forked) | 112 / 112 of 113 | 38.1 | $0.556 | 5.31M | 44% | 152,444 | 124,680 | 4 | `v12a-ls20-t100` |
 | [v12 B ls20](v12-forks.md) | v12 B: v11 forked at turn 148, v12 messages and harness (v11's system prompt) | `ea685ec`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 248 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 161 | 248 (149-248 forked) | 161 / 6 of 162 | 44.7 | $0.816 | 21.89M | 86% | 133,456 | 101,539 | 5 | `v12b-ls20-t148` |
+| [v12 B rerun ls20](v12-forks.md) | v12 B rerun: v11 forked at turn 148, v12 messages, harness and system prompt | `aa11286`~ | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 248 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 237 | 248 (149-248 forked) | 228 / 238 of 238 | 36.7 | $0.849 | 23.22M | 86% | 100,178 | 73,384 | 8 | `v12b2-ls20-t148` |
 
 Headline: the loop won ft09 in 77 actions, against the base agent's 100 and
 a human baseline of 208. It cost 2.9 times the base agent's output tokens
@@ -210,4 +211,7 @@ against 21; ls20 solved level 1 as v11 did. Cost fell only 19% and 29%, as the
 cached share dropped to 44-46%. B reached the patch that recolours ls20's
 legend at turn 245 and step 161 (v11: 287 and 210); neither solved level 2 in
 the window. B ran on v11's system prompt, so its v12 plan rules were not
-tested.
+tested. The B rerun (`aa11286`~, inferred from its start time, on this branch)
+sent the v12 system prompt: it stated the colour rule at turn 181, covered the
+patch at turn 236 (step 226, 148 level-2 actions) and ended with the colour lock
+committed and 21 presses of a 31-press finish unsent.

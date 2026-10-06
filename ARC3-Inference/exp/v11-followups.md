@@ -361,3 +361,15 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     "phase": {kind, chars_before, chars_after | error}}}`; the replacements are "message" records with
     `"replaces"`, applied in place by later rebuilds. On the ls20 fork at 148: 34,325 -> 35,106 chars,
     "Every game is solvable" now in it; `--dry-resume` prints both heads.
+37. **Plan rule numbering.** `_PLAY_PLAN_RULES` (prompts.py) numbers its rules 1-6 and then 5-11 after
+    the v12 insertions. Renumber.
+38. **Turns left during fit rounds.** The budget line appears in PLAN messages and, since v12, after
+    a batch; in a long fit round the model does not see the turns left (the B rerun believed it had 4
+    turns left at turn 248 of 248). Add the turns-left count to the FIT message's budget line and to
+    the auto-test append when the round runs past 5 turns.
+39. **Probe the untouched object at the first refusal.** The B rerun cited the solvable rule at turn
+    181 and stated the real hypothesis (the patch recolours the legend), then chose to test "all
+    rings" first; it touched the patch at turn 236. The rule's "touch what you have not touched"
+    clause should come first in the refusal case: at a refused move, list the board objects never
+    touched (from the recording's segmentation: pieces whose cells the player never overlapped) in
+    the FIT or PLAN message.

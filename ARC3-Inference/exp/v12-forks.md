@@ -224,6 +224,7 @@ longer fit rounds. The cache share fell from 82-88% to 44-46%, so cost fell less
 
 B reached the patch 42 turns and 49 actions earlier than v11. It did so without the v12 colour and
 "solvable" rules. Its "the game is solvable" is v11's plan rule 5, which v11 also cited (turn 269).
+The [B rerun](#b-rerun-the-v12-system-prompt-actually-sent) sends them.
 
 ### The new texts
 
@@ -245,7 +246,8 @@ B reached the patch 42 turns and 49 actions earlier than v11. It did so without 
 
 - **Forks must carry the harness under test.** Write the current system prompt into the fork at
   resume, and fork at the FIT message that opens a level (or regenerate the last phase message), so
-  the first round runs on the new text (35). Rerun B before judging its plan rules.
+  the first round runs on the new text (35). Done (36); B was rerun with its plan rules: see
+  [B rerun](#b-rerun-the-v12-system-prompt-actually-sent).
 - **Count the rebuilt request with the model's tokenizer** instead of chars / 3.5 (33): the
   estimate ran 16-26% low. The A branch now does this (`0971b7e`).
 - **Keep what the window drops** (34): the kernel's user names with the turn that defined each,
@@ -279,3 +281,100 @@ B reached the patch 42 turns and 49 actions earlier than v11. It did so without 
   resumes at turns 159 and 172 (minutes count only the time the agent ran).
 - **Code**: `2518e9e` (A) and `ea685ec` (B), inferred from the start times; both unmerged, and the
   A branch has changed since.
+
+## B rerun: the v12 system prompt actually sent
+
+B was run again from the same cut (ls20, turn 148, step 78, `--max-turns 248`, the B commands with
+`v12b2-ls20-t148` as the directory) on `aa11286`~ (this branch; inferred from the start time, 15:16
+UTC), which adds the fork resume of follow-ups 35 and 36. The `fork_prompts` record shows the
+system prompt rebuilt (34,325 -> 35,106 characters, now with plan rules 6 "Every game is solvable", 7
+"enumerate the winning end states" and 9's "may involve colour as well as shape and rotation") and
+the last PLAN message regenerated (20,010 -> 26,776 characters). Its sprite list now gives colours
+(`692d361`): `"room_shape" ... colour 9 (blue)`, `"legend_shape" ... colour 12 (orange)`, `"multi" ...
+multi (8 red, 9 blue)`. The first plan round (149-150) therefore ran on v12 text throughout. Same
+model, sampling and limits; one analyzer retry, no harness traceback.
+
+| window | levels (start -> end) | actions | at the end | turns plan / fit | output tokens | cost | minutes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **B rerun** t149-248 | 2 -> 2 | 159 | step 237, level 2: 159 actions | 32 / 68 | 100,178 | $0.849 | 36.7 |
+| B t149-248 | 2 -> 2 | 83 | step 161, level 2: 83 actions | 27 / 73 | 133,456 | $0.816 | 44.7 |
+| v11 t149-248 | 2 -> 2 | 37 | step 115, level 2: 37 actions | 15 / 85 | 185,396 | $0.870 | 53.4 |
+| v11 t249-300 | 2 -> 2 | 116 | step 231, level 2: 153 actions | 33 / 19 | 48,479 | $0.393 | 21.8 |
+
+The turn limit ended it at 2/7 (10.7), 237 actions, 159 of them on level 2 (`summary.md`); the
+committed engine replays all 238 steps.
+
+| after the fork | B rerun | B | v11 t149-248 | v11 t249-300 |
+| --- | --- | --- | --- | --- |
+| batches sent (refused) | 22 (1) | 12 (0) | 8 (2) | 13 (0) |
+| mismatches (of them predicted solves) | 9 (3) | 6 (4) | 5 | 3 |
+| `commit_engine` calls | 8 | 5 | 5 | 2 |
+| plan nudges / kernel timeouts / NameError turns | 0 / 0 / 0 | 1 / 0 / 0 | 0 / 1 / 1 | 2 / 0 / 0 |
+| `read_file` calls (of them as a tool call) | 7 (0) | 5 (0) | 10 (0) | 3 (0) |
+| RESETs | 2 | 2 | 0 | 2 |
+| prompt tokens; cached | 23.22M; 86.2% | 21.89M; 86.3% | 21.66M; 85.0% | 14.37M; 92.7% |
+| largest prompt (turn); median | 290,228 (248); 228,104 | 266,209 (248); 220,954 | 256,062 (232); 225,767 | 296,762 (300); 280,773 |
+
+The refused batch (turn 227) was sent in a fit round, before step 208 was fixed.
+
+### Where the 159 level-2 actions went
+
+| steps | presses | what |
+| --- | --- | --- |
+| 79-100 | 22 | v11's route; the conveyor (86-87); press 100 found the bar empty and was **lost**: a pip, block back at the start (the note assumed an empty bar was allowed, as in level 1) |
+| 101-133 | 33 | a 33-press route, refused at 133: legend matched in shape, one ring still on the board |
+| 134-135 | 2 | a deliberate lost press instead of a RESET; it **rolled the whole level back** (rings, legend), which the replica missed |
+| 136-164 | 29 | the legend condition dropped by Occam (200-202); a rings-only route, the single press at 164 refused (both rings taken, legend not matched) |
+| 165-208 | 44 | RESET, a 43-press route meeting both conditions, refused at 208 |
+| 209-227 | 19 | RESET, a route through the patch: covered at step 226 (turn 236), legend 12 -> 9; step 227 showed the patch stays |
+| 228-237 | 10 | the first 10 presses of a 31-press finish |
+
+### The path to the patch, against B and v11
+
+| | v11 | B | B rerun |
+| --- | --- | --- | --- |
+| first refused entry, legend matched in shape | turn 168, step 111 | turn 175, step 105 | turn 173, step 133 |
+| colour raised as part of the match | 185, dismissed 188 | 178, "That can't be (the game is solvable)" | 181: the same words, then "the multi object cycles the legend's colour" (H2) |
+| what was tested instead | invented boards, "2 columns left" | "every ring" (178-208) | "all rings" (H1, "more parsimonious", 187), refused at steps 164 and 208 |
+| the patch as the key | 263-271 | 212-218 | 181-187 (as the "cheapest single probe"), then 222-232 ("the one object no step has ever touched") |
+| patch covered, legend recoloured | turn 287, step 210 | turn 245, step 161 | **turn 236, step 226** |
+| colour in the win rule | 298-299 | 248 (reasoning; the edit unfinished) | 240 (one of two readings), engine edit 246, committed 248 |
+| level-2 actions at the patch | 132 | 83 | 148 |
+
+The FIT message at step 226 reconciled the colour (`#8 "legend_shape" 6x6 colour 12 (orange): yours
+colour 12; the game shows it colour 9 (blue) at the same place`), and the model read it as a recolour
+at once (237), where v11 read 12->9 as a rotation. Step 227 showed the patch is not consumed. At
+244-246 it rewrote the lock as `v["dial"] != d["room_rot"] or v["leg_col"] != 9` (refused unless the
+legend shows the room's pattern in blue) and the rings as refills only; a search at 247 found a
+31-press finish (level 2 at 180 actions). Turn 248 committed that engine with its first batch, 10
+presses matched (steps 228-237), and the window ended 21 presses short. The model counted "Turns:
+244 now -> 4 more turns" at turn 248: fit-round outputs do not repeat the turn count, and the last
+one it had read was 243.
+
+### The new texts
+
+| text | used by the model |
+| --- | --- |
+| rule 6, every game is solvable | turn 181, as intended: a colour lock that can never match "can't be", so something must recolour the legend. Also twice of a dead-end state (154, 210) |
+| rule 6, touch what you have not touched | paraphrased at 222-232, after the third refusal; B reached the same words at 212 without it |
+| rule 7, end states first | never; the end cell is known on ls20, and BFS over moves sufficed |
+| rule 9, colour in a comparison | the H2 hypothesis at 181 and the rule at 240-246; the recolour was never taken for a rotation |
+| sprite list with colours (all 22 PLAN messages) | never cited by name; the replica already drew the legend orange (`legend_col=12`) |
+| sprite reconciliation (6 of 9 FIT messages; the 3 refused room entries had none) | quoted at 237 ("the legend color shifts from orange to blue") |
+
+**Verdict.** The plan rules changed the reasoning, not yet the play. At the first refusal the
+rerun stated the real rule (pattern and colour, the patch recolours the legend) at turn 181, 33
+turns before B and over 100 before v11. It then tested the rings first, citing parsimony and a
+budget that made the patch-first route need a lost press, and spent 3 refusals, 2 RESETs and 2 lost
+presses (148 level-2 actions against B's 83) before covering the patch at turn 236, 9 turns earlier
+than B. It ended with the right lock committed and 21 presses to go, already above the human
+baseline (159 against 73). What is still missing:
+
+- **Test the untouched object first.** Rule 6 fires only "when stuck"; after one refusal the model
+  preferred adding a condition on known objects (Occam, plan rule 5 and fit rule 2) to a probe of the
+  one object never touched. Say that a refused goal is the moment to touch the untouched.
+- **Turns left in fit rounds**: repeat the turn count in tool outputs, or warn when fewer turns
+  remain than the planned batches.
+- **Prompt numbering**: `_PLAY_PLAN_RULES` (prompts.py) continues at "5." after rule 6, so the plan
+  rules read 1-6, 5-11.
+- n = 1 at temperature 0.7: the lost press at step 100 and the order of the tests are samples.
