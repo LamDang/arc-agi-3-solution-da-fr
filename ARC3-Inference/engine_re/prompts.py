@@ -22,12 +22,15 @@ playing a live game, with plan rounds (plan_message, the commit_moves tool) and 
 from __future__ import annotations
 
 import copy
+import json
 import textwrap
+
+import numpy as np
 
 from engine_re import segment
 from engine_re import animation  # the ported animation digest
 from engine_re.diff_report import COLOR_NAMES
-from engine_re.kernel import PRELOADED, PRELOADED_HISTORY, PRELOADED_PLAY, PRELOADED_STEP
+from engine_re.kernel import CELL_SECONDS, PRELOADED, PRELOADED_HISTORY, PRELOADED_PLAY, PRELOADED_STEP
 from engine_re.tester import MAX_FAILURES, _ranges as _tester_ranges
 from engine_re.trace import Trace, action_code
 
@@ -426,11 +429,6 @@ To play moves on your replica, call it directly on copies of a State: s = copy.d
     replica.make_level(n), and after s.status == "level_solved" the next level is replica.make_level(n + 1).
     render_state(s) draws a State and show_frames(...) shows it. Searching over moves (a BFS calling
     replica.step on copies) is a short function in python: write it when the level needs it.
-traced() -> TracedRun  `with traced() as run:` around code that steps your replica records the lines of engine.py
-    it runs (state_now() is not counted); afterwards run.weakest is the least support among them (0: untested or
-    new), run.untested, run.thin and run.new list lines, run.unseparated the and/or conditions it relied on that
-    no step separated. Rank candidate plans by it: run each inside its own traced() block.
-support(run=None) -> None  prints the last traced() block's summary (or run's).
 """
 
 # replay_step's level argument, as the modes whose run_tests has `level` describe it, and as the play mode does.
@@ -466,12 +464,14 @@ def objects_reference(mode: str = "single", history: bool = True, images: bool =
 _PYTHON = """Run Python in a kernel that is persistent for the whole run: every variable, function and import you
 define stays until the run ends, so define helpers and data once and reuse them instead of retyping them.
 Prints what your code prints plus the value of the last expression. Long output is cut, so print compact
-summaries or small crops, never whole frames. Preloaded: np (numpy), the engine classes Sprite, Action,
-View, State, and
+summaries or small crops, never whole frames. A cell has __CELL_SECONDS__ s: a longer one is killed and the kernel
+restarts without your variables (the harness then re-runs your earlier cells, not the one that timed out),
+so bound searches by time (time.time()) and keep the best result so far in a variable you print.
+Preloaded: np (numpy), the engine classes Sprite, Action, View, State, and
   __NAMES__
 The system prompt's # Objects section documents each of them (fields, signatures, return values). These
 names are reserved: code that defines or assigns any of them is rejected before it runs. engine.py
-changes only through edit_file() and undo_edit() called here."""
+changes only through edit_file() and undo_edit() called here.""".replace("__CELL_SECONDS__", f"{CELL_SECONDS:g}")
 
 _RUN_TESTS = """Run the contract tests, then replay the recording in order: from step 0, or from the start of level L
 (make_level(L)) when level=L is given. Stops after `failures` failing steps (1 to 10, default 1).
@@ -930,10 +930,14 @@ The harness records which lines of engine.py each step runs. A line's support is
 far that ran it: 0 is untested (a guess no step has checked), fewer than 3 is thin. A condition `A and B` is
 separated when some step had A true and B false and some step had A false (`A or B`: each part true on some
 step); a compound never separated cannot be told from a simpler rule by the steps so far. You see it in the margin
-of read_file() and of the engine listing (the count left of each line; new: changed since your last commit), in
+of read_file() and of the engine listing (the count left of each line; new: changed since your last commit) and,
+on every line of step() and of the functions it calls, in a trailing comment the harness adds to the listing:
+`# support (31): 42, 41, 39, 37, 36 and 26 other` is how many steps ran the line and the last five of them, newest
+first; `# support (0): untested` a line no step ran; `# support: new` a line changed since the map was made.
+These comments are not in the file (edit_file drops them from anything you paste). You also see it in
 commit_moves' output (each move's weakest line, e.g. "first to run lines 512-518"), in the fit message and the
-test report (the failing step's untested and thin lines), in the plan message (thin rules on your last batch's
-path, and the outcome rules), and in python with traced(). Trust these counts over comments in engine.py.
+test report (the failing step's untested and thin lines), and in the plan message (thin rules on your last batch's
+path, and the outcome rules). Trust these counts over comments of your own in engine.py.
 
 __OBJECTS__
 # How to work
@@ -1033,27 +1037,38 @@ _PLAY_ANIMATION_AFTER = "  did. When the game animated an action, only its last 
 
 # STEP_VERIFICATION_ADDENDUM (the game is solvable), LEVEL_TRANSFER_SYSTEM_GUIDANCE, VISUAL_GAME_ADDENDUM (a scene, no
 # player assumed, no absolute-coordinate goals), PREFER_TOOL_CALLS_LINE, and the memory sections Goal model, Open
-# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 5-9, before the fit rules.
+# questions and Plan (tool_agent._MEMORY_SECTION_MEANINGS) kept in notes.md: plan rules 5, 8-11, before the fit rules.
+# Rules 6 (being stuck means a missing or wrong rule), 7 (plan from the end state) and the colour sentence of rule 9
+# are the v12 additions (exp/v11-followups.md 21, 16, 14).
 NOTES_FILE = "notes.md"
 _PLAY_PLAN_RULES = """5. If your search finds no solution under your current model of the game, remember that the game is solvable.
    Reconsider your mechanics, goal, search implementation, or search limits, including interactions with new
    elements. Take a targeted action to test an uncertain rule or overlooked interaction, then update your model
    from the result. A plan far above the human baseline the plan message shows, or no plan at all, means your
    replica is missing a rule, not that the level is hard.
-6. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
+6. Every game is solvable. When you are stuck (no plan, a plan far above the human baseline, or the same refusal
+   twice), you are probably missing a rule or one of your written rules is wrong: explore more of the game's
+   mechanics (touch what you have not touched, repeat a refused move under a changed condition) rather than
+   searching harder on the rules you have.
+7. When the goal is a configuration of the board, enumerate the winning end states from your rules first (often a
+   few lines over the replica's State), then plan the route to the nearest one; search over moves only when the
+   end state is unknown.
+8. Levels usually build on mechanics learned in earlier levels, especially the most recent one. The rules in
    engine.py carry them forward: they are your starting hypothesis on a new level, while you re-check anything
-   contradicted by new evidence. New levels often introduce additional mechanics, sometimes through unfamiliar
-   board elements. These additions are often important for solving the level. The goal may remain the same but
-   require new mechanics to reach it, or the goal itself may change.
-7. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
+   contradicted by new evidence. New levels often introduce additional mechanics, sometimes through an unfamiliar
+   board element or a visual change. These additions are often important for solving the level. The goal may
+   remain the same but require new mechanics to reach it, or the goal itself may change.
+9. Treat each board as a scene with objects, blockers, targets, adjacency, containment, motion, and symmetry.
    Some games are logic or layout puzzles with no explicit player avatar or controllable sprite on the board. Do
    not assume a player exists; the relevant state may be an object, region, cursor, selector, or whole-board
    configuration. Use coordinates only to target actions or describe local evidence. Do not frame the objective
-   as reaching a specific absolute row or column.
-8. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
+   as reaching a specific absolute row or column. A comparison the game makes (a piece against a legend, a key
+   against a lock, a pattern against a target) may involve colour as well as shape and rotation; "recoloured" in
+   an object diff is a change in its own right, not a rotation.
+10. Reading and computing cost nothing; only commit_moves spends the level budget. When you are unsure, prefer
    another python call over more reasoning: the code answers what the reasoning would only guess at, and running
    it is faster than thinking your way to the same answer.
-9. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
+11. engine.py holds the rules (what the objects are, what each action does). Keep what is not code in notes.md, in
    the workspace, under three headings: Goal model: what winning requires. Open questions: unresolved hypotheses.
    Plan: intended next steps. Change it with edit_file(path="notes.md", edits=[...]) (read_file("notes.md") gives
    its anchors); every plan message shows it. Older parts of this conversation will eventually be dropped, so
@@ -1230,14 +1245,15 @@ Work out the next moves on your replica, then {send}"""
 
 def mismatch_message(
     trace: Trace, k: int, verdict: str, dropped: int, report: str, engine_read: str = "", kernel_names: str = "",
-    auto_reset: bool = True, engine_note: str = "", predicted: bool = True, support_note: str = "",
+    auto_reset: bool = True, engine_note: str = "", predicted: bool = True, support_note: str = "", budget_line: str = "",
 ) -> str:
     """The FIT message after a move went differently from the replica's prediction: step k (the last step
     played), what differed (`verdict`, one line), how many moves of the batch were not sent, what the step
     changed piece by piece, the test report (the comparison, with its picture), engine.py and the task.
     `predicted` False: no prediction was made (a step played out of step, or found when a run resumed); the
     replica as it is now does not reproduce step k. `support_note`: what the move's prediction rested on
-    (support.mismatch_support_text)."""
+    (support.mismatch_support_text). `budget_line`: the play agent's budget and state line, given after a batch
+    (under the "Step k:" line)."""
     s = trace.steps[k]
     level = trace.steps[k - 1].levels_completed if k > 0 else 0
     notes = []
@@ -1258,7 +1274,7 @@ def mismatch_message(
     title = f"step {k} did not go as your replica predicted" if predicted else f"your replica does not reproduce step {k}"
     return f"""Fix your replica: {title}.
 
-Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.{animation_note(trace, k, report)}
+Step {k}: {move_text(s.action)}, played in level {level}; the game returned {s.n_frames} frame(s), the tests compare the last.{animation_note(trace, k, report)}{(chr(10) + budget_line) if budget_line else ""}
 What differed: {verdict}. {before}.{left}{(" " + " ".join(notes)) if notes else ""}{(chr(10) + engine_note) if engine_note else ""}{(chr(10) + "Support: " + support_note + ".") if support_note else ""}
 `recording` now holds steps 0-{k}, and `step_to_fix` is step {k} (recording[-1]).
 
@@ -1269,6 +1285,130 @@ The test report:
 {report.strip()}
 {(chr(10) + kernel_names) if kernel_names else ""}{(chr(10) + engine_block(engine_read) + chr(10)) if engine_read else ""}
 Fix step {k}{keep}; commit_engine(message) when the tests pass, then plan the next moves."""
+
+
+# --- After a batch: what it changed on the board (the segmentation's change summary) and the no-op cut ----------
+
+BATCH_CHANGES_LINES = 12  # lines of the change summary commit_moves' output shows at most
+
+
+def batch_changes_text(trace: Trace, first: int, last: int, limit: int = BATCH_CHANGES_LINES) -> str:
+    """"What the batch changed on the board (steps a -> b):" and the segmentation's change summary from the frame
+    before step `first` to step `last`'s frame; "" when the frames are equal, the batch entered another level (the
+    next message shows the new board), or the segmentation cannot read the frames."""
+    if last < first or first < 1:
+        return ""
+    steps = trace.steps
+    before, after = steps[first - 1], steps[last]
+    if before.last is None or after.last is None or np.array_equal(before.last, after.last):
+        return ""
+    if segment.shown_level(trace, last) != segment.shown_level(trace, first - 1):
+        return ""
+    try:
+        seg = segment.Segmenter(trace, last)
+        found = segment.changes(seg.pieces(first - 1), seg.pieces(last))
+        text = segment.summary(found, limit)
+    except Exception as exc:  # noqa: BLE001  (a frame the segmentation cannot read must not stop the run)
+        return f"What the batch changed on the board (steps {first - 1} -> {last}): not available ({type(exc).__name__}: {exc})."
+    return (f"What the batch changed on the board (steps {first - 1} -> {last}; x, y in the screen grid, recording[k].changes "
+            "has each step):\n" + "\n".join("  " + line for line in text.splitlines()))
+
+
+NOOP_CUT = ("[harness] Moves {first}-{last} not sent: your replica predicts move {first} ({action}) changes nothing on the "
+            "board; a probe of that rule goes as a batch of one.")
+NOOP_REFUSED = ("Not sent: your replica predicts move 1 ({action}) changes nothing on the board, so the batch was cut before "
+                "it and nothing was sent; a probe of that rule goes as a batch of one.")
+RAISE_WARNING = ("[harness] Warning: your replica raises at move {k} ({action}): {error}; the batch is sent as it is and a "
+                 "mismatch there opens a fit round.")
+
+
+def noop_cut_text(first: int, last: int, action) -> str:
+    """The note when a batch is cut before its first predicted board no-op, move `first` (1-based) of `last`."""
+    if first == 1:
+        return NOOP_REFUSED.format(action=action_code(action))
+    return NOOP_CUT.format(first=first, last=last, action=action_code(action))
+
+
+# --- The PLAN message's sprite list under the frame (24) ----------------------------------------------------
+
+SPRITES_HEAD = "Your replica's sprites now (state_now().sprites; x, y in the engine's grid), vars={vars}:"
+PIECES_HEAD = "The game's current frame segmented (recording[-1].pieces_after; screen grid):"
+
+
+def sprite_list_text(summary: dict) -> str:
+    """The replica's sprites from a game_api.state_summary, one line each: "[i] name tags=[...] WxH at (x, y) layer L"
+    plus rot=90, mirror_ud, mirror_lr, scale=2, hidden, inert (not collidable) and screen when they apply, under
+    SPRITES_HEAD with the state's vars."""
+    vars_text = ", ".join(f"{k!r}: {v}" for k, v in (summary.get("vars") or {}).items())
+    lines = [SPRITES_HEAD.format(vars="{" + vars_text + "}")]
+    for i, e in enumerate(summary.get("sprites") or []):
+        tags = "[" + ", ".join(repr(str(t)) for t in e.get("tags") or []) + "]"
+        name = json.dumps(str(e.get("name", "")))
+        parts = [f"[{i}] {name} tags={tags} {e.get('w')}x{e.get('h')} at ({e.get('x')}, {e.get('y')}) layer {e.get('layer')}"]
+        if e.get("rotation", 0):
+            parts.append(f"rot={e['rotation']}")
+        for flag in ("mirror_ud", "mirror_lr"):
+            if e.get(flag):
+                parts.append(flag)
+        if e.get("scale", 1) != 1:
+            parts.append(f"scale={e['scale']}")
+        if e.get("visible") is not True:
+            parts.append("hidden")
+        if e.get("collidable") is not True:
+            parts.append("inert")
+        if e.get("screen") is True:
+            parts.append("screen")
+        lines.append("  " + " ".join(parts))
+    return "\n".join(lines)
+
+
+def pieces_list_text(trace: Trace) -> str:
+    """The segmentation of the game's current frame (recording[-1].pieces_after), for a PLAN message whose replica
+    is out of step with the game; "" when the segmentation cannot read the frame."""
+    try:
+        pieces = segment.Segmenter(trace).pieces(len(trace.steps) - 1)
+    except Exception:  # noqa: BLE001
+        return ""
+    return PIECES_HEAD + "\n" + "\n".join("  " + line for line in str(pieces).splitlines())
+
+
+# --- The kernel restarted after a timeout (18, 26): what was lost, what is back ------------------------------
+
+RESTART_NOTE = (
+    "[harness] {why} Lost: {lost}. The cell that {what} (starting `{head}`) was not re-run: bound searches by "
+    "time (time.time()) and keep the best result so far in a variable you print. The harness built-ins and `recording` "
+    "are back. {replay}\n{names}"
+)
+RESTART_WHY = {
+    "timeout": "This cell ran longer than {seconds:g} s, so it was killed and the kernel was restarted.",
+    "crash": "This cell crashed the kernel (out of memory or a fatal error), so the kernel was restarted.",
+    "protocol": "This cell broke the kernel's protocol, so the kernel was restarted.",
+}
+RESTART_REPLAYED = ("Your earlier {n} python cell{s} were re-run in order with file edits disabled, so what they defined "
+                    "is back{failed}{skipped}.")
+RESTART_NONE = "There were no earlier python cells to re-run."
+
+
+def restart_note(reason: str, seconds: float, lost: tuple[list[str], int], head: str, replay: dict, names: str) -> str:
+    """The note appended to a python output after the kernel was restarted: why (`reason`: "timeout", "crash" or
+    "protocol"), the names the kernel held before the cell (`lost`: a names() listing), the cell's first line
+    (`head`), the replay of the earlier cells (KernelClient.replay's result) and the kernel's names now (`names`:
+    kernel_names_text)."""
+    shown, more = lost
+    lost_text = (", ".join(shown) + (f", ... and {more} more" if more else "")) if shown else "nothing you had defined (the kernel held no names of yours)"
+    if shown:
+        lost_text += f" ({len(shown) + more} name{'s' if len(shown) + more != 1 else ''})"
+    n = int(replay.get("replayed") or 0)
+    if not n and not replay.get("skipped"):
+        replayed = RESTART_NONE
+    else:
+        turns = sorted({int(f["turn"]) for f in replay.get("failed") or [] if f.get("turn") is not None})
+        failed = f"; cells that raised when re-run: turn{'s' if len(turns) > 1 else ''} {', '.join(map(str, turns))}" if turns else ""
+        skipped = f"; the last {replay['skipped']} cell(s) were not re-run (the replay's time ran out)" if replay.get("skipped") else ""
+        replayed = RESTART_REPLAYED.format(n=n, s="" if n == 1 else "s", failed=failed, skipped=skipped)
+    what = "timed out" if reason == "timeout" else "crashed the kernel" if reason == "crash" else "broke the kernel"
+    why = RESTART_WHY.get(reason, RESTART_WHY["crash"]).format(seconds=seconds)
+    return RESTART_NOTE.format(why=why, lost=lost_text, what=what, head=head, replay=replayed, names=names)
 
 
 def batch_lines(trace: Trace, first: int, outcomes: list[dict]) -> list[str]:
@@ -1319,56 +1459,21 @@ def animation_note(trace: Trace, k: int, report: str = "") -> str:
 LEVEL_START_PLAY = """You have completed the previous level. recording[-1].after now contains the starting board of the next level; __SHOWN__.
 Build a new plan for this layout rather than continuing the previous level's action sequence.
 Start from the mechanics you established on the previous level (the rules in engine.py); do not rediscover them without
-reason. Inspect the new board for unfamiliar elements, changed arrangements, or interactions your previous understanding
-does not explain. New elements often introduce mechanics needed to solve this level, so prioritize small, informative
-tests when their behavior is unclear.
+reason. Inspect the new board for an unfamiliar element, a visual change (a colour, a frame, a legend), a changed
+arrangement, or interactions your previous understanding does not explain. New elements and visual changes often
+introduce mechanics needed to solve this level, so prioritize small, informative tests when their behavior is unclear.
 Reassess the goal: does the previous objective still apply, now requiring the new mechanics, or does the evidence suggest
 a different objective? Combine retained knowledge with new findings to plan for this board."""
-UNFAMILIAR_SHOWN = 8  # pieces listed as the new level's unfamiliar elements
-UNFAMILIAR_FRAMES = 24  # frames of the previous level whose shapes are compared (distinct ones, evenly spaced)
-
-
-def unfamiliar_pieces(trace: Trace, limit: int = UNFAMILIAR_SHOWN) -> tuple[int, list[str], int] | None:
-    """The pieces of the last step's frame (a new level's first frame) whose shape names occur in none of the previous
-    level's frames: (that level, one line per piece, at most `limit`, how many more); None when the segmentation fails."""
-    steps = trace.steps
-    n = len(steps)
-    try:
-        seg = segment.Segmenter(trace)
-        previous = segment.shown_level(trace, n - 2)
-        frames: dict[bytes, int] = {}
-        for i in range(n - 1):
-            if steps[i].last is not None and steps[i].state != "WIN" and segment.shown_level(trace, i) == previous:
-                frames.setdefault(steps[i].last.tobytes(), i)
-        chosen = sorted(frames.values())
-        if len(chosen) > UNFAMILIAR_FRAMES:
-            chosen = [chosen[round(j * (len(chosen) - 1) / (UNFAMILIAR_FRAMES - 1))] for j in range(UNFAMILIAR_FRAMES)]
-        known = {p.shape for i in chosen for p in seg.pieces(i) if p.role == "object"}
-        new = [(j, p) for j, p in enumerate(seg.pieces(n - 1)) if p.role == "object" and p.shape not in known]
-    except Exception:  # noqa: BLE001  (a frame the segmentation cannot read must not stop the run)
-        return None
-    lines = [f"[{j}] {p.shape}, colour {p.colour} ({COLOR_NAMES.get(p.colour, '?')}), {p.width}x{p.height} at ({p.x}, {p.y})"
-             + (" (a screen piece)" if p.screen else "") for j, p in new[:limit]]
-    return previous, lines, max(0, len(new) - limit)
 
 
 def level_start_text(trace: Trace, images: bool = True) -> str:
-    """LEVEL_START_PLAY and the new board's unfamiliar elements when the last step played entered a new level (it
-    solved one and the game goes on); "" otherwise."""
+    """LEVEL_START_PLAY when the last step played entered a new level (it solved one and the game goes on); ""
+    otherwise. (The board's sprites come with the frame: the play agent's sprite list, sprite_list_text.)"""
     steps = trace.steps
     if len(steps) < 2 or steps[-1].levels_completed <= steps[-2].levels_completed or steps[-1].state == "WIN":
         return ""
     shown = "the image below shows this new board" if images else "show_frames(recording[-1].after) shows this new board"
-    text = LEVEL_START_PLAY.replace("__SHOWN__", shown)
-    found = unfamiliar_pieces(trace)
-    if found is None:
-        return text
-    previous, lines, more = found
-    if not lines:
-        return text + f"\nEvery piece of the new board (recording[-1].pieces_after) has a shape seen in level {previous}'s frames."
-    head = (f"Unfamiliar elements to test first: the pieces of the new board (recording[-1].pieces_after; x, y in grid cells) whose "
-            f"shapes occur in none of level {previous}'s frames:")
-    return text + "\n" + head + "\n" + "\n".join("  " + line for line in lines) + (f"\n  ... and {more} more" if more else "")
+    return LEVEL_START_PLAY.replace("__SHOWN__", shown)
 
 
 PLAN_NOTES_LINES = 40  # lines of notes.md a PLAN message shows
