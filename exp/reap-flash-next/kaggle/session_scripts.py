@@ -9,14 +9,17 @@ with `python3 -u SCRIPT > LOG 2>&1`:
   then starts dfranzen's SGLang launcher on it (Python 3.12 venv, expert-map
   patch, --max-running-requests 28, 168 state slots, mem fraction 0.93) and
   exits once the server is ready; the server keeps running.
+- serve_full.py: the same for the unpruned model with dfranzen's 10
+  requests and 60 state slots (mem fraction 0.93), for a same-day baseline.
 - bench_streams.py: serve_bench.batch_test at 10, 16, 20 and 28 streams
   against that server; pick_streams.py writes the stream count with the most
   decode throughput among those that fit (no retractions or errors, cache
   hit >= 0.9) to /kaggle/working/streams.txt.
 - games.py: dfranzen's harness cells (patch, environment, benchmark, run)
   without his server launcher, against the running server, with
-  ARC3_MAX_ACTIVE_STREAMS from streams.txt (else --streams), the chosen
-  games and passes. Output in
+  ARC3_MAX_ACTIVE_STREAMS from $GAMES_STREAMS, else streams.txt, else
+  --streams; output in /kaggle/working/$GAMES_DIR (default games); the
+  chosen games and passes. Output in
   /kaggle/working/games.
 
 Code (prune_checkpoint.py, serve_bench.py, analyze.py) is expected in
@@ -47,11 +50,14 @@ SERVED_MODEL_HOST, SERVED_MODEL_PORT = "127.0.0.1", 8001
 CODE_DIR = Path("/kaggle/working/code")
 KEEP = __KEEP__
 PRUNED = f"/tmp/flash-next-pruned-{KEEP}-calib"
-if not Path(PRUNED, "keep.json").exists():  # keep.json is written last
+if KEEP >= 512:
+    PRUNED = MODEL_DIR
+elif not Path(PRUNED, "keep.json").exists():  # keep.json is written last
     subprocess.run([sys.executable, str(CODE_DIR / "prune_checkpoint.py"), "--model-dir", MODEL_DIR,
                     "--stats-dir", "/kaggle/working/reap/calib", "--keep", str(KEEP), "--out", PRUNED,
                     "--criterion", "gate_norm"], check=True)
-shutil.copy(Path(PRUNED) / "keep.json", WORKING_DIR / f"keep_{KEEP}_calib.json")
+if KEEP < 512:
+    shutil.copy(Path(PRUNED) / "keep.json", WORKING_DIR / f"keep_{KEEP}_calib.json")
 MODEL_DIR = PRUNED
 '''
 
@@ -122,15 +128,19 @@ def games_script(nb: dict, run: dict) -> str:
     # streams.txt (written by pick_streams.py from the benchmark) overrides --streams
     env = push_games._patch(env, "'ARC3_MAX_ACTIVE_STREAMS': 10,",
                             f"'ARC3_MAX_ACTIVE_STREAMS': STREAMS,")
-    env = "from pathlib import Path as _P\n" + (
-        f"STREAMS = int(_P('/kaggle/working/streams.txt').read_text()) if _P('/kaggle/working/streams.txt').exists() "
-        f"else {run['streams']}\nprint('active streams:', STREAMS, flush=True)\n") + env
+    env = "import os as _os\nfrom pathlib import Path as _P\n" + (
+        "STREAMS = int(_os.environ['GAMES_STREAMS']) if 'GAMES_STREAMS' in _os.environ else "
+        f"(int(_P('/kaggle/working/streams.txt').read_text()) if _P('/kaggle/working/streams.txt').exists() "
+        f"else {run['streams']})\nGAMES_DIR = _os.environ.get('GAMES_DIR', 'games')\n"
+        "print('active streams:', STREAMS, 'output:', GAMES_DIR, flush=True)\n") + env
     assert "!" not in "".join(l.lstrip()[:1] for l in env.splitlines()), "shell magic left in the setup cell"
     out += [env, f"PRUNED_RUN = {json.dumps(run)}", "PRUNED_RUN['streams'] = STREAMS",
+            "PRUNED_RUN['keep'] = int(_os.environ.get('GAMES_KEEP', PRUNED_RUN['keep']))",
             "PLAY_GAMES = PRUNED_RUN['play']",
             "EXCLUDED_GAMES = [g for g in PRUNED_RUN['all_games'] if g not in PLAY_GAMES]",
             install, sources]
-    load = push_games._patch(load, "bm.job_dir = WORKING_DIR", "bm.job_dir = WORKING_DIR / 'games'\nbm.job_dir.mkdir(exist_ok=True)")
+    load = push_games._patch(load, "bm.job_dir = WORKING_DIR", "bm.job_dir = WORKING_DIR / GAMES_DIR\nbm.job_dir.mkdir(exist_ok=True)\n"
+                             "(bm.job_dir / 'run_settings.json').write_text(json.dumps(PRUNED_RUN))")
     custom = push_games._patch(custom, "bm.n_passes = 4\n", "bm.n_passes = PRUNED_RUN['passes']\n")
     custom = push_games._patch(custom, "demo_excluded_games = [] if TRUE_SUBMISSION else []",
                                "demo_excluded_games = [] if TRUE_SUBMISSION else EXCLUDED_GAMES")
@@ -170,6 +180,10 @@ def main():
     serve = (SERVE_HEAD.replace("__PATHS__", paths).replace("__KEEP__", str(args.keep)) + "\n" + precache + "\n"
              + launcher + SERVE_TAIL)
     (out / "serve_pruned.py").write_text(serve)
+    full = push_games.patch_launcher(next(t for t in text if "def prepare_draft_view(" in t))
+    full = push_games._patch(full, "MEMFRAC=0.96,", f"MEMFRAC={MEMFRAC},")
+    (out / "serve_full.py").write_text(SERVE_HEAD.replace("__PATHS__", paths).replace("__KEEP__", "512") + "\n"
+                                       + precache + "\n" + full + SERVE_TAIL)
     (out / "bench_streams.py").write_text(BENCH.replace("__STREAMS__", "[10, 16, 20, 28]"))
     (out / "pick_streams.py").write_text(PICK)
     play = args.games.split(",")
