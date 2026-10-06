@@ -170,6 +170,7 @@ class PlayResult(AgentResult):
 class PlayAgent(EngineAgent):
     TOOLS = ("python", "run_tests", "commit_engine", "commit_moves")
     BUILTINS = PLAY_FUNCTIONS
+    REBUILT_LISTING_CHARS = LISTING_CHARS  # the listing a rebuilt request's compacted message appends (with the support margin)
 
     def __init__(
         self,

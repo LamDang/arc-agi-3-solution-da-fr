@@ -510,16 +510,20 @@ rebuilt from it by `agent.rebuilt_context`: the system prompt; one user message,
 order (a) every turn older than the last 10 and before the current phase message in which the model called
 `commit_engine` or `commit_moves` (its text, the call with its arguments as the model wrote them and the result,
 no reasoning), (b) the current PLAN or FIT message in full (its image as the conversation holds it, the only image
-of that message) when it is older than the last 10 turns, (c) the turns after it that are older than the last 10,
-each with every call, its arguments and its output but no reasoning, then the line "The context has been
-compacted. Continue from the context above."; and the last 10 turns as they are (reasoning, calls, outputs, images,
-a phase message at its place). Each part is headed "Turn 57 (commit_moves):" / "Turn 61:". A turn is one model
+of that message) when it is older than the last 10 turns, followed, when that message carries no engine.py listing
+(a PLAN or FIT message lists the file only when it changed), by the current engine.py as `read_file` shows it, with
+the support margin and comments, under "engine.py now (as read_file shows it):" (v11 follow-up 34: the model
+otherwise reads the file again or trusts a stale listing; `PlayAgent.REBUILT_LISTING_CHARS`, 20,000 characters at
+most), (c) the turns after it that are older than the last 10, each with every call, its arguments and its output
+but no reasoning, then the line "The context has been compacted. Continue from the context above."; and the last 10
+turns as they are (reasoning, calls, outputs, images, a phase message at its place). Each part is headed "Turn 57
+(commit_moves):" / "Turn 61:". A turn is one model
 reply with everything said before the next one (its tool outputs with the harness's appends, its image message, the
 phase message, the "continue" line, the resume note); turn 0 is the system prompt and the opening message. Older
 images are still hidden as in the compact mode, `_compact` never runs (`compact` records of an earlier compact run
 are ignored on a resume in this mode) and nothing is truncated. One `rebuilt` record per request logs the
-composition (`commit_turns`, `phase_turn`, `older_turns`, the characters of each part, the count, the budget and
-the shrink steps). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at turn 185 (29 commit turns,
+composition (`commit_turns`, `phase_turn`, `listing` (whether the engine.py listing was appended), `older_turns`, the
+characters of each part, the count, the budget and the shrink steps). Measured on the v11 sp80 transcript: 42K tokens at turn 50, 71K at turn 185 (29 commit turns,
 the PLAN message of turn 170 and 5 older turns compacted), 39K at turn 300.
 
 The request is kept under the model's window (`--context-window`, 131,072) minus the reply reserve
@@ -537,8 +541,9 @@ its json (`estimate_request_tokens`: images as placeholders, divided by a charac
 from each response's `prompt_tokens` as the base harness does: the last measurement, seed 3, clamped to [1.0,
 3.3]; a `token_calibration` record when it moves by 0.05). While the count (or estimate) is over the budget the
 view is shrunk in this order (`shrink_step`): the reasoning of the window's oldest turns, one at a time, never
-the last 3; the older turns since the phase message; the oldest commit turns one by one, never the last 5; the
-phase message's image; the phase message's text and the last 3 turns are never touched, and a request still over
+the last 3; the older turns since the phase message; the engine.py listing appended after the phase message; the
+oldest commit turns one by one, never the last 5; the phase message's image; the phase message's text and the last
+3 turns are never touched, and a request still over
 after every step is sent as it is with a `warning`. A request the provider rejects as too long (an HTTP 400
 naming the context length) is retried once with one more shrink step, after the calibration's ceiling comes down
 to 0.9 of the figure in use (`context_overflow` record). `engine_re/tools/count_check.py` checks the counter

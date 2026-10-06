@@ -596,12 +596,12 @@ def _is_image_message(message: dict[str, Any]) -> bool:
     return isinstance(content, list) and bool(content) and content[0].get("type") == "text" and content[0].get("text") == IMAGE_NOTE
 
 
-SHRINK_STEPS = ("reasoning", "older", "commits", "phase_image")  # the order the shrink of a rebuilt request takes
+SHRINK_STEPS = ("reasoning", "older", "listing", "commits", "phase_image")  # the order the shrink of a rebuilt request takes
 
 
 def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
                     commit_tools: tuple[str, ...] = ("commit_engine", "commit_moves"),
-                    shrink: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+                    shrink: dict[str, Any] | None = None, listing: str | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The messages of a request in the "rebuilt" context mode, from the full conversation (TurnMessage-tagged), and
     the composition for the "rebuilt" record. With T the latest turn and the window the last `keep_turns` turns
     (T - keep_turns < t <= T):
@@ -617,11 +617,16 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
 
     Turns older than the window and before the phase message in which nothing was committed are not sent.
 
+    `listing`: engine.py as read_file shows it now; when the phase message is in the compacted message and carries no
+    engine.py listing (ENGINE_HEADER; a PLAN or FIT message lists the file only when it changed), the listing is
+    appended right after it under ENGINE_HEADER (v11 follow-up 34), so the model sees the current file without a
+    read_file call.
+
     `shrink` (what shrink_step adds, when a request is over budget): "reasoning": the oldest N turns of the window are
     sent without their reasoning (never the last REBUILT_MIN_REASONING_TURNS); "older": the older turns (c) are left
-    out; "commits": the oldest N commit turns are left out (never the last REBUILT_MIN_COMMIT_TURNS); "phase_image":
-    the phase message's images are replaced by IMAGE_PLACEHOLDER, wherever it is. The phase message's text and the
-    last REBUILT_MIN_REASONING_TURNS turns are never touched."""
+    out; "listing": the appended listing is left out; "commits": the oldest N commit turns are left out (never the last
+    REBUILT_MIN_COMMIT_TURNS); "phase_image": the phase message's images are replaced by IMAGE_PLACEHOLDER, wherever
+    it is. The phase message's text and the last REBUILT_MIN_REASONING_TURNS turns are never touched."""
     shrink = shrink or {}
     if not messages:
         return [], {"commit_turns": 0, "phase_turn": None, "older_turns": 0, "chars": {"commits": 0, "phase": 0, "older": 0, "recent": 0}}
@@ -691,6 +696,12 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
         else:
             parts.extend(dict(p) for p in content or [])
         phase_chars = message_chars(phase_message)
+    # The current engine.py after a phase message that carries none (34), unless shrunk away.
+    listing_fits = bool(listing) and phase_in_compacted and ENGINE_HEADER not in _message_text(rest[phase_index])
+    listing_dropped = listing_fits and bool(shrink.get("listing"))
+    listing_appended = listing_fits and not listing_dropped
+    if listing_appended:
+        parts.append({"type": "text", "text": f"{ENGINE_HEADER}\n\n{listing}"})
     if older:
         sections.append("The turns since that message, before the last ones:\n\n" + "\n\n".join(older))
     if commits or phase_in_compacted or older:
@@ -708,15 +719,16 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
         compacted = [{"role": "user", "content": content}]
     out = list(system[:1]) + compacted + recent
     chars = {
-        "commits": sum(len(t) for t in commits), "phase": phase_chars, "older": sum(len(t) for t in older),
-        "recent": sum(message_chars(m) for m in recent),
+        "commits": sum(len(t) for t in commits), "phase": phase_chars, "listing": len(listing or "") if listing_appended else 0,
+        "older": sum(len(t) for t in older), "recent": sum(message_chars(m) for m in recent),
     }
     stats = {
         "turn": latest, "commit_turns": len(commits), "phase_turn": phase_turn, "phase_compacted": phase_in_compacted,
-        "older_turns": len(older), "recent_turns": len({message_turn(m) for m in recent}), "chars": chars,
-        "images": sum(message_images(m) for m in out), "messages": len(out),
+        "listing": listing_appended, "older_turns": len(older), "recent_turns": len({message_turn(m) for m in recent}),
+        "chars": chars, "images": sum(message_images(m) for m in out), "messages": len(out),
     }
-    applied = {"reasoning": len(stripped), "older": older_dropped, "commits": commits_dropped, "phase_image": phase_image_dropped}
+    applied = {"reasoning": len(stripped), "older": older_dropped, "listing": listing_dropped, "commits": commits_dropped,
+               "phase_image": phase_image_dropped}
     if any(applied.values()):
         stats["shrink"] = applied
     return out, stats
@@ -725,8 +737,8 @@ def rebuilt_context(messages: list[dict[str, Any]], keep_turns: int = 10,
 def shrink_step(shrink: dict[str, Any], stats: dict[str, Any], keep_turns: int = 10) -> dict[str, Any] | None:
     """The next shrink state after `shrink` gave the view with `stats`, in the order of SHRINK_STEPS: one more turn of
     the window without reasoning (while more than REBUILT_MIN_REASONING_TURNS turns keep it), then the older turns
-    out, then one more commit turn out (while more than REBUILT_MIN_COMMIT_TURNS stay), then the phase message's
-    image out; None when every step is taken."""
+    out, then the engine.py listing appended after the phase message out, then one more commit turn out (while more
+    than REBUILT_MIN_COMMIT_TURNS stay), then the phase message's image out; None when every step is taken."""
     applied = stats.get("shrink") or {}
     reasoning = int(shrink.get("reasoning") or 0)
     # (one more only when the last one took effect: rebuilt_context caps the count at the turns the window has)
@@ -734,6 +746,8 @@ def shrink_step(shrink: dict[str, Any], stats: dict[str, Any], keep_turns: int =
         return {**shrink, "reasoning": reasoning + 1}
     if not shrink.get("older") and stats.get("older_turns"):
         return {**shrink, "older": True}
+    if not shrink.get("listing") and stats.get("listing"):
+        return {**shrink, "listing": True}
     commits = int(shrink.get("commits") or 0)
     if applied.get("commits", 0) == commits and int(stats.get("commit_turns") or 0) > REBUILT_MIN_COMMIT_TURNS:
         return {**shrink, "commits": commits + 1}
@@ -875,6 +889,7 @@ class AgentResult:
 class EngineAgent:
     TOOLS = ("python", "run_tests", "commit_engine")  # the tools _dispatch accepts (a subclass adds its own)
     BUILTINS = BUILTIN_FUNCTIONS  # python built-ins the model may call as tools (run as python)
+    REBUILT_LISTING_CHARS = READ_CHARS_IN_MESSAGES  # the engine.py listing a rebuilt request's compacted message may append
 
     def __init__(
         self,
@@ -1213,6 +1228,15 @@ class EngineAgent:
         reserve = self.model.max_tokens if self.model.reply_reserve is None else int(self.model.reply_reserve)
         return max(1024, int(self.model.context_window) - reserve - REQUEST_SAFETY_TOKENS)
 
+    def _rebuilt_listing(self) -> str | None:
+        """Context "rebuilt": engine.py as read_file shows it (at most REBUILT_LISTING_CHARS), for the compacted message
+        when the current phase message carries no listing (rebuilt_context; v11 follow-up 34); None when the file
+        cannot be read."""
+        try:
+            return self._read_engine(fold=True, max_chars=self.REBUILT_LISTING_CHARS)
+        except OSError:
+            return None
+
     def _rebuilt_view(self, messages: list[dict[str, Any]] | None = None, extra_steps: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Context "rebuilt": the messages of the next request (rebuilt_context over the conversation, or over `messages`)
         and the composition record: the counts, the characters of each part (and of the system prompt), the estimate
@@ -1222,10 +1246,12 @@ class EngineAgent:
         messages = self.messages if messages is None else messages
         tools = self._tools()
         budget = self._context_budget()
+        listing = self._rebuilt_listing()
         shrink: dict[str, Any] = {}
         forced = 0
         while True:
-            view, stats = rebuilt_context(messages, keep_turns=self.model.rebuilt_keep_turns, commit_tools=self._commit_tools(), shrink=shrink)
+            view, stats = rebuilt_context(messages, keep_turns=self.model.rebuilt_keep_turns, commit_tools=self._commit_tools(), shrink=shrink,
+                                          listing=listing)
             estimate = self._count_request(view, tools)
             if estimate["tokens"] + estimate["margin"] <= budget:
                 if forced >= extra_steps:
@@ -1237,7 +1263,7 @@ class EngineAgent:
             shrink = following
         system_chars = sum(message_chars(m) for m in view if m["role"] == "system")
         stats["chars"]["system"] = system_chars
-        stats["chars"]["total"] = system_chars + sum(stats["chars"][k] for k in ("commits", "phase", "older", "recent"))
+        stats["chars"]["total"] = system_chars + sum(stats["chars"][k] for k in ("commits", "phase", "listing", "older", "recent"))
         stats.update({k: v for k, v in estimate.items() if k != "tokens"}, estimated_tokens=estimate["tokens"], budget=budget)
         if estimate["tokens"] + estimate["margin"] > budget:
             stats["warning"] = (f"the rebuilt request is {'counted' if estimate['exact'] else 'estimated'} at {estimate['tokens']:,} "

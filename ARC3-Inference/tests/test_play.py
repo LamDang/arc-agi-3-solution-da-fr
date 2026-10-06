@@ -883,6 +883,26 @@ def test_the_rebuilt_context_with_an_older_phase_message() -> None:
     short = _synthetic_conversation(6)
     view, stats = rebuilt_context(short, keep_turns=10)
     assert view == short and stats["commit_turns"] == 0 and stats["recent_turns"] == 7  # turns 0-6
+    assert not stats["listing"] and stats["chars"]["listing"] == 0
+    # The current engine.py listing (v11 follow-up 34): appended right after a compacted phase message that carries
+    # none, under ENGINE_HEADER, before the turns since it; counted in the record.
+    view, stats = rebuilt_context(conversation, keep_turns=10, listing="LISTING")
+    parts = view[1]["content"]
+    assert len(parts) == 3 and parts[2]["text"].startswith(f"{ENGINE_HEADER}\n\nLISTING\n\nThe turns since that message")
+    assert stats["listing"] and stats["chars"]["listing"] == len("LISTING") and "shrink" not in stats
+    assert _text_of(view[1]).count(ENGINE_HEADER) == 1
+    view, stats = rebuilt_context(conversation, keep_turns=10, listing="LISTING", shrink={"listing": True})
+    assert "LISTING" not in _text_of(view[1]) and not stats["listing"] and stats["chars"]["listing"] == 0
+    assert stats["shrink"] == {"reasoning": 0, "older": False, "listing": True, "commits": 0, "phase_image": False}
+    # Not when the phase message carries one already, nor when it is in the window (sent as it is).
+    carrying = [TurnMessage({**m, "content": [{"type": "text", "text": f"Plan the next moves. PHASE 5\n\n{ENGINE_HEADER}\n\nOLD LISTING"}]
+                             + [p for p in m["content"] if p.get("type") == "image_url"]}, turn=m.turn, phase=m.phase)
+                if getattr(m, "phase", None) == "plan" and m.turn == 5 else m for m in conversation]
+    view, stats = rebuilt_context(carrying, keep_turns=10, listing="LISTING")
+    text = _text_of(view[1])
+    assert "OLD LISTING" in text and "\nLISTING" not in text and not stats["listing"] and text.count(ENGINE_HEADER) == 1
+    view, stats = rebuilt_context(_synthetic_conversation(14), keep_turns=10, listing="LISTING")
+    assert not stats["listing"] and "LISTING" not in _text_of(view[1])
 
 
 class _StubCounter:
@@ -945,7 +965,23 @@ def test_the_shrink_steps_in_order() -> None:
     text = _text_of(view[1])
     assert "The turns since that message" not in text and "Turn 3 (commit_engine):" in text and "PHASE 5" in text
     assert _images_of(view[1]) == 0 and IMAGE_PLACEHOLDER in text and stats["images"] == 0  # (the turn-7 image message is older)
-    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True}
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "listing": False, "commits": 0, "phase_image": True}
+    # With an engine.py listing appended after the phase message (34): it goes after the older turns, before the commits.
+    shrink, taken = {}, []
+    for _ in range(20):
+        view, stats = rebuilt_context(conversation, keep_turns=10, shrink=shrink, listing="LISTING")
+        following = shrink_step(shrink, stats, keep_turns=10)
+        if following is None:
+            break
+        shrink = following
+        taken.append(dict(shrink))
+    assert taken[7] == {"reasoning": 7, "older": True} and taken[8] == {"reasoning": 7, "older": True, "listing": True}
+    assert taken[9] == {"reasoning": 7, "older": True, "listing": True, "phase_image": True} and len(taken) == 10
+    view, stats = rebuilt_context(conversation, keep_turns=10, shrink=taken[7], listing="LISTING")
+    assert stats["listing"] and "LISTING" in _text_of(view[1])
+    view, stats = rebuilt_context(conversation, keep_turns=10, shrink=taken[-1], listing="LISTING")
+    assert not stats["listing"] and "LISTING" not in _text_of(view[1])
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "listing": True, "commits": 0, "phase_image": True}
 
 
 def test_the_rebuilt_request_is_counted_and_shrunk_to_the_budget(tmp_path: Path, environments: Path) -> None:
@@ -966,7 +1002,7 @@ def test_the_rebuilt_request_is_counted_and_shrunk_to_the_budget(tmp_path: Path,
     # Too big to ever fit: every step is taken, the request is sent as it is with a warning, nothing truncated.
     agent.model.context_window = 12_000
     view, stats = agent._rebuilt_view()
-    assert stats["shrink"] == {"reasoning": 7, "older": True, "commits": 0, "phase_image": True} and "warning" in stats
+    assert stats["shrink"] == {"reasoning": 7, "older": True, "listing": False, "commits": 0, "phase_image": True} and "warning" in stats
     assert all(m.get("reasoning") for m in [m for m in view if m["role"] == "assistant"][-3:])
     assert "PHASE 5" in _text_of(view[1])
     # Without a counter: the calibrated estimate, no margin, and the same shrink loop.
@@ -1091,6 +1127,17 @@ def test_the_play_agent_in_rebuilt_mode(tmp_path: Path, environments: Path) -> N
     assert first[0]["role"] == "system" and "Turn 2 (commit_engine):" in text and "Turn 3 (the current PLAN message):" in text
     assert "Plan the next moves. Steps 0-1 pass" in text and text.endswith(REBUILT_CLOSING)
     assert [m["role"] for m in first[2:]] == ["assistant", "tool", "user"] and "has now resumed" in first[-1]["content"]
+    # The compacted PLAN message of turn 3 came after a batch that changed nothing in engine.py, so it carries no listing:
+    # the current one is appended after it, as read_file shows it (the support margin), and counted (v11 follow-up 34).
+    from engine_re.hashline import MARGIN_NOTE
+
+    rec = [r for r in _records(tmp_path) if "rebuilt" in r][-1]["rebuilt"]
+    assert rec["listing"] and rec["chars"]["listing"] > 0 and rec["phase_compacted"]
+    assert rec["chars"]["total"] == sum(rec["chars"][k] for k in ("system", "commits", "phase", "listing", "older", "recent"))
+    assert text.count(ENGINE_HEADER) == 1
+    appended = text.split("Turn 3 (the current PLAN message):")[1].split(ENGINE_HEADER)[1]
+    assert appended.lstrip().startswith(MARGIN_NOTE) and "def step(state, action):" in appended and "LAYOUT = {" in appended
+    assert text.index(ENGINE_HEADER) < text.index("Turn 4") if "Turn 4" in text else text.index(ENGINE_HEADER) < text.index(REBUILT_CLOSING)
 
 
 def test_the_play_prompts_say_nothing_of_a_recording_or_run_tests_levels() -> None:

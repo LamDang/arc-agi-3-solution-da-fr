@@ -361,6 +361,10 @@ pace. One subagent implements each experiment on its own worktree branch; a fork
     message does not carry one.
     **Decided (v12):** the compacted message carries the current engine.py listing with its support
     comments (as read_file shows it) whenever the current phase message does not already carry it.
+    **Done (v12):** `rebuilt_context(listing=...)` appends it under "engine.py now (as read_file shows
+    it):" right after a compacted phase message without one (`PlayAgent._read_engine`, 20,000 chars at
+    most); the `rebuilt` record counts it (`listing`, `chars.listing`) and it is a shrink step between
+    the older turns and the commit turns.
 35. **A fork's first plan round runs on v11's text.** The fork resumes at v11's last PLAN message, so
     B's first v12 PLAN message came only at turn 165 (fork at 148). Inherent to forking at a PLAN
     message; fork at the FIT message that opens the level, or regenerate the last phase message
