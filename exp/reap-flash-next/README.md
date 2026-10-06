@@ -216,13 +216,18 @@ Two Kaggle runs, both on the RTX PRO 6000:
    run (25 games x 4 passes, mean 46.49).
 
    ```bash
-   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold a --keep 256   # 13 games x 4 passes, ~4.6 h
-   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold b --keep 256   # the other 12 games, ~4.3 h
+   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold a --keep 256 --maxreq 20   # 13 games x 4 passes, ~4.6 h
+   KAGGLE_CLI=kaggle python kaggle/push_games.py --fold b --keep 256 --maxreq 20   # the other 12 games, ~4.3 h
    ```
 
    Running both folds plays every game with experts chosen without it.
-   `--keep 512` runs the same games unpruned, and `--maxreq 20` lets the freed
-   memory serve more concurrent requests.
+   `--maxreq 20` spends the ~31 GB the pruning frees on twice dfranzen's 10
+   concurrent requests, which is the setup a submission would use. It also
+   raises the linear-attention state cache (SGLang otherwise caps running
+   requests at 60 slots / 6 per request, with only a warning) and adds CUDA
+   graphs for 12-18. If the score drops, `--maxreq 10` separates the pruning's
+   quality loss from contention, and `--keep 512` plays the same games
+   unpruned.
 
 `prune_checkpoint.py` keeps the top N experts of every layer, renumbered
 0..N-1, slices each router to their rows and sets `num_experts` to N. It

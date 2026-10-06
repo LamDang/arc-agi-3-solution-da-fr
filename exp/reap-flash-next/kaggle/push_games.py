@@ -13,9 +13,11 @@ the competition's) is dfranzen's notebook as published, so scores compare
 with its v3 run (25 games x 4 passes, mean 46.49).
 
 Folds split the 25 public games in two (a: 13, b: 12). Running both folds
-plays every game with experts chosen without it. `--maxreq` raises the number
-of concurrent decoding requests (SGLang --max-running-requests and the
-harness's active streams); keep the default 10 to measure quality alone.
+plays every game with experts chosen without it. `--maxreq` sets the number of
+concurrent decoding requests: SGLang --max-running-requests, the harness's
+active streams, the linear-attention state cache (6 slots per request, as in
+dfranzen's 60 for 10) and the CUDA graph batch sizes. 10 is dfranzen's
+setting; 256 experts free about 31 GB, enough for about 20 at full context.
 """
 from __future__ import annotations
 
@@ -89,6 +91,12 @@ def build(nb: dict, run: dict) -> dict:
     text[paths] = _patch(text[paths], "'ARC3_MAX_ACTIVE_STREAMS': 10,", f"'ARC3_MAX_ACTIVE_STREAMS': {maxreq},")
     text[launcher] = _patch(text[launcher], "MAXREQ=10,", f"MAXREQ={maxreq},")
     text[launcher] = _patch(text[launcher], "CUDAGRAPH_MAXBS=10,", f"CUDAGRAPH_MAXBS={maxreq},")
+    # SGLang also caps running requests at max_mamba_cache_size // (state slots per request), with only a
+    # warning; dfranzen's 60 slots serve 10 requests, so scale them with the request count
+    text[launcher] = _patch(text[launcher], "MAMBA_CACHE=60,", f"MAMBA_CACHE={6 * maxreq},")
+    # CUDA graphs between 10 and the new maximum, so batches of 11-19 do not all pad to the maximum
+    text[launcher] = _patch(text[launcher], "graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, ",
+                            "graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, *range(12, CFG['MAXREQ'], 2), ")
     text[custom] = _patch(text[custom], "bm.n_passes = 4\n", "bm.n_passes = PRUNED_RUN['passes']\n")
     text[custom] = _patch(text[custom], "demo_excluded_games = [] if TRUE_SUBMISSION else []",
                           "demo_excluded_games = [] if TRUE_SUBMISSION else EXCLUDED_GAMES")
