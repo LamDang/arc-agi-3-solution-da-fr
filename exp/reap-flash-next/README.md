@@ -371,3 +371,11 @@ NLL cost (+0.067) did not predict this. Options: a milder cut (384 cost
 +0.012 NLL), recovering the quality by fine-tuning the pruned model, or a
 same-day full-model run to rule out drift against v3 (v3 was played in an
 earlier session; its pass-to-pass spread is in the SE).
+
+## Next: fine-tuning and deployment
+
+[`PLAN.md`](PLAN.md): serving under KV pressure and how dfranzen handles
+crashes, throughput estimates per expert count in a competition run, the
+fine-tuning data volume (`trace_volume.py`), exact long-context gradients on
+one GPU, training memory and time per expert count, precedent in the
+literature, and the order of work.
