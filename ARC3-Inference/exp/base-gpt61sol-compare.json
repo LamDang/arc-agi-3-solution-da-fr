@@ -1,0 +1,41 @@
+[
+ {
+  "label": "qwen3.8-max, dfranzen settings",
+  "scores": {
+   "ft09": 100.0,
+   "lp85": 78.7,
+   "ls20": 7.8,
+   "sp80": 4.8,
+   "vc33": 100.0
+  },
+  "cost": 29.12,
+  "output_tokens": 1170000,
+  "mean": 58.2
+ },
+ {
+  "label": "qwen3.8-flash, dfranzen settings",
+  "scores": {
+   "ft09": 100.0,
+   "lp85": 100.0,
+   "ls20": 31.0,
+   "sp80": 3.7,
+   "vc33": 100.0
+  },
+  "cost": 1.86,
+  "output_tokens": 1410000,
+  "mean": 66.9
+ },
+ {
+  "label": "dfranzen notebook, 4-pass mean",
+  "scores": {
+   "ft09": 86.9,
+   "lp85": 100.0,
+   "ls20": 26.9,
+   "sp80": 13.1,
+   "vc33": 80.4
+  },
+  "cost": null,
+  "output_tokens": null,
+  "mean": 61.5
+ }
+]

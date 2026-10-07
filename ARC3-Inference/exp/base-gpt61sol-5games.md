@@ -41,6 +41,18 @@ A smoke test (ft09, 3 actions, $0.03) and a one-game trial meant to stop after l
 (`runs/gpt61sol-level1`) ran first. The trial won ft09 6/6 in 75 actions in 3.5 minutes,
 for $0.19, before the stop could catch it.
 
+## Transcripts
+
+[gpt-6.1-sol Base Agent Transcripts](https://claude.ai/artifact/7jMLaPrRyRDfxdvZAxYHK6): one card
+per analysis step, with the harness prompt, the reasoning summary, the python and its output,
+the actions and the board after them. Rebuild it from the unpacked run:
+
+```bash
+uv run --no-sync python scripts/pack_run.py unpack runs/base-gpt61sol-dfranzen
+uv run --no-sync python scripts/base_transcripts/build.py runs/base-gpt61sol-dfranzen <out.html> \
+  --compare-json exp/base-gpt61sol-compare.json --title "gpt-6.1-sol Base Agent Transcripts"
+```
+
 ## Results
 
 | game | score | levels | actions per level (human) | output tokens (reasoning) | prompt tokens (cached) | max prompt | cost | minutes |
