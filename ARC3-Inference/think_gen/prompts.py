@@ -65,7 +65,7 @@ Below is the private thinking of an agent playing a grid puzzle game. Write the 
 
 {examples}
 
-Rules: 1 to 3 sections, each a bold title line (**Like this**) followed by a short paragraph in first person present continuous ("I'm examining...", "I'm considering..."). About {words} words in total. Summarize what was observed, considered and decided at a high level; no code, few exact coordinates. Answer with the summary only.
+Rules: one section (rarely two): a bold title line (**Like this**) followed by a short paragraph in first person present continuous ("I'm examining...", "I'm considering..."). About {words} words in total, however long the thinking is. Summarize what was observed, considered and decided at a high level; no code, few exact coordinates. Answer with the summary only.
 
 The thinking:
 <thinking>
@@ -73,7 +73,11 @@ The thinking:
 </thinking>"""
 
 
-def synth_summary_prompt(thinking: str, examples: list[str], words: int = 90) -> str:
+# Real gpt-6.1-sol summaries are one section of about 450 characters (75
+# words) whatever the reasoning length (correlation 0.08 over 61 summaries
+# of runs/base-gpt61sol-dfranzen); the first calibration's summaries, asked
+# for 1-3 sections of 90 words, came out at a median of 922 characters.
+def synth_summary_prompt(thinking: str, examples: list[str], words: int = 75) -> str:
     ex = "\n\n".join(f"<example>\n{e.strip()}\n</example>" for e in examples)
     return SYNTH_SUMMARY.format(examples=ex, words=words, thinking=thinking.strip())
 
