@@ -312,6 +312,74 @@ _PYTHON_TOOL_DESCRIPTION = (
     "Use `print(...)` for compact output or assign final data to `result`."
 )
 
+# ARC3_PYTHON_RATIONALE: the python tool also takes what the code does and why
+# it helps, written before the code. They are logged with the call and shown
+# in the transcript; the harness does not run or check them.
+_PYTHON_RATIONALE_TOOL_SENTENCE = (
+    " Before the code, say in `description` what it does and in `reasoning` why it "
+    "helps solve the game now."
+)
+_PYTHON_RATIONALE_PROPERTIES = {
+    "description": {
+        "type": "string",
+        "description": "One or two sentences: what this code does.",
+    },
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "Why running it helps solve the game now: the question it answers or the "
+            "move it makes, and what you expect to see."
+        ),
+    },
+}
+_PYTHON_PROMPT_CODE_LINE = "- The only tool is `python`; call it with one ephemeral `code` string.\n"
+_PYTHON_PROMPT_RATIONALE_LINE = (
+    "- The only tool is `python`; call it with `description` (what the code does), "
+    "`reasoning` (why it helps solve the game now: the question it answers or the move "
+    "it makes, and what you expect to see) and one ephemeral `code` string.\n"
+)
+
+
+def _python_rationale() -> bool:
+    return _get_env_bool("ARC3_PYTHON_RATIONALE", False)
+
+
+def _python_tool_schema() -> dict[str, Any]:
+    """The python tool's function schema, with the description and reasoning
+    fields first when ARC3_PYTHON_RATIONALE is on: a model writes arguments in
+    schema order, so they come before the code they describe."""
+    code = {
+        "type": "string",
+        "description": "Python code to run. The snippet is ephemeral and is not saved across tool calls.",
+    }
+    if not _python_rationale():
+        return {
+            "type": "function",
+            "function": {
+                "name": "python",
+                "description": _PYTHON_TOOL_DESCRIPTION,
+                "parameters": {"type": "object", "properties": {"code": code}, "required": ["code"]},
+            },
+        }
+    properties = {**_PYTHON_RATIONALE_PROPERTIES, "code": code}
+    return {
+        "type": "function",
+        "function": {
+            "name": "python",
+            "description": _PYTHON_TOOL_DESCRIPTION + _PYTHON_RATIONALE_TOOL_SENTENCE,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+                "additionalProperties": False,
+            },
+            # Without it the fields are optional in practice: replayed from logged
+            # requests whose history has code-only calls, 26 of 30 left them out.
+            # strict makes OpenAI enforce the schema.
+            "strict": True,
+        },
+    }
+
 def _normalize_valid_actions(valid_actions: list[str] | None) -> list[str]:
     names: list[str] = []
     for value in valid_actions or []:
@@ -2740,13 +2808,16 @@ def _build_system_prompt(
             prompt += UNDO_INFO_ADDENDUM
         if reset_exposed():
             prompt += RESET_INFO_ADDENDUM
-    prompt += (
+    python_head = (
         PYTHON_ADDENDUM_HEAD.replace(
             "- Every `python` tool call starts fresh. Re-import modules or re-define any custom utility logic you need.\n",
             "- Python variables reset between tool calls. Re-import modules as needed; "
             "eligible functions are retained as described in the tool session rules below.\n",
         ) if _persistent_functions() else PYTHON_ADDENDUM_HEAD
     )
+    if _python_rationale():
+        python_head = python_head.replace(_PYTHON_PROMPT_CODE_LINE, _PYTHON_PROMPT_RATIONALE_LINE)
+    prompt += python_head
     prompt += (
         WORLD_MODEL_FREE_ADDENDUM if _memory_sections_disabled() else WORLD_MODEL_ADDENDUM
     )
@@ -5268,27 +5339,7 @@ class ToolAgent:
 
     def _tools(self, state_path: Path) -> list[dict[str, Any]]:
         self._ensure_session(state_path)
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "python",
-                    "description": _PYTHON_TOOL_DESCRIPTION,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": (
-                                    "Python code to run. The snippet is ephemeral and is not saved across tool calls."
-                                ),
-                            },
-                        },
-                        "required": ["code"],
-                    },
-                },
-            }
-        ]
+        return [_python_tool_schema()]
 
     def _harness_template_kwargs(self) -> dict[str, Any]:
         """Chat-template kwargs the HARNESS sets per request.

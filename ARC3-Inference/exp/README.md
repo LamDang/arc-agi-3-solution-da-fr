@@ -24,6 +24,7 @@ their own index ([Play runs](#play-runs)).
 | [base-max-5games.md](base-max-5games.md) | base agent with qwen3.8-max-0902: dfranzen settings 58.2 ($29.12), default settings 45.1 ($59.68); flash baseline 66.9. Max is not worth it as a teacher | Does the larger model help the base agent, with and without dfranzen's settings? |
 | [base-gpt61sol-5games.md](base-gpt61sol-5games.md) | base agent with gpt-6.1-sol (OpenAI Responses API, reasoning sent back, effort xhigh), dfranzen settings: 100.0, 34/34 levels, $3.00 | How far does gpt-6.1-sol get with the base agent's harness and settings? |
 | [base-gpt61sol-20games.md](base-gpt61sol-20games.md) | base agent with gpt-6.1-sol on the 20 other official games: 19/20 won, 98.9 ($38.67); all 25 games 99.1, 182/183 levels, $41.67 | Does gpt-6.1-sol do as well on the games outside the qwen runs' five? |
+| [python-rationale-replay.md](python-rationale-replay.md) | python tool with `description` and `reasoning` before `code` (ARC3_PYTHON_RATIONALE), 30 replayed gpt-6.1-sol requests: filled on 30/30 with strict mode, coherent | Can the model state what each call does and why, and keep its turns coherent? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from

@@ -416,8 +416,9 @@ def responses_payload_from_chat(
                 "name": function.get("name"),
                 "description": function.get("description") or "",
                 "parameters": function.get("parameters") or {"type": "object", "properties": {}},
-                # the harness's schemas are not written for strict mode
-                "strict": False,
+                # the harness's schemas are not written for strict mode, unless
+                # a tool says so (ARC3_PYTHON_RATIONALE)
+                "strict": bool(function.get("strict", False)),
             }
         )
     if tools:

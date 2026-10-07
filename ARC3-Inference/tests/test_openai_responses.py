@@ -222,3 +222,25 @@ def test_other_stream_errors_and_spent_retries_still_fail(monkeypatch) -> None:
         with pytest.raises(requests.RequestException):
             _agent()._chat_completion([{"role": "user", "content": "go"}], tools=TOOLS)
         assert 3 - len(replies) == calls
+
+
+def test_python_rationale_fields_come_before_the_code(monkeypatch) -> None:
+    from inference.agent.tool_agent import _build_system_prompt, _python_tool_schema
+
+    plain = _python_tool_schema()["function"]
+    assert list(plain["parameters"]["properties"]) == ["code"]
+    assert "ephemeral `code` string" in _build_system_prompt(tool_output_tokens=3072)
+
+    monkeypatch.setenv("ARC3_PYTHON_RATIONALE", "1")
+    tool = _python_tool_schema()["function"]
+    assert list(tool["parameters"]["properties"]) == ["description", "reasoning", "code"]
+    assert tool["parameters"]["required"] == ["description", "reasoning", "code"]
+    assert "`reasoning` why it helps solve the game now" in tool["description"]
+    prompt = _build_system_prompt(tool_output_tokens=3072)
+    assert "call it with `description` (what the code does), `reasoning`" in prompt
+    assert "call it with one ephemeral `code` string" not in prompt
+    # the order survives the Responses translation
+    payload = responses_payload_from_chat(_chat_payload([{"role": "user", "content": "go"}]) | {"tools": [_python_tool_schema()]})
+    assert list(payload["tools"][0]["parameters"]["properties"]) == ["description", "reasoning", "code"]
+    assert payload["tools"][0]["strict"] is True
+    assert tool["parameters"]["additionalProperties"] is False
