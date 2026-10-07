@@ -13,7 +13,8 @@ with the reconstructor prompt (approach B).
 
 Calibration comes first: qwen3.8-max returns its real thinking, so on
 `runs/base-max-dfranzen` the generated thinking can be compared with what
-the teacher actually thought.
+the teacher actually thought. Results and the evaluation method:
+[think-gen-calibration.md](../experiments/teacher-reasoning/think-gen-calibration.md).
 
 ## Pipeline
 
