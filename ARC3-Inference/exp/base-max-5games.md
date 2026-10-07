@@ -60,7 +60,7 @@ System prompt: 18,619 characters with the dfranzen settings, 13,750 without.
 | ls20 | 3.6 | 1/7 | 15, then 1,531 on level 1 unsolved (22 123) | 265K | 10.23M (51%) | $12.92 | 240 |
 | sp80 | 0.3 | 1/6 | **164**, then 937 on level 1 unsolved (39 58) | 327K | 12.86M (31%) | $20.65 | 240 |
 | vc33 | 21.6 | 4/7 | **11** 12 42 **596**, then 116 on level 4 unsolved (7 18 44 61 131) | 398K | 13.59M (33%) | $21.07 | 241 |
-| **total** | **mean 45.1** | 20/34 | 3,667 actions | 1.18M (0.99M reasoning) | 40.1M (38%) | **$59.68** | 4 h 01 |
+| **total** | **mean 45.1** | 20/34 | 3,667 actions | 1.18M | 40.1M (38%) | **$59.68** | 4 h 01 |
 
 Numbers above the human baseline are in bold. Tokens and cost are summed from
 the `usage` of the response records in the request logs.
@@ -152,9 +152,24 @@ and 290K tokens.
   actions on one level (ls20 level 4, sp80 level 2).
 - The settings matter more than the model: dfranzen's settings are worth 13.1
   points on max (45.1 to 58.2) and halve the cost.
-- Reasoning goes back in the context for both models (checked on this run's
-  logs: a replayed request costs 105,125 prompt tokens with the earlier
-  reasoning and 42,612 without), so neither run lacked its earlier thinking.
+
+## As a teacher
+
+qwen3.8-max-0902 was a candidate teacher
+([teacher-reasoning](../experiments/teacher-reasoning/README.md)). These games
+do not support using it:
+
+| harness | max | flash | max cost / flash cost |
+| --- | --- | --- | --- |
+| base agent, dfranzen settings (this page) | 58.2 | 66.9 | 15.6x ($29.12 / $1.86) |
+| v12 play agent ([v12-5games.md](v12-5games.md)) | 53.9 | 62.2 | 11.4x ($112.79 / $9.90) |
+
+Max scores below flash in both harnesses, by a margin within one pass's noise,
+at 11 to 16 times the cost. Its only edge is early token efficiency (37.1
+against 32.7 at 100K output tokens per game). On the base agent it solves no
+level that flash does not; on v12 it finishes lp85 (8/8 against 7/8) but
+falls behind on sp80 (3/6 against 4/6) and vc33 (4/7 against 6/7). A teacher has to play clearly better than flash, and max does not, so
+it is not worth the cost as a teacher.
 
 Run archived with DVC: `runs/base-max-dfranzen.dvc`; metrics in
 `runs/base-max-dfranzen.metrics.json`.

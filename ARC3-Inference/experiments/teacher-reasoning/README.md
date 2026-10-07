@@ -27,7 +27,7 @@ grid…", "Row 0: . . . . . ."), while summaries read like status notes
 | `deepseek/deepseek-v4.1-flash` | CoreWeave | 0.86 | Cheap: $1.2/M output. |
 | `qwen/qwen3.8-2.4t-a95b` | Alibaba, Together, Modal | 0.60-1.06 | Same family as the student. |
 | `qwen/qwen3.8-max-prime` | Alibaba (only provider) | 0.66 | |
-| `qwen/qwen3.8-max-0902` | Alibaba (only provider) | 0.56-0.65 | Tested twice. Same Max model as `max-prime` at half the price ($2/$6 per M); `max-prime` is a higher-throughput SKU. |
+| `qwen/qwen3.8-max-0902` | Alibaba (only provider) | 0.56-0.65 | Tested twice. Same Max model as `max-prime` at half the price ($2/$6 per M); `max-prime` is a higher-throughput SKU. Played worse than `qwen3.8-flash` on the five public games at 11-16x the cost: not worth it as a teacher (see below). |
 | `qwen/qwen3.8-27b`, `qwen/qwen3.7-plus` | Darkbloom, Reka, Alibaba | 0.65 | |
 | `z-ai/glm-5.3`, `z-ai/glm-5.3-prime` | Z.AI, Fireworks, Decart; Alibaba | 0.69-0.94 | `glm-5.3` returned no reasoning on the tool turn on all three providers: it called the tool without thinking. |
 | `minimax/minimax-m3` | Minimax, CoreWeave | 0.80-1.06 | |
@@ -61,6 +61,21 @@ thought is never exposed on any model". So no closed frontier model on
 OpenRouter or Bedrock can be a full-reasoning teacher. Their summaries could
 still be used as rationales, but they are not what the model actually
 generated.
+
+## Played games: qwen3.8-max-0902 against qwen3.8-flash
+
+A teacher also has to play better than flash. On the five public games
+(ft09, lp85, ls20, sp80, vc33), one pass each:
+
+| harness | max | flash | max cost / flash cost |
+| --- | --- | --- | --- |
+| base agent, dfranzen settings | 58.2 | 66.9 | 15.6x |
+| v12 play agent | 53.9 | 62.2 | 11.4x |
+
+Max is below flash in both, by margins within one pass's noise, at 11 to 16
+times the cost. It is not worth that cost as a teacher. Details in
+[exp/base-max-5games.md](../../exp/base-max-5games.md#as-a-teacher) and
+[exp/v12-5games.md](../../exp/v12-5games.md).
 
 ## Not tested
 
