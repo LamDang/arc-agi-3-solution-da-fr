@@ -258,7 +258,7 @@ A cut with a handover note in place of the trimmer's blind cut ([exp/note-compac
 | Setting | Default | Behavior |
 |---|---|---|
 | `ARC3_NOTE_COMPACTION_TOKENS` | `0`: disabled | At a turn start whose estimated prompt reaches this, sends the history with `NOTE_COMPACTION_PROMPT` instead of the opener. The reply, a `python` call whose code is comments only, is kept unexecuted as the note; history becomes the last turns plus the note exchange, and the turn goes on with its opener. Set it below the trimmer's budget. |
-| `ARC3_NOTE_COMPACTION_KEEP_TURNS` | `20` | Turns kept verbatim, counted by their openers (resumptions and nudges are not turns). Fewer are kept (at least one) while the prompt would stay above 3/4 of the threshold, so that a note does not come every turn. |
+| `ARC3_NOTE_COMPACTION_KEEP_TURNS` | `10` | Turns kept verbatim, counted by their openers (resumptions and nudges are not turns). Fewer are kept (at least one) while the prompt would stay above 3/4 of the threshold, so that a note does not come every turn. |
 
 - The note exchange is tagged `note`: no pruning setting removes it, and the next compaction replaces it (the prompt asks to carry the earlier note forward).
 - A failed request or a note under 300 characters leaves history alone; the trimmer still cuts at the budget.

@@ -309,8 +309,12 @@ def _note_compaction_tokens() -> int:
 
 
 def _note_compaction_keep_turns() -> int:
-    """Turns kept verbatim by a note compaction, counted by their openers."""
-    return max(1, _get_env_int("ARC3_NOTE_COMPACTION_KEEP_TURNS", 20))
+    """Turns kept verbatim by a note compaction, counted by their openers.
+
+    20 kept turns of gpt-6.1-sol came to 61-87K tokens (two images and a
+    repeated opener per turn), leaving room for only 9-18 turns before the
+    next note; 10 leaves about twice that."""
+    return max(1, _get_env_int("ARC3_NOTE_COMPACTION_KEEP_TURNS", 10))
 
 
 _WM_NUDGE_TURNS = _get_env_int("ARC3_WM_NUDGE_TURNS", 0)
