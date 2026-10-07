@@ -1,0 +1,13 @@
+{
+ "transformers": "5.18.0",
+ "extra_pip": [],
+ "sources": [
+  "kaggle_v3"
+ ],
+ "steps": [
+  {
+   "name": "calib",
+   "args": "--samples kaggle_v3/ar25_p0:0,kaggle_v3/bp35_p0:0,kaggle_v3/cd82_p0:0,kaggle_v3/cn04_p0:0,kaggle_v3/dc22_p0:0,kaggle_v3/ft09_p0:0,kaggle_v3/g50t_p0:0,kaggle_v3/ka59_p0:0,kaggle_v3/lf52_p0:0,kaggle_v3/lp85_p0:0,kaggle_v3/ls20_p0:0,kaggle_v3/m0r0_p0:0,kaggle_v3/r11l_p0:0,kaggle_v3/re86_p0:0,kaggle_v3/s5i5_p0:0,kaggle_v3/sb26_p0:0,kaggle_v3/sc25_p0:0,kaggle_v3/sk48_p0:0,kaggle_v3/sp80_p0:0,kaggle_v3/su15_p0:0,kaggle_v3/tn36_p0:0,kaggle_v3/tr87_p0:0,kaggle_v3/tu93_p0:0,kaggle_v3/vc33_p0:0,kaggle_v3/wa30_p0:0 --chunk 8192 --precache --deadline-minutes 600"
+  }
+ ]
+}

@@ -1,0 +1,199 @@
+"""Scripts for driving a pruned-model game test inside one interactive Kaggle
+session (RTX PRO 6000, dfranzen's inputs attached), run in the background
+with `python3 -u SCRIPT > LOG 2>&1`:
+
+    python kaggle/session_scripts.py --out DIR [--keep 256] [--streams 20] [--games tu93,...] [--passes 4]
+
+- serve_pruned.py: prunes the checkpoint from the calibration statistics in
+  /kaggle/working/reap/calib (prune_checkpoint.py, gate_norm over all games),
+  then starts dfranzen's SGLang launcher on it (Python 3.12 venv, expert-map
+  patch, --max-running-requests 28, 168 state slots, mem fraction 0.93) and
+  exits once the server is ready; the server keeps running.
+- serve_full.py: the same for the unpruned model with dfranzen's 10
+  requests and 60 state slots (mem fraction 0.93), for a same-day baseline.
+- bench_streams.py: serve_bench.batch_test at 10, 16, 20 and 28 streams
+  against that server; pick_streams.py writes the stream count with the most
+  decode throughput among those that fit (no retractions or errors, cache
+  hit >= 0.9) to /kaggle/working/streams.txt.
+- games.py: dfranzen's harness cells (patch, environment, benchmark, run)
+  without his server launcher, against the running server, with
+  ARC3_MAX_ACTIVE_STREAMS from $GAMES_STREAMS, else streams.txt, else
+  --streams; output in /kaggle/working/$GAMES_DIR (default games); the
+  chosen games and passes. Output in
+  /kaggle/working/games.
+
+Code (prune_checkpoint.py, serve_bench.py, analyze.py) is expected in
+/kaggle/working/code.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import push  # noqa: E402
+import push_games  # noqa: E402
+
+SERVER_MAXREQ, SERVER_MAMBA, MEMFRAC = 28, 168, 0.93
+
+SERVE_HEAD = '''import glob, json, os, shutil, subprocess, sys, threading, time, urllib.request
+from pathlib import Path
+NOTEBOOK_START_TIME = time.time()
+SERVER_STARTUP_TIMEOUT = 40 * 60
+__PATHS__
+WORKING_DIR = Path("/kaggle/working")
+SERVED_MODEL_HOST, SERVED_MODEL_PORT = "127.0.0.1", 8001
+CODE_DIR = Path("/kaggle/working/code")
+KEEP = __KEEP__
+PRUNED = f"/tmp/flash-next-pruned-{KEEP}-calib"
+if KEEP >= 512:
+    PRUNED = MODEL_DIR
+elif not Path(PRUNED, "keep.json").exists():  # keep.json is written last
+    subprocess.run([sys.executable, str(CODE_DIR / "prune_checkpoint.py"), "--model-dir", MODEL_DIR,
+                    "--stats-dir", "/kaggle/working/reap/calib", "--keep", str(KEEP), "--out", PRUNED,
+                    "--criterion", "gate_norm"], check=True)
+if KEEP < 512:
+    shutil.copy(Path(PRUNED) / "keep.json", WORKING_DIR / f"keep_{KEEP}_calib.json")
+MODEL_DIR = PRUNED
+'''
+
+SERVE_TAIL = '''
+open("/kaggle/working/server.pid", "w").write(str(proc.pid))
+deadline = time.time() + SERVER_STARTUP_TIMEOUT
+while time.time() < deadline:
+    if proc.poll() is not None:
+        raise SystemExit(f"server exited with {proc.returncode}")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{SERVED_MODEL_PORT}/health", timeout=5) as r:
+            if r.status == 200:
+                print("SERVER_READY", flush=True)
+                break
+    except Exception:
+        pass
+    time.sleep(5)
+else:
+    raise SystemExit("server not ready")
+'''
+
+PICK = '''import json
+from pathlib import Path
+# most decode throughput among stream counts that fit: no retractions, no errors, prompts found in the cache
+rows = json.loads(Path("/kaggle/working/serve_bench.pruned.json").read_text())
+fits = [r for r in rows if r.get("errors") == 0 and r.get("retracted_requests") == 0 and (r.get("cache_hit") or 0) >= 0.9]
+pool = fits or [r for r in rows if r.get("errors") == 0] or [{"streams": 10, "decode_tok_s": 0}]
+best = max(pool, key=lambda r: r.get("decode_tok_s") or 0)
+Path("/kaggle/working/streams.txt").write_text(str(best["streams"]))
+print("chosen streams:", best["streams"], "fitting:", [r["streams"] for r in fits], flush=True)
+'''
+
+BENCH = '''import json, sys
+from pathlib import Path
+sys.path.insert(0, "/kaggle/working/code")
+import serve_bench
+LOG_DIR = Path(sorted(Path("/kaggle/input").glob("**/*arc-agi-3-milestone-2-solution*/**/*_p2_requests.jsonl"))[0]).parent
+sessions = serve_bench.load_sessions(LOG_DIR)
+streams = __STREAMS__
+prompts = serve_bench.longest_prompts(sessions, max(streams))
+print(f"{len(sessions)} game runs; prompts of {prompts[-1][1]}-{prompts[0][1]} tokens", flush=True)
+results = []
+for n in streams:
+    r = serve_bench.batch_test("http://127.0.0.1:8001", "flashnext", prompts, n, max_tokens=4096,
+                               log=lambda m: print(m, flush=True), server_log="/kaggle/working/serve.log")
+    results.append(r)
+    Path("/kaggle/working/serve_bench.pruned.json").write_text(json.dumps(results, indent=1))
+print("BENCH_DONE", flush=True)
+'''
+
+
+def games_script(nb: dict, run: dict) -> str:
+    """dfranzen's harness cells as one script, without precaching or the server launcher."""
+    text = ["".join(c["source"]) if isinstance(c["source"], list) else c["source"] for c in nb["cells"]
+            if c["cell_type"] == "code"]
+    pick = lambda marker: next(t for t in text if marker in t)  # noqa: E731
+    patch_cell = pick("%%writefile /kaggle/harness-changes.patch")
+    env, install, sources = pick("MODEL_DIR         = "), pick("arc_agi_3_wheels"), pick("def _source_path_entries(")
+    load, custom, run_cell = pick("benchmark_initial.pkl"), pick("demo_excluded_games = "), pick("await bm.run(")
+    monitor = pick("def start_monitor(")
+    body = patch_cell.split("\n", 1)[1]
+    if not body.endswith("\n"):  # %%writefile ends the file with a newline; git apply needs it
+        body += "\n"
+    out = [f"# generated by exp/reap-flash-next/kaggle/session_scripts.py from {push_games.SOURCE}",
+           "import asyncio, shutil, subprocess",
+           f"open('/kaggle/harness-changes.patch', 'w').write({body!r})"]
+    env = push_games._patch(env, "!rm -Rf $BUNDLE_DIR\n", "shutil.rmtree(BUNDLE_DIR, ignore_errors=True)\n")
+    env = push_games._patch(env, "!cp -a $ORIG_BUNDLE_DIR $BUNDLE_DIR\n",
+                            "subprocess.run(['cp', '-a', ORIG_BUNDLE_DIR, str(BUNDLE_DIR)], check=True)\n")
+    # streams.txt (written by pick_streams.py from the benchmark) overrides --streams
+    env = push_games._patch(env, "'ARC3_MAX_ACTIVE_STREAMS': 10,",
+                            f"'ARC3_MAX_ACTIVE_STREAMS': STREAMS,")
+    env = "import os as _os\nfrom pathlib import Path as _P\n" + (
+        "STREAMS = int(_os.environ['GAMES_STREAMS']) if 'GAMES_STREAMS' in _os.environ else "
+        f"(int(_P('/kaggle/working/streams.txt').read_text()) if _P('/kaggle/working/streams.txt').exists() "
+        f"else {run['streams']})\nGAMES_DIR = _os.environ.get('GAMES_DIR', 'games')\n"
+        "print('active streams:', STREAMS, 'output:', GAMES_DIR, flush=True)\n") + env
+    assert "!" not in "".join(l.lstrip()[:1] for l in env.splitlines()), "shell magic left in the setup cell"
+    out += [env, f"PRUNED_RUN = {json.dumps(run)}", "PRUNED_RUN['streams'] = STREAMS",
+            "PRUNED_RUN['keep'] = int(_os.environ.get('GAMES_KEEP', PRUNED_RUN['keep']))",
+            "PLAY_GAMES = PRUNED_RUN['play']",
+            "EXCLUDED_GAMES = [g for g in PRUNED_RUN['all_games'] if g not in PLAY_GAMES]",
+            install, sources]
+    load = push_games._patch(load, "bm.job_dir = WORKING_DIR", "bm.job_dir = WORKING_DIR / GAMES_DIR\nbm.job_dir.mkdir(exist_ok=True)\n"
+                             "(bm.job_dir / 'run_settings.json').write_text(json.dumps(PRUNED_RUN))")
+    custom = push_games._patch(custom, "bm.n_passes = 4\n", "bm.n_passes = PRUNED_RUN['passes']\n")
+    custom = push_games._patch(custom, "demo_excluded_games = [] if TRUE_SUBMISSION else []",
+                               "demo_excluded_games = [] if TRUE_SUBMISSION else EXCLUDED_GAMES")
+    out += [load, custom, monitor]
+    run_cell = push_games._patch(run_cell, "await bm.run(", "asyncio.run(bm.run(")
+    run_cell = push_games._patch(run_cell, "minimal_diagnostics=TRUE_SUBMISSION)",
+                                 "minimal_diagnostics=TRUE_SUBMISSION))")
+    run_cell = run_cell.replace("WORKING_DIR / \"submission.parquet\"", "bm.job_dir / \"submission.parquet\"")
+    out += [run_cell, "print('GAMES_DONE', flush=True)"]
+    return "\n\n".join(out) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--keep", type=int, default=256)
+    parser.add_argument("--streams", type=int, default=20, help="harness active streams (<= 28)")
+    parser.add_argument("--games", default="tu93,cd82,re86,dc22,ls20,sb26,tr87")
+    parser.add_argument("--passes", type=int, default=4)
+    args = parser.parse_args()
+    assert args.streams <= SERVER_MAXREQ
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    source_dir = push.HERE / "build" / "source"
+    meta = json.loads((source_dir / "kernel-metadata.json").read_text())
+    nb = json.loads((source_dir / meta["code_file"]).read_text())
+    text = ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+    paths_cell = next(t for t in text if "MODEL_DIR         = " in t)
+    paths = "\n".join(re.search(rf"^{n}\s*=.*$", paths_cell, re.M)[0]
+                      for n in ("WHEELHOUSE_DIR", "MODEL_DIR", "DRAFT_MODEL_DIR", "SERVED_MODEL_NAME"))
+    precache = next(t for t in text if "def precache(" in t)
+    launcher = push_games.patch_launcher(next(t for t in text if "def prepare_draft_view(" in t))
+    for old, new in (("MAXREQ=10,", f"MAXREQ={SERVER_MAXREQ},"), ("CUDAGRAPH_MAXBS=10,", f"CUDAGRAPH_MAXBS={SERVER_MAXREQ},"),
+                     ("MAMBA_CACHE=60,", f"MAMBA_CACHE={SERVER_MAMBA},"), ("MEMFRAC=0.96,", f"MEMFRAC={MEMFRAC},"),
+                     ("graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, ", "graph_bs = sorted({1, 2, 4, 7, 8, 9, 10, *range(12, CFG['MAXREQ'], 2), ")):
+        launcher = push_games._patch(launcher, old, new)
+    serve = (SERVE_HEAD.replace("__PATHS__", paths).replace("__KEEP__", str(args.keep)) + "\n" + precache + "\n"
+             + launcher + SERVE_TAIL)
+    (out / "serve_pruned.py").write_text(serve)
+    full = push_games.patch_launcher(next(t for t in text if "def prepare_draft_view(" in t))
+    full = push_games._patch(full, "MEMFRAC=0.96,", f"MEMFRAC={MEMFRAC},")
+    (out / "serve_full.py").write_text(SERVE_HEAD.replace("__PATHS__", paths).replace("__KEEP__", "512") + "\n"
+                                       + precache + "\n" + full + SERVE_TAIL)
+    (out / "bench_streams.py").write_text(BENCH.replace("__STREAMS__", "[10, 16, 20, 28]"))
+    (out / "pick_streams.py").write_text(PICK)
+    play = args.games.split(",")
+    run = {"fold": "all", "play": play, "all_games": push_games.GAMES, "keep": args.keep, "criterion": "gate_norm",
+           "passes": args.passes, "streams": args.streams, "memfrac": MEMFRAC, "server_maxreq": SERVER_MAXREQ}
+    (out / "games.py").write_text(games_script(nb, run))
+    print(f"scripts in {out}: {json.dumps(run)}")
+
+
+if __name__ == "__main__":
+    main()
