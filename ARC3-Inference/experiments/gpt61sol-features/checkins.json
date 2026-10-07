@@ -10,5 +10,9 @@
   {
     "time": "2026-10-07 21:31 UTC",
     "text": "32 minutes in, $15.27 spent, no errors in the run log. 4 games won, all at 100 and close to the baseline's actions: g50t 7/7 in 294 actions (baseline 311), tr87 6/6 in 166 (161), sb26 8/8 in 126 (124), s5i5 8/8 in 262 (251). 10 games are playing; the other 11 have not had a model turn yet (10 at a time, as in the baseline). Features: 13 handover notes so far, all comments-only, all followed by the cut (e.g. sk48 steps 32 and 50, ~8.5K-character notes under the six headings); every python call has both reasoning fields (632 of 632); one step-back hint, on sk48 level 5, the level the baseline was stuck on for 437 actions (here 64 actions so far). bp35 has 3 game overs. Spending is running faster than the baseline's long games did early on; to watch."
+  },
+  {
+    "time": "2026-10-07 22:04 UTC",
+    "text": "66 minutes in, $29.72 spent, no errors. 16 games won, all at 100: since the last check re86 8/8, su15 9/9, sc25 6/6, ls20 7/7, ka59 7/7, tu93 9/9, cd82 6/6, dc22 6/6, m0r0 6/6, vc33 7/7, ar25 8/8 and lp85 8/8. Over the 14 games scored so far, actions are close to the baseline (3,785 vs 3,690), but output tokens are 1.67x (623K vs 373K) and cost is +20% ($16.05 vs $13.42); hidden reasoning tokens rose as well as the visible fields (e.g. su15 71K vs 46K, dc22 64K vs 36K). Minutes are not comparable (different scheduling of the 10 model slots).\n\nStill playing: lf52 8/10, bp35 8/9 (3 game overs, 1 hint), wa30 8/9, sp80, cn04, r11l, tn36, ft09 early. sk48 is on level 5 with 225 actions on it (baseline: 437), 4 step-back hints (steps 47, 56, 66, 74) and 111K of its 300K output tokens: the main risk of a cap stop. A reader is going through sk48 level 5 and the turns after each hint. cd82 got 2 hints on level 1 and still won in 117 actions (baseline 91). 24 notes so far, all kept; every python call has both fields."
   }
 ]
