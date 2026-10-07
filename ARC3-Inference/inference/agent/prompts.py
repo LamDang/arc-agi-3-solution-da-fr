@@ -226,6 +226,12 @@ PYTHON_ADDENDUM_TAIL = (
     "- Flag semantics: `game_over` = this attempt FAILED (death or a limit ran out) — the level auto-resets to its initial state and completed levels are kept; it never means the run is won. `level_completed` = advanced one level. `run_complete`/`done` = the whole game is won. Deaths come either from the action itself (e.g., a hazard cell) or from a step/time budget depleting — watch for a bar at the grid border that shrinks each action, and count remaining budget into your plans.\n"
 )
 
+# Without RESET the only way to restart a level is to lose, and agents drain the
+# step budget on purpose to get there (gpt-6.1-sol on sk48: ~130 UP/DOWN actions).
+NO_BUDGET_BURN_ADDENDUM = (
+    "- Do not spend actions on purpose to run out the step budget or lose the attempt just to get the level reset, even when you think you need a fresh start to complete the level. Use those actions to explore new ideas or to test your understanding of the game's mechanics instead.\n"
+)
+
 FRAME_DIFF_HINT_ADDENDUM = (
     "- `frame_diff(before=None, after=None)` compares two frames. Omitted arguments default to `previous_frame` and `current_frame`, respectively.\n"
     "- It returns a dictionary containing `changed_cell_count` (an integer) and lists named `moved`, `rotated`, `appeared`, `disappeared`, `changed_color`, and `resized`. Unchanged objects are omitted.\n"

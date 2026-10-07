@@ -1,0 +1,326 @@
+[
+{
+"moment": "flash sp80 s38",
+"reply": "A",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "flash sp80 s38",
+"reply": "B",
+"variant": "control",
+"step_back": 1,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "flash sp80 s38",
+"reply": "C",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "flash sp80 s38",
+"reply": "D",
+"variant": "control",
+"step_back": 1,
+"new_idea": 1,
+"waste": 1,
+"toward_solution": 0
+},
+{
+"moment": "flash vc33 s33 (normal)",
+"reply": "A",
+"variant": "control",
+"step_back": 1,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "flash vc33 s33 (normal)",
+"reply": "B",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "flash vc33 s33 (normal)",
+"reply": "C",
+"variant": "control",
+"step_back": 1,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "flash vc33 s33 (normal)",
+"reply": "D",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "gpt sk48 s35",
+"reply": "A",
+"variant": "hint",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "gpt sk48 s35",
+"reply": "B",
+"variant": "control",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "gpt sk48 s35",
+"reply": "C",
+"variant": "hint",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s35",
+"reply": "D",
+"variant": "control",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "gpt sk48 s55",
+"reply": "A",
+"variant": "control",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s55",
+"reply": "B",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "gpt sk48 s55",
+"reply": "C",
+"variant": "control",
+"step_back": 2,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "gpt sk48 s55",
+"reply": "D",
+"variant": "hint",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s65",
+"reply": "A",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "gpt sk48 s65",
+"reply": "B",
+"variant": "control",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s65",
+"reply": "C",
+"variant": "control",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s65",
+"reply": "D",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s95",
+"reply": "A",
+"variant": "hint",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s95",
+"reply": "B",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s95",
+"reply": "C",
+"variant": "control",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "gpt sk48 s95",
+"reply": "D",
+"variant": "control",
+"step_back": 0,
+"new_idea": 0,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "max lp85 s37",
+"reply": "A",
+"variant": "control",
+"step_back": 1,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "max lp85 s37",
+"reply": "B",
+"variant": "hint",
+"step_back": 1,
+"new_idea": 0,
+"waste": 1,
+"toward_solution": 0
+},
+{
+"moment": "max lp85 s37",
+"reply": "C",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "max lp85 s37",
+"reply": "D",
+"variant": "control",
+"step_back": 1,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 0
+},
+{
+"moment": "max ls20 s17",
+"reply": "A",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "max ls20 s17",
+"reply": "B",
+"variant": "control",
+"step_back": 1,
+"new_idea": 1,
+"waste": 1,
+"toward_solution": 0
+},
+{
+"moment": "max ls20 s17",
+"reply": "C",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 2
+},
+{
+"moment": "max ls20 s17",
+"reply": "D",
+"variant": "control",
+"step_back": 1,
+"new_idea": 1,
+"waste": 1,
+"toward_solution": 0
+},
+{
+"moment": "max sp80 s123",
+"reply": "A",
+"variant": "control",
+"step_back": 0,
+"new_idea": 0,
+"waste": 1,
+"toward_solution": 0
+},
+{
+"moment": "max sp80 s123",
+"reply": "B",
+"variant": "control",
+"step_back": 0,
+"new_idea": 1,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "max sp80 s123",
+"reply": "C",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 1
+},
+{
+"moment": "max sp80 s123",
+"reply": "D",
+"variant": "hint",
+"step_back": 2,
+"new_idea": 2,
+"waste": 0,
+"toward_solution": 1
+}
+]
