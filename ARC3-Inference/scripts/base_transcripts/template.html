@@ -72,7 +72,13 @@ table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
 table.cmp thead th { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.7rem; }
 table.cmp tr.this td { font-weight: 700; }
 table.cmp td.win { color: var(--arc-green); }
-.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.tabs { display: grid; gap: 10px; }
+.tabgroup { display: grid; gap: 6px; }
+.tabgroup h3 { font-size: 0.72rem; font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.tabrow { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab .st { font-weight: 700; }
+.tab .st.won { color: var(--arc-green); }
+.tab .st.playing { color: var(--accent); }
 .tab { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 8px 14px; display: grid; gap: 2px; text-align: left; }
 .tab b { font-family: var(--font-display); font-size: var(--step-1); }
 .tab span { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -149,7 +155,10 @@ pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius
     <p class="built" id="built"></p>
   </header>
   <section class="top">
-    <div class="box"><h3>Score by game</h3><div class="scroll" id="cmp"></div></div>
+    <div class="box"><h3>Runs on this page</h3><div class="scroll" id="runs"></div></div>
+    <div class="box"><h3>Against the qwen runs, same settings</h3><div class="scroll" id="cmp"></div></div>
+  </section>
+  <section>
     <details class="box given"><summary>System prompt the model was given</summary><pre id="system"></pre></details>
   </section>
   <nav class="tabs" id="tabs" aria-label="Games"></nav>
@@ -215,8 +224,27 @@ function header() {
   document.getElementById("settings").replaceChildren(...chips.map((c) => el("span", { class: "chip", text: c })));
   document.getElementById("system").textContent = DATA.system;
 
-  const games = Object.keys(DATA.games);
-  const thisRow = { label: "this run", this: true, scores: {}, cost: 0, output_tokens: 0 };
+  const all = Object.keys(DATA.games);
+  const groups = [...new Set(all.map((g) => DATA.games[g].group))];
+  const runRows = groups.map((label) => {
+    const gs = all.filter((g) => DATA.games[g].group === label).map((g) => DATA.games[g]);
+    const finished = gs.filter((d) => d.score != null);
+    return el("tr", {},
+      el("td", { text: label }),
+      el("td", { text: String(gs.length) }),
+      el("td", { class: "win", text: String(gs.filter((d) => d.state === "won").length) }),
+      el("td", { text: String(gs.filter((d) => d.state === "playing").length) }),
+      el("td", { text: `${gs.reduce((t, d) => t + (d.levels || 0), 0)}/${gs.reduce((t, d) => t + (d.total_levels || 0), 0)}` }),
+      el("td", { text: finished.length ? (finished.reduce((t, d) => t + d.score, 0) / finished.length).toFixed(1) : "-" }),
+      el("td", { text: kfmt(gs.reduce((t, d) => t + (d.total.out || 0), 0)) }),
+      el("td", { text: usd(gs.reduce((t, d) => t + (d.total.cost || 0), 0)) }));
+  });
+  document.getElementById("runs").replaceChildren(el("table", { class: "cmp" },
+    el("thead", {}, el("tr", {}, ["run", "games", "won", "playing", "levels", "mean score", "output", "cost"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, runRows)));
+  const compared = new Set(DATA.compare.flatMap((r) => Object.keys(r.scores)));
+  const games = compared.size ? all.filter((g) => compared.has(g)) : all;
+  const thisRow = { label: "gpt-6.1-sol", this: true, scores: {}, cost: 0, output_tokens: 0 };
   for (const g of games) {
     const d = DATA.games[g];
     thisRow.scores[g] = d.score;
@@ -237,12 +265,16 @@ function header() {
   );
   document.getElementById("cmp").replaceChildren(table);
 
-  document.getElementById("tabs").replaceChildren(...games.map((g) => {
-    const d = DATA.games[g];
-    return el("button", { class: "tab", role: "tab", "data-game": g, onclick: () => show(g) },
-      el("b", { text: g }),
-      el("span", { text: `${d.score.toFixed(1)} · ${d.levels}/${d.total_levels} levels · ${usd(d.total.cost || 0)}` }));
-  }));
+  document.getElementById("tabs").replaceChildren(...groups.map((label) => el("div", { class: "tabgroup" },
+    el("h3", { text: label }),
+    el("div", { class: "tabrow" }, all.filter((g) => DATA.games[g].group === label).map((g) => {
+      const d = DATA.games[g];
+      const head = d.score != null ? d.score.toFixed(1) : d.state;
+      return el("button", { class: "tab", role: "tab", "data-game": g, onclick: () => show(g) },
+        el("b", { text: g }),
+        el("span", {}, el("span", { class: "st " + (d.state === "won" ? "won" : d.state === "playing" ? "playing" : ""), text: head }),
+          ` · ${d.levels}/${d.total_levels} levels · ${usd(d.total.cost || 0)}`));
+    })))));
 }
 
 function levelChart(d) {
@@ -317,14 +349,14 @@ function show(g) {
   const maxOut = Math.max(1, ...steps.map(stepTokens));
   const actions = d.apl.reduce((a, b) => a + b, 0);
   const stats = el("div", { class: "stats" },
-    el("span", {}, el("b", { text: d.score.toFixed(1) }), " score"),
+    el("span", {}, el("b", { text: d.score != null ? d.score.toFixed(1) : "-" }), " score"),
     el("span", {}, el("b", { text: `${d.levels}/${d.total_levels}` }), " levels, ", d.state),
     el("span", {}, el("b", { text: fmt(actions) }), " actions"),
     el("span", {}, el("b", { text: String(steps.length) }), " steps, ", el("b", { text: String(d.requests) }), " requests"),
     el("span", {}, el("b", { text: kfmt(d.total.out || 0) }), ` output (${kfmt(d.total.rs || 0)} reasoning)`),
     el("span", {}, el("b", { text: kfmt(d.total.in || 0) }), ` prompt, ${d.total.in ? Math.round((d.total.cached / d.total.in) * 100) : 0}% cached`),
     el("span", {}, el("b", { text: usd(d.total.cost || 0) })),
-    el("span", {}, el("b", { text: String(d.minutes) }), " min"));
+    d.minutes ? el("span", {}, el("b", { text: String(d.minutes) }), " min") : null);
   const strip = el("div", { class: "strip", role: "list" }, steps.map((s) => el("button", {
     class: stepSolved(s) ? "solved" : null, style: `height:${Math.max(6, (stepTokens(s) / maxOut) * 100)}%`,
     title: `Step ${s.s}: ${fmt(stepTokens(s))} output tokens${stepSolved(s) ? ", level solved" : ""}`, "aria-label": `Step ${s.s}`,

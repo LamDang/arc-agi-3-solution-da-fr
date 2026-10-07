@@ -1,7 +1,7 @@
 """Build a transcript page for a base-agent run (inference/agent/tool_agent.py), step by step, per game.
 
-    uv run --no-sync python scripts/base_transcripts/build.py runs/<run> <out.html> \
-        [--title "..."] [--lede "..."] [--compare-json <file>]
+    uv run --no-sync python scripts/base_transcripts/build.py runs/<run>[=<label>] [runs/<run>[=<label>] ...] \
+        <out.html> [--title "..."] [--lede "..."] [--compare-json <file>]
 
 Reads the run's benchmark.json, the request logs (<game>_p0_requests.jsonl[.xz], needs
 ANALYZER_SAVE_REQUEST_LOGS=true) and artifacts/<game>_p0_events.jsonl (unpack a packed run
@@ -10,7 +10,9 @@ that opened it, each model request in it (reasoning summary, message, the python
 what came back, tokens and cost), the actions it played and the board after them. The header
 compares the run with the rows of --compare-json: [{"label", "scores": {game: score}, "cost",
 "output_tokens"}]. The page is built from template.html with the data gzipped and
-base64-embedded.
+base64-embedded. Several runs (each with an optional tab-group label) go on one page, and a
+run that is still playing can be built: a game benchmark.json still lists as playing takes its
+levels and actions from its event log, which is written as it plays.
 """
 
 from __future__ import annotations
@@ -148,11 +150,20 @@ def game_data(run: Path, game: dict) -> dict:
         })
 
     events_path = run / "artifacts" / f"{gid}_p0_events.jsonl"
+    live_apl: dict[int, int] = defaultdict(int)
+    live_levels = 0
+    live_won = False
     if events_path.exists():
         for line in events_path.read_text(encoding="utf-8").splitlines():
-            event = json.loads(line)
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line being written
             if event.get("type") != "action":
                 continue
+            live_apl[int(event.get("level") or 0)] += 1
+            live_levels += bool(event.get("level_completed"))
+            live_won = live_won or event.get("state") == "WIN"
             card = step(int(event.get("analysis_step") or 0))
             card["actions"].append({
                 "n": event.get("action_num"),
@@ -170,13 +181,22 @@ def game_data(run: Path, game: dict) -> dict:
         for req in card["reqs"]:
             for key, value in req["tok"].items():
                 total[key] += value
+    state = game.get("state")
+    levels = game.get("levels_completed")
+    apl = game.get("actions_per_level") or []
+    if state == "playing":
+        # benchmark.json is saved every 10 minutes; the event log is current
+        total_levels = int(game.get("number_of_levels") or 0)
+        state = "won" if live_won else ("playing" if live_apl else "not started")
+        levels = total_levels if live_won else live_levels
+        apl = [live_apl[k] for k in sorted(live_apl)]
     return {
         "id": gid,
-        "state": game.get("state"),
+        "state": state,
         "score": game.get("final_score"),
-        "levels": game.get("levels_completed"),
+        "levels": levels,
         "total_levels": game.get("number_of_levels"),
-        "apl": game.get("actions_per_level") or [],
+        "apl": apl,
         "baseline": game.get("base_actions_per_level") or [],
         "minutes": round(float(game.get("final_wallclock_seconds") or 0) / 60, 1),
         "total": dict(total),
@@ -188,31 +208,38 @@ def game_data(run: Path, game: dict) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("run", type=Path)
+    ap.add_argument("runs", nargs="+", help="run directories, each optionally =<tab-group label>")
     ap.add_argument("out", type=Path)
     ap.add_argument("--title", default=None)
     ap.add_argument("--lede", default="")
     ap.add_argument("--compare-json", type=Path, default=None)
     args = ap.parse_args()
-    benchmark = json.loads((args.run / "benchmark.json").read_text(encoding="utf-8"))
+    runs = []
+    for item in args.runs:
+        path, _, label = item.partition("=")
+        runs.append((Path(path), label or Path(path).name))
+    first = runs[0][0]
     settings = {}
-    if (args.run / "eval_settings.json").exists():
-        settings = json.loads((args.run / "eval_settings.json").read_text(encoding="utf-8"))
+    if (first / "eval_settings.json").exists():
+        settings = json.loads((first / "eval_settings.json").read_text(encoding="utf-8"))
     data = {
-        "title": args.title or args.run.name,
+        "title": args.title or first.name,
         "lede": args.lede,
-        "run": args.run.name,
+        "run": ", ".join(path.name for path, _ in runs),
         "built": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "settings": settings,
         "compare": json.loads(args.compare_json.read_text(encoding="utf-8")) if args.compare_json else [],
         "games": {},
     }
     system = ""
-    for game in sorted(benchmark.get("game_runs") or [], key=lambda g: g["game_id"]):
-        gdata = game_data(args.run, game)
-        system = system or gdata["system"]
-        gdata.pop("system")
-        data["games"][gdata["id"].split("-")[0]] = gdata
+    for path, label in runs:
+        benchmark = json.loads((path / "benchmark.json").read_text(encoding="utf-8"))
+        for game in sorted(benchmark.get("game_runs") or [], key=lambda g: g["game_id"]):
+            gdata = game_data(path, game)
+            system = system or gdata["system"]
+            gdata.pop("system")
+            gdata["group"] = label
+            data["games"][gdata["id"].split("-")[0]] = gdata
     data["system"] = system
     raw = json.dumps(data, separators=(",", ":")).encode()
     packed = base64.b64encode(gzip.compress(raw, 9, mtime=0)).decode()
