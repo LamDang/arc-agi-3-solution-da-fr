@@ -22,6 +22,7 @@ their own index ([Play runs](#play-runs)).
 | [v12-forks.md](v12-forks.md) | v12 forks of v11: A sp80 t180, A ls20 t100, B ls20 t148 | On 100-turn forks of v11, does a context rebuilt at every request (A), or the v12 messages and harness (B), do as well as v11 over the same turns? |
 | [v12-5games.md](v12-5games.md) | v12 flash and v12 max (ft09, lp85, ls20, sp80, vc33) | Does the full v12 harness hold up over whole games on the base agent's five games, and what does qwen3.8-max add? |
 | [base-max-5games.md](base-max-5games.md) | base agent with qwen3.8-max-0902: dfranzen settings 58.2 ($29.12), default settings 45.1 ($59.68); flash baseline 66.9 | Does the larger model help the base agent, with and without dfranzen's settings? |
+| [base-gpt61sol-5games.md](base-gpt61sol-5games.md) | base agent with gpt-6.1-sol (OpenAI Responses API, reasoning sent back, effort xhigh), dfranzen settings: 100.0, 34/34 levels, $3.00 | How far does gpt-6.1-sol get with the base agent's harness and settings? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
