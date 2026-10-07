@@ -55,6 +55,7 @@ from inference.agent.prompts import (
     ACTION_INFO_ADDENDUM,
     UNDO_INFO_ADDENDUM,
     RESET_INFO_ADDENDUM,
+    NO_BUDGET_BURN_ADDENDUM,
 )
 
 from inference.agent.vision_context import (
@@ -292,6 +293,54 @@ def _persistent_history_assistant_turns() -> int:
     only limit."""
     return _get_env_int("ARC3_HISTORY_ASSISTANT_TURNS", 30)
 _WM_NUDGE_TURNS = _get_env_int("ARC3_WM_NUDGE_TURNS", 0)
+
+
+def _repeat_hint_text(repeated: int, *, visits: int, current_repeated: bool) -> list[str]:
+    """The lines of the ARC3_REPEAT_HINT message."""
+    which = (
+        f"The current board position and {repeated - 1} other position(s)"
+        if current_repeated else f"{repeated} board positions"
+    )
+    return [
+        f"Repetition check: {which} on this level have each been reached at least "
+        f"{visits} times (boards compared without the 2-pixel border).",
+        "If you are stuck on this level, take a step back and assess:",
+        "- list the facts you know and have tested;",
+        "- look at every visual element on the board;",
+        "- list what must be true to pass the level, and work backward from it;",
+        "- prioritize the strategy most likely to succeed.",
+        "If you are progressing normally and the repetition is part of the game's mechanics, ignore this message.",
+    ]
+
+
+def _repeated_positions(
+    history_entries: list[HistoryEntry],
+    current_frame: Frame | None,
+    *,
+    visits: int,
+    border: int = 2,
+) -> tuple[int, bool]:
+    """Positions of the current level reached at least `visits` times.
+
+    A position is the board without its `border`-pixel frame, where most step
+    and timer bars sit, compared exactly. Every history frame of the level
+    counts as a visit, its starting board and the board after an automatic
+    RESET included. Returns how many positions reached `visits`, and whether
+    the current board is one of them.
+    """
+    if current_frame is None:
+        return 0, False
+
+    def key(frame: Frame) -> tuple[tuple[int, ...], ...]:
+        return tuple(tuple(row[border:len(row) - border]) for row in frame.grid[border:len(frame.grid) - border])
+
+    counts: dict[tuple[tuple[int, ...], ...], int] = {}
+    for entry in history_entries:
+        if entry.frame is not None and entry.frame.level == current_frame.level:
+            k = key(entry.frame)
+            counts[k] = counts.get(k, 0) + 1
+    repeated = sum(1 for n in counts.values() if n >= visits)
+    return repeated, counts.get(key(current_frame), 0) >= visits
 _WM_WIPE_ON_GAME_OVER = _get_env_int("ARC3_WM_WIPE_ON_GAME_OVER", 1)
 _AUTO_FRAME_DIFF = _get_env_bool("ARC3_AUTO_FRAME_DIFF", False)
 _AUTO_FRAME_DIFF_BUDGET = _get_env_int("ARC3_AUTO_FRAME_DIFF_BUDGET", 300)
@@ -2827,6 +2876,9 @@ def _build_system_prompt(
         WORLD_MODEL_FREE_ADDENDUM if _memory_sections_disabled() else WORLD_MODEL_ADDENDUM
     )
     prompt += PYTHON_ADDENDUM_TAIL
+    if _get_env_bool("ARC3_NO_BUDGET_BURN", False) and not reset_exposed():
+        # follows the tail's flag-semantics line, which explains budget deaths
+        prompt += NO_BUDGET_BURN_ADDENDUM
     if _get_env_bool("ARC3_FRAME_DIFF_HINT", False):
         # documents `frame_diff(before, after)`. The function stays callable
         # either way - this only controls whether the model is told about it,
@@ -3742,6 +3794,8 @@ class ToolAgent:
         self._death_ledger_attempts: list[dict[str, Any]] = []
         self._death_ledger_index: dict[str, list[tuple[int, int]]] = {}
         self._death_ledger_total: int = 0
+        # analyzer turns since the repetition hint was last shown; None: never shown
+        self._repeat_hint_turns_since: int | None = None
         self._history_messages: list[dict[str, Any]] = []
         self._session_runtime_dir: Path | None = None
         self._session_total_tokens = 0
@@ -4972,6 +5026,35 @@ class ToolAgent:
             lines.append(f"Current state: step {step}, level {level}.")
         return lines
 
+    def _repeat_hint_lines(
+        self, current_frame: Frame | None, history_entries: list[HistoryEntry]
+    ) -> list[str]:
+        """Suggest a step back once several board positions keep coming back.
+
+        Fires when ARC3_REPEAT_HINT_POSITIONS positions of the current level
+        (default 3) have each been seen ARC3_REPEAT_HINT_VISITS times (default
+        3), the 2-pixel border left out. On the 5 analysed runs, 3 positions at
+        their third visit caught 15 of 17 hand-labelled stuck stretches, most
+        before a second game over, and fired on 7 of 250 normal levels
+        (exp/stuck-detection.md). Once shown, it waits
+        ARC3_REPEAT_HINT_COOLDOWN analyzer turns (default 10) even while the
+        repetition continues.
+        """
+        if not _get_env_bool("ARC3_REPEAT_HINT", False):
+            return []
+        if self._repeat_hint_turns_since is not None:
+            self._repeat_hint_turns_since += 1
+            if self._repeat_hint_turns_since < max(1, _get_env_int("ARC3_REPEAT_HINT_COOLDOWN", 10)):
+                return []
+        visits = max(2, _get_env_int("ARC3_REPEAT_HINT_VISITS", 3))
+        repeated, current_repeated = _repeated_positions(
+            history_entries, current_frame, visits=visits
+        )
+        if repeated < max(1, _get_env_int("ARC3_REPEAT_HINT_POSITIONS", 3)):
+            return []
+        self._repeat_hint_turns_since = 0
+        return _repeat_hint_text(repeated, visits=visits, current_repeated=current_repeated)
+
     def _build_user_prompt(
         self,
         action_num: int,
@@ -5269,6 +5352,7 @@ class ToolAgent:
                     current_frame, history_entries, previous_step_summary
                 )
             )
+        lines.extend(self._repeat_hint_lines(current_frame, history_entries))
         lines.extend(
             [
                 "Only tool: `python`. It receives `current_frame`, `previous_frame`, `history`, `transitions`, `last_transition`, `valid_actions`, `last_action_call_result`, `frame_diff(before, after)`, and `action(actions)`.",
