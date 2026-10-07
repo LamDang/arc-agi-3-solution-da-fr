@@ -37,6 +37,8 @@ from inference.agent.prompts import (
     PERSISTENT_FUNCTIONS_LINE,
     EPHEMERAL_FUNCTIONS_LINE,
     SUMMARY_REQUEST_PROMPT,
+    NOTE_COMPACTION_PROMPT,
+    NOTE_COMPACTION_TOOL_RESULT,
     PREFER_TOOL_CALLS_LINE,
     GAME_OVERVIEW_ADDENDUM,
     WORLD_MODEL_ADDENDUM,
@@ -292,6 +294,30 @@ def _persistent_history_assistant_turns() -> int:
     0 or negative disables the cap entirely, leaving the token budget as the
     only limit."""
     return _get_env_int("ARC3_HISTORY_ASSISTANT_TURNS", 30)
+
+
+def _note_compaction_tokens() -> int:
+    """Prompt size at a turn start that triggers a note compaction. 0 disables.
+
+    Instead of letting the trimmer drop the oldest half of history with nothing
+    in its place (at the budget, ~119K with a 128K window), the harness asks the
+    model for a handover note first: NOTE_COMPACTION_PROMPT, answered with a
+    python call whose code is comments only. History is then cut to the last
+    ARC3_NOTE_COMPACTION_KEEP_TURNS turns and the note exchange, and the turn
+    goes on with its normal opener. Set it below the trimmer's budget, or the
+    trimmer cuts first."""
+    return max(0, _get_env_int("ARC3_NOTE_COMPACTION_TOKENS", 0))
+
+
+def _note_compaction_keep_turns() -> int:
+    """Turns kept verbatim by a note compaction, counted by their openers.
+
+    20 kept turns of gpt-6.1-sol came to 61-87K tokens (two images and a
+    repeated opener per turn), leaving room for only 9-18 turns before the
+    next note; 10 leaves about twice that."""
+    return max(1, _get_env_int("ARC3_NOTE_COMPACTION_KEEP_TURNS", 10))
+
+
 _WM_NUDGE_TURNS = _get_env_int("ARC3_WM_NUDGE_TURNS", 0)
 
 
@@ -1109,6 +1135,12 @@ def _apply_history_image_window(
 # summary-aware drain navigates by these, and losing one would silently return
 # it to ordinary block dropping.
 _SUMMARY_CONTROL_KIND = "summary"
+# Tag for the three messages of a note compaction: the request, the reply whose
+# python code is the note, and the stand-in tool result. Never pruned.
+_NOTE_CONTROL_KIND = "note"
+# Below this the reply is not a note (the 16 replayed ones ran 4,000-9,400
+# characters).
+_NOTE_MIN_USABLE_CHARS = 300
 # Below this a reply that also called a tool is a preamble rather than a
 # summary. Real ones measured 4,385 to 6,248 characters; an introduction to a
 # tool call measured nine.
@@ -1345,6 +1377,9 @@ def _prune_control_kind_enabled(kind: str) -> bool:
                  `short` mode) - a restatement of unchanged state
     - 'stub'   : the placeholder that ARC3_STUB_DEAD_REASONING leaves behind
     """
+    if kind == _NOTE_CONTROL_KIND:
+        # the note stands in for the turns a compaction removed
+        return False
     if _prune_control_context_enabled():
         return True
     env_name = _CONTROL_KIND_ENV.get(kind)
@@ -3539,6 +3574,7 @@ def _append_request_snapshot(
     chat_template_kwargs: dict[str, Any] | None = None,
     request_params: dict[str, Any] | None = None,
     response_id: str | None = None,
+    kind: str | None = None,
 ) -> None:
     # A response line carries the model's reply, not the request again: the
     # request line just before it already holds the messages and tools.
@@ -3569,6 +3605,8 @@ def _append_request_snapshot(
         payload["action"] = action
     if request_index_within_turn is not None:
         payload["request_index_within_turn"] = request_index_within_turn
+    if kind:
+        payload["kind"] = kind
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
@@ -6482,6 +6520,171 @@ class ToolAgent:
             text,
         )
 
+    def _maybe_compact_with_note(
+        self,
+        opening_message: dict[str, Any],
+        tools: list[dict[str, Any]] | None,
+        append_transcript,
+        *,
+        state_path: Path,
+        analysis_step: int | None,
+        display_action_num: int,
+        request_timeout_seconds: float | None = None,
+    ) -> None:
+        """Cut history to its last turns behind a handover note the model writes.
+
+        Called at a turn start, before the opener is appended: the request is the
+        current history plus NOTE_COMPACTION_PROMPT, so its prefix is cached. On
+        a usable reply history becomes the last ARC3_NOTE_COMPACTION_KEEP_TURNS
+        turns followed by the note exchange, and the turn goes on with its
+        opener. On any failure history is left alone and the trimmer still cuts
+        at the budget as before.
+        """
+        threshold = _note_compaction_tokens()
+        history = self._history_messages
+        if threshold <= 0 or not history:
+            return
+        system_message = {"role": "system", "content": self._system_prompt}
+        used = self._estimate_request_input_tokens(
+            [system_message, *history, opening_message], tools=tools
+        )
+        if used < threshold:
+            return
+        keep_turns = _note_compaction_keep_turns()
+        # a turn starts at its opener; resumptions, nudges and notes are tagged
+        starts = [
+            index
+            for index, message in enumerate(history)
+            if str(message.get("role", "")).strip() == "user"
+            and not message.get(_CONTROL_MESSAGE_KEY)
+        ]
+        if len(starts) <= keep_turns:
+            return
+        # Kept turns large enough to stay near the threshold would bring a note
+        # every turn (seen at 20K with 5 kept turns), so fewer are kept until the
+        # prompt is at most 3/4 of it. The last 20 turns of the gpt-6.1-sol
+        # games ran 40-70K, under the cap at 110K.
+        first = len(starts) - keep_turns
+        while first < len(starts) - 1 and self._estimate_request_input_tokens(
+            [system_message, *history[starts[first]:], opening_message], tools=tools
+        ) > threshold * 3 // 4:
+            first += 1
+        cut = starts[first]
+        keep_turns = len(starts) - first
+        step = re.search(r"Current state: step (\d+)", _message_display_text(history[cut]))
+        request_text = NOTE_COMPACTION_PROMPT.format(
+            threshold_k=round(threshold / 1000),
+            keep_turns=keep_turns,
+            kept_from=f" (from game step {step.group(1)} on)" if step else "",
+        )
+        request = _mark_control_message(
+            {"role": "user", "content": request_text}, _NOTE_CONTROL_KIND
+        )
+        messages = [system_message, *history, request]
+        log_path = _resolve_request_log_path(state_path) if self._save_request_logs else None
+        log_fields = {
+            "analysis_step": analysis_step,
+            "action": display_action_num,
+            "request_index_within_turn": 0,
+            "chat_template_kwargs": self._harness_template_kwargs(),
+            "kind": "note_compaction",
+        }
+        if log_path is not None:
+            _append_request_snapshot(
+                log_path,
+                messages=json.loads(json.dumps(messages)),
+                tools=tools,
+                event="request",
+                tool_choice=_request_tool_choice(tools),
+                **log_fields,
+            )
+        try:
+            result = self._chat_completion(
+                messages, tools=tools, request_timeout_seconds=request_timeout_seconds
+            )
+        except BaseException as exc:  # a failed note must not end the turn
+            log.warning("note compaction request failed: %s", exc)
+            append_transcript("ANALYZER STATUS", f"note_compaction_failed: {exc}")
+            return
+        # the tokens were generated whether or not the note is usable
+        self._accumulate_usage_tokens(
+            getattr(result, "usage", None), count_toward_turn=False
+        )
+        if log_path is not None:
+            _append_request_snapshot(
+                log_path,
+                messages=None,
+                tools=None,
+                event="response",
+                reply=result.message,
+                tool_choice=_request_tool_choice(tools),
+                finish_reason=result.finish_reason,
+                served_by=result.served_by,
+                usage=result.usage,
+                request_params=getattr(self, "_last_request_params", None),
+                response_id=result.response_id,
+                **log_fields,
+            )
+        message = result.message or {}
+        content = _normalize_message_content(message.get("content", "")).strip()
+        reply: dict[str, Any] = {"role": "assistant"}
+        tool_result: dict[str, Any] | None = None
+        note = ""
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            if str(function.get("name", "")).strip() != "python":
+                continue
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                continue
+            note = str(arguments.get("code") or "") if isinstance(arguments, dict) else ""
+            if note.strip():
+                # the one call, as made; any other call in the reply is dropped
+                reply["tool_calls"] = [json.loads(json.dumps(call))]
+                tool_result = {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", ""),
+                    "content": NOTE_COMPACTION_TOOL_RESULT,
+                }
+                break
+        if tool_result is None:
+            # a note written as text instead of a call is still a note
+            note = content
+        if content:
+            reply["content"] = content
+        if len(note.strip()) < _NOTE_MIN_USABLE_CHARS:
+            log.warning(
+                "note compaction reply unusable (%d chars of note, finish_reason=%s); "
+                "history left to the trimmer",
+                len(note.strip()), result.finish_reason or "?",
+            )
+            append_transcript(
+                "ANALYZER STATUS",
+                f"note_compaction_rejected: {len(note.strip())} chars of note",
+            )
+            return
+        reasoning_details = _history_reasoning_details(message)
+        if reasoning_details:
+            reply["reasoning_details"] = reasoning_details
+        note_messages = [request, _mark_control_message(reply, _NOTE_CONTROL_KIND)]
+        if tool_result is not None:
+            note_messages.append(_mark_control_message(tool_result, _NOTE_CONTROL_KIND))
+        # an earlier note is superseded: the new one was asked to carry it forward
+        kept = [m for m in history[cut:] if m.get(_CONTROL_MESSAGE_KEY) != _NOTE_CONTROL_KIND]
+        self._history_messages = [*kept, *note_messages]
+        self._note_history_evicted()
+        after = self._estimate_request_input_tokens(
+            [system_message, *self._history_messages, opening_message], tools=tools
+        )
+        append_transcript(
+            "ANALYZER STATUS",
+            f"note_compaction: prompt ~{used} -> ~{after} tokens; kept the last "
+            f"{keep_turns} turns ({len(kept)} of {len(history)} messages) and a "
+            f"{len(note)}-char note",
+        )
+        append_transcript("COMPACTION NOTE", note)
+
     def _estimate_request_input_tokens(
         self,
         messages: list[dict[str, Any]],
@@ -6978,6 +7181,15 @@ class ToolAgent:
             # turn and is pure duplication afterwards, which is precisely what
             # ARC3_PRUNE_CONTROL_CONTEXT exists to drop.
             _mark_control_message(opening_message, "resume")
+        self._maybe_compact_with_note(
+            opening_message,
+            self._tools(state_path),
+            append_transcript,
+            state_path=state_path,
+            analysis_step=analysis_step,
+            display_action_num=display_action_num,
+            request_timeout_seconds=request_timeout_seconds,
+        )
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt}, *self._history_messages,
         ]
