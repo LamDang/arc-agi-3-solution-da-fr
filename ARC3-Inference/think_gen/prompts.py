@@ -2,7 +2,7 @@
 judge. Kept in one place so a prompt change shows up as one diff, and each
 output records the prompt version it was made with."""
 
-PROMPT_VERSION = "b1"
+PROMPT_VERSION = "b1"  # default reconstruct prompt; see RECONSTRUCT_PROMPTS
 
 # Approach B (reconstructor): appended as a user message after the agent's
 # context. Flash writes the thinking as its visible answer.
@@ -36,10 +36,23 @@ NO_SUMMARY_BLOCK = """\
 There is no summary for this step: the thinking here was short. Keep it brief, a few sentences to a short paragraph, focused on what the newest information shows and why this output is the next step."""
 
 
-def reconstruct_prompt(call: str, summary: str) -> str:
+# b2: thinking as working, not as an explanation written afterwards. On the
+# qwen3.8-max calibration b1 read as a polished account of the reasoning,
+# stating results the real thinking derived step by step.
+RECONSTRUCT_B2 = RECONSTRUCT.replace(
+    """- Write it as your own private thinking at this moment, in first person, in the way you naturally think when you work on this game: plain text, exploratory, with the checks, doubts and corrections a real solver has.
+""",
+    """- Write it as your own private thinking at this moment, in first person, the way you think while working, not the way you would explain it afterwards. Work things out in the text: list the cells, positions or values that matter and compute from them, check them against what the frame and tool output show, and say so ("wait", "hmm") when something does not fit, then correct it. Numbers and coordinates in the code should be derived in the thinking, not just stated. Short notes and fragments are fine; no headings, no polished prose, no closing "Decision:" line.
+""")
+
+RECONSTRUCT_PROMPTS = {"b1": RECONSTRUCT, "b2": RECONSTRUCT_B2}
+
+
+def reconstruct_prompt(call: str, summary: str, version: str = PROMPT_VERSION) -> str:
     from .context import THINK_CLOSE, THINK_OPEN
     block = SUMMARY_BLOCK.format(summary=summary.strip()) if summary.strip() else NO_SUMMARY_BLOCK
-    return RECONSTRUCT.format(open=THINK_OPEN, close=THINK_CLOSE, call=call, summary_block=block)
+    return RECONSTRUCT_PROMPTS[version].format(
+        open=THINK_OPEN, close=THINK_CLOSE, call=call, summary_block=block)
 
 
 # Calibration: turn a teacher's real thinking into a summary in the style

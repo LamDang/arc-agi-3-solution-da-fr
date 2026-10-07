@@ -16,7 +16,8 @@ class CallError(RuntimeError):
 
 def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
          tools: list | None = None, reasoning: bool = False, max_tokens: int = 8192,
-         temperature: float = 0.7, retries: int = 6, timeout: int = 900) -> dict:
+         temperature: float = 0.7, retries: int = 6, timeout: int = 900,
+         json_mode: bool = False) -> dict:
     """One completion. Returns {"content", "reasoning", "usage", "provider",
     "finish_reason", "secs"}. Retries 429s, 5xx, network errors and empty
     answers with exponential backoff."""
@@ -28,6 +29,8 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         "reasoning": {"enabled": bool(reasoning)},
         "usage": {"include": True},
     }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
     if tools:
         body["tools"] = tools
         body["tool_choice"] = "none"

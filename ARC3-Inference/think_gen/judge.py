@@ -37,7 +37,7 @@ def judge_one(row: dict, args) -> dict:
             res = client.chat([{"role": "user", "content": prompts.judge_prompt(
                 row["call"], row["real_reasoning"], row["thinking"])}],
                 model=args.model, provider=args.provider, reasoning=True,
-                max_tokens=12000, temperature=0.2)
+                max_tokens=12000, temperature=0.2, json_mode=True)
         except client.CallError as e:
             out["error"] = str(e)[:300]
             continue
@@ -82,8 +82,9 @@ def main(argv=None):
     ap.add_argument("dirs", nargs="+", type=Path)
     ap.add_argument("--model", default=client.MODEL)
     ap.add_argument("--provider", default=client.PROVIDER)
-    ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--workers", type=int, default=24)
     args = ap.parse_args(argv)
+    todo, state = [], {}
     for d in args.dirs:
         (d / "judge").mkdir(exist_ok=True)
         rows_all, verdicts = [], {}
@@ -92,15 +93,23 @@ def main(argv=None):
             rows_all += rows
             jpath = d / "judge" / path.name
             done = {v["key"]: v for v in read_jsonl(jpath) if "covered" in v}
-            todo = [r for r in rows if r["key"] not in done]
-            with cf.ThreadPoolExecutor(args.workers) as ex:
-                for v in ex.map(lambda r: judge_one(r, args), todo):
-                    append_jsonl(jpath, v)
-                    if "covered" in v:
-                        done[v["key"]] = v
-                    else:
-                        log(f"[{v['key']}] judge failed: {v.get('error')}")
             verdicts.update(done)
+            todo += [(r, jpath, verdicts) for r in rows if r["key"] not in done]
+        state[d] = (rows_all, verdicts)
+
+    def work(item):
+        row, jpath, verdicts = item
+        v = judge_one(row, args)
+        append_jsonl(jpath, v)
+        if "covered" in v:
+            verdicts[v["key"]] = v
+        else:
+            log(f"[{v['key']}] judge failed: {v.get('error')}")
+
+    log(f"{len(todo)} records to judge")
+    with cf.ThreadPoolExecutor(args.workers) as ex:
+        list(ex.map(work, todo))
+    for d, (rows_all, verdicts) in state.items():
         per_game = {}
         for g in sorted({r["game"] for r in rows_all}):
             per_game[g] = summarize([r for r in rows_all if r["game"] == g], verdicts)

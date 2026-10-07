@@ -98,7 +98,7 @@ def run_game(path: Path, args, examples: list[str]) -> dict:
             "teacher_reasoning_tokens": rec.reasoning_tokens,
             "summary": summary, "summary_source": source,
             "real_reasoning": rec.real_reasoning,
-            "prompt_version": prompts.PROMPT_VERSION, "model": args.model,
+            "prompt_version": args.prompt, "model": args.model,
             "flash_reasoning": args.reasoning,
         }
         if rec.reasoning_tokens == 0 and not rec.real_reasoning.strip():
@@ -106,7 +106,7 @@ def run_game(path: Path, args, examples: list[str]) -> dict:
             append_jsonl(out_path, row)
             continue
         msgs = context.history(rec.messages, thinking)
-        msgs.append({"role": "user", "content": prompts.reconstruct_prompt(row["call"], summary)})
+        msgs.append({"role": "user", "content": prompts.reconstruct_prompt(row["call"], summary, args.prompt)})
         attempts, usages, text, chk, extra = 0, [], "", {}, {}
         while attempts < args.max_attempts:
             attempts += 1
@@ -149,6 +149,8 @@ def main(argv=None):
     ap.add_argument("--summary", choices=["teacher", "synth", "none"], default="teacher")
     ap.add_argument("--style-run", type=Path, default=Path("runs/base-gpt61sol-dfranzen"),
                     help="run whose teacher summaries set the style of synthetic ones")
+    ap.add_argument("--prompt", choices=sorted(prompts.RECONSTRUCT_PROMPTS), default=prompts.PROMPT_VERSION,
+                    help="reconstruction prompt version")
     ap.add_argument("--reasoning", action="store_true", help="let flash reason before writing")
     ap.add_argument("--model", default=client.MODEL)
     ap.add_argument("--provider", default=client.PROVIDER)
@@ -159,8 +161,7 @@ def main(argv=None):
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "summaries").mkdir(exist_ok=True)
     (args.out / "settings.json").write_text(json.dumps(
-        {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}
-        | {"prompt_version": prompts.PROMPT_VERSION}, indent=1))
+        {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()}, indent=1))
     examples = style_examples(args.style_run) if args.summary == "synth" else []
     paths = logs.request_logs(args.run, args.games)
     if not paths:
