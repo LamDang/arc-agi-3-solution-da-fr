@@ -1,0 +1,6 @@
+outs:
+- md5: 36b53e5a0d013d6a321be1943eb3cfa1.dir
+  size: 4836218
+  nfiles: 52
+  hash: md5
+  path: base-max-dfranzen

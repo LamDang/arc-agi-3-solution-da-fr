@@ -144,6 +144,15 @@ TEST_IMAGE_NOTE = (
     "(upscaled 8x); the differing regions are boxed and numbered as in the report's text."
 )
 IMAGE_PLACEHOLDER = "[image omitted; the latest images come later]"
+FILTERED_IMAGE = "[image left out: the provider's input filter refused this request with it; the text describes the board]"
+
+
+def _without_images(messages: list[dict[str, Any]], placeholder: str) -> list[dict[str, Any]]:
+    """The messages with every image part replaced by a text part saying `placeholder`."""
+    return [dict(m, content=[{"type": "text", "text": placeholder} if isinstance(p, dict) and p.get("type") == "image_url" else p
+                             for p in m["content"]]) if isinstance(m.get("content"), list) else m for m in messages]
+
+
 MAX_IMAGES_PER_MESSAGE = 6
 # OpenRouter answers that fail at the provider (finish_reason "error", or a read that stalls) are asked
 # again this many times. Rate limits, gateway errors and connection failures are retried apart, by the
@@ -764,6 +773,7 @@ class OpenRouterClient:
             raise RuntimeError("set OPENROUTER_API_KEY")
         self.session = requests.Session()
         self.provider_errors: list[str] = []  # answers that failed at the provider (or stalled), asked again
+        self.images_dropped = 0  # asks sent without their images after the input filter refused them
 
     def body(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
         """The request body sent to OpenRouter."""
@@ -807,6 +817,18 @@ class OpenRouterClient:
                 error = f"{type(exc).__name__}: {exc}"
                 self.provider_errors.append(error)
             else:
+                if resp.status_code == 400 and "data_inspection_failed" in resp.text:
+                    # Alibaba's input filter ("may contain inappropriate content"): a false positive on the game's
+                    # frame and text together, the same on every ask of the same request (ft09 and ls20 on v12 flash:
+                    # 20 refusals each), and passed once the frames are left out. So: one more ask as it is, then
+                    # the request without its images (FILTERED_IMAGE in their place); the board is in the text too.
+                    error = f"HTTP 400 data_inspection_failed: {resp.text[:300]}"
+                    self.provider_errors.append(error)
+                    if attempt >= 1:
+                        payload = dict(payload, messages=_without_images(payload["messages"], FILTERED_IMAGE))
+                        self.images_dropped += 1
+                    time.sleep(min(60.0, 2.0 * 2 ** attempt) + random.random())
+                    continue
                 if resp.status_code != 200:  # not retryable, or ARC3_HTTP_RETRIES ran out
                     raise RuntimeError(f"OpenRouter HTTP {resp.status_code}: {resp.text[:1000]}")
                 data = resp.json()

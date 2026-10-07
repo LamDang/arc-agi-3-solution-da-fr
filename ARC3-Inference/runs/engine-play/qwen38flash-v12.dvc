@@ -1,0 +1,6 @@
+outs:
+- md5: 6d79fb5b149c1a95f65730a216bd8b49.dir
+  size: 35688746
+  nfiles: 510
+  hash: md5
+  path: qwen38flash-v12

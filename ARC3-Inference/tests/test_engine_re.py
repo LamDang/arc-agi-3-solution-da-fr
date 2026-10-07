@@ -3,6 +3,7 @@
 Uses a tiny synthetic game, so no downloaded game files are needed."""
 from __future__ import annotations
 
+import json
 import types
 from pathlib import Path
 
@@ -2028,6 +2029,45 @@ def test_openrouter_client_asks_again_after_a_provider_error(monkeypatch):
     assert data["choices"][0]["finish_reason"] == "tool_calls"
     assert len(client.provider_errors) == 1 and "upstream failed" in client.provider_errors[0]
 
+
+
+def test_openrouter_client_asks_again_after_the_providers_input_filter_flags_the_request(monkeypatch):
+    """Alibaba's data_inspection_failed (HTTP 400, a false positive on the frame and text together) is a provider
+    error asked again, once as it is, then without the request's images; any other 400 still raises."""
+    from engine_re import agent as agent_mod
+
+    flagged = ('{"error":{"message":"Provider returned error","code":400,"metadata":{"raw":"data: {\\"error\\":'
+               '{\\"code\\":\\"data_inspection_failed\\"}}"}}}')
+
+    class Resp:
+        def __init__(self, status, data=None, text=""):
+            self.status_code, self.data, self.text, self.headers = status, data, text, {}
+
+        def json(self):
+            return self.data
+
+    ok = {"choices": [{"finish_reason": "tool_calls", "message": {"content": "", "tool_calls": []}}], "usage": {}}
+    answers = [Resp(400, text=flagged), Resp(400, text=flagged), Resp(200, ok)]
+    sent = []
+
+    def post(*a, **k):
+        sent.append(json.dumps(k["json"]["messages"]))
+        return answers.pop(0)
+
+    client = agent_mod.OpenRouterClient(agent_mod.ModelConfig(), api_key="test")
+    monkeypatch.setattr(client.session, "post", post)
+    monkeypatch.setattr(agent_mod.time, "sleep", lambda s: None)
+    frame = {"role": "user", "content": [{"type": "text", "text": "the board"},
+                                         {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}]}
+    assert client.chat([{"role": "system", "content": "rules"}, frame], [])["choices"][0]["finish_reason"] == "tool_calls"
+    assert len(client.provider_errors) == 2 and "data_inspection_failed" in client.provider_errors[0]
+    assert "image_url" in sent[0] and "image_url" in sent[1]  # asked twice as it is
+    assert "image_url" not in sent[2] and "input filter refused" in sent[2] and "the board" in sent[2]
+    assert client.images_dropped == 1
+
+    answers[:] = [Resp(400, text='{"error":{"message":"bad request"}}')]
+    with pytest.raises(RuntimeError, match="HTTP 400"):
+        client.chat([], [])
 
 def test_openrouter_client_can_pin_providers(monkeypatch):
     from engine_re import agent as agent_mod

@@ -75,6 +75,11 @@ def _usage_totals(run_dir: Path) -> dict[str, float]:
                 for key in USAGE_KEYS:
                     if isinstance(usage.get(key), (int, float)):
                         totals[key] += usage[key]
+                # With the account's own provider key (BYOK), `cost` is only
+                # OpenRouter's fee; the provider bills the inference itself.
+                upstream = (usage.get("cost_details") or {}).get("upstream_inference_cost")
+                if usage.get("is_byok") and isinstance(upstream, (int, float)):
+                    totals["cost"] += upstream
     return totals if found else {}
 
 

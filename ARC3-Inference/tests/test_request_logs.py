@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 
 from inference.agent.runtime_state import RUNTIME_STATE_FILENAME
-from inference.agent.tool_agent import _append_request_snapshot
+from inference.agent.tool_agent import _append_request_snapshot, _history_reasoning_details
 from inference.framework.solver import HarnessSolver
+from inference.utils.openai_compat import assemble_streamed_chat_response, build_chat_payload
 from inference.utils.run_artifacts import compress_log, existing_log, open_log
 from viewer import data as viewer_data
 
@@ -121,3 +122,64 @@ def test_breakdown_takes_the_reply_from_the_response_line(tmp_path: Path) -> Non
     assert response.reasoning == "Read the win condition first."
     assert response.reasoning_tokens == 8 and response.tool_call_tokens == 12
     assert response.code_read_calls == 1
+
+
+def test_streamed_reply_keeps_the_reasoning_summary_and_encrypted_block() -> None:
+    def chunk(**delta: object) -> bytes:
+        return ("data: " + json.dumps({"id": "gen-1", "choices": [{"delta": delta}]})).encode()
+
+    summary = {"type": "reasoning.summary", "format": "openai-responses-v1", "index": 0}
+    lines = [
+        chunk(reasoning="Check ", reasoning_details=[{**summary, "summary": "Check "}]),
+        chunk(reasoning="the rules.", reasoning_details=[{**summary, "summary": "the rules."}]),
+        chunk(reasoning_details=[{"type": "reasoning.encrypted", "data": "gAAA", "index": 0}]),
+        chunk(content="done"),
+        b"data: [DONE]",
+    ]
+    reply = assemble_streamed_chat_response(lines)
+    message = reply["choices"][0]["message"]
+    assert message["reasoning"] == "Check the rules."
+    assert message["reasoning_details"] == [
+        {**summary, "summary": "Check the rules."},
+        {"type": "reasoning.encrypted", "data": "gAAA", "index": 0},
+    ]
+    assert reply["id"] == "gen-1"
+
+
+def test_openrouter_payload_sends_the_reasoning_effort(monkeypatch) -> None:
+    def payload(thinking: bool) -> dict:
+        return build_chat_payload(
+            provider="openrouter", model="m", messages=MESSAGES, max_tokens=10,
+            temperature=0.7, top_p=0.95, top_k=20, thinking=thinking,
+        )
+
+    assert payload(True)["reasoning"] == {"enabled": True}
+    monkeypatch.setenv("OPENROUTER_REASONING_EFFORT", "xhigh")
+    assert payload(True)["reasoning"] == {"enabled": True, "effort": "xhigh"}
+    assert payload(False)["reasoning"] == {"enabled": False}
+
+
+def test_response_line_records_the_request_settings(tmp_path: Path) -> None:
+    log = tmp_path / "game_requests.jsonl"
+    _append_request_snapshot(
+        log, messages=None, tools=None, event="response", reply=REPLY, usage=USAGE,
+        request_params={"model": "m", "reasoning": {"enabled": True, "effort": "xhigh"}},
+        response_id="gen-1",
+    )
+    line = json.loads(log.read_text())
+    assert line["request_params"]["reasoning"]["effort"] == "xhigh"
+    assert line["response_id"] == "gen-1"
+
+
+def test_reasoning_details_go_back_in_history_only_when_asked(monkeypatch) -> None:
+    reply = {**REPLY, "reasoning_details": [{"type": "reasoning.encrypted", "data": "gAAA", "index": 0}]}
+    assert _history_reasoning_details(reply) is None
+    monkeypatch.setenv("ARC3_SEND_REASONING_DETAILS", "1")
+    assert _history_reasoning_details(reply) == reply["reasoning_details"]
+    assert _history_reasoning_details(REPLY) is None
+    monkeypatch.setenv("OPENROUTER_REASONING_CONTEXT", "all_turns")
+    payload = build_chat_payload(
+        provider="openrouter", model="m", messages=MESSAGES, max_tokens=10,
+        temperature=0.7, top_p=0.95, top_k=20, thinking=True,
+    )
+    assert payload["reasoning"]["context"] == "all_turns"
