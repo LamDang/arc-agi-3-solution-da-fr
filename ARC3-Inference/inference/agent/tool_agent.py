@@ -1271,6 +1271,23 @@ def _reasoning_history_keys() -> tuple[str, ...]:
     return keys or ("reasoning",)
 
 
+def _history_reasoning_details(message: dict[str, Any]) -> list[dict[str, Any]] | None:
+    """The reply's reasoning_details, to send back with it in history.
+
+    OpenAI models on OpenRouter return their reasoning as an encrypted block
+    that only means something to the provider that issued it; sent back with
+    the assistant message, the model continues from it across the tool calls
+    of a turn instead of reasoning again from the summary. Pin the provider
+    (ARC3_OPENROUTER_PROVIDER) with it: another provider rejects the block.
+    Off unless ARC3_SEND_REASONING_DETAILS is set."""
+    if not _get_env_bool("ARC3_SEND_REASONING_DETAILS", False):
+        return None
+    details = message.get("reasoning_details")
+    if not isinstance(details, list) or not details:
+        return None
+    return [dict(detail) for detail in details if isinstance(detail, dict)]
+
+
 def _level_inventory_enabled() -> bool:
     """The START-vs-START object inventory shown on the first turn of a new
     level.
@@ -6934,6 +6951,9 @@ class ToolAgent:
                     append_transcript("THINKING", reasoning)
                     for _reasoning_key in _reasoning_history_keys():
                         assistant_message[_reasoning_key] = reasoning
+                reasoning_details = _history_reasoning_details(result.message)
+                if reasoning_details:
+                    assistant_message["reasoning_details"] = reasoning_details
 
                 if not tool_calls:
                     if content:

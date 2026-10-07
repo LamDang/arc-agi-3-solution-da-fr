@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from inference.agent.runtime_state import RUNTIME_STATE_FILENAME
-from inference.agent.tool_agent import _append_request_snapshot
+from inference.agent.tool_agent import _append_request_snapshot, _history_reasoning_details
 from inference.framework.solver import HarnessSolver
 from inference.utils.openai_compat import assemble_streamed_chat_response, build_chat_payload
 from inference.utils.run_artifacts import compress_log, existing_log, open_log
@@ -169,3 +169,17 @@ def test_response_line_records_the_request_settings(tmp_path: Path) -> None:
     line = json.loads(log.read_text())
     assert line["request_params"]["reasoning"]["effort"] == "xhigh"
     assert line["response_id"] == "gen-1"
+
+
+def test_reasoning_details_go_back_in_history_only_when_asked(monkeypatch) -> None:
+    reply = {**REPLY, "reasoning_details": [{"type": "reasoning.encrypted", "data": "gAAA", "index": 0}]}
+    assert _history_reasoning_details(reply) is None
+    monkeypatch.setenv("ARC3_SEND_REASONING_DETAILS", "1")
+    assert _history_reasoning_details(reply) == reply["reasoning_details"]
+    assert _history_reasoning_details(REPLY) is None
+    monkeypatch.setenv("OPENROUTER_REASONING_CONTEXT", "all_turns")
+    payload = build_chat_payload(
+        provider="openrouter", model="m", messages=MESSAGES, max_tokens=10,
+        temperature=0.7, top_p=0.95, top_k=20, thinking=True,
+    )
+    assert payload["reasoning"]["context"] == "all_turns"

@@ -84,6 +84,11 @@ def build_chat_payload(
         _effort = os.environ.get("OPENROUTER_REASONING_EFFORT", "").strip()
         if _effort and thinking:
             payload["reasoning"]["effort"] = _effort
+        # which reasoning sent back in history the model reads (OpenAI):
+        # auto, all_turns or current_turn
+        _context = os.environ.get("OPENROUTER_REASONING_CONTEXT", "").strip()
+        if _context and thinking:
+            payload["reasoning"]["context"] = _context
         # A reply cut off at max_tokens while still reasoning is kept in history
         # as an assistant message with content=None and no tool calls. Some
         # upstreams (Alibaba) reject null content with HTTP 400 on every later
