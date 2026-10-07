@@ -1,0 +1,92 @@
+"""Prompts for thinking generation, synthetic summaries and the calibration
+judge. Kept in one place so a prompt change shows up as one diff, and each
+output records the prompt version it was made with."""
+
+PROMPT_VERSION = "b1"
+
+# Approach B (reconstructor): appended as a user message after the agent's
+# context. Flash writes the thinking as its visible answer.
+RECONSTRUCT = """\
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
+
+The conversation above is a game-playing agent's run, up to the moment it produced its next output. Its thinking for earlier turns is shown between {open} and {close} lines. Its thinking for this step is missing: write it.
+
+The agent's next output was:
+
+{call}
+
+{summary_block}
+
+How to write the thinking:
+- Write it as your own private thinking at this moment, in first person, in the way you naturally think when you work on this game: plain text, exploratory, with the checks, doubts and corrections a real solver has.
+- Start from the newest information above (the latest tool output, frame or message) and get to the decision: what it shows, how that fits or breaks the current understanding of the game, what the options are, which one to take and why, and what the code needs to do.
+- Use only what is visible above. The result of this output is not known yet: do not predict it as if it were seen.
+- End with the decision that leads to exactly this output. Describe what the code will do; do not paste the code.
+- Do not mention a summary, this note, being given the output, or reconstructing anything. Do not refer to "the agent": it is you.
+- Answer with the thinking text only: no title, no {open} tags, no preface.
+"""
+
+SUMMARY_BLOCK = """\
+A summary of the thinking you had at this step (it lists what you thought about; use it, and fill in the reasoning between its points):
+<summary>
+{summary}
+</summary>"""
+
+NO_SUMMARY_BLOCK = """\
+There is no summary for this step: the thinking here was short. Keep it brief, a few sentences to a short paragraph, focused on what the newest information shows and why this output is the next step."""
+
+
+def reconstruct_prompt(call: str, summary: str) -> str:
+    from .context import THINK_CLOSE, THINK_OPEN
+    block = SUMMARY_BLOCK.format(summary=summary.strip()) if summary.strip() else NO_SUMMARY_BLOCK
+    return RECONSTRUCT.format(open=THINK_OPEN, close=THINK_CLOSE, call=call, summary_block=block)
+
+
+# Calibration: turn a teacher's real thinking into a summary in the style
+# of the OpenAI reasoning summaries the real teacher returns.
+SYNTH_SUMMARY = """\
+Below is the private thinking of an agent playing a grid puzzle game. Write the short summary of it that a reasoning-summary model would show the user, in exactly the style of these real examples:
+
+{examples}
+
+Rules: 1 to 3 sections, each a bold title line (**Like this**) followed by a short paragraph in first person present continuous ("I'm examining...", "I'm considering..."). About {words} words in total. Summarize what was observed, considered and decided at a high level; no code, few exact coordinates. Answer with the summary only.
+
+The thinking:
+<thinking>
+{thinking}
+</thinking>"""
+
+
+def synth_summary_prompt(thinking: str, examples: list[str], words: int = 90) -> str:
+    ex = "\n\n".join(f"<example>\n{e.strip()}\n</example>" for e in examples)
+    return SYNTH_SUMMARY.format(examples=ex, words=words, thinking=thinking.strip())
+
+
+# Calibration judge: real thinking (R) against generated thinking (G).
+JUDGE = """\
+You compare two versions of an agent's private thinking at one step of a grid puzzle game. REAL is what the agent actually thought. GENERATED was written afterwards by another model that saw the same context and the agent's output, but not REAL. Both end in this output:
+
+<output>
+{call}
+</output>
+
+<real>
+{real}
+</real>
+
+<generated>
+{generated}
+</generated>
+
+1. List the key points of REAL (observations about the board or tool output, hypotheses about the game's rules or goal, plans and decisions), at most 10, most important first.
+2. For each, say whether GENERATED contains it (same content, any wording).
+3. List claims in GENERATED that contradict REAL or the output (wrong observations, wrong rules, a different reason for the decision). Omit claims REAL simply does not mention.
+4. Does GENERATED lead to this exact output?
+5. Does GENERATED leak that it was written afterwards (mentions a summary, a given output, "the agent", or knows the output's result)?
+
+Answer with JSON only:
+{{"real_points": ["..."], "covered": [true, false], "contradictions": ["..."], "leads_to_output": true, "leak": false, "notes": "one sentence on the main difference"}}"""
+
+
+def judge_prompt(call: str, real: str, generated: str) -> str:
+    return JUDGE.format(call=call, real=real.strip(), generated=generated.strip())
