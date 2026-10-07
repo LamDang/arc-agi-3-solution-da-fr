@@ -1,0 +1,6 @@
+outs:
+- md5: 0ba924f44cd40f0200adad6274dbb311.dir
+  size: 15475663
+  nfiles: 159
+  hash: md5
+  path: base-gpt61sol-20games

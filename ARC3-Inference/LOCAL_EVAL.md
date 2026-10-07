@@ -92,8 +92,13 @@ uv run --no-sync python scripts/dvc_eval.py --run-dir runs/<run> \
   reject them. `LOCAL_ANALYZER_MAX_OUTPUT` becomes `max_output_tokens`, which
   includes the reasoning tokens.
 - `OPENAI_REASONING_EFFORT` sets `reasoning.effort` (unset: the model's
-  default). `OPENAI_REASONING_SUMMARY` sets the summary (`auto`, the default,
-  fills the transcript's THINKING; empty omits it). `OPENAI_SERVICE_TIER`
+  default). `OPENAI_REASONING_SUMMARY` sets the summary shown in the transcript's
+  THINKING: `detailed` (the default), `auto` or `concise`; empty omits it.
+  OpenAI writes a summary for only some reasoning items, whatever the
+  setting. On the 20-game run, with `auto`, 20% of the responses that
+  reasoned had one. Replayed on 8 requests that had none, `detailed` gave
+  a summary for 4 and `auto` for 2. The reasoning token count, the cost
+  and the encrypted reasoning sent back do not depend on it. `OPENAI_SERVICE_TIER`
   sets `service_tier` (e.g. `flex`).
 - OpenAI returns no cost. `ARC3_OPENAI_PRICING` gives dollars per million
   uncached input, cached input, cache-write and output tokens, and the
