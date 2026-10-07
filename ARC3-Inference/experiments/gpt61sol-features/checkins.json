@@ -22,5 +22,9 @@
   {
     "time": "2026-10-07 22:37 UTC",
     "text": "98 minutes in, $35.20 spent, no errors. 23 games won, all at 100: since the last check lf52 10/10, wa30 9/9, sp80, cn04, r11l, tn36, ft09 (plus ar25 and lp85 now scored). Over the 23: actions 6,132 vs 6,100 in the baseline; output tokens 1,078K vs 744K (1.45x); but cost $26.95 vs $28.30, lower, because the long games cost less: lf52 $3.78 vs $6.43, wa30 $3.57 vs $5.29. After each handover note the prompt drops to the 10 kept turns, so long games re-send less history. Only 2 levels took more actions than the human baseline (ls20 L5 102/96, sb26 L8 19/18).\n\nsk48 solved level 5 in 282 actions (baseline 437; human 230) and is on level 6 (88 actions). A 5th hint came at step 82. It has used 176K of its 300K output tokens; the baseline used 110K for levels 6-8, so it is tight. bp35 is on its last level (9/9, 86 actions; baseline 89) at 181K tokens."
+  },
+  {
+    "time": "2026-10-07 23:05 UTC",
+    "text": "Finished at 23:00 after 2 h 02. All 25 games won at 100, 183/183 levels, $36.50 (baseline: 24/25, mean 99.1, $41.67). No game reached a limit, so no rerun was needed. sk48 solved level 5 in 282 actions (baseline 437) and won 8/8 at 226K of its 300K output tokens; bp35 won 9/9 at 192K.\n\nOver the 25: actions 7,202 vs 7,405; output tokens 1.50M vs 1.18M (the reasoning fields and 10% more hidden reasoning); prompt tokens 82.7M vs 135.2M, because after each of the 33 notes only the last 10 turns stay (next request median 50K tokens). The trimmer never cut a game before a note. 8 step-back hints, in sk48, bp35 and cd82; none changed play visibly.\n\nArchived in DVC (runs/gpt61sol-features-25games.dvc); write-up in exp/gpt61sol-features-25games.md."
   }
 ]
