@@ -98,6 +98,73 @@ less than half the prompt tokens (21M against 51M), but its cached share is
 lower (46% against 88%), because rebuilding the context changes its start at
 almost every request.
 
+### Tokens
+
+Output and prompt tokens per game. The base agent's figures are from
+`runs/20261004_135539/analyses/by_level.csv`; v12's from each `result.json`.
+
+| game | base agent | v12 flash | v12 max |
+| --- | --- | --- | --- |
+| ft09 | 101K out, 3.7M in (6/6) | 208K, 6.7M (6/6) | 152K, 5.6M (6/6) |
+| lp85 | 173K, 6.5M (8/8) | 695K, 21.8M (7/8) | 259K, 10.1M (8/8) |
+| ls20 | 502K, 24.2M (5/7) | 465K, 19.9M (2/7) | 586K, 21.2M (3/7) |
+| sp80 | 501K, 13.0M (1/6) | 753K, 21.2M (4/6) | 614K, 19.5M (3/6) |
+| vc33 | 241K, 8.1M (7/7) | 714K, 25.0M (6/7) | 565K, 20.9M (4/7) |
+| **total** | **1.52M out (1.35M reasoning), 55.5M in, 729 calls** | **2.84M (2.40M), 94.6M, 1,324 turns** | **2.18M (1.87M), 77.4M, 1,013 turns** |
+
+- v12 flash used 1.9 times the base agent's output tokens and 1.7 times its
+  prompt tokens; v12 max 1.4 times both.
+- On the three games the base agent won outright (ft09, lp85, vc33) it was 2
+  to 4 times cheaper. v12 spends most of its turns in fit rounds (57-73% of
+  flash's turns on four games), which buy action efficiency rather than
+  levels.
+- sp80 and ls20 are the only games where both sides spent about the same
+  (500-750K output). There v12's tokens bought 3-4 sp80 levels against 1, and
+  the base agent's bought 5 ls20 levels against 2-3.
+- **At the base agent's budget of 500K output tokens per game**, v12 flash
+  would have stopped at turn 244 on lp85 (6/8), 225 on sp80 (4/6) and 221 on
+  vc33 (4/7), a mean of about 50 instead of 62.2. v12 max would have kept
+  53.9, since it solved nothing after crossing 500K.
+
+### Against the dfranzen notebook's four passes
+
+One run per arm says little about a stochastic agent. Version 3 of the
+dfranzen notebook ([kaggle.com/code/dfranzen/arc-agi-3-milestone-2-solution](https://www.kaggle.com/code/dfranzen/arc-agi-3-milestone-2-solution),
+run 2026-10-03, read through the public Kaggle API, `kernels/output`) reran the
+submission with 4 passes on all 25 demo games: 100 game runs, 33 won, mean
+46.49. Its per-pass result lines for these five games:
+
+| game | dfranzen passes | mean | won | v12 flash | v12 max |
+| --- | --- | --- | --- | --- | --- |
+| ft09 | 100, 100, 100, 47.6 | 86.9 | 3/4 | 100 (won) | 100 (won) |
+| lp85 | 100, 100, 100, 100 | 100 | 4/4 | 77.8 | 100 (won) |
+| ls20 | 37.9, 27.9, 25.4, 16.3 | 26.9 | 0/4 | 10.7 | 10.8 |
+| sp80 | 28.6, 14.3, 4.8, 4.8 | 13.1 | 0/4 | 47.6 | 23.0 |
+| vc33 | 100, 100, 100, 21.4 | 80.4 | 3/4 | 75.0 | 35.7 |
+| **mean** | | **61.5** | **10/20** | **62.2** (1/5) | **53.9** (2/5) |
+
+The notebook's passes ran a local quantized Qwen3.8-Flash-Next on Kaggle's
+GPU, with a runtime budget per game (62K to 332K output tokens per game), not
+qwen3.8-flash through OpenRouter. The base run of this page
+(`runs/20261004_135539`, 66.9) falls inside their spread.
+
+Is the difference significant? No:
+
+- **Mean score.** Summing the per-game variances of the four passes, one
+  pass's 5-game mean has a standard deviation of 9.9 points, most of it from
+  ft09 and vc33, which a pass either wins or abandons. v12 flash is +0.8
+  (0.1 standard deviations), v12 max -7.5 (0.7).
+- **Wins.** 10 of 20 game passes against 1 of 5 for flash (Fisher exact
+  p = 0.34) and 2 of 5 for max (p = 1.0).
+- **Per game.** v12 flash's sp80 is above all five base results (the four
+  passes and `runs/20261004_135539`), and its ls20 below all five. With one v12
+  sample each, that happens by chance with probability 1/6 (p about 0.17).
+  These are the most consistent signals, and still not conclusive.
+
+Three more v12 flash runs on these games (about $10 each) would give four
+runs per arm, enough to detect a difference of about 15 points in the mean;
+sp80 and ls20 are where a real one would show first.
+
 ## What went wrong in the runs
 
 - **Rate limit (flash only).** With ten games in flight, flash met 83 HTTP 429s
@@ -125,7 +192,9 @@ almost every request.
 
 - The v12 harness holds up over whole games. It keeps every request under
   the 128K deployment limit with no loss against v11, and it scores 62.2
-  across the five games against the base agent's 66.9.
+  across the five games against the base agent's 66.9 in one run and 61.5
+  over the dfranzen notebook's four passes. The difference is not
+  significant either way, and v12 spends 1.9 times the output tokens.
 - It wins on sp80, the game the base agent cannot model (47.6 against 3.74),
   and loses on ls20 (10.7 against 30.97) and on the last levels of lp85 and
   vc33. In each of those, flash was still progressing when the 300-turn limit
