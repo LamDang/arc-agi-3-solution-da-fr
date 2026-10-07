@@ -211,6 +211,44 @@ Replayed over the recorded runs turn by turn (`replay_hint.py`), it would have b
   all. gpt-6.1-sol gets 7 more: 3 on bp35 L8 (from action 355), 3 on dc22 L5 (from 255)
   and 1 on cd82 L1.
 
+### Does the message change the next reply?
+
+`replay_hint_requests.py` resent the first request of 9 turns where the message would have
+been shown, through the harness's own request path and the run's settings: twice as logged
+(control) and twice with the message inserted before the turn prompt's tool line. The 9 are
+gpt-6.1-sol sk48 L5 at steps 35, 55 (action 224, just before the budget burn), 65 and 95,
+qwen3.8-max (dfranzen) ls20 L2 step 17, sp80 L2 step 123 (two turns before it declared the
+level unsolvable) and lp85 L5 step 37 (just before its random search), qwen3.8-flash sp80 L2
+step 38 (the thinking stall) and vc33 L5 step 33, a normal level the message fires on
+wrongly. 36 replies, $2.60. A reader scored them blind (replies shuffled within each
+moment, variants hidden) against what really happened and what solved the level; scores
+in `scripts/stuck_detection/hint_replay_scores.json`.
+
+| 8 stuck moments, 16 replies each | control | with the message |
+| --- | --- | --- |
+| takes stock clearly (facts, element inventory, backward reasoning) | 1 | 6 |
+| new idea (0-2 each, sum) | 11 | 18 |
+| burns budget, stalls, gives up or random-searches | 4 | 1 |
+| toward what solved the level (0-2 each, sum) | 5 | 11 |
+| ... of which squarely on it | 0 | 2 |
+
+- **qwen3.8-max reacts most.** On sp80 step 123 one control gives up with a no-op, as the
+  real run did; both message replies list every element, reason backward and click the
+  magenta piece, which it had never tried. On ls20 step 17 both controls drain the bar on
+  purpose; one message reply works out a 57-move route through both rings to the door,
+  close to the BFS route that solved it. On lp85 one message reply still runs random clicks
+  (and quotes the message), the other writes a BFS planner.
+- **gpt-6.1-sol changes less.** Its replies are mostly code with little text. At step 65,
+  both controls re-click (27,32), a no-op cell, exactly as the real run did; one message
+  reply names the one untested case, pushing a blue car up into the reds from below, the
+  mechanism that solved the level 450 actions later. At step 55 one message reply lists
+  every object and checks whether the red cars ever moved; one control also takes stock
+  there. Steps 35 and 95 show no difference.
+- **The normal level is not disrupted.** On flash vc33 both message replies carry on with
+  the level's plan, scored the same as the controls.
+- Limits: 2 samples per variant, the first reply of the turn only (no tool results, no
+  later requests), one judge whose step-back criterion follows the message's own list.
+
 ## Caveats
 
 - 17 episodes, and the thresholds were chosen on the same data. They show which signal
