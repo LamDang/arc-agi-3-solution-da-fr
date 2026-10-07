@@ -21,6 +21,14 @@ DETECTORS = {
     "near-revisit>=0.8 (60)":   lambda f: f["n_lvl"] >= 60 and f["w60_near"] >= 0.8,
     "near-revisit>=0.7 (100)":  lambda f: f["n_lvl"] >= 100 and f["w100_near"] >= 0.7,
     "near-revisit>=0.8 (100)":  lambda f: f["n_lvl"] >= 100 and f["w100_near"] >= 0.8,
+    "border-2 hash: 1 position 3rd visit": lambda f: f["b2_third"] >= 1,
+    "border-2 hash: 3 positions 3rd visit": lambda f: f["b2_third"] >= 3,
+    "border-2 hash: 5 positions 3rd visit": lambda f: f["b2_third"] >= 5,
+    "border-2 hash: >=10 of last 30 at 3+": lambda f: f["b2_third_w30"] >= 10,
+    "tolerant: 1 position 3rd visit": lambda f: f["tol_third"] >= 1,
+    "tolerant: 3 positions 3rd visit": lambda f: f["tol_third"] >= 3,
+    "tolerant: 5 positions 3rd visit": lambda f: f["tol_third"] >= 5,
+    "tolerant: >=10 of last 30 at 3+": lambda f: f["tol_third_w30"] >= 10,
     "exact-revisit>=0.5 (30)":  lambda f: f["n_lvl"] >= 30 and f["w_revisit"] >= 0.5,
     # action-sequence repetition
     "6gram-repeat>=0.6":        lambda f: f["n_lvl"] >= 30 and f["w_gram"] >= 0.6,
@@ -134,6 +142,8 @@ def _final():
     D["P4: P1 OR turns>=4x own"] = lambda f: loop60(f) or fails(f) or tok(f) or (g(f, "rel_turns") >= 4 and f["turns_lvl"] >= 20)
     D["tokens>=8x own (>=50k)"] = tokrel
 _final()
+DETECTORS["P5: border-2 3 positions 3rd visit OR fails>=2 OR tokens>=100k"] = lambda f: f["b2_third"] >= 3 or f["fails_lvl"] >= 2 or f["tok_lvl"] >= 100000
+DETECTORS["P6: border-2 5 positions 3rd visit OR fails>=2 OR tokens>=100k"] = lambda f: f["b2_third"] >= 5 or f["fails_lvl"] >= 2 or f["tok_lvl"] >= 100000
 
 if __name__ == "__main__":
     table = pickle.load(open("table.pkl", "rb"))

@@ -131,10 +131,61 @@ When P1 fires, and on what:
 On sk48, a 30-action window (revisit ≥ 0.7) fires 29 actions earlier, at action 218, 29
 minutes into the level. It also fires on 5 normal levels, all ls20.
 
-**Missed:** gpt dc22 L5 (76 actions), maxdf lp85 L5 (55) and gpt bp35 L8 (24). None of them
-returns to old boards. Driving the crane by hand and a random search over permutations
-reach new boards on every move without getting closer to the goal. Only "turns ≥ 4× own
-median" sees dc22 and lp85, after 60 and 37 actions, at the cost of 5 more false levels.
+**Missed:** gpt dc22 L5 (76 actions), maxdf lp85 L5 (55) and gpt bp35 L8 (24). They come
+back to old boards, but not often enough to fill 80% of a 60-action window. The count of
+positions seen a third time (next section) catches all three.
+
+### A position's third visit
+
+A simpler loop test: crop the 2-pixel border of the board (where most step bars are),
+hash it, and count each position's visits on the level. A position seen for the third
+time is a repetition. The counts restart at each level, and nothing is masked inside the
+board.
+
+| criterion | recall | false onsets | false levels |
+| --- | --- | --- | --- |
+| 1 position at its 3rd visit | 17/17 | 57 | 48 |
+| **3 positions at their 3rd visit** | 15/17 | 13 | **7** |
+| 5 positions at their 3rd visit | 10/17 | 7 | 4 |
+| 10 of the last 30 actions on a position seen 3+ times | 7/17 | 5 | 2 |
+| the same with the counter-tolerant match (τ pixels) | 16/17, 12/17, 11/17 for 3, 5, last 30 | 23, 13, 9 | 15, 8, 3 |
+| **P5: 3 positions at their 3rd visit OR fails ≥ 2 OR tokens ≥ 100K** | **17/17** | 14 | **7** |
+| P6: the same with 5 positions | 13/17 | 8 | 4 |
+
+- One third visit is not enough. Normal play crosses the same hub or corridor three
+  times, or clicks a toggle back and forth: 48 normal levels.
+- Three different positions at their third visit is the useful threshold. It catches 15 of
+  17 episodes, among them all three that the 60-action window misses (dc22 L5 after 50
+  actions, lp85 L5 after 43, bp35 L8 after 18). Its 7 false levels are cd82 L1, max vc33
+  L3 and L5, flash vc33 L5 and L7, flash sp80 L1 and maxdf lp85 L6.
+- Exact hashing after the crop does better than the counter-tolerant match: tolerance
+  merges boards that differ in small, real ways, and adds false levels.
+- sk48's budget bar is inside the board (row 53), but its no-op clicks leave the board
+  unchanged between ticks, so exact repeats still happen.
+
+When each one fires, relative to the labelled start of the stuck stretch (negative: before
+it; "-": never on this level):
+
+| episode | 2nd game over | 3 positions at 3rd visit | P1 | P5 |
+| --- | --- | --- | --- | --- |
+| gpt sk48 L5 | - | **-21 actions, -6 min** | +54, +22 min | -21, -6 min |
+| gpt dc22 L5 | - | +50, +9 min | - | +50, +9 min |
+| gpt bp35 L8 | - | +18, +8 min | - | +18, +8 min |
+| max ls20 L2 (default) | -92, -7 min | -152, -10 min | -200, -13 min | -152, -10 min |
+| max sp80 L1 (default) | +1, +1 min | -33, -8 min | +1, +1 min | -33, -8 min |
+| max sp80 L2 (default) | -4, -1 min | -11, -1 min | -4, -1 min | -11, -1 min |
+| max vc33 L4 (default) | +53, +12 min | -19, -8 min | +53, +12 min | -19, -8 min |
+| maxdf lp85 L5 | - | +43, +5 min | - | +43, +5 min |
+| maxdf ls20 L2 | - | +93, +10 min | +46, +9 min | +93, +10 min |
+| maxdf ls20 L4 | +156, +30 min | +158, +31 min | -102, -17 min | +72, +16 min |
+| maxdf sp80 L2 | 0 | -14, -14 min | -7, -3 min | -14, -14 min |
+| flash sp80 L2 | +33, +66 min | +30, +59 min | 0 | 0 |
+| flash ls20 L6 | - | - | -89, -20 min | -89, -20 min |
+
+On the 7 episodes with a second game over, the third-visit count fires first on 6. It
+fires 72 actions earlier on max vc33 L4, and 34 on max sp80 L1. On sk48 L5 it fires at
+action 172, 75 actions before P1 and with about 100 stuck minutes still to come. That is
+21 actions before the labelled start: the agent was already re-probing as it explored.
 
 ## Caveats
 
@@ -148,6 +199,11 @@ median" sees dc22 and lp85, after 60 and 37 actions, at the cost of 5 more false
   median and ≥ 50K) has no false level, but catches only 5 episodes.
 - The 213 unread levels count as normal. A stuck stretch in one of them would show up as
   a false alarm, not a miss.
+- No agent issued a RESET itself in these runs: RESET was not offered (`EXPOSE_RESET` is
+  off in `params.yaml`, as in the final dfranzen notebook). All 76 RESETs are the automatic
+  ones after a game over, so "fails" here counts game overs only. To restart a level, the
+  agents ran out the step budget on purpose (sk48 L5: about 130 UP/DOWN actions).
+  `ARC3_NO_BUDGET_BURN=1` adds a system-prompt line against this; it has not been run yet.
 - An alarm already on when an episode starts counts as a delay of 0. The false-onset
   column shows when that alarm started outside the episode.
 
@@ -160,9 +216,15 @@ median" sees dc22 and lp85, after 60 and 37 actions, at the cost of 5 more false
   they fire with 78 of the 100 stuck minutes still to come.
 - Action-sequence repetition and plain effort (actions, turns, minutes) fire too often on
   normal play to use alone, mostly on gpt-6.1-sol's long but productive levels.
-- What no game-record signal sees is a search that keeps making new, useless boards (dc22
-  L5, lp85 L5). Catching those would need the transcript: the agent repeating its own
-  hypotheses or saying it is stuck.
+- Counting positions seen three times (2-pixel border cropped, exact hash) is a better
+  loop signal than the 60-action window, and earlier than the second game over. With 3
+  such positions on a level, P5 catches all 17 episodes, with 7 false levels out of 250
+  instead of 1. Use P1 when false alarms are costly (an intervention that interrupts the
+  agent). Use P5 when they are cheap (a note in the prompt, a log line).
+- The second game over is a reliable signal, but late. On 6 of the 7 episodes with one, the
+  third-visit count fires first.
+- Some stuck play is still invisible on the board: flash ls20 L6 has neither repeats nor
+  game overs, and only the token count sees it.
 
 ## Reproduce
 
@@ -172,6 +234,7 @@ for r in base-gpt61sol-20games base-gpt61sol-dfranzen base-max-default base-max-
 done
 scripts/stuck_detection/run.sh /tmp/stuck   # about 2 minutes; prints the full table
 cd /tmp/stuck && python3 <repo>/ARC3-Inference/scripts/stuck_detection/timing.py P1   # per-episode timing
+python3 <repo>/ARC3-Inference/scripts/stuck_detection/lead.py   # onsets against the 2nd game over
 ```
 
 `matrix.py <name substrings>` prints which episodes each detector catches, and its false

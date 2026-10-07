@@ -55,6 +55,7 @@ from inference.agent.prompts import (
     ACTION_INFO_ADDENDUM,
     UNDO_INFO_ADDENDUM,
     RESET_INFO_ADDENDUM,
+    NO_BUDGET_BURN_ADDENDUM,
 )
 
 from inference.agent.vision_context import (
@@ -2827,6 +2828,9 @@ def _build_system_prompt(
         WORLD_MODEL_FREE_ADDENDUM if _memory_sections_disabled() else WORLD_MODEL_ADDENDUM
     )
     prompt += PYTHON_ADDENDUM_TAIL
+    if _get_env_bool("ARC3_NO_BUDGET_BURN", False) and not reset_exposed():
+        # follows the tail's flag-semantics line, which explains budget deaths
+        prompt += NO_BUDGET_BURN_ADDENDUM
     if _get_env_bool("ARC3_FRAME_DIFF_HINT", False):
         # documents `frame_diff(before, after)`. The function stays callable
         # either way - this only controls whether the model is told about it,
