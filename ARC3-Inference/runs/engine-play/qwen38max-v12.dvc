@@ -1,0 +1,6 @@
+outs:
+- md5: 5e38afb9946ffed46bd2f1d9a1baca47.dir
+  size: 36872122
+  nfiles: 615
+  hash: md5
+  path: qwen38max-v12
