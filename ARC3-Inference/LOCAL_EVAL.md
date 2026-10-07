@@ -65,6 +65,42 @@ make interactive CONFIG_PATH=configs/inference.openrouter.json \
 - `ANALYZER_SAVE_REQUEST_LOGS=true` is the only way to record input tokens; see
   [Token spend](#token-spend).
 
+## Run on OpenAI directly
+
+`configs/inference.openai.json` calls `api.openai.com` with OpenAI's
+Responses API (provider `openai-responses`) instead of OpenRouter. It needs
+`OPENAI_API_KEY` and network access to `api.openai.com`; `MODEL` is OpenAI's
+id, such as `gpt-6.1-sol`.
+
+```bash
+uv run --no-sync python scripts/dvc_eval.py --run-dir runs/<run> \
+  --metrics runs/<run>.metrics.json \
+  --make CONFIG_PATH=configs/inference.openai.json --make MODEL=gpt-6.1-sol \
+  --env ARC3_SEND_REASONING_DETAILS=1 --env ARC3_OPENAI_PRICING=2,0.1,2.5,10
+```
+
+- The harness still builds chat-completions messages. The adapter in
+  `inference/utils/openai_compat.py` translates them to Responses input and
+  the reply back. Requests go out with `store: false` and
+  `include: ["reasoning.encrypted_content"]`.
+- Each reply's reasoning comes back as an encrypted item, kept in
+  `reasoning_details`. With `ARC3_SEND_REASONING_DETAILS=1`, it is sent back
+  before the tool call or message it led to, and the model reads it again.
+  Chat completions on `api.openai.com` returns no reasoning to send back, and
+  OpenRouter's Azure route drops it.
+- Temperature, top_p, top_k and seed are not sent: OpenAI's reasoning models
+  reject them. `LOCAL_ANALYZER_MAX_OUTPUT` becomes `max_output_tokens`, which
+  includes the reasoning tokens.
+- `OPENAI_REASONING_EFFORT` sets `reasoning.effort` (unset: the model's
+  default). `OPENAI_REASONING_SUMMARY` sets the summary (`auto`, the default,
+  fills the transcript's THINKING; empty omits it). `OPENAI_SERVICE_TIER`
+  sets `service_tier` (e.g. `flex`).
+- OpenAI returns no cost. `ARC3_OPENAI_PRICING` gives dollars per million
+  uncached input, cached input, cache-write and output tokens, and the
+  response lines then carry `usage.cost`.
+- The context estimate counts an encrypted block as the reasoning tokens its
+  response reported, not as its base64 text.
+
 ## Resume a run
 
 To replay only the game runs that failed in an earlier run, rerun the same
