@@ -1,0 +1,3 @@
+[
+  {"time": "2026-10-07 20:59 UTC", "text": "Launched. Smoke test first: ar25 alone with the note threshold lowered to 20K won 8/8 in 7.8 minutes for $0.40; one handover note at step 12 cut the history from 41K to 10K tokens and the game carried on; all 27 python calls had both reasoning fields; scoring and packing ran. Run 1 started at 20:58 with the 10 longest games first; a review of the whole setup is running alongside."}
+]

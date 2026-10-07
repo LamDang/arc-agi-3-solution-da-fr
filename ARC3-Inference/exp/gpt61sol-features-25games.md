@@ -1,6 +1,8 @@
 # gpt-6.1-sol on the 25 official games with notes, hints and stated reasoning (plan)
 
-Status: **plan, not launched.**
+Status: **running** since 2026-10-07 20:58 UTC (`experiments/gpt61sol-features/run.sh`).
+Smoke test: ar25 alone, note threshold 20000, won 8/8 in 7.8 minutes for $0.40; one note at step 12
+(history 41K → 10K tokens), reasoning fields on all 27 calls; scoring and packing ran.
 
 ## Question
 
@@ -35,7 +37,8 @@ game-code access), plus the four changes. The only other difference: the reasoni
 | code | `6bd8eef` / `d59dbbb` | current `main` (`1e05a1d` or later) |
 | games, passes | 25 official, 1 pass | same |
 | at once | 5, then 10 | 10 |
-| limits per game | 500K output tokens, 240 minutes | same |
+| limits per game | 500K output tokens, 240 minutes | **300K** output tokens, 240 minutes |
+| reruns | - | each game under 100 played again, up to twice; every attempt kept (`-retry1`, `-retry2`) |
 | `OPENAI_REASONING_EFFORT` | `xhigh` | `xhigh` |
 | `OPENAI_REASONING_SUMMARY` | `auto` | `detailed` |
 | `LOCAL_ANALYZER_MAX_OUTPUT` | `0` (no cap) | `0` |
@@ -72,9 +75,12 @@ What the model is told, in addition to the baseline prompt:
    three fields, its code is comments only, the history is cut after it, the next request is
    accepted, and the tool line and the budget-burn line are in the system prompt. Not archived.
    Plus `uv run --no-sync pytest tests/test_note_compaction.py -q`.
-2. **The run.** Launched in the background so it survives the session (the `monitor-run`
-   skill), checked every 30 minutes. Long games are listed first so they start in the first
-   wave of 10: sk48, lf52, bp35, wa30 and dc22 took 2-4 hours in the baseline.
+2. **The run.** `bash experiments/gpt61sol-features/run.sh`, launched detached, checked every
+   30 minutes. It runs the command below (with `MAX_GENERATED_TOKENS_PER_GAME=300000` and
+   `MAX_RUNTIME_MINUTES=240`), then reruns each game under 100 into
+   `runs/gpt61sol-features-25games-retry1` and, if still under 100, `-retry2`. Long games are listed
+   first so they start in the first wave of 10: sk48, lf52, bp35, wa30 and dc22 took 2-4 hours in
+   the baseline.
 
    ```bash
    uv run --no-sync python scripts/dvc_eval.py --run-dir runs/gpt61sol-features-25games \
@@ -94,15 +100,15 @@ What the model is told, in addition to the baseline prompt:
 
    The defaults are passed explicitly so that `eval_settings.json` records them.
    `scripts/dvc_eval.py` scores and packs the run at the end.
-3. **Archive.** `dvc add runs/gpt61sol-features-25games`, commit, `dvc push`.
+3. **Archive.** `dvc add` each attempt's run directory, commit, `dvc push`.
 4. **Analysis**, below, then this page becomes the write-up.
 
 ## Expected cost and time
 
 | | baseline | expected |
 | --- | --- | --- |
-| cost | $41.67 ($3.00 + $38.67) | $45-55; up to ~$70 if several games get stuck to their limits |
-| wall clock | 23 min + 4 h 14 | ~4.5 h, bounded by the 240-minute limit of the longest game |
+| cost | $41.67 ($3.00 + $38.67) | $45-55 for the first attempt, plus the reruns (a game stopped at 300K costs ~$7-8) |
+| wall clock | 23 min + 4 h 14 | ~4.5 h for the first attempt, up to 4 h per rerun |
 
 - Reasoning fields: ~100-150 output tokens per `python` call, on ~2,000 calls: ~0.25M output
   tokens, ~$2.5, plus the same tokens re-sent as cached input.
