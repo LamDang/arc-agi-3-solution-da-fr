@@ -110,7 +110,7 @@ def test_history_goes_out_as_responses_input(monkeypatch) -> None:
     payload = responses_payload_from_chat(_chat_payload(messages))
     assert payload["store"] is False
     assert payload["include"] == ["reasoning.encrypted_content"]
-    assert payload["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert payload["reasoning"] == {"effort": "high", "summary": "detailed"}
     assert payload["max_output_tokens"] == 12288
     assert not {"temperature", "top_p", "top_k", "messages", "max_tokens"} & set(payload)
     assert payload["tools"] == [

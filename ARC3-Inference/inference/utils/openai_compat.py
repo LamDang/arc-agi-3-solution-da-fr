@@ -395,7 +395,9 @@ def responses_payload_from_chat(
     effort = reasoning_effort or os.environ.get("OPENAI_REASONING_EFFORT", "").strip()
     if effort:
         reasoning["effort"] = effort
-    summary = os.environ.get("OPENAI_REASONING_SUMMARY", "auto").strip()
+    # detailed: replayed on 8 logged requests that had none, a summary came back
+    # for 4 against 2 with auto. OpenAI still skips it for some reasoning items.
+    summary = os.environ.get("OPENAI_REASONING_SUMMARY", "detailed").strip()
     if summary:
         reasoning["summary"] = summary
     if reasoning:
