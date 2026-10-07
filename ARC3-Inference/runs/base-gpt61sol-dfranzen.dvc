@@ -1,0 +1,6 @@
+outs:
+- md5: 4856fffb232b1d64f4016bf69b9104c8.dir
+  size: 2784879
+  nfiles: 54
+  hash: md5
+  path: base-gpt61sol-dfranzen

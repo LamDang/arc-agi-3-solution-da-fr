@@ -1,0 +1,6 @@
+outs:
+- md5: 53f6971d76dd701607408d79622c83a4.dir
+  size: 1019543
+  nfiles: 26
+  hash: md5
+  path: gpt61sol-level1
