@@ -10,29 +10,38 @@ tested here: at 110K, before cutting, the harness tells the model the context is
 cut to its last 20 turns and asks it to write everything it needs to continue as a `python`
 call whose code is only comments. The code is kept in context and not run (a comment, not a
 string, so nothing would be printed back). The turn then goes on with its normal message.
-Where would this fire in the logged games, and what do the notes contain?
+Where would this fire in the logged games, what do the notes contain, and does a game go
+better with them?
 
 ## The setting
 
-`ARC3_NOTE_COMPACTION_TOKENS=110000` (0, the default, is off) and
-`ARC3_NOTE_COMPACTION_KEEP_TURNS=20`, described in
+`ARC3_NOTE_COMPACTION_TOKENS` (0, the default, is off; 120000 with dfranzen's settings) and
+`ARC3_NOTE_COMPACTION_KEEP_TURNS` (default 10), described in
 [CONFIGURATION.md](../CONFIGURATION.md#note-compaction). At a turn start whose estimated
 prompt reaches the threshold, the harness sends the history with `NOTE_COMPACTION_PROMPT`
 (`inference/agent/prompts.py`) in place of the turn's opener. If the reply is a `python` call
-whose code is a note of at least 300 characters, history becomes the last 20 turns, then the
+whose code is a note of at least 300 characters, history becomes the last turns, then the
 request, the reply and a stand-in tool result ("Note kept in your context (the code was not
 run)..."). The opener is then appended as usual. The request is cached up to the note
 request, so it costs about the note's output: about 1.8K tokens, $0.03 at gpt-6.1-sol's
 prices.
 
+- The threshold is compared with the harness's own estimate of the prompt, which runs above
+  the real count: the trimmer's budget, ~130K by that estimate, cut the logged games at
+  111-128K real tokens. At 120000 the note comes before the trimmer, at about 112-120K real
+  tokens (the replay below).
 - Turns are counted by their openers. Resumptions and nudges are not turns.
 - If the last 20 turns would keep the prompt above 3/4 of the threshold, fewer are kept,
   at least one. Without this the note came every turn in a smoke run at 20K with 5 kept
-  turns. At 110K it never applies to the logged games, whose last 20 turns were 40-70K.
+  turns. It did not apply in the replay below.
 - The note exchange is never pruned. The next compaction drops it, and the prompt asks the
   model to carry the earlier note forward.
 - If the request fails or the note is too short, history is left alone. The trimmer still
-  cuts at the budget (dfranzen's settings: ~119K, draining to ~60K).
+  cuts at the budget (dfranzen's settings: ~130K by the estimate, draining by 59K).
+- 10 kept turns is the default because 20 turns came to 61-87K real tokens in the replay
+  below (two 10x-upscaled images, a ~3,000-character opener, the encrypted reasoning and the
+  tool results of each turn: about 3.5K tokens a turn). That left room for only 6-18 turns
+  before the next note.
 
 ## Where it would fire
 
@@ -136,14 +145,74 @@ Two short ar25 runs with `ARC3_NOTE_COMPACTION_TOKENS=20000` and
   it forward ("CORRECTED: Yellow is NOT controllable"). Each request after it held only the
   newest note exchange.
 
+## Replay of three games
+
+`runs/note-compaction-3games` (DVC): sk48, lf52 and bp35, the three games with the most cuts
+in the logged run, played again from the start with the logged run's settings (dfranzen's
+settings, effort `xhigh`, reasoning summaries `auto`, 240 minutes and 500K output tokens per
+game) plus `ARC3_NOTE_COMPACTION_TOKENS=120000` and `ARC3_NOTE_COMPACTION_KEEP_TURNS=20`
+(the default was 20 when it started). Code `9513227`. It was stopped
+after 42 minutes, at turn 74 of lf52 and bp35, once the comparison was clear enough; it cost
+$6.47. `experiments/note-compaction/compare_runs.py` compares it with the logged run
+(`runs/base-gpt61sol-20games`) turn by turn.
+
+| | sk48 | lf52 | bp35 |
+| --- | --- | --- | --- |
+| levels completed, replay | 8/8 at turn 31 (won, 285 actions, $0.79) | 7/10 at turn 74 | 7/9 at turn 74 |
+| logged run at the same turn | 4 at turn 31 (7/8 after 201 turns, time limit) | 5 | 6 |
+| notes (turn) | none: the prompt peaked at 109K | 37, 49, 58, 67 | 36, 54, 66, 72 |
+| trimmer cuts | none | none | none |
+
+From the first note (lf52 turn 37, bp35 turn 36) to turn 74:
+
+| | lf52 replay | lf52 logged | bp35 replay | bp35 logged |
+| --- | --- | --- | --- | --- |
+| levels gained | +4 | +1 | +3 | +2 |
+| game actions | 359 | 156 | 133 | 110 |
+| output tokens | 53,282 | 21,323 | 49,615 | 42,345 |
+
+Levels completed at equal effort (replay vs logged):
+
+| | lf52 | bp35 |
+| --- | --- | --- |
+| at equal turns | 3 vs 4 (turn 37), 6 vs 5 (60), 7 vs 5 (74) | 4 vs 4 (36), 6 vs 5 (60), 7 vs 6 (74) |
+| at equal game actions | 6 vs 6 (500), 7 vs 6 (521) | 6 vs 5 (200), 7 vs 6 (265) |
+| at equal output tokens | 5 vs 6 (50K) | 6 vs 6 (50K) |
+
+- **The notes.** 8 notes, all usable: 1,688-3,288 output tokens, $0.03-0.05 each, $0.31 in
+  all. The prompt was 112-120K real tokens at the note request and 61-87K after. Four were
+  read against the turns before them and after. Each was correct: bp35 turn 36's tile map
+  equals the last tool output, and its six TRIED actions match the actions logged in the
+  dropped turns; lf52 turn 49 explains its last no-op click (the camera had moved 20
+  pixels) and gives the corrected coordinates, which the next segmentation confirms. In each
+  case the next call carried out the note's PLAN (bp35: RIGHT×4 after its search; lf52: the
+  two ferry clicks at (19,40) and (31,40), then the ferry search the note described, which
+  solved level 4). No turn after a note re-explored or re-probed.
+- **One death after a note.** bp35 died on level 7, two turns after the turn-54 note, on one
+  unchecked RIGHT into an unseen spike. It was a planning slip, not a fact missing from the
+  note. The logged run also died on level 7.
+- **Progress.** Per turn, both games are ahead of the logged run from the first note on
+  (lf52 +4 levels against +1, bp35 +3 against +2). Per game action they are level or one
+  ahead. Per output token they are level (bp35) or one behind (lf52): the replay did more per
+  turn (lf52: 359 actions in 38 turns against 156).
+- **Caveats.** One run each, so a level either way is within noise. sk48 won before any
+  note, while the logged run spent 437 actions stuck on level 5: run-to-run variance this
+  large says as much as any difference here. The replay ran 3 games at a time against the
+  logged run's 10 on a 4-CPU machine, so its 30-second python calls timed out less often,
+  which by itself lets more get done per turn.
+
 ## Conclusions
 
-- At 110K the note fires 1-6 turns before the logged cut, in 12 of the 25 games, and keeps
-  about as much history as the logged cut plus a ~2K-token note, for ~$0.03 each.
-- The model writes complete notes in one comment-only `python` call with no prompting
-  about content. The bare request (v0) already keeps the tried-probe list the earlier
-  analysis found missing. The headings (v1) remove squashed text, cut restated rules, and
-  separate confirmed rules from hypotheses and what was tried.
-- Next: play the 12 games that reach 110K with `ARC3_NOTE_COMPACTION_TOKENS=110000` against
-  the logged runs. The earlier analysis expects little change outside stuck levels, so sk48
-  level 5 is the case to read.
+- At 110-120K the note fires a few turns before the trimmer would cut, in 12 of the 25
+  games, for ~$0.03-0.05 each.
+- The model writes complete notes in one comment-only `python` call. The bare request (v0)
+  already keeps the tried-probe list the earlier analysis found missing. The headings (v1,
+  the prompt now used) remove squashed text, cut restated rules, and separate confirmed rules
+  from hypotheses and what was tried.
+- In play, the notes are correct and the model carries on from them without re-exploring.
+  lf52 and bp35 gained more levels per turn after the first note than in the logged run, and
+  as many or more per game action, not per output token; one run each, with a lighter
+  machine load.
+- Settings: `ARC3_NOTE_COMPACTION_TOKENS=120000` with dfranzen's settings, and 10 kept turns
+  (the new default), which halves the history kept after a note and doubles the room before
+  the next one.
