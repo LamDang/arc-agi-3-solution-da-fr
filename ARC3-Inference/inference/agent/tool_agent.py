@@ -316,8 +316,9 @@ _PYTHON_TOOL_DESCRIPTION = (
 # it helps, written before the code. They are logged with the call and shown
 # in the transcript; the harness does not run or check them.
 _PYTHON_RATIONALE_TOOL_SENTENCE = (
-    " Before the code, say in `description` what it does and in `reasoning` why it "
-    "helps solve the game now."
+    " Before the code, say in `description` what it does, and give in `reasoning` your "
+    "detailed reasoning for it: the observations, deductions, assumptions and decision "
+    "behind it, as far as each applies."
 )
 _PYTHON_RATIONALE_PROPERTIES = {
     "description": {
@@ -327,16 +328,19 @@ _PYTHON_RATIONALE_PROPERTIES = {
     "reasoning": {
         "type": "string",
         "description": (
-            "Why running it helps solve the game now: the question it answers or the "
-            "move it makes, and what you expect to see."
+            "Detailed reasoning for this call. Include, when relevant: the observations "
+            "it builds on, what you deduce from them, the assumptions you are making, and "
+            "the decision you take. Say why running it helps solve the game now and what "
+            "you expect to see."
         ),
     },
 }
 _PYTHON_PROMPT_CODE_LINE = "- The only tool is `python`; call it with one ephemeral `code` string.\n"
 _PYTHON_PROMPT_RATIONALE_LINE = (
     "- The only tool is `python`; call it with `description` (what the code does), "
-    "`reasoning` (why it helps solve the game now: the question it answers or the move "
-    "it makes, and what you expect to see) and one ephemeral `code` string.\n"
+    "`reasoning` (your detailed reasoning for the call: include, when relevant, the "
+    "observations it builds on, your deductions, your assumptions and the decision you "
+    "take, and what you expect to see) and one ephemeral `code` string.\n"
 )
 
 

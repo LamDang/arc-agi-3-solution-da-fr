@@ -44,6 +44,34 @@ system prompt and tool, through the same adapter, effort `xhigh`, summary `auto`
 - **It costs little.** About 250 characters per call, some 60 output tokens, against a median
   of 400 reasoning tokens per response.
 
+## Detailed reasoning
+
+The `reasoning` field first asked "why running it helps solve the game now". It now asks for
+detailed reasoning: "Include, when relevant: the observations it builds on, what you deduce
+from them, the assumptions you are making, and the decision you take." The tool sentence and
+the system prompt line say the same. Same 30 requests, strict schema:
+
+| | short reasoning | detailed reasoning |
+| --- | --- | --- |
+| calls with both fields | 30/30 | 30/30 |
+| median description / reasoning | 94 / 154 characters | 98 / 368 characters |
+| median reasoning tokens | 402 | 406 |
+| responses with a reasoning summary | 9/30 | 12/30 |
+| cost | $0.34 | $1.68 |
+
+- The reasoning is 2.4 times longer, and the model's hidden reasoning does not grow.
+- Most of the 30 go from an observation to a deduction to a decision (sp80 step 11: "The
+  dark center is a pass-through hole, not an anchor: the animation showed fluid emerging
+  directly beneath it while the bar moved as a unit ... so a broader search can seek a
+  leak-free layout without spending game actions"). About a third name an assumption (sp80
+  step 9: "Treating those segments as permanently anchored is only a hypothesis").
+- The re86 step 10 mismatch is gone: the description now says it checks whether touching the
+  swatch recolors the shape, which the code does after the moves.
+- The cost difference is mostly prompt caching between the replays, not the longer field.
+
+The review page with the 30 requests, both versions and the original calls:
+https://claude.ai/artifact/WGQxkRPMzZ381jQo4qhHrU
+
 ## Conclusions
 
 - With `strict: true`, the fields give a readable statement of intent on every call, where

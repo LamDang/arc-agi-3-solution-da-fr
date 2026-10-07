@@ -235,7 +235,8 @@ def test_python_rationale_fields_come_before_the_code(monkeypatch) -> None:
     tool = _python_tool_schema()["function"]
     assert list(tool["parameters"]["properties"]) == ["description", "reasoning", "code"]
     assert tool["parameters"]["required"] == ["description", "reasoning", "code"]
-    assert "`reasoning` why it helps solve the game now" in tool["description"]
+    assert "detailed reasoning for it: the observations, deductions, assumptions and decision" in tool["description"]
+    assert "Detailed reasoning for this call" in tool["parameters"]["properties"]["reasoning"]["description"]
     prompt = _build_system_prompt(tool_output_tokens=3072)
     assert "call it with `description` (what the code does), `reasoning`" in prompt
     assert "call it with one ephemeral `code` string" not in prompt
