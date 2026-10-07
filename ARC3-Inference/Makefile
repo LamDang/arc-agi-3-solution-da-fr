@@ -570,6 +570,12 @@ _taaf-run:
 				exit 1; \
 			fi; \
 			;; \
+		openai-responses) \
+			if [ -z "$$local_analyzer_api_key" ] && [ -z "$${OPENAI_API_KEY:-}" ]; then \
+				echo "OpenAI Responses analyzer config requires OPENAI_API_KEY or LOCAL_ANALYZER_API_KEY."; \
+				exit 1; \
+			fi; \
+			;; \
 		vllm|openai|openai-compatible|compat|"") \
 			if [ -z "$$local_analyzer_api_key" ] && [ -f "$(SERVER_API_KEY_FILE)" ]; then \
 				local_analyzer_api_key="$$(head -n 1 "$(SERVER_API_KEY_FILE)")"; \

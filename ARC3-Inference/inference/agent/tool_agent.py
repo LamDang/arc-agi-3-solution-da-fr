@@ -71,7 +71,11 @@ from inference.agent.python_tool_sandbox import run_sandboxed_python
 from inference.agent.runtime_state import Frame, HistoryEntry, RUNTIME_STATE_FILENAME, load_runtime_state
 from inference.utils.openai_compat import (
     assemble_streamed_chat_response,
+    assemble_streamed_responses,
     build_chat_payload,
+    chat_response_from_responses,
+    normalize_provider,
+    responses_payload_from_chat,
     build_headers,
 )
 
@@ -3016,6 +3020,38 @@ def _split_messages_for_estimate(
     return rewritten, image_tokens
 
 
+def _split_reasoning_details_for_estimate(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Return (messages with encrypted reasoning blocks replaced by a short
+    placeholder, the reasoning tokens those blocks stand for). An encrypted
+    block is base64 several times longer than the reasoning it holds, so
+    counted as text it would make the trimmer evict history it does not need
+    to and skew the calibrated characters-per-token. A block counts as the
+    reasoning tokens its response reported (`tokens`, set by the Responses
+    adapter), or 0 when unknown. Originals are never mutated."""
+    reasoning_tokens = 0
+    rewritten: list[dict[str, Any]] = []
+    for message in messages:
+        details = message.get("reasoning_details")
+        if not isinstance(details, list) or not any(
+            isinstance(d, dict) and d.get("data") for d in details
+        ):
+            rewritten.append(message)
+            continue
+        kept: list[Any] = []
+        for detail in details:
+            if isinstance(detail, dict) and detail.get("data"):
+                try:
+                    reasoning_tokens += max(0, int(detail.get("tokens") or 0))
+                except (TypeError, ValueError):
+                    pass
+                detail = {**detail, "data": "<encrypted>"}
+            kept.append(detail)
+        rewritten.append({**message, "reasoning_details": kept})
+    return rewritten, reasoning_tokens
+
+
 def _estimate_tokens(value: Any, chars_per_token: float | None = None) -> int:
     try:
         # ensure_ascii=False is deliberate: with escaping ON, every non-ASCII
@@ -3623,9 +3659,12 @@ class ToolAgent:
         self._summarized_knowledge = _empty_world_model()
 
     def _headers(self) -> dict[str, str]:
+        direct_openai = normalize_provider(self._model.provider) == "openai-responses"
         api_key = (
             self._api_key
             or os.environ.get("LOCAL_ANALYZER_API_KEY", "").strip()
+            # api.openai.com: the OpenRouter key, set alongside, is not valid there
+            or (os.environ.get("OPENAI_API_KEY", "").strip() if direct_openai else "")
             or os.environ.get("OPENROUTER_API_KEY", "").strip()
             or os.environ.get("OPENAI_API_KEY", "").strip()
         )
@@ -5298,13 +5337,24 @@ class ToolAgent:
                 evicted=getattr(self, "_has_evicted", False),
             )
         )
+        endpoint = "chat/completions"
+        responses_api = normalize_provider(self._model.provider) == "openai-responses"
+        if responses_api:
+            # OpenAI's Responses API: the chat payload translated, and the reply
+            # translated back below (inference/utils/openai_compat.py)
+            payload = responses_payload_from_chat(
+                payload, reasoning_effort=template_kwargs.get("reasoning_effort")
+            )
+            endpoint = "responses"
         # for the request log: what was sent besides messages and tools
         self._last_request_params = {
-            key: value for key, value in payload.items() if key not in ("messages", "tools")
+            key: value
+            for key, value in payload.items()
+            if key not in ("messages", "tools", "input")
         }
         def post_chat(request_payload: dict[str, Any]) -> requests.Response:
             return requests.post(
-                f"{self._model.base_url.rstrip('/')}/chat/completions",
+                f"{self._model.base_url.rstrip('/')}/{endpoint}",
                 headers=self._headers(),
                 json=request_payload,
                 # (connect, read): one scalar gives the connect phase the whole
@@ -5358,9 +5408,10 @@ class ToolAgent:
             # clean and only long streamed replies are corrupted. The assembler
             # already decodes bytes itself, and a complete SSE line is always a
             # whole UTF-8 sequence, so hand it raw bytes instead.
-            payload = assemble_streamed_chat_response(
-                response.iter_lines(decode_unicode=False)
-            )
+            assemble = assemble_streamed_responses if responses_api else assemble_streamed_chat_response
+            payload = assemble(response.iter_lines(decode_unicode=False))
+        elif responses_api:
+            payload = chat_response_from_responses(response.json())
         else:
             payload = response.json()
         choices = payload.get("choices", [])
@@ -6023,6 +6074,8 @@ class ToolAgent:
         if prompt_tokens <= 0:
             return ""
         scrubbed, image_tokens = _split_messages_for_estimate(list(messages))
+        scrubbed, reasoning_tokens = _split_reasoning_details_for_estimate(scrubbed)
+        image_tokens += reasoning_tokens
         payload: dict[str, Any] = {"messages": scrubbed}
         if tools:
             payload["tools"] = tools
@@ -6255,11 +6308,16 @@ class ToolAgent:
         image_tokens = 0
         if _image_token_estimate_enabled():
             messages, image_tokens = _split_messages_for_estimate(messages)
+        messages, reasoning_tokens = _split_reasoning_details_for_estimate(messages)
         payload: dict[str, Any] = {"messages": messages}
         if tools:
             payload["tools"] = tools
             payload["tool_choice"] = _request_tool_choice(tools)
-        return _estimate_tokens(payload, self._text_chars_per_token) + image_tokens
+        return (
+            _estimate_tokens(payload, self._text_chars_per_token)
+            + image_tokens
+            + reasoning_tokens
+        )
 
     def _drop_oldest_history_block(self, history: list[dict[str, Any]], *, preserve_recent: int) -> bool:
         removable = len(history) - preserve_recent
