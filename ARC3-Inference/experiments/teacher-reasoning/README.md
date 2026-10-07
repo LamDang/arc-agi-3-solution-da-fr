@@ -1,5 +1,16 @@
 # Which models return their full reasoning (distillation teachers)
 
+Pages in this folder:
+
+- this page: which models' APIs return their full reasoning (probe results);
+- [teacher-choice.md](teacher-choice.md): benchmarks, price, speed and the
+  cost per run of the full-reasoning candidates and GPT-6.1 Sol, with a
+  recommendation;
+- [distillation-methods.md](distillation-methods.md): a literature review of
+  distilling a teacher whose reasoning is hidden (rationalization,
+  likelihood-reward RL, trace reconstruction), how generated reasoning is
+  checked, and published comparisons.
+
 To distill a teacher's reasoning into the student, the API must return the
 teacher's whole chain of thought, not a summary. Tested on 2026-10-06 through
 OpenRouter with [`scripts/probe_reasoning.py`](../../scripts/probe_reasoning.py):
