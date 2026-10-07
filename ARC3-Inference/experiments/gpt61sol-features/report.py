@@ -261,6 +261,9 @@ def _row(g: dict) -> dict:
             started = datetime.fromisoformat(b["started_at"])
             minutes = (datetime.now() - started).total_seconds() / 60
         score = None
+        if not req.get("requests") and not actions:
+            # every game starts at once; the priority gate lets 10 call the model
+            state, minutes = "waiting", None
     note = (b.get("solver_note") or "") if finished else ""
     if state == "gave_up" and note.startswith("tokens="):
         state = "limit"
@@ -335,7 +338,7 @@ tr.total td { font-weight: 600; border-top: 2px solid var(--line); }
 .playing { background: var(--accent-soft); color: var(--accent); }
 .limit, .gave_up { background: var(--warn-soft); color: var(--warn); }
 .crashed, .cancelled { background: var(--bad-soft); color: var(--bad); }
-.queued { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.queued, .waiting { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .hi { color: var(--good); font-weight: 600; }
 .lo { color: var(--bad); font-weight: 600; }
 .dim { color: var(--muted); }
@@ -407,7 +410,8 @@ def build(out: Path, transcripts_url: str | None) -> dict:
         scores = [r["score"] for r in rows.get(short, {}).values() if r and r["score"] is not None]
         best[short] = max(scores) if scores else None
     finished = [s for s in GAMES if main_rows.get(s) and main_rows[s]["finished"]]
-    playing = [s for s in GAMES if main_rows.get(s) and not main_rows[s]["finished"]]
+    playing = [s for s in GAMES if main_rows.get(s) and main_rows[s]["state"] == "playing"]
+    waiting = [s for s in GAMES if s not in finished and s not in playing]
     at100 = sum(1 for s in GAMES if best[s] is not None and best[s] >= 100)
     total_cost = sum(r["cost"] for per in rows.values() for r in per.values() if r)
     total_out = sum(r["out"] for per in rows.values() for r in per.values() if r)
@@ -503,7 +507,7 @@ def build(out: Path, transcripts_url: str | None) -> dict:
             + "</tr>")
 
     tiles = [
-        ("Games at 100", f"{at100}/25", f"{len(finished)} finished, {len(playing)} playing in Run 1"),
+        ("Games at 100", f"{at100}/25", f"Run 1: {len(finished)} finished, {len(playing)} playing, {len(waiting)} waiting"),
         ("Mean score", _num(mean_best, "{:.1f}") or "-",
          "best attempt, finished games; baseline 99.1 over 25"),
         ("Cost so far", f"${total_cost:.2f}",
@@ -580,7 +584,8 @@ def build(out: Path, transcripts_url: str | None) -> dict:
   <h2>Games</h2>
   <div class="scroll"><table><thead>{"".join(head)}</thead><tbody>{"".join(body)}</tbody></table></div>
   <p class="note">Levels, actions and per-level counts of a game still playing come from its event log;
-  its score appears when it ends. "limit" means the game stopped at its token or time limit.
+  its score appears when it ends. All 25 games start together and 10 at a time call the model, as in
+  the baseline; "waiting" games have not made a request yet, and their minutes count from the common start. "limit" means the game stopped at its token or time limit.
   Notes count comments-only notes kept; "a/b" means b were requested. Cost is computed at
   $2 / $0.10 / $2.50 / $10 per million uncached input, cached input, cache-write and output tokens.</p>
 </section>

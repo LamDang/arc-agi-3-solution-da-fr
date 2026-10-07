@@ -6,5 +6,9 @@
   {
     "time": "2026-10-07 21:10 UTC",
     "text": "Setup review (separate reviewer): settings match the earlier gpt-6.1-sol runs apart from the intended changes, and all four settings take effect in this code path. It found driver bugs that would have lost the reruns: a game ending 'crashed' makes scoring fail, which stopped the driver before any rerun; a failure to read the results would have been taken as 'every game at 100'; and a rerun game at its 240-minute limit would have been cancelled by the job deadline. Fixed in run.sh and swapped in without stopping Run 1: the new driver waits for Run 1, falls back to benchmark.json when scoring fails, and gives reruns a 270-minute job deadline."
+  },
+  {
+    "time": "2026-10-07 21:31 UTC",
+    "text": "32 minutes in, $15.27 spent, no errors in the run log. 4 games won, all at 100 and close to the baseline's actions: g50t 7/7 in 294 actions (baseline 311), tr87 6/6 in 166 (161), sb26 8/8 in 126 (124), s5i5 8/8 in 262 (251). 10 games are playing; the other 11 have not had a model turn yet (10 at a time, as in the baseline). Features: 13 handover notes so far, all comments-only, all followed by the cut (e.g. sk48 steps 32 and 50, ~8.5K-character notes under the six headings); every python call has both reasoning fields (632 of 632); one step-back hint, on sk48 level 5, the level the baseline was stuck on for 437 actions (here 64 actions so far). bp35 has 3 game overs. Spending is running faster than the baseline's long games did early on; to watch."
   }
 ]
