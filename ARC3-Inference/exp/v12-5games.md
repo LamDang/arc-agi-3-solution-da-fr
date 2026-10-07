@@ -165,6 +165,8 @@ Three more v12 flash runs on these games (about $10 each) would give four
 runs per arm, enough to detect a difference of about 15 points in the mean;
 sp80 and ls20 are where a real one would show first.
 
+The base agent with qwen3.8-max-0902 is its own experiment: [base-max-5games.md](base-max-5games.md).
+
 ## What went wrong in the runs
 
 - **Rate limit (flash only).** With ten games in flight, flash met 83 HTTP 429s
