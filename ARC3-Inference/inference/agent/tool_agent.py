@@ -559,6 +559,24 @@ def _http_retry_delay_seconds(
     return backoff
 
 
+_TRANSIENT_STREAM_ERROR_CODES = frozenset(
+    {"server_is_overloaded", "rate_limit_exceeded", "server_error", "slow_down"}
+)
+
+
+def _is_transient_stream_error(error: Any) -> bool:
+    """An error reported inside a response stream that a retry can clear:
+    OpenAI's overload and rate-limit codes, read from the error object or its
+    text."""
+    if isinstance(error, dict):
+        code = str(error.get("code") or error.get("type") or "")
+        if code in _TRANSIENT_STREAM_ERROR_CODES:
+            return True
+        error = error.get("message") or ""
+    text = str(error or "")
+    return any(code in text for code in _TRANSIENT_STREAM_ERROR_CODES)
+
+
 def _post_with_retries(
     post_fn,
     *,
@@ -5373,47 +5391,75 @@ class ToolAgent:
         initial_grace = 0.0
         if not self._http_initial_grace_used:
             initial_grace = _env_float("ARC3_HTTP_RETRY_INITIAL_SECONDS", 0.0)
-        _diag(self, "request")
-        try:
-            response = _post_with_retries(
-                lambda: post_chat(payload),
-                retries=_env_int("ARC3_HTTP_RETRIES", 3),
-                base_seconds=_env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
-                max_seconds=_env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
-                initial_seconds=initial_grace,
+        request_payload = payload
+        stream_retries = _env_int("ARC3_HTTP_RETRIES", 3)
+        stream_attempt = 0
+        while True:
+            _diag(self, "request")
+            try:
+                response = _post_with_retries(
+                    lambda: post_chat(request_payload),
+                    retries=_env_int("ARC3_HTTP_RETRIES", 3),
+                    base_seconds=_env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
+                    max_seconds=_env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
+                    initial_seconds=initial_grace,
+                )
+            finally:
+                # consumed whether the call succeeded or failed: the grace covers
+                # the server coming up, and by now it either did or will not
+                self._http_initial_grace_used = True
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                detail = response.text.strip()
+                message = f"{exc}"
+                if detail:
+                    message += f" | response: {detail}"
+                raise requests.RequestException(message) from exc
+            if getattr(response, "status_code", 200) >= 400:
+                detail = response.text.strip()
+                message = f"{response.status_code} Error"
+                if detail:
+                    message += f" | response: {detail}"
+                raise requests.RequestException(message)
+            if request_payload.get("stream"):
+                # decode_unicode=True decodes each transport chunk INDEPENDENTLY, so a
+                # multi-byte UTF-8 sequence straddling a chunk boundary is split into
+                # two broken halves - an em-dash (E2 80 94) becomes "\u00e2" plus
+                # fragments. Most characters survive, which is why short probes look
+                # clean and only long streamed replies are corrupted. The assembler
+                # already decodes bytes itself, and a complete SSE line is always a
+                # whole UTF-8 sequence, so hand it raw bytes instead.
+                assemble = assemble_streamed_responses if responses_api else assemble_streamed_chat_response
+                payload = assemble(response.iter_lines(decode_unicode=False))
+            elif responses_api:
+                payload = chat_response_from_responses(response.json())
+            else:
+                payload = response.json()
+            # OpenAI reports overload inside a 200 stream (an error event or a
+            # failed response), which _post_with_retries never sees. Retried
+            # here, in place, the turn keeps its tool work; let through, it
+            # rolls the turn back, and ten in a row end the game.
+            error = payload.get("error") if not payload.get("choices") else None
+            if not (
+                responses_api
+                and _is_transient_stream_error(error)
+                and (stream_retries < 0 or stream_attempt < stream_retries)
+            ):
+                break
+            delay = _http_retry_delay_seconds(
+                stream_attempt,
+                None,
+                _env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
+                _env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
             )
-        finally:
-            # consumed whether the call succeeded or failed: the grace covers
-            # the server coming up, and by now it either did or will not
-            self._http_initial_grace_used = True
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            detail = response.text.strip()
-            message = f"{exc}"
-            if detail:
-                message += f" | response: {detail}"
-            raise requests.RequestException(message) from exc
-        if getattr(response, "status_code", 200) >= 400:
-            detail = response.text.strip()
-            message = f"{response.status_code} Error"
-            if detail:
-                message += f" | response: {detail}"
-            raise requests.RequestException(message)
-        if payload.get("stream"):
-            # decode_unicode=True decodes each transport chunk INDEPENDENTLY, so a
-            # multi-byte UTF-8 sequence straddling a chunk boundary is split into
-            # two broken halves - an em-dash (E2 80 94) becomes "\u00e2" plus
-            # fragments. Most characters survive, which is why short probes look
-            # clean and only long streamed replies are corrupted. The assembler
-            # already decodes bytes itself, and a complete SSE line is always a
-            # whole UTF-8 sequence, so hand it raw bytes instead.
-            assemble = assemble_streamed_responses if responses_api else assemble_streamed_chat_response
-            payload = assemble(response.iter_lines(decode_unicode=False))
-        elif responses_api:
-            payload = chat_response_from_responses(response.json())
-        else:
-            payload = response.json()
+            log.warning(
+                "transient error in the response stream (%s); retrying in %.1fs (%d/%s)",
+                str(error)[:200], delay, stream_attempt + 1,
+                "unlimited" if stream_retries < 0 else stream_retries,
+            )
+            time.sleep(delay)
+            stream_attempt += 1
         choices = payload.get("choices", [])
         if not choices:
             detail = payload.get("error") or {
