@@ -98,15 +98,16 @@ def run_game(path: Path, args, examples: list[str]) -> dict:
             "teacher_reasoning_tokens": rec.reasoning_tokens,
             "summary": summary, "summary_source": source,
             "real_reasoning": rec.real_reasoning,
-            "prompt_version": args.prompt, "model": args.model,
+            "prompt_version": args.prompt, "history": args.history, "model": args.model,
             "flash_reasoning": args.reasoning,
         }
         if rec.reasoning_tokens == 0 and not rec.real_reasoning.strip():
             row.update(thinking="", status="teacher_empty", attempts=0, checks={}, usage={})
             append_jsonl(out_path, row)
             continue
-        msgs = context.history(rec.messages, thinking)
-        msgs.append({"role": "user", "content": prompts.reconstruct_prompt(row["call"], summary, args.prompt)})
+        msgs = context.history(rec.messages, thinking, args.history)
+        msgs.append({"role": "user", "content": prompts.reconstruct_prompt(
+            row["call"], summary, args.prompt, args.history)})
         attempts, usages, text, chk, extra = 0, [], "", {}, {}
         while attempts < args.max_attempts:
             attempts += 1
@@ -151,6 +152,8 @@ def main(argv=None):
                     help="run whose teacher summaries set the style of synthetic ones")
     ap.add_argument("--prompt", choices=sorted(prompts.RECONSTRUCT_PROMPTS), default=prompts.PROMPT_VERSION,
                     help="reconstruction prompt version")
+    ap.add_argument("--history", choices=context.HISTORY_MODES, default="native",
+                    help="where earlier turns' generated thinking goes: the `reasoning` field, or the text")
     ap.add_argument("--reasoning", action="store_true", help="let flash reason before writing")
     ap.add_argument("--model", default=client.MODEL)
     ap.add_argument("--provider", default=client.PROVIDER)

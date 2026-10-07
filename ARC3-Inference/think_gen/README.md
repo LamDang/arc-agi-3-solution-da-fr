@@ -56,14 +56,18 @@ the two runs. Needs `OPENROUTER_API_KEY`.
   them. That is what the student sees at deploy time, where SGLang runs
   with `preserve_thinking` and the harness keeps every turn's reasoning in
   history. A rerun resumes after the last record written.
-- **History thinking goes in the message text.** OpenRouter drops
-  `reasoning` and `reasoning_content` from history messages for
-  qwen3.8-flash, and Alibaba strips `<think>` blocks from history content.
-  Both were tested on 2026-10-07: with a codeword in the earlier reasoning,
-  the prompt token count did not change and the model could not repeat the
-  codeword. So the thinking is put in the assistant message's content
-  between `[thinking]` and `[/thinking]` lines. As in the harness history,
-  blank lines are removed.
+- **History thinking goes in the `reasoning` field.** OpenRouter passes a
+  history message's `reasoning` to qwen3.8-flash on Alibaba. Two pieces of
+  evidence:
+  - A probe with a 1,000-token reasoning block grew the prompt by that much,
+    and the model could quote a codeword from it.
+  - In `runs/base-max-dfranzen` the prompt grew by at least the previous
+    reply's reasoning tokens on all 195 consecutive request pairs.
+
+  As in the harness history, blank lines are removed. `--history inline`
+  puts the thinking in the message content between `[thinking]` and
+  `[/thinking]` lines instead. The first calibration runs (`b1`, `b2`) used
+  inline.
 - **The instruction.** A user message after the context (`prompts.RECONSTRUCT`)
   shows the call (the code verbatim) and the summary, and asks for the
   thinking in first person. The thinking should:

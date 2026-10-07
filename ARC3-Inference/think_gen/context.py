@@ -3,10 +3,14 @@ turns' thinking filled in, and the call to explain.
 
 Earlier assistant turns carry the thinking generated for them, so each
 request is generated in the context the student will have at deploy time
-(`preserve_thinking`). OpenRouter drops `reasoning` / `reasoning_content` from
-history messages for qwen3.8-flash, and Alibaba strips `<think>` blocks from
-history content (tested 2026-10-07), so the thinking goes into the message
-content between `[thinking]` and `[/thinking]` lines instead.
+(`preserve_thinking`). By default (`native`) it goes in the history
+message's `reasoning` field, which OpenRouter passes to qwen3.8-flash on
+Alibaba: a probe with a 1,000-token reasoning block grew the prompt by that
+much and the model could quote it, and in runs/base-max-dfranzen the prompt
+grew by at least the previous reply's reasoning tokens on all 195
+consecutive request pairs. `inline` puts it in the message content between
+`[thinking]` and `[/thinking]` lines instead; the b1/b2 calibration runs
+used it.
 """
 import copy
 import hashlib
@@ -45,9 +49,13 @@ def with_thinking(content, thinking: str):
     return [{"type": "text", "text": block}, *content]
 
 
-def history(messages: list, thinking: dict[str, str]) -> list:
-    """The request's messages with every assistant turn's reasoning removed
-    and the generated thinking (by `message_ref`) inlined instead."""
+HISTORY_MODES = ("native", "inline")
+
+
+def history(messages: list, thinking: dict[str, str], mode: str = "native") -> list:
+    """The request's messages with every assistant turn's reasoning replaced
+    by the generated thinking (by `message_ref`), in `reasoning` (`native`)
+    or in the content (`inline`)."""
     out = []
     for m in messages:
         # `_arc3_control` and other private keys never reach the server
@@ -56,7 +64,13 @@ def history(messages: list, thinking: dict[str, str]) -> list:
             ref = message_ref(m)
             for k in REASONING_KEYS:
                 m.pop(k, None)
-            m["content"] = with_thinking(m.get("content") or "", thinking.get(ref, ""))
+            text = thinking.get(ref, "")
+            if mode == "inline":
+                m["content"] = with_thinking(m.get("content") or "", text)
+            else:
+                m["content"] = m.get("content") or ""
+                if text:
+                    m["reasoning"] = normalize(text)
         out.append(m)
     return out
 

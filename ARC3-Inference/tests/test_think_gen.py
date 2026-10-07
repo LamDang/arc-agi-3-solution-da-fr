@@ -54,7 +54,11 @@ def test_read_log_summary_and_hidden_reasoning(tmp_path):
 
 def test_history_inlines_thinking_and_drops_private_keys(tmp_path):
     recs = logs.read_log(game_log(tmp_path))
-    msgs = context.history(recs[1].messages, {"c1": "First line.\n\nSecond line."})
+    thinking = {"c1": "First line.\n\nSecond line."}
+    asst = context.history(recs[1].messages, thinking)[2]
+    assert asst["reasoning"] == "First line.\nSecond line." and asst["content"] == ""
+    assert "reasoning_details" not in asst
+    msgs = context.history(recs[1].messages, thinking, mode="inline")
     asst = msgs[2]
     assert "reasoning" not in asst and "reasoning_details" not in asst
     assert asst["content"] == "[thinking]\nFirst line.\nSecond line.\n[/thinking]"
@@ -67,6 +71,8 @@ def test_call_text_and_prompt(tmp_path):
     text = context.call_text(recs[1].reply)
     assert "```python\naction('UP')\n```" in text
     assert "<summary>" not in prompts.reconstruct_prompt(text, "")
+    assert "[thinking] and [/thinking] lines" not in prompts.reconstruct_prompt(text, "")
+    assert "[thinking] and [/thinking] lines" in prompts.reconstruct_prompt(text, "", history_mode="inline")
     assert "I'm looking." in prompts.reconstruct_prompt(text, recs[0].summary)
 
 

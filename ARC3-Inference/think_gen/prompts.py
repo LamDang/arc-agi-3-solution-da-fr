@@ -9,7 +9,7 @@ PROMPT_VERSION = "b1"  # default reconstruct prompt; see RECONSTRUCT_PROMPTS
 RECONSTRUCT = """\
 [Note outside the game: this is not a turn of the game, and you must not call any tool.]
 
-The conversation above is a game-playing agent's run, up to the moment it produced its next output. Its thinking for earlier turns is shown between {open} and {close} lines. Its thinking for this step is missing: write it.
+The conversation above is a game-playing agent's run, up to the moment it produced its next output. {history_note}Its thinking for this step is missing: write it.
 
 The agent's next output was:
 
@@ -48,11 +48,14 @@ RECONSTRUCT_B2 = RECONSTRUCT.replace(
 RECONSTRUCT_PROMPTS = {"b1": RECONSTRUCT, "b2": RECONSTRUCT_B2}
 
 
-def reconstruct_prompt(call: str, summary: str, version: str = PROMPT_VERSION) -> str:
+def reconstruct_prompt(call: str, summary: str, version: str = PROMPT_VERSION,
+                       history_mode: str = "native") -> str:
     from .context import THINK_CLOSE, THINK_OPEN
     block = SUMMARY_BLOCK.format(summary=summary.strip()) if summary.strip() else NO_SUMMARY_BLOCK
+    note = (f"Its thinking for earlier turns is shown between {THINK_OPEN} and {THINK_CLOSE} lines. "
+            if history_mode == "inline" else "")
     return RECONSTRUCT_PROMPTS[version].format(
-        open=THINK_OPEN, close=THINK_CLOSE, call=call, summary_block=block)
+        open=THINK_OPEN, close=THINK_CLOSE, call=call, summary_block=block, history_note=note)
 
 
 # Calibration: turn a teacher's real thinking into a summary in the style
