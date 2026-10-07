@@ -99,7 +99,10 @@ def main() -> None:
             print(f"level at equal {label} (new vs old): " + "; ".join(row))
         # after the first cut: levels gained per 100 turns and actions per level gained
         for name, turns in (("new", new), ("old", old)):
-            start = next(t for t in turns if t["turn"] >= first_cut)
+            start = next((t for t in turns if t["turn"] >= first_cut), None)
+            if start is None:
+                print(f"  {name}: ended at turn {turns[-1]['turn']}, before the first cut")
+                continue
             end = next((t for t in turns if t["turn"] >= horizon), turns[-1])
             gained = end["level"] - start["level"]
             span = end["turn"] - start["turn"]
