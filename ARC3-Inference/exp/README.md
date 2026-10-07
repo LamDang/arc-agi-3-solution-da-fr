@@ -20,6 +20,7 @@ their own index ([Play runs](#play-runs)).
 | [v10-play.md](v10-play.md) | v10 (sp80, ls20, ft09) | Can one agent play a live game while it fits `engine.py`, and plan its moves on that engine? |
 | [v11-play.md](v11-play.md) | v11 (sp80, ls20) | Does stepping the replica directly, with support measured by the harness and the base prompt's guidance, take the play agent further? |
 | [v12-forks.md](v12-forks.md) | v12 forks of v11: A sp80 t180, A ls20 t100, B ls20 t148 | On 100-turn forks of v11, does a context rebuilt at every request (A), or the v12 messages and harness (B), do as well as v11 over the same turns? |
+| [v12-5games.md](v12-5games.md) | v12 flash and v12 max (ft09, lp85, ls20, sp80, vc33) | Does the full v12 harness hold up over whole games on the base agent's five games, and what does qwen3.8-max add? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from
@@ -184,6 +185,16 @@ the run directory holds every game. All numbers come from each game's
 | [v12 A ls20](v12-forks.md) | v12 A: v11 forked at turn 100, rebuilt context | `2518e9e`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 200 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 112 | 200 (101-200 forked) | 112 / 112 of 113 | 38.1 | $0.556 | 5.31M | 44% | 152,444 | 124,680 | 4 | `v12a-ls20-t100` |
 | [v12 B ls20](v12-forks.md) | v12 B: v11 forked at turn 148, v12 messages and harness (v11's system prompt) | `ea685ec`~* | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 248 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 161 | 248 (149-248 forked) | 161 / 6 of 162 | 44.7 | $0.816 | 21.89M | 86% | 133,456 | 101,539 | 5 | `v12b-ls20-t148` |
 | [v12 B rerun ls20](v12-forks.md) | v12 B rerun: v11 forked at turn 148, v12 messages, harness and system prompt | `aa11286`~ | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--max-turns 248 --max-actions 500 --batch-size 10` | turn limit | 10.7 | 2/7 | 237 | 248 (149-248 forked) | 228 / 238 of 238 | 36.7 | $0.849 | 23.22M | 86% | 100,178 | 73,384 | 8 | `v12b2-ls20-t148` |
+| [v12 flash ft09](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 6 --batch-size 10 --jobs 3` | won | 100.0 | 6/6 | 80 | 124 | 78 / 81 of 81 | 50.2 | $0.780 | 6.66M | 36% | 208,475 | 155,828 | 10 | `qwen38flash-v12` |
+| [v12 flash lp85](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 6 --batch-size 10 --jobs 3` | turn limit | 77.8 | 7/8 | 86 | 300 | 86 / 86 of 87 | 176.1 | $2.351 | 21.78M | 43% | 694,972 | 602,500 | 22 | `qwen38flash-v12` |
+| [v12 flash ls20](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 6 --batch-size 10 --jobs 3` | turn limit | 10.7 | 2/7 | 155 | 300 | 146 / 156 of 156 | 130.4 | $1.905 | 19.88M | 49% | 465,409 | 373,156 | 17 | `qwen38flash-v12` |
+| [v12 flash sp80](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 6 --batch-size 10 --jobs 3` | turn limit | 47.6 | 4/6 | 127 | 300 | 127 / 127 of 128 | 204.7 | $2.228 | 21.24M | 46% | 753,445 | 666,077 | 19 | `qwen38flash-v12` |
+| [v12 flash vc33](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-flash | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 6 --batch-size 10 --jobs 3` | turn limit | 75.0 | 6/7 | 185 | 300 | 185 / 185 of 186 | 200.9 | $2.635 | 25.02M | 43% | 714,003 | 603,139 | 22 | `qwen38flash-v12` |
+| [v12 max ft09](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-max-0902 | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 30 --batch-size 10` | won | 100.0 | 6/6 | 78 | 84 | 77 / 79 of 79 | 53.6 | $9.409 | 5.63M | 28% | 152,348 | 118,223 | 12 | `qwen38max-v12` |
+| [v12 max lp85](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-max-0902 | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 30 --batch-size 10` | won | 100.0 | 8/8 | 89 | 137 | 89 / 90 of 90 | 96.9 | $16.363 | 10.11M | 31% | 258,615 | 205,995 | 24 | `qwen38max-v12` |
+| [v12 max ls20](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-max-0902 | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 30 --batch-size 10` | time limit | 10.8 | 3/7 | 329 | 258 | 329 / 329 of 330 | 243.4 | $28.809 | 21.24M | 46% | 585,702 | 520,718 | 22 | `qwen38max-v12` |
+| [v12 max sp80](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-max-0902 | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 30 --batch-size 10` | time limit | 23.0 | 3/6 | 147 | 277 | 138 / 148 of 148 | 242.9 | $28.190 | 19.51M | 43% | 614,312 | 530,097 | 22 | `qwen38max-v12` |
+| [v12 max vc33](v12-5games.md) | v12: full harness, five games | `6e4bded`, `fc81ce0` on resume | qwen/qwen3.8-max-0902 | T 0.7, top_p 0.95 | `--context rebuilt --max-turns 300 --max-actions 500 --max-cost 30 --batch-size 10` | cost limit | 35.7 | 4/7 | 224 | 257 | 224 / 224 of 225 | 207.4 | $30.023 | 20.93M | 42% | 564,837 | 490,143 | 26 | `qwen38max-v12` |
 
 Headline: the loop won ft09 in 77 actions, against the base agent's 100 and
 a human baseline of 208. It cost 2.9 times the base agent's output tokens
@@ -215,3 +226,12 @@ tested. The B rerun (`aa11286`~, inferred from its start time, on this branch)
 sent the v12 system prompt: it stated the colour rule at turn 181, covered the
 patch at turn 236 (step 226, 148 level-2 actions) and ended with the colour lock
 committed and 21 presses of a 31-press finish unsent.
+
+v12 five games ([v12-5games.md](v12-5games.md)): the merged v12 harness on the base
+agent's five games. Mean score: flash 62.2 ($9.90), max 53.9 ($112.79), base agent
+66.9 ($2.10). Flash beat the base agent on sp80 (47.6 against 3.74) and lost on
+ls20 (10.7 against 30.97), lp85 (7/8) and vc33 (6/7), on the 300-turn limit; max
+won ft09 and lp85, and the $30 or 240-minute limit stopped its other three. Every
+request stayed under 128K (max 97K). Flash ran three games at a time from 21:08 UTC
+(HTTP 429s), and two flash games were resumed past Alibaba's input filter
+(`fc81ce0`, the request asked again without its images).
