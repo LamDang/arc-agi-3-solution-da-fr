@@ -187,6 +187,30 @@ fires 72 actions earlier on max vc33 L4, and 34 on max sp80 L1. On sk48 L5 it fi
 action 172, 75 actions before P1 and with about 100 stuck minutes still to come. That is
 21 actions before the labelled start: the agent was already re-probing as it explored.
 
+### In the harness: `ARC3_REPEAT_HINT`
+
+`ARC3_REPEAT_HINT=1` turns the third-visit count into a message in the turn prompt. When
+3 positions of the current level have each been reached 3 times (2-pixel border left out,
+exact match, counted over the whole history of the level), the turn prompt gets a
+step-back note: if stuck, list the facts known and tested, look at every visual element,
+work backward from what must be true to pass the level, and prioritize the likeliest
+strategy; if the repetition is part of the mechanics, ignore the note. After it is shown,
+it waits 10 analyzer turns, even while the repetition continues
+(`ARC3_REPEAT_HINT_POSITIONS`, `_VISITS`, `_COOLDOWN`). The count takes 0.06 s per turn on
+a 1,500-action level.
+
+Replayed over the recorded runs turn by turn (`replay_hint.py`), it would have been shown
+110 times in 12 of the 40 games:
+
+- 97 times on the 13 stuck levels. 82 of those fall inside a labelled stuck stretch or less
+  than 10 actions before one.
+- 13 times on 7 normal levels (cd82 L1, max vc33 L3 and L5, maxdf lp85 L6, flash vc33 L5 and
+  L7, flash sp80 L1).
+- On gpt-6.1-sol sk48 L5, the first message comes at turn 35 (action 176), 48 actions
+  before the UP/DOWN budget burn, then every 10 turns until the level is solved: 11 in
+  all. gpt-6.1-sol gets 7 more: 3 on bp35 L8 (from action 355), 3 on dc22 L5 (from 255)
+  and 1 on cd82 L1.
+
 ## Caveats
 
 - 17 episodes, and the thresholds were chosen on the same data. They show which signal
