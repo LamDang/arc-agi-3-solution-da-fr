@@ -82,13 +82,16 @@ def _call(call: dict) -> dict:
     function = call.get("function") or {}
     arguments = str(function.get("arguments") or "")
     code = arguments
+    rationale = {}
     try:
         parsed = json.loads(arguments)
         if isinstance(parsed, dict) and isinstance(parsed.get("code"), str):
             code = parsed["code"]
+            # ARC3_PYTHON_RATIONALE: what the code does and why, written before it
+            rationale = {k: str(parsed[k]) for k in ("description", "reasoning") if parsed.get(k)}
     except json.JSONDecodeError:
         pass
-    return {"id": call.get("id"), "name": function.get("name") or "", "code": _clip(code)}
+    return {"id": call.get("id"), "name": function.get("name") or "", "code": _clip(code), **rationale}
 
 
 def _board(board) -> str:

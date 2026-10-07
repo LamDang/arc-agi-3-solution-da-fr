@@ -131,6 +131,9 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px 
 .think { background: var(--note-bg); color: var(--note-fg); border-radius: 6px; padding: 8px 10px; font-size: var(--step--1); white-space: pre-wrap; overflow-wrap: anywhere; }
 .think::before { content: "Reasoning summary"; display: block; font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
 .say { white-space: pre-wrap; overflow-wrap: anywhere; }
+.why { display: grid; gap: 2px; font-size: var(--step--1); border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; }
+.why b { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.why p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 details { min-width: 0; }
 details > summary { cursor: pointer; font-size: var(--step--1); color: var(--muted); font-weight: 700; }
 pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius: 6px; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; overflow-x: auto; white-space: pre; max-height: 460px; overflow-y: auto; }
@@ -309,6 +312,9 @@ function stepCard(g, s) {
     if (r.reasoning && prefs.reasoning) parts.push(el("div", { class: "think", text: r.reasoning }));
     if (r.content) parts.push(el("div", { class: "say", text: r.content }));
     for (const c of r.calls) {
+      if (c.description || c.reasoning) parts.push(el("div", { class: "why" },
+        c.description ? [el("b", { text: "What the code does" }), el("p", { text: c.description })] : null,
+        c.reasoning ? [el("b", { text: "Why it helps" }), el("p", { text: c.reasoning })] : null));
       const code = el("details", { open: prefs.code }, el("summary", { text: `${c.name} · ${c.code.split("\n").length} lines` }), el("pre", { text: c.code }));
       parts.push(code);
       if (c.out != null) parts.push(el("details", { open: prefs.output }, el("summary", { text: "what came back" }), el("pre", { text: c.out })));
@@ -321,7 +327,7 @@ function stepCard(g, s) {
     drawBoard(canvas, s.board);
     boardBox = el("div", { class: "boardbox" }, canvas, el("span", { text: "board after the step" }));
   }
-  return el("article", { class: "step" + (solved.length ? " solved" : ""), id: `${g}-s${s.s}`, "data-search": [s.prompt, ...s.reqs.flatMap((r) => [r.reasoning, r.content, ...r.calls.map((c) => c.code + "\n" + (c.out || ""))])].join("\n").toLowerCase() },
+  return el("article", { class: "step" + (solved.length ? " solved" : ""), id: `${g}-s${s.s}`, "data-search": [s.prompt, ...s.reqs.flatMap((r) => [r.reasoning, r.content, ...r.calls.map((c) => [c.description, c.reasoning, c.code, c.out].filter(Boolean).join("\n"))])].join("\n").toLowerCase() },
     el("div", { class: "shead" },
       el("h3", { text: `Step ${s.s}` }),
       el("span", { class: "meta", text: `level ${s.level ?? "-"} · ${s.reqs.length} request${s.reqs.length === 1 ? "" : "s"} · ${s.actions.length} action${s.actions.length === 1 ? "" : "s"} · ${fmt(out)} output tokens · ${usd(cost)}` }),
