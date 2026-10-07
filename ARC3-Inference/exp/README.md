@@ -26,6 +26,7 @@ their own index ([Play runs](#play-runs)).
 | [base-gpt61sol-20games.md](base-gpt61sol-20games.md) | base agent with gpt-6.1-sol on the 20 other official games: 19/20 won, 98.9 ($38.67); all 25 games 99.1, 182/183 levels, $41.67 | Does gpt-6.1-sol do as well on the games outside the qwen runs' five? |
 | [python-rationale-replay.md](python-rationale-replay.md) | python tool with `description` and `reasoning` before `code` (ARC3_PYTHON_RATIONALE), 30 replayed gpt-6.1-sol requests: filled on 30/30 with strict mode, coherent | Can the model state what each call does and why, and keep its turns coherent? |
 | [gpt61sol-compaction.md](gpt61sol-compaction.md) | gpt-6.1-sol after history compaction, 43 events in the 25-game runs: 29 no visible effect, 11 recover in Python, 2 re-probes (sk48, already stuck) | Does the model lose its rules when the oldest half of the history is dropped? |
+| [note-compaction.md](note-compaction.md) | 16 gpt-6.1-sol trigger points replayed with a note request at 110K (ARC3_NOTE_COMPACTION_TOKENS): 16/16 comment-only notes, ~1.9K tokens, tried probes kept; headings remove squashed text | Before the cut, can the model write the note it needs to go on, and what should the request ask for? |
 
 RESULTS.md also cites two documents kept here: [analysis/](analysis/), one
 page per game on how the v2 (and, for ft09 and sp80, v4) engines differ from

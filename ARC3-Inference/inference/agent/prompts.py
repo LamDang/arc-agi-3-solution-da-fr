@@ -344,3 +344,51 @@ SUMMARY_REQUEST_PROMPT = (
     "leave out is gone.\n"
     "Length is not a problem here; leaving something out is."
 )
+
+
+# ARC3_NOTE_COMPACTION_TOKENS: sent at a turn start once the prompt reaches the
+# threshold; the reply's python code (comments only) is kept as the note and the
+# history is cut to the last {keep_turns} turns. Comments, not a string, so that
+# running the code would print nothing. The headings come from replaying 16
+# gpt-6.1-sol trigger points (exp/note-compaction.md): without them the notes
+# restated the system prompt, squashed words together and spent their length on
+# the turns that are kept anyway.
+NOTE_COMPACTION_PROMPT = (
+    "Context notice: this conversation has reached about {threshold_k}K tokens and is about to be "
+    "cut. After your reply, only the system prompt, this exchange and your last {keep_turns} "
+    "turns{kept_from} stay in your context; every older turn is deleted. Your retained functions "
+    "stay defined, and `history` and `transitions` in Python still hold the whole game record. "
+    "The code of retained functions you wrote in the deleted turns will no longer be visible, "
+    "only their signatures.\n\n"
+    "Before the cut, call the `python` tool once to write yourself a handover note. Write it as "
+    "Python comments only (every line starts with `#`), so that running it does nothing and "
+    "prints nothing: the note stays in your context as the code of this call. Do not call "
+    "`action(...)` or run any code in this call. After it, the game continues with the normal "
+    "message for the current turn.\n\n"
+    "Write the note for yourself after the cut, in plain readable sentences, under these headings:\n"
+    "# RULES: game mechanics and the level goal as you understand them, each marked CONFIRMED "
+    "(with the evidence in a few words) or HYPOTHESIS. Include beliefs you corrected, so you do "
+    "not fall back into them.\n"
+    "# TRIED: on the current level, what you have already tried and what it did, especially "
+    "probes, approaches and plans that failed or did nothing, and hypotheses ruled out. Be "
+    "specific (action, position, result) so you do not repeat them.\n"
+    "# LEVEL: facts about the current level that are costly to recover: layout, coordinates, "
+    "object roles, initial state, budget.\n"
+    "# FUNCTIONS: for each retained function you still need, what it computes, its arguments, "
+    "what it assumes and any known bug. Name useful functions that were lost and how to rebuild "
+    "them.\n"
+    "# PLAN: what you were in the middle of and the next steps, with exact action sequences and "
+    "the checkpoints you expect.\n"
+    "# LESSONS: game-specific working lessons (for example how many actions fit in one call).\n"
+    "If an earlier handover note is above, carry forward everything in it that is still true; "
+    "it will be deleted too.\n"
+    "Leave out what you are shown every turn anyway: the system prompt's instructions, the "
+    "current step, level and valid actions, and the signatures of your retained functions. "
+    "Leave out details that are only in your last {keep_turns} turns and that you will not need "
+    "later than those."
+)
+
+NOTE_COMPACTION_TOOL_RESULT = (
+    "Note kept in your context (the code was not run). Older turns have been removed; "
+    "the game continues below."
+)
