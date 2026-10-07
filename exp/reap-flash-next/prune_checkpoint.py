@@ -11,9 +11,9 @@ softmax, top-k and renormalization run over the kept experts as if the others
 had never existed (what prune_eval.py measured). text_config.num_experts
 becomes N. Shards holding routed experts or routers are rewritten; every other
 file (n-gram table shards, tokenizer, chat template, processor configs) is
-symlinked. MTP tensors are copied unchanged: SGLang skips them in the target
-model and the draft model is a separate checkpoint. Tensor bytes are copied
-without decoding, so only numpy is needed.
+symlinked, or copied with --copy. MTP tensors are copied unchanged: SGLang
+skips them in the target model and the draft model is a separate checkpoint.
+Tensor bytes are copied without decoding, so only numpy is needed.
 
 keep.json in the output records the kept expert ids per layer and the
 statistics they came from.
@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -75,9 +76,10 @@ def write_safetensors(path: Path, entries: list, metadata: dict | None, read):
     return offset
 
 
-def prune(model_dir: Path, out: Path, mask: np.ndarray, info: dict, log=print) -> dict:
+def prune(model_dir: Path, out: Path, mask: np.ndarray, info: dict, log=print, copy: bool = False) -> dict:
     """Copies tensor bytes without decoding them (no torch needed): expert
-    tensors are renamed, router rows sliced, everything else copied."""
+    tensors are renamed, router rows sliced, everything else copied. Files
+    without routed experts are symlinked, or copied with copy=True."""
     model_dir, out = Path(model_dir), Path(out)
     out.mkdir(parents=True, exist_ok=True)
     n_layers, n_experts = mask.shape
@@ -100,7 +102,7 @@ def prune(model_dir: Path, out: Path, mask: np.ndarray, info: dict, log=print) -
     weight_map, rewritten = {}, []
     for file, names in sorted(by_file.items()):
         if not any(EXPERT_RE.match(n) or ROUTER_RE.match(n) for n in names):
-            _link(model_dir / file, out / file)
+            _link(model_dir / file, out / file, copy)
             weight_map.update({n: file for n in names})
             continue
         t = time.time()
@@ -154,7 +156,7 @@ def prune(model_dir: Path, out: Path, mask: np.ndarray, info: dict, log=print) -
     skip = {"config.json", "model.safetensors.index.json", *by_file}
     for path in model_dir.iterdir():
         if path.name not in skip and path.is_file():
-            _link(path, out / path.name)
+            _link(path, out / path.name, copy)
     keep = {"num_experts": n_keep, "source": str(model_dir),
             "kept": {str(layer): np.flatnonzero(mask[layer]).tolist() for layer in range(n_layers)}, **info}
     (out / "keep.json").write_text(json.dumps(keep) + "\n")
@@ -163,12 +165,15 @@ def prune(model_dir: Path, out: Path, mask: np.ndarray, info: dict, log=print) -
     return keep
 
 
-def _link(src: Path, dest: Path):
+def _link(src: Path, dest: Path, copy: bool = False):
     if dest.is_symlink() or dest.exists():
-        if dest.is_symlink() and dest.resolve() == src.resolve():
+        if not copy and dest.is_symlink() and dest.resolve() == src.resolve():
             return
         dest.unlink()
-    dest.symlink_to(src.resolve())
+    if copy:
+        shutil.copyfile(src, dest)
+    else:
+        dest.symlink_to(src.resolve())
 
 
 def main():
@@ -178,6 +183,7 @@ def main():
     parser.add_argument("--keep-file", help="keep.json of an earlier pruning: the same experts, no statistics needed")
     parser.add_argument("--keep", type=int, required=True, help="experts kept per layer")
     parser.add_argument("--out", required=True)
+    parser.add_argument("--copy", action="store_true", help="copy unchanged files instead of symlinking them")
     parser.add_argument("--criterion", choices=analyze.CRITERIA, default="gate_norm")
     parser.add_argument("--categories", default=",".join(analyze.CATEGORIES))
     games = parser.add_mutually_exclusive_group()
@@ -196,6 +202,7 @@ def main():
             mask[int(layer), ids] = True
         assert info["num_experts"] == args.keep == mask.sum(1).min() == mask.sum(1).max()
         info = {k: v for k, v in info.items() if k not in ("num_experts", "source")}
+        info["keep_file"] = Path(args.keep_file).name
         print(f"[prune] experts from {args.keep_file}", flush=True)
     elif args.stats_dir:
         mask, runs = choose(args.stats_dir, args.keep, args.criterion, categories, calib, exclude)
@@ -203,7 +210,7 @@ def main():
         print(f"[prune] ranking from {len(runs)} runs: {runs}", flush=True)
     else:
         raise SystemExit("--stats-dir or --keep-file is required")
-    prune(Path(args.model_dir), Path(args.out), mask, info, log=lambda m: print(m, flush=True))
+    prune(Path(args.model_dir), Path(args.out), mask, info, log=lambda m: print(m, flush=True), copy=args.copy)
 
 
 if __name__ == "__main__":

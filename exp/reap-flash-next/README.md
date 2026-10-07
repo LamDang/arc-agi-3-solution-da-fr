@@ -379,3 +379,12 @@ crashes, throughput estimates per expert count in a competition run, the
 fine-tuning data volume (`trace_volume.py`), exact long-context gradients on
 one GPU, training memory and time per expert count, precedent in the
 literature, and the order of work.
+
+## Pruned models
+
+[`models/`](../../models/README.md) at the repository root: the kept-expert
+sets for 448, 384, 320 and 256 experts from the calibration statistics
+above (the 256 set is run A's), a README per model, and `extract.py`, which
+builds the checkpoint from the original model (`prune_checkpoint.py
+--copy` copies the unchanged files instead of linking them). The same code
+and sets are in the private Kaggle dataset `lamdang/flash-next-reap`.

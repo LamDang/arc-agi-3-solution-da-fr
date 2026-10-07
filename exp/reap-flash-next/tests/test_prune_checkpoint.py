@@ -84,3 +84,34 @@ def test_keep_file_reproduces_a_pruning(tmp_path):
                     "--keep-file", str(tmp_path / "keep.json"), "--keep", str(E // 2), "--out", str(out)], check=True)
     written = json.loads((out / "keep.json").read_text())
     assert written["kept"] == kept and written["criterion"] == "gate_norm"
+
+
+def test_models_extract_matches_prune_checkpoint(tmp_path):
+    """models/extract.py with a keep file writes what prune_checkpoint.py writes; --copy leaves no symlinks."""
+    ckpt = tmp_path / "model"
+    tiny.write_checkpoint(tiny.reference_model(), ckpt)
+    (ckpt / "tokenizer.json").write_text("{}")
+    config = json.loads((ckpt / "config.json").read_text())["text_config"]
+    L, E = config["num_hidden_layers"], config["num_experts"]
+    rng = np.random.default_rng(2)
+    kept = {str(layer): sorted(rng.choice(E, E // 2, replace=False).tolist()) for layer in range(L)}
+    (tmp_path / "keep.json").write_text(json.dumps({"num_experts": E // 2, "source": "x", "kept": kept}))
+    subprocess.run([sys.executable, str(HERE.parent / "prune_checkpoint.py"), "--model-dir", str(ckpt),
+                    "--keep-file", str(tmp_path / "keep.json"), "--keep", str(E // 2),
+                    "--out", str(tmp_path / "ref")], check=True)
+    extract = HERE.parents[2] / "models" / "extract.py"
+    subprocess.run([sys.executable, str(extract), "--keep-file", str(tmp_path / "keep.json"), "--source", str(ckpt),
+                    "--out", str(tmp_path / "copy"), "--copy"], check=True)
+    ref, copy = tmp_path / "ref", tmp_path / "copy"
+    assert sorted(p.name for p in ref.iterdir()) == sorted(p.name for p in copy.iterdir())
+    assert not any(p.is_symlink() for p in copy.iterdir())
+    for path in ref.iterdir():
+        if path.name != "keep.json":
+            assert path.read_bytes() == (copy / path.name).read_bytes(), path.name
+    assert json.loads((copy / "keep.json").read_text())["kept"] == kept
+
+    bad = {"num_experts": 2, "source": "x", "kept": {str(layer): [0, E] for layer in range(L)}}
+    (tmp_path / "bad.json").write_text(json.dumps(bad))
+    result = subprocess.run([sys.executable, str(extract), "--keep-file", str(tmp_path / "bad.json"),
+                             "--source", str(ckpt), "--out", str(tmp_path / "bad")], capture_output=True, text=True)
+    assert result.returncode != 0 and "does not fit" in result.stderr
