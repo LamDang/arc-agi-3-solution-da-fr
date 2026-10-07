@@ -153,3 +153,72 @@ def test_encrypted_reasoning_counts_as_its_tokens_not_its_text() -> None:
     assert scrubbed[1]["reasoning_details"][0]["data"] == "<encrypted>"
     assert reply["reasoning_details"][0]["data"] == "gAAAA-secret"
     assert scrubbed[0] is messages[0]
+
+
+class _FakeStream:
+    status_code = 200
+    text = ""
+
+    def __init__(self, events):
+        self._lines = [b"data: " + json.dumps(e).encode() for e in events]
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self, decode_unicode=False):
+        return iter(self._lines)
+
+
+def _agent():
+    from inference.agent.tool_agent import AnalyzerModelConfig, ToolAgent
+
+    agent = ToolAgent.__new__(ToolAgent)
+    agent._model = AnalyzerModelConfig(
+        provider="openai-responses", base_url="https://api.openai.com/v1", model_id="gpt-6.1-sol"
+    )
+    agent._max_output_tokens = None
+    agent._timeout = 30
+    agent._http_initial_grace_used = True
+    agent._api_key = ""
+    agent._has_evicted = False
+    agent._reasoning_effort_rung = -1
+    return agent
+
+
+def test_overload_in_the_stream_is_retried_in_place(monkeypatch) -> None:
+    import inference.agent.tool_agent as tool_agent
+
+    overloaded = [{"type": "error", "code": "server_is_overloaded", "message": "Our servers are currently overloaded."}]
+    replies = [_FakeStream(overloaded), _FakeStream(overloaded), _FakeStream([{"type": "response.completed", "response": RESPONSE}])]
+    sent = []
+
+    def post(url, **kwargs):
+        sent.append((url, kwargs["json"]))
+        return replies.pop(0)
+
+    monkeypatch.setattr(tool_agent.requests, "post", post)
+    monkeypatch.setattr(tool_agent.time, "sleep", lambda seconds: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("ARC3_HTTP_RETRIES", "-1")
+    result = _agent()._chat_completion([{"role": "user", "content": "go"}], tools=TOOLS)
+    assert len(sent) == 3 and sent[0][0] == "https://api.openai.com/v1/responses"
+    assert sent[0][1]["input"] == [{"role": "user", "content": "go"}]
+    assert result.finish_reason == "tool_calls"
+    assert result.message["tool_calls"][0]["id"] == "call_1"
+
+
+def test_other_stream_errors_and_spent_retries_still_fail(monkeypatch) -> None:
+    import pytest
+    import requests
+
+    import inference.agent.tool_agent as tool_agent
+
+    monkeypatch.setattr(tool_agent.time, "sleep", lambda seconds: None)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("ARC3_HTTP_RETRIES", "1")
+    for code, calls in (("invalid_prompt", 1), ("server_is_overloaded", 2)):
+        replies = [_FakeStream([{"type": "error", "code": code, "message": "x"}]) for _ in range(3)]
+        monkeypatch.setattr(tool_agent.requests, "post", lambda url, **kwargs: replies.pop(0))
+        with pytest.raises(requests.RequestException):
+            _agent()._chat_completion([{"role": "user", "content": "go"}], tools=TOOLS)
+        assert 3 - len(replies) == calls
