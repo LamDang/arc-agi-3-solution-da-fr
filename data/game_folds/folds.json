@@ -1,0 +1,134 @@
+{
+  "source": "dfranzen/arc-agi-3-milestone-2-solution v3 (Kaggle), run 2026-10-03, 25 games x 4 passes, mean 46.49",
+  "hardness": "mean final_score over the 4 passes; tier 1 = hardest (lowest), tier 5 = easiest",
+  "seed": 0,
+  "tiers": {
+    "1": [
+      "sk48",
+      "bp35",
+      "lf52",
+      "wa30",
+      "g50t"
+    ],
+    "2": [
+      "sp80",
+      "ka59",
+      "sc25",
+      "s5i5",
+      "cn04"
+    ],
+    "3": [
+      "ls20",
+      "su15",
+      "dc22",
+      "m0r0",
+      "tn36"
+    ],
+    "4": [
+      "re86",
+      "vc33",
+      "cd82",
+      "r11l",
+      "tu93"
+    ],
+    "5": [
+      "ar25",
+      "ft09",
+      "tr87",
+      "sb26",
+      "lp85"
+    ]
+  },
+  "folds": [
+    {
+      "fold": 0,
+      "games": [
+        "sk48",
+        "sp80",
+        "tn36",
+        "cd82",
+        "ar25"
+      ],
+      "game_ids": [
+        "sk48-d8078629",
+        "sp80-589a99af",
+        "tn36-ef4dde99",
+        "cd82-fb555c5d",
+        "ar25-0c556536"
+      ],
+      "mean_score": 46.65
+    },
+    {
+      "fold": 1,
+      "games": [
+        "bp35",
+        "cn04",
+        "su15",
+        "tu93",
+        "sb26"
+      ],
+      "game_ids": [
+        "bp35-0a0ad940",
+        "cn04-2fe56bfb",
+        "su15-1944f8ab",
+        "tu93-0768757b",
+        "sb26-7fbdac44"
+      ],
+      "mean_score": 46.42
+    },
+    {
+      "fold": 2,
+      "games": [
+        "lf52",
+        "ka59",
+        "dc22",
+        "r11l",
+        "ft09"
+      ],
+      "game_ids": [
+        "lf52-271a04aa",
+        "ka59-38d34dbb",
+        "dc22-fdcac232",
+        "r11l-495a7899",
+        "ft09-0d8bbf25"
+      ],
+      "mean_score": 46.43
+    },
+    {
+      "fold": 3,
+      "games": [
+        "wa30",
+        "sc25",
+        "m0r0",
+        "re86",
+        "lp85"
+      ],
+      "game_ids": [
+        "wa30-ee6fef47",
+        "sc25-635fd71a",
+        "m0r0-492f87ba",
+        "re86-8af5384d",
+        "lp85-305b61c3"
+      ],
+      "mean_score": 46.43
+    },
+    {
+      "fold": 4,
+      "games": [
+        "g50t",
+        "s5i5",
+        "ls20",
+        "vc33",
+        "tr87"
+      ],
+      "game_ids": [
+        "g50t-5849a774",
+        "s5i5-18d95033",
+        "ls20-9607627b",
+        "vc33-5430563c",
+        "tr87-cd924810"
+      ],
+      "mean_score": 46.53
+    }
+  ]
+}
