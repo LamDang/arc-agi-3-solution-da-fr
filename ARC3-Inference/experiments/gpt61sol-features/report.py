@@ -120,7 +120,13 @@ def _request_stats(path: Path, s: dict) -> None:
         s["completion"] += int(usage.get("completion_tokens") or 0)
         s["reasoning"] += int((usage.get("completion_tokens_details") or {}).get("reasoning_tokens") or 0)
         s["cost"] += float(usage.get("cost") or 0.0)
-        for call in (record.get("reply") or {}).get("tool_calls") or []:
+        reply = record.get("reply") or {}
+        content = _text(reply.get("content"))
+        if s.get("pending_note") and not reply.get("tool_calls") and len(content) >= 300:
+            # the harness also keeps a note written as plain text
+            s["notes_ok"] += 1
+            s["note"] = {"step": record.get("analysis_step"), "text": content[:6000]}
+        for call in reply.get("tool_calls") or []:
             try:
                 args = json.loads((call.get("function") or {}).get("arguments") or "{}")
             except json.JSONDecodeError:
