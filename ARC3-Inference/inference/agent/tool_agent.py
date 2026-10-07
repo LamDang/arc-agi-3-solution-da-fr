@@ -295,6 +295,24 @@ def _persistent_history_assistant_turns() -> int:
 _WM_NUDGE_TURNS = _get_env_int("ARC3_WM_NUDGE_TURNS", 0)
 
 
+def _repeat_hint_text(repeated: int, *, visits: int, current_repeated: bool) -> list[str]:
+    """The lines of the ARC3_REPEAT_HINT message."""
+    which = (
+        f"The current board position and {repeated - 1} other position(s)"
+        if current_repeated else f"{repeated} board positions"
+    )
+    return [
+        f"Repetition check: {which} on this level have each been reached at least "
+        f"{visits} times (boards compared without the 2-pixel border).",
+        "If you are stuck on this level, take a step back and assess:",
+        "- list the facts you know and have tested;",
+        "- look at every visual element on the board;",
+        "- list what must be true to pass the level, and work backward from it;",
+        "- prioritize the strategy most likely to succeed.",
+        "If you are progressing normally and the repetition is part of the game's mechanics, ignore this message.",
+    ]
+
+
 def _repeated_positions(
     history_entries: list[HistoryEntry],
     current_frame: Frame | None,
@@ -5035,20 +5053,7 @@ class ToolAgent:
         if repeated < max(1, _get_env_int("ARC3_REPEAT_HINT_POSITIONS", 3)):
             return []
         self._repeat_hint_turns_since = 0
-        which = (
-            f"The current board position and {repeated - 1} other position(s)"
-            if current_repeated else f"{repeated} board positions"
-        )
-        return [
-            f"Repetition check: {which} on this level have each been reached at least "
-            f"{visits} times (boards compared without the 2-pixel border).",
-            "If you are stuck on this level, take a step back and assess:",
-            "- list the facts you know and have tested;",
-            "- look at every visual element on the board;",
-            "- list what must be true to pass the level, and work backward from it;",
-            "- prioritize the strategy most likely to succeed.",
-            "If you are progressing normally and the repetition is part of the game's mechanics, ignore this message.",
-        ]
+        return _repeat_hint_text(repeated, visits=visits, current_repeated=current_repeated)
 
     def _build_user_prompt(
         self,
