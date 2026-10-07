@@ -3338,6 +3338,8 @@ def _append_request_snapshot(
     request_index_within_turn: int | None = None,
     usage: dict[str, Any] | None = None,
     chat_template_kwargs: dict[str, Any] | None = None,
+    request_params: dict[str, Any] | None = None,
+    response_id: str | None = None,
 ) -> None:
     # A response line carries the model's reply, not the request again: the
     # request line just before it already holds the messages and tools.
@@ -3350,6 +3352,10 @@ def _append_request_snapshot(
         payload["chat_template_kwargs"] = dict(chat_template_kwargs)
     if isinstance(usage, dict) and usage:
         payload["usage"] = usage
+    if isinstance(request_params, dict) and request_params:
+        payload["request_params"] = request_params
+    if response_id:
+        payload["response_id"] = str(response_id)
     if event:
         payload["event"] = event
     if tool_choice:
@@ -3463,6 +3469,7 @@ class _ChatCompletionResult:
     finish_reason: str = ""
     usage: dict[str, Any] | None = None
     served_by: str = ""
+    response_id: str = ""
 
 
 class ToolAgent:
@@ -5274,6 +5281,10 @@ class ToolAgent:
                 evicted=getattr(self, "_has_evicted", False),
             )
         )
+        # for the request log: what was sent besides messages and tools
+        self._last_request_params = {
+            key: value for key, value in payload.items() if key not in ("messages", "tools")
+        }
         def post_chat(request_payload: dict[str, Any]) -> requests.Response:
             return requests.post(
                 f"{self._model.base_url.rstrip('/')}/chat/completions",
@@ -5349,6 +5360,7 @@ class ToolAgent:
             finish_reason=str(choice.get("finish_reason", "") or ""),
             usage=payload.get("usage"),
             served_by=str(payload.get("provider", "") or ""),
+            response_id=str(payload.get("id", "") or ""),
         )
 
     def _trim_tool_text(self, text: str) -> tuple[str, bool]:
@@ -6811,6 +6823,8 @@ class ToolAgent:
                             served_by=result.served_by,
                             usage=result.usage,
                             chat_template_kwargs=self._harness_template_kwargs(),
+                            request_params=getattr(self, "_last_request_params", None),
+                            response_id=result.response_id,
                         )
                 except requests.RequestException as exc:
                     if not _is_context_length_error(exc):
