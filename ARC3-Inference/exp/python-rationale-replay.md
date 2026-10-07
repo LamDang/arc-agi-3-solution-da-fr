@@ -69,6 +69,26 @@ the system prompt line say the same. Same 30 requests, strict schema:
   swatch recolors the shape, which the code does after the moves.
 - The cost difference is mostly prompt caching between the replays, not the longer field.
 
+### Step by step
+
+The field, the tool sentence and the prompt line then asked for "detailed, step-by-step
+reasoning" ("Go step by step and include, when relevant: ..."). Same 30 requests:
+
+| | detailed | step by step |
+| --- | --- | --- |
+| median reasoning | 368 characters | 386 characters |
+| reasoning written as numbered or bulleted steps | 0/30 | 0/30 |
+| reasoning using first / then / next / finally | 6/30 | 8/30 |
+| median hidden reasoning tokens | 406 | 336 |
+| responses with a reasoning summary | 12/30 | 7/30 |
+
+The words "step by step" change little: the model keeps writing connected prose from
+observation to deduction to decision, and all 30 stay coherent with their code. A few spell
+out the order (wa30 step 8: "Two further RIGHT moves therefore place it in the left target.
+SPACE releases it. The remaining block can be acquired from below ..."). A visibly stepped
+answer would need a format, such as numbered "Observation / Deduction / Assumption /
+Decision" lines.
+
 The review page with the 30 requests, both versions and the original calls:
 https://claude.ai/artifact/WGQxkRPMzZ381jQo4qhHrU
 

@@ -317,8 +317,8 @@ _PYTHON_TOOL_DESCRIPTION = (
 # in the transcript; the harness does not run or check them.
 _PYTHON_RATIONALE_TOOL_SENTENCE = (
     " Before the code, say in `description` what it does, and give in `reasoning` your "
-    "detailed reasoning for it: the observations, deductions, assumptions and decision "
-    "behind it, as far as each applies."
+    "detailed, step-by-step reasoning for it: the observations, deductions, assumptions "
+    "and decision behind it, as far as each applies."
 )
 _PYTHON_RATIONALE_PROPERTIES = {
     "description": {
@@ -328,19 +328,20 @@ _PYTHON_RATIONALE_PROPERTIES = {
     "reasoning": {
         "type": "string",
         "description": (
-            "Detailed reasoning for this call. Include, when relevant: the observations "
-            "it builds on, what you deduce from them, the assumptions you are making, and "
-            "the decision you take. Say why running it helps solve the game now and what "
-            "you expect to see."
+            "Detailed, step-by-step reasoning for this call. Go step by step and include, "
+            "when relevant: the observations it builds on, what you deduce from them, the "
+            "assumptions you are making, and the decision you take. Say why running it helps "
+            "solve the game now and what you expect to see."
         ),
     },
 }
 _PYTHON_PROMPT_CODE_LINE = "- The only tool is `python`; call it with one ephemeral `code` string.\n"
 _PYTHON_PROMPT_RATIONALE_LINE = (
     "- The only tool is `python`; call it with `description` (what the code does), "
-    "`reasoning` (your detailed reasoning for the call: include, when relevant, the "
-    "observations it builds on, your deductions, your assumptions and the decision you "
-    "take, and what you expect to see) and one ephemeral `code` string.\n"
+    "`reasoning` (your detailed, step-by-step reasoning for the call: go step by step and "
+    "include, when relevant, the observations it builds on, your deductions, your "
+    "assumptions and the decision you take, and what you expect to see) and one ephemeral "
+    "`code` string.\n"
 )
 
 
