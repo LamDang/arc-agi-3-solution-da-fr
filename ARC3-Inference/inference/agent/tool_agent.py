@@ -387,35 +387,36 @@ _PYTHON_TOOL_DESCRIPTION = (
     "Use `print(...)` for compact output or assign final data to `result`."
 )
 
-# ARC3_PYTHON_RATIONALE: the python tool also takes what the code does and why
-# it helps, written before the code. They are logged with the call and shown
-# in the transcript; the harness does not run or check them.
+# ARC3_PYTHON_RATIONALE: the python tool also takes the reasoning behind the
+# call and what the code does, written before the code, reasoning first so the
+# model thinks before it decides. They are logged with the call and shown in
+# the transcript; the harness does not run or check them.
 _PYTHON_RATIONALE_TOOL_SENTENCE = (
-    " Before the code, say in `description` what it does, and give in `reasoning` your "
-    "detailed, step-by-step reasoning for it: the observations, deductions, assumptions "
-    "and decision behind it, as far as each applies."
+    " Before the code, give in `reasoning` your detailed, step-by-step reasoning: the "
+    "observations, deductions, assumptions and decision behind the call, as far as each "
+    "applies; then say in `description` what the code does."
 )
 _PYTHON_RATIONALE_PROPERTIES = {
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "Detailed, step-by-step reasoning for this call, written before deciding what to "
+            "run. Go step by step and include, when relevant: the observations it builds on, "
+            "what you deduce from them, the assumptions you are making, and the decision you "
+            "take. Say why the call helps solve the game now and what you expect to see."
+        ),
+    },
     "description": {
         "type": "string",
         "description": "One or two sentences: what this code does.",
     },
-    "reasoning": {
-        "type": "string",
-        "description": (
-            "Detailed, step-by-step reasoning for this call. Go step by step and include, "
-            "when relevant: the observations it builds on, what you deduce from them, the "
-            "assumptions you are making, and the decision you take. Say why running it helps "
-            "solve the game now and what you expect to see."
-        ),
-    },
 }
 _PYTHON_PROMPT_CODE_LINE = "- The only tool is `python`; call it with one ephemeral `code` string.\n"
 _PYTHON_PROMPT_RATIONALE_LINE = (
-    "- The only tool is `python`; call it with `description` (what the code does), "
-    "`reasoning` (your detailed, step-by-step reasoning for the call: go step by step and "
-    "include, when relevant, the observations it builds on, your deductions, your "
-    "assumptions and the decision you take, and what you expect to see) and one ephemeral "
+    "- The only tool is `python`; call it with `reasoning` (your detailed, step-by-step "
+    "reasoning for the call, written first: go step by step and include, when relevant, the "
+    "observations it builds on, your deductions, your assumptions and the decision you take, "
+    "and what you expect to see), then `description` (what the code does) and one ephemeral "
     "`code` string.\n"
 )
 
@@ -425,9 +426,9 @@ def _python_rationale() -> bool:
 
 
 def _python_tool_schema() -> dict[str, Any]:
-    """The python tool's function schema, with the description and reasoning
+    """The python tool's function schema, with the reasoning and description
     fields first when ARC3_PYTHON_RATIONALE is on: a model writes arguments in
-    schema order, so they come before the code they describe."""
+    schema order, so the reasoning comes before the decision and the code."""
     code = {
         "type": "string",
         "description": "Python code to run. The snippet is ephemeral and is not saved across tool calls.",
