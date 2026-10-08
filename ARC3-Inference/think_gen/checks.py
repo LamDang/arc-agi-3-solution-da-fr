@@ -45,8 +45,24 @@ def clean(text: str) -> str:
     return t.strip()
 
 
-def check(text: str, reply: dict, source: str = "") -> dict:
+def copied_reasoning_fraction(text: str, reply: dict) -> float:
+    """Share of the call's stated `reasoning` sentences (30+ characters)
+    that appear verbatim in the thinking."""
+    from .prompts import python_args
+    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", python_args(reply).get("reasoning") or "")
+             if len(s.strip()) >= 30]
+    if not sents:
+        return 0.0
+    return sum(1 for s in sents if s in text) / len(sents)
+
+
+def check(text: str, reply: dict, source: str = "", min_words: int = 0) -> dict:
+    """`min_words`: the thinking is rejected below it (a copy of the stated
+    reasoning, or a few lines where a full working was asked)."""
+    words = len(text.split())
     out = {"leaks": leaks(text, source), "pasted_code": round(pasted_code_fraction(text, reply), 2),
-           "chars": len(text)}
-    out["ok"] = bool(text.strip()) and not out["leaks"] and out["pasted_code"] <= 0.5
+           "copied_reasoning": round(copied_reasoning_fraction(text, reply), 2),
+           "chars": len(text), "words": words, "too_short": words < min_words}
+    out["ok"] = (bool(text.strip()) and not out["leaks"] and out["pasted_code"] <= 0.5
+                 and not out["too_short"])
     return out

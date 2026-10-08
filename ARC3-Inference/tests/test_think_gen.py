@@ -131,3 +131,13 @@ def test_b4_prompt_length_floor():
     assert words == 180 and "Write about 180 words." in p and "less than 180 words" in p
     assert "trace it back through the conversation" in p and "{" not in p.replace("{'", "")
     assert prompts.reconstruct_prompt_b4(reply, 2000)[1] == 1500
+
+
+def test_copy_of_stated_reasoning_is_rejected():
+    import json
+    reasoning = "The right arrow shifted the ten row tiles cyclically. I will search the two yellow tiles."
+    reply = {"tool_calls": [{"id": "c1", "function": {"name": "python", "arguments": json.dumps(
+        {"description": "Search.", "reasoning": reasoning, "code": "action(['UP'])"})}}]}
+    c = checks.check(reasoning, reply, min_words=100)
+    assert c["copied_reasoning"] == 1.0 and c["too_short"] and not c["ok"]
+    assert checks.check(reasoning, reply)["ok"]

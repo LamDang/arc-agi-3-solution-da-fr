@@ -128,7 +128,7 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
             continue
         usages.append(out["usage"])
         text = checks.clean(out["content"])
-        chk = checks.check(text, rec.reply, context_text)
+        chk = checks.check(text, rec.reply, context_text, (row.get("target_words") or 0) // 2)
         extra = {"flash_thinking": out["reasoning"], "finish_reason": out["finish_reason"],
                  "secs": out["secs"]}
         if chk["ok"]:
