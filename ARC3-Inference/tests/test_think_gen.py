@@ -115,3 +115,8 @@ def test_b3_prompt_and_token_bins():
     assert checks.leaks("As the description says, I press UP.") == ["stated_fields"]
     edges = [10, 20, 30]
     assert [evalset.token_bin(t, edges) for t in (0, 5, 10, 25, 99)] == [0, 1, 2, 3, 4]
+
+
+def test_leak_ignores_words_the_context_uses():
+    assert checks.leaks("The agent moves left.") == ["the_agent"]
+    assert checks.leaks("The agent moves left.", "the agent sprite is at (3, 4)") == []

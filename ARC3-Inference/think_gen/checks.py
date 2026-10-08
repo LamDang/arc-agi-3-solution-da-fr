@@ -14,8 +14,12 @@ LEAK_PATTERNS = {
 }
 
 
-def leaks(text: str) -> list[str]:
-    return [name for name, pat in LEAK_PATTERNS.items() if re.search(pat, text, re.I)]
+def leaks(text: str, source: str = "") -> list[str]:
+    """Leak patterns found in `text`, except those `source` (the request's
+    context and call) already uses: a game whose player sprite is "the
+    agent" or whose tool output says "summary" is not a leak."""
+    return [name for name, pat in LEAK_PATTERNS.items()
+            if re.search(pat, text, re.I) and not re.search(pat, source, re.I)]
 
 
 def pasted_code_fraction(text: str, reply: dict) -> float:
@@ -41,8 +45,8 @@ def clean(text: str) -> str:
     return t.strip()
 
 
-def check(text: str, reply: dict) -> dict:
-    out = {"leaks": leaks(text), "pasted_code": round(pasted_code_fraction(text, reply), 2),
+def check(text: str, reply: dict, source: str = "") -> dict:
+    out = {"leaks": leaks(text, source), "pasted_code": round(pasted_code_fraction(text, reply), 2),
            "chars": len(text)}
     out["ok"] = bool(text.strip()) and not out["leaks"] and out["pasted_code"] <= 0.5
     return out

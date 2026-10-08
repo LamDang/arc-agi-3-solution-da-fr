@@ -109,6 +109,7 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
     msgs.append({"role": "user", "content": prompts.reconstruct_prompt_b3(rec.reply, rec.reasoning_tokens)
                  if args.prompt == "b3" else prompts.reconstruct_prompt(
                      row["call"], summary, args.prompt, args.history)})
+    source = json.dumps(rec.messages, ensure_ascii=False) + json.dumps(rec.reply, ensure_ascii=False)
     attempts, usages, text, chk, extra = 0, [], "", {}, {}
     while attempts < args.max_attempts:
         attempts += 1
@@ -121,7 +122,7 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
             continue
         usages.append(out["usage"])
         text = checks.clean(out["content"])
-        chk = checks.check(text, rec.reply)
+        chk = checks.check(text, rec.reply, source)
         extra = {"flash_thinking": out["reasoning"], "finish_reason": out["finish_reason"],
                  "secs": out["secs"]}
         if chk["ok"]:
