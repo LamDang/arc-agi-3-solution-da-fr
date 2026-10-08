@@ -6,6 +6,8 @@ reference; 256 experts pass the separate thinking/code +5% gates. No intermediat
 counts, training or gameplay ran.** The earlier running-state notes below are
 historical. See [the final paired experiment](results/20261008-two-panels/README.md)
 for exact scores, DVC artifacts, reproduction and shutdown status.
+The Kaggle Jupyter server was terminated after the result push; its endpoint
+is unavailable. Both external collectors were stopped.
 
 2026-10-08. **Real-data preparation passed; the user started the Kaggle
 session; GPU qualification and the source panel are complete.** The corrected short-request
