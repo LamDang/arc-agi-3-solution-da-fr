@@ -274,6 +274,8 @@ Above is the full context an agent had at one step of a game it was playing, up 
 
 List only clear factual errors, each as the wrong claim and what the context actually shows. Do not list matters of style, points the thinking merely leaves out, or things that are genuinely uncertain from the context. Judge only against the context above, never against what a later turn would reveal.
 
+When the thinking contains no factual errors, this is the expected result: return an empty list `[]` for `errors` and set `grounded` to true. Only set `grounded` to false when you list at least one error.
+
 Answer with JSON only:
 {{"errors": [{{"claim": "...", "actual": "..."}}], "grounded": true, "notes": "one sentence"}}"""
 

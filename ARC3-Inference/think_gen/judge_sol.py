@@ -8,16 +8,22 @@
 
 For every generated record (status ok, with thinking) it runs:
 
-  1 code   flash: does the thinking's plan match the python code the teacher
-           ran? -> code_leads, code_disagreements;
-  2 words  flash: how much of the teacher's own stated reasoning, description
-           and summary does the thinking cover? -> words_coverage, with a
-           contradiction or not;
+  1 code   judge model: does the thinking's plan match the python code the
+           teacher ran? -> code_leads, code_disagreements;
+  2 words  judge model: how much of the teacher's own stated reasoning,
+           description and summary does the thinking cover? -> words_coverage,
+           with a contradiction or not;
   3 fact   gpt-6.1-sol, given the real context and images, flags claims in the
            thinking that the state does not support -> fact_errors, grounded;
-  4 call   regenerate a python call from the thinking (code-only request,
-           flash) and ask flash whether it makes the same next move as the
-           teacher -> call_same_move.
+  4 call   regenerate a python call from the thinking (code-only request, the
+           student model flash) and ask the judge model whether it makes the
+           same next move as the teacher -> call_same_move.
+
+The judge model (checks 1, 2 and 4's comparison) and the fact-check model are
+OpenAI gpt-6 models reached through the Responses API (`--judge-model`,
+default gpt-6-luna at high effort; `--sol-model`, default gpt-6.1-sol at
+xhigh). Regeneration (check 4) uses the student model flash on OpenRouter, so
+it tests whether the thinking leads the student back to the teacher's call.
 
 The source `--run` provides each record's context, call, stated words and
 tools; `--gen` is a think_gen.generate output directory. `--manifest`/`--split`
@@ -46,27 +52,33 @@ def parse_json(text: str) -> dict | None:
         return None
 
 
-def flash_json(prompt: str, args, want: str) -> dict:
-    """One flash JSON call, retried until it parses and has `want`."""
+def responses_json(msgs: list, model: str, effort: str, want: str, max_tokens: int) -> dict:
+    """One OpenAI Responses JSON call, retried until it parses and has `want`."""
     last = ""
     for _ in range(3):
         try:
-            res = client.chat([{"role": "user", "content": prompt}], model=args.model,
-                              provider=args.provider, reasoning=True, max_tokens=12000,
-                              temperature=0.2, json_mode=True)
+            res = client.openai_responses(msgs, model=model, effort=effort,
+                                          json_mode=True, max_output_tokens=max_tokens)
         except client.CallError as e:
             last = str(e)[:200]
             continue
         v = parse_json(res["content"])
         if v is not None and want in v:
-            v["_cost"] = (res["usage"] or {}).get("cost") or 0
+            u = res["usage"] or {}
+            v["_tokens"] = {"in": u.get("input_tokens"), "out": u.get("output_tokens")}
             return v
         last = "unparsable: " + res["content"][:150]
     return {"error": last}
 
 
+def judge_json(prompt: str, args, want: str) -> dict:
+    """A judge-model call on a single user prompt (checks 1, 2 and 4b)."""
+    return responses_json([{"role": "user", "content": prompt}], args.judge_model,
+                          args.judge_effort, want, args.judge_max_tokens)
+
+
 def check_code(rec: logs.Record, thinking: str, args) -> dict:
-    return flash_json(prompts.judge_code_prompt(context.call_text(rec.reply), thinking),
+    return judge_json(prompts.judge_code_prompt(context.call_text(rec.reply), thinking),
                       args, "leads_to_call")
 
 
@@ -74,26 +86,16 @@ def check_words(rec: logs.Record, thinking: str, args) -> dict:
     a = prompts.python_args(rec.reply)
     if not any((a.get("reasoning"), a.get("description"), rec.summary)):
         return {"skipped": "no stated words"}
-    return flash_json(prompts.judge_words_prompt(
+    return judge_json(prompts.judge_words_prompt(
         a.get("reasoning") or "", a.get("description") or "", rec.summary, thinking), args, "covered")
 
 
 def check_fact(rec: logs.Record, thinking: str, args) -> dict:
+    """gpt-6.1-sol fact-checks the thinking against its own real context."""
     msgs = list(rec.messages) + [{"role": "user", "content": prompts.judge_fact_prompt(thinking)}]
-    for _ in range(3):
-        try:
-            res = client.openai_responses(msgs, model=args.sol_model, effort=args.sol_effort,
-                                          json_mode=True, max_output_tokens=args.sol_max_tokens)
-        except client.CallError as e:
-            last = str(e)[:200]
-            continue
-        v = parse_json(res["content"])
-        if v is not None and "grounded" in v:
-            u = res["usage"] or {}
-            v["_sol_tokens"] = {"in": u.get("input_tokens"), "out": u.get("output_tokens")}
-            return v
-        last = "unparsable: " + res["content"][:150]
-    return {"error": last}
+    v = responses_json(msgs, args.sol_model, args.sol_effort, "grounded", args.sol_max_tokens)
+    v["_sol_tokens"] = v.pop("_tokens", None)
+    return v
 
 
 def regen_code(rec: logs.Record, thinking: str, args) -> tuple[str, dict]:
@@ -124,7 +126,7 @@ def check_call(rec: logs.Record, thinking: str, args) -> dict:
     code, meta = regen_code(rec, thinking, args)
     if not code.strip():
         return {"regen_error": meta.get("error", "empty"), "regen_code": ""}
-    v = flash_json(prompts.judge_call_prompt(sol_code, code), args, "same_next_move")
+    v = judge_json(prompts.judge_call_prompt(sol_code, code), args, "same_next_move")
     v["regen_code"] = code
     v["_regen_cost"] = meta.get("cost", 0)
     return v
@@ -185,12 +187,16 @@ def main(argv=None):
     ap.add_argument("--manifest", type=Path, help="restrict to this evaluation manifest's records")
     ap.add_argument("--split", choices=["dev", "eval", "all"], default="dev")
     ap.add_argument("--games", nargs="*", help="game id prefixes (default: all in --gen)")
+    efforts = ["minimal", "low", "medium", "high", "xhigh"]
     ap.add_argument("--checks", nargs="+", choices=list(CHECKS), default=list(CHECKS))
-    ap.add_argument("--model", default=client.MODEL, help="judge/regenerator (flash)")
-    ap.add_argument("--provider", default=client.PROVIDER)
-    ap.add_argument("--sol-model", default="gpt-6.1-sol", help="fact-check model (sees the context)")
-    ap.add_argument("--sol-effort", default="medium", choices=["low", "medium", "high"])
+    ap.add_argument("--judge-model", default="gpt-6-luna", help="checks 1, 2 and 4b (Responses API)")
+    ap.add_argument("--judge-effort", default="high", choices=efforts)
+    ap.add_argument("--judge-max-tokens", type=int, default=8000)
+    ap.add_argument("--sol-model", default="gpt-6.1-sol", help="fact-check: sees the real context")
+    ap.add_argument("--sol-effort", default="xhigh", choices=efforts)
     ap.add_argument("--sol-max-tokens", type=int, default=16000)
+    ap.add_argument("--model", default=client.MODEL, help="call regenerator: the student model (flash)")
+    ap.add_argument("--provider", default=client.PROVIDER)
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args(argv)
