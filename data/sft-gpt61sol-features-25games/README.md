@@ -1,29 +1,91 @@
-# SFT dataset: gpt-6.1-sol teacher, Qwen3.8-Flash-Next format
+# SFT dataset — gpt-6.1-sol teacher, Qwen3.8-Flash-Next format
 
 Supervised fine-tuning data for the student (Qwen3.8-Flash-Next), distilled
 from the `gpt61sol-features-25games` run: gpt-6.1-sol playing the 25 public
-games, 25/25 at 100 (see `ARC3-Inference/exp/gpt61sol-features-25games` and
-the run archived at `ARC3-Inference/runs/gpt61sol-features-25games.dvc`).
+games, 25/25 at 100. See the experiment notes in
+`ARC3-Inference/exp/gpt61sol-features-25games` and the archived run
+`ARC3-Inference/runs/gpt61sol-features-25games.dvc`.
 
-- `convert.py` — builds `train.jsonl` from the run's request logs.
-- `train.jsonl` — the dataset (DVC-tracked; `dvc pull` to fetch). One JSON
-  line per model request.
-- `meta.json` — per-game sample counts.
-- `index.json` — one small row per sample for O(1) random access and
-  length-bucketing (byte offset, level, token lengths); see below.
-- `build_index.py` — rebuilds `index.json` from `train.jsonl`.
+**1334 samples, 25 games, levels 1–10.** Each sample reproduces one real model
+request (so every sample fits the model's context) rewritten into the
+rationale-off student format. All schema and format checks pass — see
+[Exploration & validation](#exploration--validation).
 
-## What the conversion does
+## Files
 
-The teacher played with `ARC3_PYTHON_RATIONALE=1`, so its `python` tool took
+| File | Tracked in | What it is |
+| --- | --- | --- |
+| `convert.py` | git | Builds `train.jsonl` + `meta.json` from the run's request logs. Standard library only. |
+| `train.jsonl` | DVC (`train.jsonl.dvc` in git) | The dataset, ~320 MB. One JSON line per sample. `dvc pull train.jsonl.dvc` to fetch. |
+| `index.json` | git (~225 KB) | One row per sample: byte offset, level, token lengths, image count. Random access + bucketing. |
+| `build_index.py` | git | Rebuilds `index.json` from `train.jsonl` (needs the Qwen tokenizer + template). |
+| `meta.json` | git | Dataset-level and per-game sample counts. |
+| `exploration.qmd` | git | Quarto EDA + anomaly report. Render to `exploration.html`. |
+
+## Sample format
+
+One JSON line per model request:
+
+```json
+{"game": "ft09-0d8bbf25", "request_index": 3,
+ "messages": [
+   {"role": "system", "content": "...rationale-off system prompt..."},
+   {"role": "user", "content": [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}]},
+   {"role": "assistant", "reasoning_content": "...\nNext step : ...", "content": "",
+    "tool_calls": [{"type": "function", "id": "...", "function": {"name": "python", "arguments": {"code": "..."}}}]},
+   {"role": "tool", "tool_call_id": "...", "content": "...tool output..."},
+   {"role": "user", "content": [...]},
+   {"role": "assistant", "reasoning_content": "...", "content": "",
+    "tool_calls": [{"function": {"name": "python", "arguments": {"code": "..."}}}]}
+ ],
+ "tools": [{"type": "function", "function": {"name": "python",
+            "parameters": {"type": "object", "properties": {"code": {...}}, "required": ["code"]}}}],
+ "chat_template_kwargs": {"preserve_thinking": true}}
+```
+
+Top-level fields:
+
+| Field | Meaning |
+| --- | --- |
+| `game` | Game id, e.g. `ft09-0d8bbf25`. |
+| `request_index` | 0-based step within the game. |
+| `messages` | OpenAI chat messages — see below. |
+| `tools` | The code-only `python` tool (rationale-off). |
+| `chat_template_kwargs` | Passed to the Qwen chat template at render (`preserve_thinking: true`). |
+
+Rules:
+
+- **One sample = one real request.** The messages are the exact context the
+  harness sent for that step — already trimmed by the harness to fit the
+  context — plus the reply. Because it reproduces a real request, every sample
+  fits the model's window (largest ≈108K tokens; limit 139,264).
+- **The last message is the only training target.** Mask everything before it;
+  the earlier assistant turns are targets in their own samples. The earlier
+  assistant turns are still rewritten to rationale-off form so the context
+  matches what the student sees at inference.
+- **`tool_calls[].function.arguments` is a mapping** (`{"code": ...}`), which
+  is what the Qwen template's `arguments|items` needs — an OpenAI-style JSON
+  string fails there.
+- **Board images are kept** as `image_url` parts (base64 PNG, 640×640);
+  Qwen3.8-Flash-Next is a vision model. Images repeat across the requests they
+  appeared in, which is why the file is ~320 MB.
+- **Render with the model's own `chat_template.jinja` and
+  `preserve_thinking=True`.** Every sample's final turn passes the prefix check
+  in `ARC3-Inference/scripts/check_chat_template.py` (see
+  `ARC3-Inference/experiments/sft-format/README.md` for the template and loss
+  mask).
+
+## How it was built
+
+The teacher played with `ARC3_PYTHON_RATIONALE=1`: its `python` tool took
 `reasoning` and `description` fields next to `code`, and the model wrote its
 stated reasoning into them (gpt-6.1-sol does not return its own chain of
-thought, so these stated fields are the reasoning signal). The student plays
-**without** that option: thinking goes in a `<think>` block and the tool call
-carries only `code`. The converter rewrites the teacher's runs into that form:
+thought, so those stated fields are the reasoning signal). The student plays
+**without** that option — thinking goes in a `<think>` block and the tool call
+carries only `code`. `convert.py` rewrites each request into that form:
 
-- Each assistant turn's `reasoning` and `description` become the turn's
-  `reasoning_content`, which the Qwen template renders as:
+- Each assistant turn's `reasoning` + `description` become `reasoning_content`,
+  which the Qwen template renders as:
 
   ```
   <think>
@@ -32,73 +94,21 @@ carries only `code`. The converter rewrites the teacher's runs into that form:
   </think>
   ```
 
-- The tool call keeps only `code`: `{"name": "python", "arguments": {"code": ...}}`.
-  The teacher's own `reasoning`/`reasoning_details` (its summarized/encrypted
-  chain of thought) are dropped.
-- The **system prompt** is rewritten to its rationale-off form (the line
-  listing the python tool's fields becomes "call it with one ephemeral `code`
-  string").
-- The **tool schema** is rewritten to code-only (the `reasoning` and
-  `description` properties and the matching sentence in the description are
-  removed).
+- The tool call keeps only `code`. The teacher's own `reasoning` /
+  `reasoning_details` (its summarized/encrypted chain of thought) are dropped.
+- The **system prompt** is rewritten to its rationale-off form (the python-tool
+  line becomes "call it with one ephemeral `code` string").
+- The **tool schema** is rewritten to code-only (`reasoning`/`description`
+  properties and the matching description sentence removed, `strict` dropped).
 
-## Format
+## Reading the data (random access & memory)
 
-Each line:
+The file is ~320 MB, so **do not load it all into RAM** (~0.5–1 GB as objects).
+A single sample is small (median ~0.25 MB JSON, max ~1.7 MB). Two ways to read:
 
-```json
-{"game": "ft09-0d8bbf25", "request_index": 3,
- "messages": [{"role": "system", "content": "..."},
-              {"role": "user", "content": [{"type": "text", ...}, {"type": "image_url", ...}]},
-              {"role": "assistant", "reasoning_content": "...\nNext step : ...",
-               "content": "", "tool_calls": [{"type": "function", "id": "...",
-                 "function": {"name": "python", "arguments": {"code": "..."}}}]},
-              {"role": "tool", "tool_call_id": "...", "content": "..."},
-              {"role": "user", "content": [...]},
-              {"role": "assistant", "reasoning_content": "...", "content": "",
-               "tool_calls": [{"function": {"name": "python", "arguments": {"code": "..."}}}]}],
- "tools": [{"type": "function", "function": {"name": "python",
-            "parameters": {"type": "object", "properties": {"code": {...}}, "required": ["code"]}}}],
- "chat_template_kwargs": {"preserve_thinking": true}}
-```
-
-- **One sample per model request.** The messages are the exact context the
-  harness sent for that step, already trimmed to fit the context, plus the
-  reply. The **last message is the only training target**; mask everything
-  before it (the earlier assistant turns are targets in their own samples).
-  This reproduces the real requests, so every sample fits the model's context
-  by construction — the run's largest request was ~120K tokens, and none of
-  the 1334 samples exceed the 139K window. (The prior assistant turns in the
-  context are still rewritten to rationale-off form, so the context matches
-  what the student sees.)
-- `tool_calls[].function.arguments` is a **mapping**, which is what the Qwen
-  template's `arguments|items` needs (an OpenAI-style JSON string fails there).
-- Board images are kept as `image_url` content parts (base64 data URIs);
-  Qwen3.8-Flash-Next is a vision model and the harness feeds it board images.
-  Images repeat across the requests they appeared in, which is why the file is
-  large (~320 MB); that is the cost of each sample being a faithful request.
-- Render with the model's own `chat_template.jinja` and
-  `preserve_thinking=True`. See
-  `ARC3-Inference/experiments/sft-format/README.md` for the template, the loss
-  mask, and the checker. Every sample's final turn passes that checker's prefix
-  check.
-
-## Totals
-
-25 games, 1334 samples (one per request; 1 of them a terminal text turn in
-sk48 with no tool call). Rendered size per sample: median ~134K chars, max
-~262K; estimated tokens all under the 139K context.
-
-## Reading it (random access and memory)
-
-The file is ~320 MB of JSONL, so do **not** load it all into RAM. A single
-sample is small (median ~0.25 MB of JSON; the largest ~1.7 MB), so stream it or
-index it:
-
-- **Sequential / streaming:** read line by line; each line is one independent
-  sample. Memory stays at one sample at a time.
-- **Shuffled / random access:** use `index.json`. Each row carries the byte
-  `offset` and `length` of its line, so a sample is one seek — no scan:
+- **Streaming:** iterate lines; each line is one independent sample.
+- **Random access via `index.json`:** each row has the byte `offset` and
+  `length` of its line — one `seek`, no scan:
 
   ```python
   import json
@@ -109,37 +119,54 @@ index it:
       sample = json.loads(f.read(row["length"]))
   ```
 
-  The rows also hold `game`, `request_index`, `level`, `context_tokens`,
-  `output_tokens` and `images`, so you can filter (e.g. by level) or
-  length-bucket batches straight from `index.json` without touching
-  `train.jsonl`. Rebuild it after any change to `train.jsonl` (offsets are
-  byte-exact to the current file):
+`index.json` rows also carry `game`, `request_index`, `level`,
+`context_tokens`, `output_tokens` and `images`, so you can filter (e.g. by
+level) or length-bucket batches straight from the index. Token counts use the
+Qwen tokenizer with each 640×640 board image counted as 400 vision tokens.
 
-  ```bash
-  python build_index.py --tokenizer qwen/tokenizer.json --template qwen/chat_template.jinja
-  ```
+Measured: context tokens median ≈51K, max ≈108K (all under the 139,264 window);
+output tokens median ≈280, max ≈4.3K.
 
-  (`build_index.py` needs `tokenizers` + `jinja2` and the model's
-  `tokenizer.json` / `chat_template.jinja`; `hf download Qwen/Qwen3.8-Flash-Next
-  tokenizer.json chat_template.jinja --local-dir qwen`.)
-- **At scale (many runs):** convert to a memory-mapped format — HuggingFace
-  `datasets` (Arrow), WebDataset, or Mosaic MDS — for O(1) indexed reads
-  without a custom index.
+The real training-memory cost is the decoded images, not the file: a sample
+with up to 60 images at 640×640 is ~70 MB of raw pixels once decoded, so decode
+per batch in the dataloader.
 
-Token lengths in `index.json` (Qwen tokenizer; each 640×640 board image counted
-as 400 vision tokens): context min/median/max ≈ 5.5K / 51K / 108K, all under
-the 139K window; output median ~280, max ~4.3K.
+At scale (many runs) convert to a memory-mapped format — HuggingFace `datasets`
+(Arrow), WebDataset, or Mosaic MDS — for O(1) indexed reads without a custom
+index.
 
-The real training-memory cost is not the file but the decoded images: a sample
-with up to 60 board images at 640×640 is ~70 MB of raw pixels once decoded, so
-decode per batch in the dataloader, not up front.
+## Exploration & validation
+
+`exploration.qmd` is a Quarto report: dataset statistics (samples per game,
+levels, token-length and image distributions, history-trimming over a game) and
+a battery of anomaly checks (schema, rationale-off rewrite, tool-call shape,
+`<think>` presence, image dimensions, duplicates, offset/context integrity).
+
+Render it:
+
+```bash
+QUARTO_PYTHON=../../ARC3-Inference/.venv/bin/python \
+  quarto render exploration.qmd --to html      # writes exploration.html (gitignored)
+```
+
+Current result — **all schema/format checks pass**:
+
+- 1334 samples, 25 games, levels 1–10; one distinct system prompt and one tool
+  schema across the whole dataset.
+- All 37,677 board images are 640×640 PNG.
+- `index.json` offsets match a fresh stream and cover the file exactly;
+  0 samples over context.
+- The only flags: **1 expected** terminal text turn in `sk48` (the model ended
+  the game with no tool call), and a handful of repeated-identical-code probes
+  within 3 games (informational, not an error).
 
 ## Rebuild
 
 ```bash
-dvc pull ../../ARC3-Inference/runs/gpt61sol-features-25games.dvc
-python convert.py            # writes train.jsonl and meta.json
+dvc pull ../../ARC3-Inference/runs/gpt61sol-features-25games.dvc   # source run
+python convert.py                                                 # -> train.jsonl, meta.json
+# rebuild the index (offsets are byte-exact to train.jsonl, so always after convert):
+hf download Qwen/Qwen3.8-Flash-Next tokenizer.json chat_template.jinja --local-dir qwen
+python build_index.py --tokenizer qwen/tokenizer.json --template qwen/chat_template.jinja
 dvc add train.jsonl && dvc push
 ```
-
-`convert.py` needs only the standard library.
