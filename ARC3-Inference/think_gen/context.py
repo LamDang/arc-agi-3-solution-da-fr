@@ -75,6 +75,45 @@ def history(messages: list, thinking: dict[str, str], mode: str = "native") -> l
     return out
 
 
+def code_only_request(messages: list, tools: list) -> tuple[list, list]:
+    """The messages and tools of a rationale request (python takes `reasoning`,
+    `description`, `code`) turned into the code-only variant the teacher would
+    have seen without ARC3_PYTHON_RATIONALE: the system prompt's python line and
+    the python tool schema lose the reasoning and description. Used to regenerate
+    a call from the generated thinking (the call-equivalence judge). The teacher's
+    own earlier turns stay as logged; only the instructions change."""
+    import re
+
+    from inference.agent.tool_agent import _PYTHON_PROMPT_CODE_LINE, _PYTHON_TOOL_DESCRIPTION
+    # Replace whatever "- The only tool is `python`; ... `code` string." bullet a
+    # run logged (its wording and field order have changed over runs) with the
+    # code-only one. The bullet is a single line.
+    bullet = re.compile(r"- The only tool is `python`;[^\n]*`code` string\.\n?")
+    out_msgs = []
+    for m in messages:
+        m = {k: copy.deepcopy(v) for k, v in m.items() if not k.startswith("_")}
+        if m.get("role") == "system" and isinstance(m.get("content"), str):
+            m["content"] = bullet.sub(_PYTHON_PROMPT_CODE_LINE, m["content"], count=1)
+        out_msgs.append(m)
+    out_tools = []
+    for t in tools or []:
+        t = copy.deepcopy(t)
+        fn = t.get("function") or {}
+        if fn.get("name") == "python":
+            # the logged description is the code-only base plus a rationale
+            # sentence; reset it to the canonical base.
+            fn["description"] = _PYTHON_TOOL_DESCRIPTION
+            params = fn.setdefault("parameters", {})
+            props = params.get("properties") or {}
+            params["properties"] = {"code": props.get("code", {"type": "string",
+                "description": "Python code to run. The snippet is ephemeral and is not saved across tool calls."})}
+            params["required"] = ["code"]
+            params.pop("additionalProperties", None)
+            fn.pop("strict", None)
+        out_tools.append(t)
+    return out_msgs, out_tools
+
+
 def call_text(reply: dict) -> str:
     """The reply as the reconstruction prompt shows it: any visible text, then
     each tool call (python code verbatim, other tools as JSON arguments)."""

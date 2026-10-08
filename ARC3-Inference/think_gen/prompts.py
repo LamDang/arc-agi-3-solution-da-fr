@@ -210,3 +210,119 @@ Answer with JSON only:
 
 def judge_prompt(call: str, real: str, generated: str) -> str:
     return JUDGE.format(call=call, real=real.strip(), generated=generated.strip())
+
+
+# Sol judge: four checks on generated thinking where the teacher's real
+# thinking is hidden (gpt-6.1-sol), so there is nothing to diff against.
+# Each check uses something that IS known about the step:
+#   1 code     the python code the teacher ran;
+#   2 words    the teacher's own stated reasoning, description and summary;
+#   3 fact     the real game context and images (checked by gpt-6.1-sol);
+#   4 call     the teacher's actual call (regenerate one from the thinking
+#              and compare the next move).
+
+# 1. Code consistency: does the thinking's plan match the code the teacher ran?
+JUDGE_CODE = """\
+You check an agent's private thinking at one step of a grid puzzle game against the code it then ran. The thinking should lead to exactly this code: the move or moves it decides on, the targets and values it computes, and what the code inspects or does should all follow from it. You see only the thinking and the code, not the game.
+
+<thinking>
+{thinking}
+</thinking>
+
+The code that followed:
+{call}
+
+1. List what the code actually does: every real game action it sends (the arguments of each `action(...)`, in order), and the main things it computes, inspects or asserts.
+2. For each item, say whether the thinking decides on it or accounts for it (same content, any wording).
+3. List the disagreements: a move, target or value in the code that the thinking decides differently, a plan in the thinking the code does not carry out, or a step the code takes that the thinking never mentions.
+
+Answer with JSON only:
+{{"code_does": ["..."], "accounted_for": [true, false], "disagreements": ["..."], "leads_to_call": true, "notes": "one sentence"}}"""
+
+
+# 2. Coverage of the teacher's own words (stated reasoning, description, summary).
+JUDGE_WORDS = """\
+You compare an agent's private thinking at one step of a grid puzzle game with the agent's own brief account of that same step. The account is ground truth for what the agent thought; the thinking was written separately and should contain the same points, worked out in more detail.
+
+The agent's account of the step:
+{account}
+
+<thinking>
+{thinking}
+</thinking>
+
+1. List the distinct points of the account (observations, hypotheses about the rules or goal, the plan, the decision), at most 10, most important first.
+2. For each, say whether the thinking contains it (same content, any wording).
+3. List claims in the thinking that contradict the account.
+
+Answer with JSON only:
+{{"points": ["..."], "covered": [true, false], "contradictions": ["..."], "notes": "one sentence"}}"""
+
+
+# 3. Fact-check by gpt-6.1-sol, which is given the real context and images and
+# checks the thinking against the state actually shown. Appended as a user
+# message after the agent's own context (which the Responses call keeps whole,
+# images included).
+JUDGE_FACT = """\
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
+
+Above is the full context an agent had at one step of a game it was playing, up to the moment of its next move. Below is a written-out version of the private thinking for that step, produced afterwards by another model. Using the real state visible in the context above (the frames, tool outputs and images), check the thinking for statements that are factually wrong: coordinates, counts, colours, directions, positions, sizes, or claimed game mechanics that do not match what the context actually shows.
+
+<thinking>
+{thinking}
+</thinking>
+
+List only clear factual errors, each as the wrong claim and what the context actually shows. Do not list matters of style, points the thinking merely leaves out, or things that are genuinely uncertain from the context. Judge only against the context above, never against what a later turn would reveal.
+
+Answer with JSON only:
+{{"errors": [{{"claim": "...", "actual": "..."}}], "grounded": true, "notes": "one sentence"}}"""
+
+
+# 4. Equivalence of a regenerated call with the teacher's. Flash is first given
+# the thinking and the code-only request (REGEN_NOTE) and made to produce a
+# python call; this judge then compares the two calls' next move.
+REGEN_NOTE = """\
+That is your private thinking for this step. Now make the `python` tool call it leads to: call `python` with the `code` that carries out the move you decided on. Do not add any other text."""
+
+JUDGE_CALL = """\
+You compare two Python snippets an agent could run at one step of a grid puzzle game. Only the real environment actions they send matter, that is the calls to `action(...)`, not how the code computes them or what it prints. Snippet A is what the agent actually ran. Snippet B was produced by another model from a reconstruction of the agent's thinking, without seeing A.
+
+Snippet A (actual):
+```python
+{sol_code}
+```
+
+Snippet B (regenerated):
+```python
+{regen_code}
+```
+
+1. List the game actions A sends, in order (e.g. "MOUSE(row=39,col=45)", "LEFT"); write "(none: inspection only)" if it sends no action.
+2. Do the same for B.
+3. Do they make the same next move? Yes if the first action matches, or the first batch matches in order, with MOUSE targets the same or within a cell or two; a snippet that only inspects matches another that only inspects.
+
+Answer with JSON only:
+{{"a_actions": ["..."], "b_actions": ["..."], "same_next_move": true, "notes": "one sentence"}}"""
+
+
+def judge_code_prompt(call: str, generated: str) -> str:
+    return JUDGE_CODE.format(call=call.strip(), thinking=generated.strip())
+
+
+def judge_words_prompt(reasoning: str, description: str, summary: str, generated: str) -> str:
+    blocks = []
+    if (reasoning or "").strip():
+        blocks.append(f"<reasoning>\n{reasoning.strip()}\n</reasoning>")
+    if (description or "").strip():
+        blocks.append(f"<description>\n{description.strip()}\n</description>")
+    if (summary or "").strip():
+        blocks.append(f"<summary>\n{summary.strip()}\n</summary>")
+    return JUDGE_WORDS.format(account="\n".join(blocks), thinking=generated.strip())
+
+
+def judge_fact_prompt(generated: str) -> str:
+    return JUDGE_FACT.format(thinking=generated.strip())
+
+
+def judge_call_prompt(sol_code: str, regen_code: str) -> str:
+    return JUDGE_CALL.format(sol_code=sol_code.rstrip(), regen_code=regen_code.rstrip())
