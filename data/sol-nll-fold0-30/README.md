@@ -145,3 +145,7 @@ reprocessing, and clean nested expert maps exclude all five validation games.
 See [readiness](../../exp/sft-flash-next/READINESS.md) and the
 [verification record](../../exp/sft-flash-next/verification/real-data.json).
 No GPU session, training or gameplay has been started.
+
+The complete first-panel evaluation is stored separately in
+[the DVC result dataset](../sol-nll-fold0-30-results-20261008/README.md),
+including per-token losses and per-game/category reports for 512 and 256.

@@ -144,3 +144,8 @@ The original Kaggle two-hour deadline is 13:53:43 UTC; do not silently reset it.
 The user explicitly renewed the second-panel 120-minute window. The manual
 512/256 worker and external collector started after Kaggle CPU preflight
 validated all 30 samples; model-load/smoke status is tracked in durable results.
+
+The complete first-run results are archived with provenance and all 60
+verified token-loss arrays in
+[`data/sol-nll-fold0-30-results-20261008`](../../data/sol-nll-fold0-30-results-20261008/README.md).
+The payload is private DVC data; scalar summaries and its pointer are in Git.

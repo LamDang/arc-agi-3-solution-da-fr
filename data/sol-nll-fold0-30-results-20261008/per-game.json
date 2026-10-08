@@ -1,0 +1,92 @@
+[
+  {
+    "game": "ar25-0c556536",
+    "experts": 512,
+    "requests": 6,
+    "primary_nll": 0.9410035927397503,
+    "thinking_nll": 2.120067501144924,
+    "tool_code_nll": 0.4559921494382923,
+    "output_nll": 0.41008278891398753
+  },
+  {
+    "game": "ar25-0c556536",
+    "experts": 256,
+    "requests": 6,
+    "primary_nll": 0.9298329904942227,
+    "thinking_nll": 2.11932900635217,
+    "tool_code_nll": 0.4492154926058941,
+    "output_nll": 0.4052654641853297
+  },
+  {
+    "game": "cd82-fb555c5d",
+    "experts": 512,
+    "requests": 6,
+    "primary_nll": 0.855444922425763,
+    "thinking_nll": 2.0627308745933988,
+    "tool_code_nll": 0.33584711019831753,
+    "output_nll": 0.3119084952982232
+  },
+  {
+    "game": "cd82-fb555c5d",
+    "experts": 256,
+    "requests": 6,
+    "primary_nll": 0.8513228215488556,
+    "thinking_nll": 2.0736691608809066,
+    "tool_code_nll": 0.3333917305797236,
+    "output_nll": 0.3075998201559251
+  },
+  {
+    "game": "sk48-d8078629",
+    "experts": 512,
+    "requests": 6,
+    "primary_nll": 0.8238418013449416,
+    "thinking_nll": 1.835979291182692,
+    "tool_code_nll": 0.28536668242194835,
+    "output_nll": 0.22808658008137353
+  },
+  {
+    "game": "sk48-d8078629",
+    "experts": 256,
+    "requests": 6,
+    "primary_nll": 0.8249297273847875,
+    "thinking_nll": 1.8403241126201175,
+    "tool_code_nll": 0.2753363374470353,
+    "output_nll": 0.22247221917349425
+  },
+  {
+    "game": "sp80-589a99af",
+    "experts": 512,
+    "requests": 6,
+    "primary_nll": 0.8591452305732351,
+    "thinking_nll": 2.371264800553505,
+    "tool_code_nll": 0.39139013182567717,
+    "output_nll": 0.36275318879522284
+  },
+  {
+    "game": "sp80-589a99af",
+    "experts": 256,
+    "requests": 6,
+    "primary_nll": 0.8547987436924536,
+    "thinking_nll": 2.391131174761717,
+    "tool_code_nll": 0.39137984858190955,
+    "output_nll": 0.36355308672928677
+  },
+  {
+    "game": "tn36-ef4dde99",
+    "experts": 512,
+    "requests": 6,
+    "primary_nll": 0.8133661865208573,
+    "thinking_nll": 2.1376651132117566,
+    "tool_code_nll": 0.3860801966349882,
+    "output_nll": 0.3570455374986278
+  },
+  {
+    "game": "tn36-ef4dde99",
+    "experts": 256,
+    "requests": 6,
+    "primary_nll": 0.8058698338433453,
+    "thinking_nll": 2.112208972609086,
+    "tool_code_nll": 0.3894171236848513,
+    "output_nll": 0.36029283121618305
+  }
+]
