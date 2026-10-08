@@ -1,0 +1,174 @@
+{
+  "gpu_ready": true,
+  "gpu_smoke_ready": true,
+  "gpu_started": false,
+  "core_requests": 30,
+  "model_request_jobs": 60,
+  "tests": {
+    "tests": 42,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "real_data_preflight": "passed: unchanged 30-request panel reprocessed offline with staged package",
+  "network_access": "S3 and Hugging Face actual pinned downloads succeeded through authorized proxy",
+  "cpu_environment": {
+    "python": "3.12.14",
+    "torch": "2.14.1+cpu",
+    "torchvision": "0.29.1+cpu",
+    "transformers": "5.18.0"
+  },
+  "panel_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "processed_tokens": 6403160,
+  "prompt_tokens": 1268524,
+  "final_reply_tokens": 12108,
+  "scored_tokens": 60540,
+  "runtime_scenarios": {
+    "850": {
+      "scoring_minutes": 125.5521568627451,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        165.5521568627451,
+        185.5521568627451
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "500": {
+      "scoring_minutes": 213.43866666666665,
+      "cold_sessions": 3,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        273.4386666666667,
+        303.4386666666667
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "950": {
+      "scoring_minutes": 112.3361403508772,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        152.3361403508772,
+        172.3361403508772
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    }
+  },
+  "calibration_training_games": 20,
+  "calibration_excluded_validation_games": 5,
+  "notebook": "nll/kaggle/kaggle-nll-30.ipynb",
+  "setup_archive": "/workspace/sol-nll-artifacts/complete-setup-staged/sol-nll-setup.zip",
+  "setup_archive_sha256": "213f87e7e2f469d7648c35ae349d7257753e3d1c6ce939156ff7879d5a499338",
+  "setup_archive_bytes": 68862697,
+  "offline_wheels": 42,
+  "gpu_checks": "not run; first authorized GPU session starts with numerical/chunk/capacity smoke checks",
+  "artifacts_committed": false,
+  "verification_records_committed": true,
+  "protocol": {
+    "version": "512-then-256-relative-primary-nll-v1",
+    "baseline": 512,
+    "first_candidate": 256,
+    "threshold_relative": 0.05,
+    "metric": "equal-game mean of population-weighted request mean NLL",
+    "gate_requires_all_requests": 30,
+    "scan_counts": [
+      448,
+      384,
+      320
+    ],
+    "selection": "smallest evaluated count within 5% of full baseline NLL"
+  },
+  "maximum_model_request_jobs": 150,
+  "staged_budget": {
+    "protocol": {
+      "version": "512-then-256-relative-primary-nll-v1",
+      "baseline": 512,
+      "first_candidate": 256,
+      "threshold_relative": 0.05,
+      "metric": "equal-game mean of population-weighted request mean NLL",
+      "gate_requires_all_requests": 30,
+      "scan_counts": [
+        448,
+        384,
+        320
+      ],
+      "selection": "smallest evaluated count within 5% of full baseline NLL"
+    },
+    "initial_jobs": 60,
+    "maximum_jobs": 150,
+    "initial_processed_tokens": 2561264,
+    "conditional_scan_processed_tokens": 3841896,
+    "maximum_processed_tokens": 6403160,
+    "initial_scored_tokens": 24216,
+    "maximum_scored_tokens": 60540,
+    "scenarios": {
+      "500": {
+        "initial": {
+          "scoring_minutes": 85.37546666666667,
+          "cold_sessions": 1,
+          "total_minutes": [
+            105.37546666666667,
+            115.37546666666667
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 213.43866666666665,
+          "cold_sessions": 3,
+          "total_minutes": [
+            273.4386666666667,
+            303.4386666666667
+          ]
+        }
+      },
+      "850": {
+        "initial": {
+          "scoring_minutes": 50.220862745098046,
+          "cold_sessions": 1,
+          "total_minutes": [
+            70.22086274509805,
+            80.22086274509805
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 125.5521568627451,
+          "cold_sessions": 2,
+          "total_minutes": [
+            165.5521568627451,
+            185.5521568627451
+          ]
+        }
+      },
+      "950": {
+        "initial": {
+          "scoring_minutes": 44.93445614035088,
+          "cold_sessions": 1,
+          "total_minutes": [
+            64.93445614035087,
+            74.93445614035087
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 112.3361403508772,
+          "cold_sessions": 2,
+          "total_minutes": [
+            152.3361403508772,
+            172.3361403508772
+          ]
+        }
+      }
+    }
+  }
+}

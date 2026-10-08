@@ -50,11 +50,18 @@ def truncate(enc: dict, max_tokens: int | None, vision_start_id: int) -> dict:
 @torch.no_grad()
 def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens: int = 8192,
            measure: bool = True, collect_hidden: bool = False, predictions: bool = False,
-           device="cuda", lm_block: int = 2048):
+           device="cuda", lm_block: int = 2048, target_mask: torch.Tensor | None = None,
+           token_losses: bool = False):
     base = model.model
     ids = enc["input_ids"].to(device)
     n = ids.shape[1]
     cats = categories.reshape(-1).to(device)
+    if cats.numel() != n or chunk_tokens < 1 or lm_block < 1:
+        raise ValueError("Invalid category length or replay block size")
+    targets = cats == GENERATED if target_mask is None else target_mask.reshape(-1).to(device)
+    if (targets.dtype != torch.bool or targets.numel() != n or
+            (target_mask is not None and bool(targets[0]))):
+        raise ValueError("Target mask must be boolean, match input and exclude position zero")
     embeds = base.get_input_embeddings()(ids)
     grid = enc.get("image_grid_thw")
     if grid is not None and len(grid):
@@ -71,7 +78,7 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
     cache = mq.DynamicCache(config=model.config.text_config)
     lm = base.language_model
     result = {"tokens": n, "scored": 0, "nll": 0.0, "correct": 0}
-    hidden, argmax, token_nll = [], [], []
+    hidden, argmax, token_nll, token_positions = [], [], [], []
     for s in range(0, n, chunk_tokens):
         e = min(n, s + chunk_tokens)
         if recorder is not None:
@@ -90,20 +97,23 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
             hidden.append(last.float().cpu())
         if measure:
             positions = torch.arange(s, min(e, n - 1), device=device)
-            keep = cats[positions + 1] == GENERATED
+            keep = targets[positions + 1]
             positions = positions[keep]
             for b in range(0, positions.shape[0], lm_block):
                 p = positions[b : b + lm_block]
                 logits = model.lm_head(last[0, p - s]).float()
                 target = ids[0, p + 1]
                 nll = F.cross_entropy(logits, target, reduction="none")
-                best = logits.argmax(-1)
                 result["nll"] += nll.sum().item()
-                result["correct"] += int((best == target).sum())
                 result["scored"] += int(p.shape[0])
+                if predictions or not token_losses:
+                    best = logits.argmax(-1)
+                    result["correct"] += int((best == target).sum())
                 if predictions:
                     argmax.append(best.cpu())
+                if predictions or token_losses:
                     token_nll.append(nll.cpu())
+                    token_positions.append((p + 1).cpu())
     if recorder is not None:
         recorder.categories = None
         recorder.positions = None
@@ -111,5 +121,9 @@ def replay(model, recorder, enc: dict, categories: torch.Tensor, *, chunk_tokens
         result["hidden"] = torch.cat(hidden, dim=1)
     if predictions:
         result["argmax"] = torch.cat(argmax) if argmax else torch.empty(0, dtype=torch.long)
+    if predictions or token_losses:
         result["token_nll"] = torch.cat(token_nll) if token_nll else torch.empty(0)
+        result["token_positions"] = torch.cat(token_positions) if token_positions else torch.empty(0, dtype=torch.long)
+    if token_losses and not predictions:
+        result.pop("correct")
     return result

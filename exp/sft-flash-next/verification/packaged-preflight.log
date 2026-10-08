@@ -1,0 +1,120 @@
+validated sk48-d8078629-r39: 42654 tokens
+validated sp80-589a99af-r0: 5770 tokens
+validated tn36-ef4dde99-r5: 18105 tokens
+validated cd82-fb555c5d-r3: 11484 tokens
+validated ar25-0c556536-r0: 5784 tokens
+validated sk48-d8078629-r42: 48517 tokens
+validated sp80-589a99af-r9: 28343 tokens
+validated tn36-ef4dde99-r11: 34303 tokens
+validated cd82-fb555c5d-r18: 46585 tokens
+validated ar25-0c556536-r10: 36211 tokens
+validated sk48-d8078629-r82: 68413 tokens
+validated sp80-589a99af-r22: 58706 tokens
+validated tn36-ef4dde99-r24: 63525 tokens
+validated cd82-fb555c5d-r26: 63174 tokens
+validated ar25-0c556536-r18: 60723 tokens
+validated sk48-d8078629-r85: 33374 tokens
+validated sp80-589a99af-r8: 25427 tokens
+validated tn36-ef4dde99-r9: 29923 tokens
+validated cd82-fb555c5d-r11: 31108 tokens
+validated ar25-0c556536-r2: 9981 tokens
+validated sk48-d8078629-r99: 56059 tokens
+validated sp80-589a99af-r11: 31683 tokens
+validated tn36-ef4dde99-r12: 36272 tokens
+validated cd82-fb555c5d-r21: 51941 tokens
+validated ar25-0c556536-r11: 37520 tokens
+validated sk48-d8078629-r100: 57419 tokens
+validated sp80-589a99af-r26: 68029 tokens
+validated tn36-ef4dde99-r28: 73434 tokens
+validated cd82-fb555c5d-r36: 84298 tokens
+validated ar25-0c556536-r19: 61867 tokens
+{
+  "ready_cpu_bundle": true,
+  "requests": 30,
+  "jobs": 150,
+  "processed_tokens": 6403160,
+  "staged_budget": {
+    "protocol": {
+      "version": "512-then-256-relative-primary-nll-v1",
+      "baseline": 512,
+      "first_candidate": 256,
+      "threshold_relative": 0.05,
+      "metric": "equal-game mean of population-weighted request mean NLL",
+      "gate_requires_all_requests": 30,
+      "scan_counts": [
+        448,
+        384,
+        320
+      ],
+      "selection": "smallest evaluated count within 5% of full baseline NLL"
+    },
+    "initial_jobs": 60,
+    "maximum_jobs": 150,
+    "initial_processed_tokens": 2561264,
+    "conditional_scan_processed_tokens": 3841896,
+    "maximum_processed_tokens": 6403160,
+    "initial_scored_tokens": 24216,
+    "maximum_scored_tokens": 60540,
+    "scenarios": {
+      "500": {
+        "initial": {
+          "scoring_minutes": 85.37546666666667,
+          "cold_sessions": 1,
+          "total_minutes": [
+            105.37546666666667,
+            115.37546666666667
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 213.43866666666665,
+          "cold_sessions": 3,
+          "total_minutes": [
+            273.4386666666667,
+            303.4386666666667
+          ]
+        }
+      },
+      "850": {
+        "initial": {
+          "scoring_minutes": 50.220862745098046,
+          "cold_sessions": 1,
+          "total_minutes": [
+            70.22086274509805,
+            80.22086274509805
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 125.5521568627451,
+          "cold_sessions": 2,
+          "total_minutes": [
+            165.5521568627451,
+            185.5521568627451
+          ]
+        }
+      },
+      "950": {
+        "initial": {
+          "scoring_minutes": 44.93445614035088,
+          "cold_sessions": 1,
+          "total_minutes": [
+            64.93445614035087,
+            74.93445614035087
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 112.3361403508772,
+          "cold_sessions": 2,
+          "total_minutes": [
+            152.3361403508772,
+            172.3361403508772
+          ]
+        }
+      }
+    }
+  },
+  "estimated_minutes": {
+    "500": 243.4,
+    "850": 155.6,
+    "950": 142.3
+  }
+}
