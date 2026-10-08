@@ -129,3 +129,33 @@ python /kaggle/working/sol-nll-first-results/runtime-code/nll/run.py \
 
 These commands are documentation; archiving them does not launch another run.
 Model weights and native wheels are external inputs, not part of the result ZIP.
+
+## NLL by input context length
+
+K = 1,024 processor-expanded prompt tokens, excluding the final scored reply.
+Each cell shows **512 → 256 experts**. These are diagnostic slices of the fixed
+panel, not new samples. Primary NLL uses game/request weights within each band;
+thinking and output NLL use weighted token pooling.
+
+| Context | Requests | Primary NLL | Thinking NLL | Output NLL |
+| --- | ---: | ---: | ---: | ---: |
+| <16K | 4 | 1.280 → 1.261 | 2.696 → 2.749 | 0.511 → 0.457 |
+| 16K–<48K | 14 | 0.823 → 0.818 | 1.957 → 1.969 | 0.348 → 0.351 |
+| 48K–<80K | 11 | 0.810 → 0.811 | 1.947 → 1.930 | 0.293 → 0.291 |
+| ≥80K | 1 | 0.239 → 0.231 | 1.626 → 1.649 | 0.075 → 0.063 |
+
+The final band contains just one cd82 request and only 10.6% thinking tokens.
+Length, game and reply composition vary together; these slices do not establish
+that increasing context length causes lower NLL. Exact scalars, game counts,
+Python-code-only loss and weighted thinking fractions are in
+`by-context-length.json`; the full underlying slices are already in the DVC ZIP.
+
+The previous committed pruning experiment reported **0.417 full-model NLL**,
+not 4, on Qwen's own logged generations in ls20/sb26/vc33 (35,514 generated
+tokens; prefixes up to 32K). See
+[the earlier result](../../exp/reap-flash-next/README.md#pruned-routers-on-held-out-games).
+The present panel scores Sol final replies in five different games with full
+contexts and different calibration maps and request weights. The underlying
+teacher-forced cross-entropy definition is unchanged. A separate earlier value
+near 4 has not been identified; no numerical explanation for that value is
+claimed without its log and metric definition.
