@@ -58,3 +58,74 @@ It checks the manifest and every result identity, array checksum, token position
 loss-vector length and sum. Open `comparison.html` to inspect token losses, or
 read `slices.json` for thinking, Python-code and formatting losses per game.
 The archived report is already generated; inspecting it requires no GPU.
+
+## Code to reproduce the run
+
+The maintained implementation is committed under
+[`exp/sft-flash-next/nll`](../../exp/sft-flash-next/nll/README.md):
+`run.py` scores, `prepare.py` freezes the source requests, `fetch_inputs.py`
+fetches pinned inputs, `collect.py` mirrors completed results, and `report.py`
+produces token/category/game reports. `build_setup.py` builds the offline Kaggle
+package; the [committed notebook](../../exp/sft-flash-next/nll/kaggle/kaggle-nll-30.ipynb)
+defaults to GPU disabled and the current manual 512/256 pair.
+
+For the **exact first-run implementation**, the DVC archive also includes:
+
+- `runtime-code/nll/*.py`: the scorer, preparation/fetch, collector, reports,
+  protocol, numerical fixes and result verification.
+- `runtime-code/reap/*.py`: model loading, teacher-forced replay and rendering.
+- `runtime-code/nll/requirements-cpu.lock` and `requirements-kaggle.lock`:
+  pinned environments; the CPU lock must not replace torch on a GPU image.
+- `runtime-code/kaggle-nll-30.ipynb`: the original GPU-disabled notebook.
+
+The archived scoring Python files are unchanged and match `run.json`'s
+`code_sha256`; adding dependency locks and documentation does not change it.
+The original implementation uses the historical automatic +5% gate. The
+maintained implementation adds `--initial-pair-only` for the latest two-panel
+protocol. Use a new output directory when rerunning with changed code.
+
+After extracting the archive as above, rebuild the original bundle on CPU:
+
+```bash
+NLL_CODE=/tmp/sol-nll-first-results/runtime-code/nll
+python "$NLL_CODE/fetch_inputs.py" --out /tmp/sol-nll-first-inputs
+python "$NLL_CODE/prepare.py" \
+  --data-dir /tmp/sol-nll-first-inputs/data \
+  --processor /tmp/sol-nll-first-inputs/processor \
+  --stats-dir /tmp/sol-nll-first-inputs/calib \
+  --folds /tmp/sol-nll-first-results/folds.json --out /tmp/sol-nll-first-panel
+python "$NLL_CODE/run.py" --bundle /tmp/sol-nll-first-panel \
+  --out /tmp/unused-first-preflight --preflight-only
+```
+
+Use the CPU environment from the archived lock. The rebuilt manifest must match
+`f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c`.
+Pinned processor/calibration hashes are validated during preparation. Preparation
+preserves the original render-sensitive dictionary order; directly feeding the
+sorted-key JSONL export bypasses this guarantee.
+
+For an explicitly authorized GPU rerun, stage the extracted results/code and
+prepared bundle on Kaggle, install the qualified dependencies following the
+[CUDA kernel instructions](../../exp/sft-flash-next/nll/README.md#qualified-cuda-kernels-and-chunk-stable-scoring-2026-10-08),
+and attach the immutable Intel model version recorded in `provenance.json`.
+Start the archived collector on an external machine first, with Jupyter
+credentials supplied through its environment:
+
+```bash
+python /tmp/sol-nll-first-results/runtime-code/nll/collect.py \
+  --remote sol-nll-first-rerun --out /durable/sol-nll-first-rerun --interval 30
+```
+
+Then, on Kaggle (adjust only the staged directory paths):
+
+```bash
+python /kaggle/working/sol-nll-first-results/runtime-code/nll/run.py \
+  --bundle /kaggle/working/sol-nll-first-panel \
+  --out /kaggle/working/sol-nll-first-rerun \
+  --model-dir /kaggle/input/models/dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1 \
+  --reap-dir /kaggle/working/sol-nll-first-results/runtime-code/reap \
+  --session-minutes 120
+```
+
+These commands are documentation; archiving them does not launch another run.
+Model weights and native wheels are external inputs, not part of the result ZIP.

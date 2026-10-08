@@ -81,11 +81,13 @@
     "threshold_relative": 0.05,
     "threshold_primary": 0.9014883640569548
   },
-  "archive_sha256": "c8648afce937d10dd08383cc9de587ed45d9d58270a048f8f212281258b74dde",
-  "archive_bytes": 849332,
-  "inventory_files": 152,
+  "archive_sha256": "3ba2be1707166ce5dc831a1e2beee3d982165f9abd8b829c827ddb02755a47d1",
+  "archive_bytes": 860104,
+  "inventory_files": 156,
   "excluded": "failed/unqualified attempts, credentials, collector/PID files, model/processor/wheel binaries",
   "training_or_gameplay": false,
   "remote_round_trip_sha256_verified": true,
-  "archive_verified_with_preserved_runtime": true
+  "archive_verified_with_preserved_runtime": true,
+  "runtime_requirements_and_notebook_included": true,
+  "archived_runner_cpu_preflight_requests": 30
 }

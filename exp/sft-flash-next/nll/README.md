@@ -16,13 +16,15 @@ production CUDA performance or of the real sol validation sample.
 processed twice with the pinned processor, with identical full-context token
 IDs, final-reply positions and semantic annotations. All five fold-0 games
 are excluded from the saved calibration statistics; all 20 training games
-contribute to the nested 48-layer expert maps. The user started Kaggle on 2026-10-08; GPU qualification and staged scoring are now in progress. See `../READINESS.md`.
+contribute to the nested 48-layer expert maps. GPU qualification and the original
+512/256 panel completed; the generated-thinking panel is running. See `../READINESS.md`.
 
-The current protocol is **512 first, then 256** on all 30 requests. If the
-weighted primary NLL of 256 is **at most 1.05 × the full baseline**, stop and
-recommend 256. Only a larger increase triggers 448, then 384, then 320 on the
-same requests. The gate uses relative NLL, not perplexity. After a scan, choose
-the smallest evaluated configuration within 5% of the full baseline.
+The current instructed protocol is **512 first, then 256** on all 30 requests,
+using `--initial-pair-only`. Finish both original and generated-thinking pairs,
+then wait for the user to decide whether to expand either panel. The relative
++5% NLL gate is reported but does not trigger automatic expansion in this mode.
+The historical automatic protocol remains available when neither manual-scope
+flag is supplied; see the archived first-run code for that exact implementation.
 
 The panel contains 1,268,524 prompt tokens and 12,108 final-reply tokens.
 The initial pair processes **2,561,264 tokens** (24,216 scored targets):
@@ -32,9 +34,10 @@ or **105.4–115.4 minutes** conservatively; session margins can require resume.
 If the gate fails, the maximum remains **6,403,160 processed tokens** across
 150 forwards, about **2.8–3.1 hours** nominally or **4.6–5.1 hours** conservatively.
 The unchanged frozen manifest records maximum capacity; `--preflight-only`
-prints the current `staged_budget`. Production speed/parity/capacity are pending.
+prints the current `staged_budget`. Production kernel, parity and capacity
+qualification passed for the pinned Kaggle image.
 
-The complete private archive was rebuilt with real data and 42 offline
+The complete private archive was rebuilt with real data and 45 offline
 Python 3.13 wheels. Generated data/wheels/archives remain outside Git.
 See [readiness](../READINESS.md) and the committed verification records for
 identities, coverage and artifact locations. S3 and Hugging Face downloads
@@ -127,7 +130,8 @@ When the data preflight and collector connection are ready, enable the GPU
 in the interactive notebook and set `START_GPU_RUN=True` in the final launch
 cell. The worker first checks kernels and repeats a short real request with
 two chunk sizes. It then checks the longest selected baseline request, completes all 512 jobs,
-then all 256 jobs, and applies the conditional scan gate. Smoke/capacity results that are valid count toward the panel.
+then all 256 jobs, and reports the gate without automatically expanding.
+Smoke/capacity results that are valid count toward the panel.
 A failed check stops before the full sweep. Both GPU-specific correctness and
 memory checks must pass before any full-panel comparison.
 
