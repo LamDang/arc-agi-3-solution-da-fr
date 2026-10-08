@@ -65,7 +65,15 @@ def generate(root):
     base_rows = [r for r in samples if r["sample_id"] in paired_base]
     base_summaries = {str(c): weighted_summary(base_rows, results[c]) for c in BASE_COUNTS}
     decision = gate(base_summaries["512"]["primary"], base_summaries["256"]["primary"]) if base_complete else gate(None, None)
-    active_counts = counts if decision["status"] == "scan_required" else list(BASE_COUNTS)
+    manual_scan = run["config"].get("scan_control") == "manual"
+    if manual_scan:
+        scope = read_json(root / "scope.json")
+        active_counts = scope["counts"]
+        if (scope["identity"] != run["identity"] or active_counts[:2] != list(BASE_COUNTS)
+                or len(set(active_counts)) != len(active_counts) or not set(active_counts) <= set(counts)):
+            raise ValueError("Invalid manual evaluation scope")
+    else:
+        active_counts = counts if decision["status"] == "scan_required" else list(BASE_COUNTS)
     common_ids = set.intersection(*(set(results[c]) for c in active_counts))
     common_rows = [r for r in samples if r["sample_id"] in common_ids]
     complete = base_complete and len(common_rows) == len(samples)
@@ -103,6 +111,13 @@ def generate(root):
         selection.update(selected_experts=candidate, diagnostic_flags=flags,
                          leave_one_game_out=leave_one_out,
                          status="review_diagnostics" if flags else "nll_candidate_selected")
+        if manual_scan:
+            selection.update(selected_experts=None, nll_candidate_experts=candidate,
+                             status="awaiting_expansion_decision")
+    selection["scan_control"] = "manual" if manual_scan else "automatic"
+    if manual_scan:
+        selection["skipped_counts"] = []
+        selection["deferred_counts"] = [c for c in counts if c not in active_counts]
     write_json(root / "selection.json", selection)
     write_json(root / "comparison.json", dict(complete=complete, common_requests=len(common_rows),
                                               summaries=summaries, selection=selection))

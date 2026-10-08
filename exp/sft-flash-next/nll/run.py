@@ -156,9 +156,15 @@ def execute(args, manifest, bundle, out):
                       numerical_tolerance=args.noise_tolerance)
         config["protocol"] = POLICY
         config["scoring_numerics"] = numerics.POLICY
+        manual_scan = args.initial_pair_only or args.expand_counts is not None
+        config["scan_control"] = "manual" if manual_scan else "automatic"
         # JSON-normalize tuples so reconnecting does not cause false mismatch.
         config = json.loads(json.dumps(config))
         identity = bind_run(out, config)
+        if manual_scan:
+            write_json(out / "scope.json", dict(identity=identity,
+                       counts=[512, 256] + (args.expand_counts or []),
+                       control="explicit CLI scope; expansion requires user instruction"))
         write_json(out / "manifest.json", manifest)
         (out / "results").mkdir(exist_ok=True)
         completed = sum(load_result(out, identity, c, r) is not None for r in manifest["samples"]
@@ -261,7 +267,8 @@ def execute(args, manifest, bundle, out):
                          maximum_jobs=selection["maximum_jobs"])
             return selection
 
-        execute_stages(manifest["samples"], evaluate, checkpoint)
+        scans = (args.expand_counts or []) if manual_scan else None
+        execute_stages(manifest["samples"], evaluate, checkpoint, scan_counts=scans)
         state["phase"] = "complete"
     except InterruptedError as exc:
         state["phase"] = "paused"
@@ -293,7 +300,14 @@ def main():
     parser.add_argument("--mirror-max-lag", type=float, default=300,
                         help="Pause if external Jupyter collector has not verified a mirror within this many seconds")
     parser.add_argument("--preflight-only", action="store_true")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--initial-pair-only", action="store_true",
+                       help="Score 512 and 256 only; pause for a manual expansion decision")
+    scope.add_argument("--expand-counts", type=int, nargs="+", choices=[448, 384, 320],
+                       help="Explicitly expand a manual run to these counts, reusing verified base results")
     args = parser.parse_args()
+    if args.expand_counts is not None and len(args.expand_counts) != len(set(args.expand_counts)):
+        parser.error("--expand-counts must not contain duplicates")
     if not args.preflight_only and not args.model_dir:
         parser.error("--model-dir is required to score")
     if min(args.chunk, args.lm_block, args.session_minutes, args.mirror_max_lag) <= 0 or args.noise_tolerance < 0:

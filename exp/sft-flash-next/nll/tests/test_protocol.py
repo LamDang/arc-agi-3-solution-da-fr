@@ -80,3 +80,33 @@ def test_budget_does_not_charge_intermediates_on_early_stop():
     assert b['initial_processed_tokens'] == 6000
     assert b['conditional_scan_processed_tokens'] == 9000
     assert b['maximum_processed_tokens'] == 15000
+
+
+@pytest.mark.parametrize("candidate", [1.8, 2.2])
+def test_manual_pair_waits_for_decision_then_explicit_expansion(tmp_path, candidate):
+    from common import write_json
+    manifest, identity = synthetic_run(tmp_path)
+    run = read_json(tmp_path / "run.json")
+    run["config"]["scan_control"] = "manual"
+    write_json(tmp_path / "run.json", run)
+    write_json(tmp_path / "scope.json", dict(identity=identity, counts=[512, 256]))
+    called, completed = [], set()
+    def evaluate(row, count):
+        key = (count, row["sample_id"])
+        if key in completed:
+            return
+        called.append(count)
+        save_result(tmp_path, identity, count, row,
+                    np.full(3, candidate if count == 256 else 2.), row["positions"])
+        completed.add(key)
+    result = execute_stages(manifest["samples"], evaluate, lambda: generate(tmp_path), scan_counts=[])
+    assert called == [512]*30 + [256]*30
+    assert result["complete"] and result["selected_experts"] is None
+    assert result["status"] == "awaiting_expansion_decision"
+    assert result["deferred_counts"] == [448, 384, 320]
+    write_json(tmp_path / "scope.json", dict(identity=identity, counts=[512, 256, 320]))
+    result = execute_stages(manifest["samples"], evaluate, lambda: generate(tmp_path), scan_counts=[320])
+    assert called == [512]*30 + [256]*30 + [320]*30
+    assert result["complete"] and result["required_jobs"] == 90
+    execute_stages(manifest["samples"], evaluate, lambda: generate(tmp_path), scan_counts=[320])
+    assert len(called) == 90

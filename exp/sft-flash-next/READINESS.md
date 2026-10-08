@@ -1,10 +1,12 @@
 # 30-request NLL setup — readiness
 
 2026-10-08. **Real-data preparation passed; the user started the Kaggle
-session and GPU qualification is underway.** The corrected short-request
+session; GPU qualification and the source panel are complete.** The corrected short-request
 smoke passed with exactly zero per-token difference for an exact repeat and
 8192/4096 chunk sizes. The 84,298-token longest request also passed capacity; the staged panel
-is now running. No training or gameplay was performed.
+completed all 60 evaluations. Source primary NLL: 512 = 0.85856035;
+256 = 0.85335082 (-0.6068%). Generated-thinking CPU preflight passed;
+its GPU worker has now started with an explicitly renewed two-hour limit. No training or gameplay was performed.
 
 The initial GPU attempt lacked fast CUDA kernels. FLA 0.5.2 and a native
 causal-conv1d 1.7.0 wheel built against the exact Kaggle torch 2.11.0+cu128
@@ -19,8 +21,9 @@ The frozen panel has six requests per fold-0 game, two per context-length
 tertile, seed 20261008. All five candidates (512/448/384/320/256) use the same
 full multimodal contexts and final-reply-only targets: **60 initial forwards,
 150 maximum forwards**. Run all 512 requests, then all 256 requests. Stop if
-256 primary NLL is at most **1.05 × the full baseline**; otherwise scan
-448, 384 and 320. The relative gate requires all 30 matched requests.
+256 primary NLL is at most **1.05 × the full baseline**. The latest user
+instruction overrides automatic expansion: finish both panels at 512/256,
+then wait for a decision before running 448, 384 or 320. The relative gate requires all 30 matched requests.
 
 ## Exact panel and budget
 
@@ -123,3 +126,21 @@ Git-tracked index, source hashes, selection provenance and verification script.
 Fetch it using `dvc pull data/sol-nll-fold0-30/requests.jsonl.dvc`.
 This is the same frozen panel; exporting it did not resample or modify request
 objects. Processor/maps remain in the complete offline package.
+
+
+## Generated-thinking readiness (2026-10-08)
+
+Remote main revision `debc8a3fcefd68809b45f1d6cd72d6a0f6a15787` supplies
+the revised thinking traces for the same 30 requests. All prompts, images and
+final Python code are processor-identical after restoring source dictionary
+order. All 30 schemas/system prompts and 480 historical plus 30 final calls
+use only the Python `code` field. No Sol-only field remains in scoring inputs.
+Bundle manifest: `15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea`.
+Full prompt tokens: 1,268,524; final targets: 24,358, comprising 15,193 thinking,
+8,295 Python code, 720 tool-format and 150 turn-format tokens. The pair requires
+2,585,764 processed tokens and 48,716 scored tokens; longest context 84,870.
+The original Kaggle two-hour deadline is 13:53:43 UTC; do not silently reset it.
+
+The user explicitly renewed the second-panel 120-minute window. The manual
+512/256 worker and external collector started after Kaggle CPU preflight
+validated all 30 samples; model-load/smoke status is tracked in durable results.

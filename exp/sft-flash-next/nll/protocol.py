@@ -45,7 +45,7 @@ def budget(manifest):
                     for rate in (500, 850, 950)})
 
 
-def execute_stages(samples, evaluate, checkpoint):
+def execute_stages(samples, evaluate, checkpoint, scan_counts=None):
     """Checkpointed stage order; evaluate skips only checksum-verified results.
 
     A partial stage raises/pause upstream, so the gate cannot run on a subset.
@@ -56,11 +56,11 @@ def execute_stages(samples, evaluate, checkpoint):
             evaluate(row, count)
             checkpoint()
     decision = checkpoint()
-    if decision["gate"]["status"] == "scan_required":
-        for count in SCAN_COUNTS:
+    if decision["gate"]["status"] not in ("scan_required", "stop_at_256"):
+        raise ValueError("Complete base stages did not yield a gate decision")
+    if scan_counts is not None or decision["gate"]["status"] == "scan_required":
+        for count in SCAN_COUNTS if scan_counts is None else scan_counts:
             for row in samples:
                 evaluate(row, count)
                 checkpoint()
-    elif decision["gate"]["status"] != "stop_at_256":
-        raise ValueError("Complete base stages did not yield a gate decision")
     return checkpoint()

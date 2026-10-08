@@ -19,8 +19,8 @@ def notebook():
     markdown("""# Sol NLL: 30 requests, 512 baseline then 256
 
 Score all 30 requests at 512, then all 30 at 256 with teacher forcing.
-Stop at 256 if weighted primary NLL is no more than 5% above the full
-baseline. Otherwise scan 448, 384 and 320 on the same frozen requests.
+Stop after this pair and review both panels before deciding whether to expand.
+Intermediate counts require an explicit subsequent instruction.
 The gate uses relative NLL, not perplexity or an absolute 0.05-nat tolerance.
 
 Use an **interactive Kaggle Jupyter session** attached to the competition.
@@ -94,7 +94,7 @@ OUT.mkdir(exist_ok=True)
 env = dict(os.environ, PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True", HF_HUB_OFFLINE="1", TRANSFORMERS_OFFLINE="1")
 command = [sys.executable, "-u", str(SETUP/"nll/run.py"), "--bundle", str(BUNDLE),
            "--out", str(OUT), "--model-dir", str(model_indexes[0].parent),
-           "--reap-dir", str(SETUP/"reap"), "--session-minutes", "120"]
+           "--reap-dir", str(SETUP/"reap"), "--session-minutes", "120", "--initial-pair-only"]
 with open(OUT/"worker.log", "ab", buffering=0) as log:
     process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True)
 print("Worker PID:", process.pid, "— monitor heartbeat/log below; the worker lock prevents duplicate evaluation.")
@@ -146,7 +146,7 @@ def build(out, wheels=None, bundle=None):
     write_json(stage / "kaggle-nll-30.ipynb", nb)
     files = {str(p.relative_to(stage)): file_hash(p) for p in sorted(stage.rglob("*")) if p.is_file()}
     write_json(stage / "setup-manifest.json", dict(sha256=files, requests=30, jobs=150,
-                                                   protocol=POLICY, initial_jobs=60, maximum_jobs=150,
+                                                   protocol=POLICY, scan_control="manual", initial_jobs=60, maximum_jobs=150,
                                                    has_prepared_real_data=bool(bundle), has_offline_wheels=bool(wheels),
                                                    starts_gpu=False))
     archive = out / "sol-nll-setup.zip"

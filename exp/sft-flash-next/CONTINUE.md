@@ -8,7 +8,9 @@ The user started the interactive Kaggle Jupyter server on 2026-10-08.
 Real-data preparation and CPU preflight passed. The first GPU attempts
 revealed missing fast kernels, then BF16 chunk-shape sensitivity. Both are
 addressed; the corrected short-request smoke passed exactly. Longest-context
-capacity passed; the staged panel is in progress. See READINESS.md for current
+capacity passed; the source panel completed all 60 evaluations. The generated-thinking
+panel passed CPU preflight locally and on Kaggle. Its 512/256-only worker
+and external collector are running under a user-authorized new 120-minute window. See READINESS.md for current
 status. Do not start training or gameplay. Never commit the authenticated
 Jupyter URL; credentials live outside the repository.
 
@@ -27,7 +29,9 @@ reserve as part of this current task. Selection is NLL-only to conserve quota.
 - 30 requests: six per fold-0 game, two uniformly sampled from each within-game
   context-length tertile; seed 20261008. Games: sk48, sp80, tn36, cd82, ar25.
 - Staged counts: all 30 at 512, then all 30 at 256 (60 forwards). Stop if
-  256 weighted primary NLL is at most 1.05 × 512. Otherwise run all 30 at
+  256 weighted primary NLL is at most 1.05 × 512. The latest user instruction
+  defers further counts until both source and generated-thinking pairs finish.
+  The earlier automatic protocol would otherwise run all 30 at
   448, then 384, then 320 (150 forwards maximum). Complete
   multimodal contexts, no truncation. Only final teacher replies are scored.
 - Per-token NLL with rationale/code/tool-format/prose labels and game/level/

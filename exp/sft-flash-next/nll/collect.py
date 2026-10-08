@@ -64,6 +64,8 @@ def mirror_once(client, remote, local):
         raise ValueError("Collector run identity changed")
     write_json(local / "run.json", run)
     atomic_bytes(local / "manifest.json", client.file(f"{remote}/manifest.json"))
+    if run["config"].get("scan_control") == "manual":
+        atomic_bytes(local / "scope.json", client.file(f"{remote}/scope.json"))
     copied = 0
     # A result .json is the completion marker. Download and verify the array
     # before making the corresponding local marker visible.

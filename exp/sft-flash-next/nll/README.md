@@ -255,3 +255,19 @@ sampling weights and train-only expert maps. See the
 for the pinned revision, preparation command and separate thinking/tool loss
 budget. Use a separate bundle and result directory: source and variant runs
 have different manifest identities and must never be mixed.
+
+
+## Current two-panel decision protocol
+
+The source panel completed all 60 evaluations: primary NLL 0.85856035 at
+512 experts and 0.85335082 at 256 (-0.6068%). No intermediate counts ran.
+The generated-thinking panel runs 512 then 256 only, using
+`run.py --initial-pair-only` (also the rebuilt notebook default). After both
+panels finish, the user decides whether to expand either panel. A >5% increase
+is reported but does not automatically launch further evaluations in this mode.
+An explicitly requested expansion uses `--expand-counts 448 384 320` (or a
+chosen subset) and reuses verified initial-pair results. Restore `scope.json`
+with the other durable run files when resuming a manual run.
+
+The original Kaggle session's two-hour deadline is 2026-10-08 13:53:43 UTC.
+It must not be reset implicitly to start the second panel.
