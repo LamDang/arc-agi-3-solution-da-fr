@@ -133,11 +133,13 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
         chk = checks.check(text, rec.reply, context_text, (row.get("target_words") or 0) // 2)
         extra = {"flash_thinking": out["reasoning"], "finish_reason": out["finish_reason"],
                  "secs": out["secs"]}
-        if chk["ok"]:
-            break
-        log(f"[{rec.key}] attempt {attempts} rejected: {chk}")
+        if text.strip():
+            break  # accept any non-empty draft; the judge+refine loop fixes quality
+        log(f"[{rec.key}] attempt {attempts} empty, retrying")
     c = sum(u.get("cost") or 0 for u in usages)
-    row.update(thinking=text, status="ok" if chk.get("ok") else "rejected", attempts=attempts,
+    # No generation gate: a draft is never rejected for leaks, length or pasted
+    # code. `checks` is kept as advisory metadata and fed to the refine pass.
+    row.update(thinking=text, status="ok" if text.strip() else "empty", attempts=attempts,
                checks=chk, usage=usages, cost=round(c, 6), **extra)
     append_jsonl(out_path, row)
     u = usages[-1] if usages else {}

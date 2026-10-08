@@ -377,12 +377,15 @@ Answer with the thinking text only: no title, no {open} tags, no preface.
 """
 
 
-def refine_feedback(judge: dict) -> str:
+def refine_feedback(judge: dict, checks: dict | None = None) -> str:
     """The sol-judge verdicts for one record as reviewer feedback: a general
-    line per check (its `notes`) and the specific points to fix."""
+    line per check (its `notes`) and the specific points to fix. `checks` is the
+    generator's advisory checks (leaks, length, pasted code) — not a gate, but
+    surfaced here so the refine pass fixes them too."""
     w = judge.get("words") or {}
     c = judge.get("code") or {}
     f = judge.get("fact") or {}
+    chk = checks or {}
     general, specific = [], []
     if w.get("notes"):
         general.append(f"- Coverage of your stated reasoning: {w['notes']}")
@@ -402,6 +405,14 @@ def refine_feedback(judge: dict) -> str:
             specific.append(f'- Factual error: the draft says "{e.get("claim", "")}", but actually {e.get("actual", "")}')
         else:
             specific.append(f"- Factual error: {e}")
+    if chk.get("leaks"):
+        specific.append("- Wording: the draft reads as written after the fact (phrases like 'reconstruct the reasoning', "
+                        "'the agent', 'the summary'). Write it purely as your own in-the-moment thinking.")
+    if chk.get("too_short"):
+        specific.append("- Length: the draft is shorter than this step warrants; work the reasoning out more fully "
+                        "rather than summarizing.")
+    if (chk.get("pasted_code") or 0) > 0.5:
+        specific.append("- The draft pastes much of the code verbatim; describe what the code does instead of reproducing it.")
     out = []
     if general:
         out.append("General:\n" + "\n".join(general))

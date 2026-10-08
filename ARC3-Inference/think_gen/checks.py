@@ -5,7 +5,9 @@ import re
 LEAK_PATTERNS = {
     "summary": r"\bsummar(y|ies|ised|ized|ize)\b",
     "the_agent": r"\bthe agent\b",
-    "reconstruct": r"\breconstruct",
+    # only a meta-leak: reconstructing the reasoning/thinking/trace, not the
+    # in-game "reconstruct the sequence / the model / the state" a solver does.
+    "reconstruct": r"\breconstruct\w*\s+(the\s+|my\s+|your\s+)?(reasoning|thinking|rationale|trace|thought)",
     "given_output": r"\b(given|provided|shown|specified) (output|call|code|tool call)\b",
     "next_output_was": r"\b(next|final) output (was|is)\b",
     "note": r"\bnote outside\b",

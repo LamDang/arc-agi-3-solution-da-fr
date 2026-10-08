@@ -24,8 +24,10 @@ from . import checks, client, context, logs, prompts
 from .generate import append_jsonl, log, read_jsonl
 
 
-def has_issue(v: dict) -> bool:
-    """The judge flagged coverage, code consistency or fact grounding."""
+def has_issue(v: dict, checks: dict | None = None) -> bool:
+    """Something to fix: the judge flagged coverage, code consistency or fact
+    grounding, or the generator's advisory checks flagged a leak, a too-short
+    draft or pasted code (no longer a gate — handled here via refine feedback)."""
     w = v.get("words") or {}
     c = v.get("code") or {}
     f = v.get("fact") or {}
@@ -38,12 +40,15 @@ def has_issue(v: dict) -> bool:
         return True
     if "grounded" in f and not f["grounded"]:
         return True
+    chk = checks or {}
+    if chk.get("leaks") or chk.get("too_short") or (chk.get("pasted_code") or 0) > 0.5:
+        return True
     return False
 
 
 def refine_one(rec: logs.Record, row: dict, verdict: dict, args, out_path: Path) -> dict:
     draft = row.get("thinking") or ""
-    feedback = prompts.refine_feedback(verdict)
+    feedback = prompts.refine_feedback(verdict, row.get("checks"))
     msgs = context.history(rec.messages, {}, args.history)
     msgs.append({"role": "user", "content": prompts.refine_prompt(rec.reply, draft, feedback)})
     context_text = json.dumps(rec.messages, ensure_ascii=False) + json.dumps(rec.reply, ensure_ascii=False)
@@ -120,7 +125,7 @@ def main(argv=None):
             if key in done:
                 continue
             v = verdicts.get(key) or {}
-            if has_issue(v) and key in recs:
+            if has_issue(v, row.get("checks")) and key in recs:
                 todo.append((recs[key], row, v, out_path))
             else:  # judge passed it (or no verdict / record): keep the draft as-is
                 append_jsonl(out_path, {**row, "refined": False})
