@@ -17,7 +17,7 @@ class CallError(RuntimeError):
 def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
          tools: list | None = None, reasoning: bool = False, max_tokens: int = 8192,
          temperature: float = 0.7, retries: int = 6, timeout: int = 900,
-         json_mode: bool = False) -> dict:
+         json_mode: bool = False, tool_choice: str | dict = "none") -> dict:
     """One completion. Returns {"content", "reasoning", "usage", "provider",
     "finish_reason", "secs"}. Retries 429s, 5xx, network errors and empty
     answers with exponential backoff."""
@@ -33,7 +33,7 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         body["response_format"] = {"type": "json_object"}
     if tools:
         body["tools"] = tools
-        body["tool_choice"] = "none"
+        body["tool_choice"] = tool_choice
     if provider:
         body["provider"] = {"order": [provider], "allow_fallbacks": False}
     headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
@@ -59,15 +59,65 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         ch = j["choices"][0]
         msg = ch.get("message") or {}
         content = msg.get("content") or ""
-        if not content.strip() and ch.get("finish_reason") != "length":
+        if not content.strip() and not msg.get("tool_calls") and ch.get("finish_reason") != "length":
             last = f"empty answer (finish {ch.get('finish_reason')})"
             continue
         return {
             "content": content,
             "reasoning": msg.get("reasoning") or "",
+            "tool_calls": msg.get("tool_calls") or [],
             "usage": j.get("usage") or {},
             "provider": j.get("provider"),
             "finish_reason": ch.get("finish_reason"),
             "secs": round(time.time() - t, 1),
         }
+    raise CallError(f"gave up after {retries + 1} attempts: {last}")
+
+
+OPENAI_URL = "https://api.openai.com/v1/responses"
+
+
+def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str = "high",
+                     tools: list | None = None, json_mode: bool = False,
+                     max_output_tokens: int = 32000, retries: int = 6, timeout: int = 900) -> dict:
+    """One OpenAI Responses call from chat-completions messages (images kept),
+    through the harness's converter. Returns {"content", "usage", "secs"};
+    usage carries OpenAI's token counts."""
+    from inference.utils.openai_compat import chat_response_from_responses, responses_input_from_messages
+    body = {"model": model, "input": responses_input_from_messages(messages), "store": False,
+            "reasoning": {"effort": effort}, "max_output_tokens": max_output_tokens}
+    if tools:
+        body["tools"] = [{"type": "function", "name": t["function"]["name"],
+                          "description": t["function"].get("description") or "",
+                          "parameters": t["function"].get("parameters") or {"type": "object", "properties": {}},
+                          "strict": bool(t["function"].get("strict", False))} for t in tools]
+        body["tool_choice"] = "none"
+    if json_mode:
+        body["text"] = {"format": {"type": "json_object"}}
+    headers = {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}
+    last = None
+    for attempt in range(retries + 1):
+        if attempt:
+            time.sleep(min(120, 2 ** attempt) * (0.5 + random.random()))
+        t = time.time()
+        try:
+            r = requests.post(OPENAI_URL, json=body, headers=headers, timeout=timeout)
+        except requests.RequestException as e:
+            last = repr(e)
+            continue
+        if r.status_code == 429 or r.status_code >= 500:
+            last = f"HTTP {r.status_code}: {r.text[:300]}"
+            continue
+        if r.status_code != 200:
+            raise CallError(f"HTTP {r.status_code}: {r.text[:500]}")
+        j = r.json()
+        chat = chat_response_from_responses(j)
+        if not chat.get("choices"):
+            last = f"no output: {str(chat.get('error'))[:300]}"
+            continue
+        content = chat["choices"][0]["message"].get("content") or ""
+        if not content.strip():
+            last = "empty answer"
+            continue
+        return {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1)}
     raise CallError(f"gave up after {retries + 1} attempts: {last}")
