@@ -281,7 +281,9 @@ Above is the full context an agent had at one step of a game it was playing, up 
 
 List only clear factual errors, each as the wrong claim and what the context actually shows. Do not list matters of style, points the thinking merely leaves out, or things that are genuinely uncertain from the context. Judge only against the context above, never against what a later turn would reveal.
 
-When the thinking contains no factual errors, this is the expected result: return an empty list `[]` for `errors` and set `grounded` to true. Only set `grounded` to false when you list at least one error.
+The thinking is exploratory working, not a finished statement: it often puts forward a figure or reading, tests it, and corrects it a few lines later. Do not flag a claim that the thinking itself later revises, retracts or corrects. Judge only the claims the thinking still stands on by the end — the observations and conclusions its final plan rests on. A wrong value that the thinking catches and fixes is the process working, not an error.
+
+When the thinking contains no such standing errors, this is the expected result: return an empty list `[]` for `errors` and set `grounded` to true. Only set `grounded` to false when you list at least one error.
 
 Answer with JSON only:
 {{"errors": [{{"claim": "...", "actual": "..."}}], "grounded": true, "notes": "one sentence"}}"""
@@ -337,3 +339,80 @@ def judge_fact_prompt(generated: str) -> str:
 
 def judge_call_prompt(sol_code: str, regen_code: str) -> str:
     return JUDGE_CALL.format(sol_code=sol_code.rstrip(), regen_code=regen_code.rstrip())
+
+
+# Refine pass: the student revises its own draft from the sol-judge feedback,
+# keeping what the feedback endorses and fixing what it raises. Appended after
+# the agent's context, like the b4 reconstruct prompt.
+REFINE = """\
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
+
+The conversation above is a game-playing agent's run, up to the moment it produced its next output. Its thinking for this step was missing and you wrote a first draft of it. A reviewer who could see the full game state checked that draft. Rewrite the thinking, keeping everything the draft got right and fixing only what the reviewer raises.
+
+The next output was a `python` call. With the code, the agent stated:
+
+<reasoning>
+{reasoning}
+</reasoning>
+
+<description>
+{description}
+</description>
+
+<code>
+{code}
+</code>
+
+Your first draft of the thinking:
+<draft>
+{draft}
+</draft>
+
+Reviewer feedback:
+{feedback}
+
+Rewrite the thinking so that it keeps the draft's correct observations, derivations and plan, and fixes the points above: correct any wrong coordinate, count or mechanic; work in the points from your own account that the draft missed; and make the plan match the code. Keep the draft's first-person voice, its working style with the checks and corrections of real work, and about its length. Fold the corrected facts in as if you had them right from the start: do not mention the draft, the feedback, the reviewer, or being corrected.
+
+Answer with the thinking text only: no title, no {open} tags, no preface.
+"""
+
+
+def refine_feedback(judge: dict) -> str:
+    """The sol-judge verdicts for one record as reviewer feedback: a general
+    line per check (its `notes`) and the specific points to fix."""
+    w = judge.get("words") or {}
+    c = judge.get("code") or {}
+    f = judge.get("fact") or {}
+    general, specific = [], []
+    if w.get("notes"):
+        general.append(f"- Coverage of your stated reasoning: {w['notes']}")
+    if c.get("notes"):
+        general.append(f"- Match with the code you ran: {c['notes']}")
+    if f.get("notes"):
+        general.append(f"- Factual grounding against the board: {f['notes']}")
+    for p, ok in zip(w.get("points") or [], w.get("covered") or []):
+        if not ok:
+            specific.append(f"- Missing from the draft (a point of your own reasoning): {p}")
+    for con in w.get("contradictions") or []:
+        specific.append(f"- Contradicts your reasoning: {con}")
+    for d in c.get("disagreements") or []:
+        specific.append(f"- Plan does not match the code: {d}")
+    for e in f.get("errors") or []:
+        if isinstance(e, dict):
+            specific.append(f'- Factual error: the draft says "{e.get("claim", "")}", but actually {e.get("actual", "")}')
+        else:
+            specific.append(f"- Factual error: {e}")
+    out = []
+    if general:
+        out.append("General:\n" + "\n".join(general))
+    out.append("Specific points to fix:\n" + ("\n".join(specific) if specific else "- (nothing specific; tighten the draft)"))
+    return "\n\n".join(out)
+
+
+def refine_prompt(reply: dict, draft: str, feedback: str) -> str:
+    from .context import THINK_OPEN
+    a = python_args(reply)
+    return REFINE.format(
+        reasoning=(a.get("reasoning") or "").strip(), description=(a.get("description") or "").strip(),
+        code=(a.get("code") or "").rstrip(), draft=draft.strip(), feedback=feedback.strip(),
+        open=THINK_OPEN)
