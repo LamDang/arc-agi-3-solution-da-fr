@@ -11,10 +11,13 @@ the call that followed, and the summary when there is one. It is method 2
 [distillation-methods.md](../experiments/teacher-reasoning/distillation-methods.md),
 with the reconstructor prompt (approach B).
 
-Calibration comes first: qwen3.8-max returns its real thinking, so on
-`runs/base-max-dfranzen` the generated thinking can be compared with what
-the teacher actually thought. Results and the evaluation method:
-[think-gen-calibration.md](../experiments/teacher-reasoning/think-gen-calibration.md).
+Sol's real thinking is hidden, so the generated thinking is scored and
+improved by a judge-and-refine loop on gpt-6.1-sol rather than diffed against a
+ground truth. The four checks, the refine pass, the held-out results and the
+cost analysis are in
+[sol-judge.md](../experiments/teacher-reasoning/sol-judge.md); the whole thing
+runs as DVC stages (`dvc repro tg_final`, params under `think_gen:` in
+`params.yaml`).
 
 ## Pipeline
 
@@ -22,36 +25,24 @@ the teacher actually thought. Results and the evaluation method:
 | --- | --- | --- |
 | read the request logs into one record per model response | `logs.py` | - |
 | generate the thinking, game by game, request by request | `generate.py` | `<out>/<game>.jsonl` |
-| calibration only: judge generated against real thinking | `judge.py` | `<out>/judge/` |
-| judge where the real thinking is hidden (gpt-6.1-sol): 4 checks | `judge_sol.py` | `<out>/judge_sol/` |
+| judge the thinking (gpt-6.1-sol): coverage, code, fact, call | `judge_sol.py` | `<out>/judge_sol/` (or `--out`) |
 | refine from the judge feedback (second pass) | `refine.py` | a new `<out>` |
-| read it side by side | `page.py` | an HTML page |
+| pick an evaluation manifest from a run | `evalset.py` | a manifest JSON |
 | build SFT samples | `assemble.py` | one JSON line per history stretch |
 
-For the Sol judge (the four checks, the fact-check self-correction rule, the
-refine loop and the cost/caching analysis for the full run) see
-[sol-judge.md](../experiments/teacher-reasoning/sol-judge.md).
-
 ```bash
-# calibration on qwen3.8-max (real thinking available), two arms
-uv run --no-sync python -m think_gen.generate --run runs/base-max-dfranzen \
-  --out runs/think-calib-b1/sum --games ft09 lp85 vc33 --limit 30 --summary synth
-uv run --no-sync python -m think_gen.generate --run runs/base-max-dfranzen \
-  --out runs/think-calib-b1/nosum --games ft09 lp85 vc33 --limit 30 --summary none
-uv run --no-sync python -m think_gen.judge runs/think-calib-b1/sum runs/think-calib-b1/nosum
-uv run --no-sync python -m think_gen.page --run runs/base-max-dfranzen \
-  --arm sum=runs/think-calib-b1/sum --arm nosum=runs/think-calib-b1/nosum \
-  -o runs/think-calib-b1/page.html
+# the 2-refine-pass pipeline on an evaluation manifest, as DVC stages
+dvc repro tg_final      # params.yaml think_gen.manifest selects the sample
 
-# GPT-6.1 Sol
+# or a single generate + SFT assemble by hand
 uv run --no-sync python -m think_gen.generate --run runs/base-gpt61sol-dfranzen \
   --out runs/think-sol-b1 --summary teacher
 uv run --no-sync python -m think_gen.assemble --run runs/base-gpt61sol-dfranzen \
   --thinking runs/think-sol-b1 -o runs/think-sol-b1/sft.jsonl --won-only
 ```
 
-`dvc pull runs/base-gpt61sol-dfranzen.dvc runs/base-max-dfranzen.dvc` fetches
-the two runs. Needs `OPENROUTER_API_KEY`.
+`dvc pull runs/base-gpt61sol-dfranzen.dvc` fetches the run. Needs
+`OPENROUTER_API_KEY` (flash) and `OPENAI_API_KEY` (the gpt-6.1-sol judge).
 
 ## How a request is generated
 
@@ -90,36 +81,13 @@ the two runs. Needs `OPENROUTER_API_KEY`.
   when it has one. A request with no summary gets an instruction to keep
   the thinking short. A request where the teacher spent 0 reasoning tokens
   gets empty thinking, as the teacher had. Length is otherwise left to flash.
-- **Checks** (`checks.py`). A thinking text is retried, up to 3 attempts,
-  when:
-  - it mentions a summary, "the agent", reconstructing, a given output, or
-    `[thinking]` / `<think>` tags;
-  - more than half of the call's code lines (20+ characters) appear in it
-    verbatim.
-
-  A text still failing after the last attempt is kept with
-  `status: rejected`.
-
-## Calibration
-
-`--summary synth` writes a summary from the teacher's real thinking with
-flash, in the style of real GPT-6.1 Sol summaries: four of them, taken from
-`--style-run`, are shown as examples. The calibration then generates
-thinking from these summaries.
-
-`judge.py` gives the real and the generated thinking to flash, with its
-reasoning on. The judge:
-
-- lists the real thinking's key points (at most 10) and marks which ones
-  the generated thinking covers;
-- lists the generated thinking's contradictions with the real thinking or
-  the output;
-- says whether the generated thinking leads to the output, and whether it
-  leaks.
-
-It reports mean coverage, contradictions per record, the share leading to
-the output, the leak rate and the median length ratio (generated over real
-characters).
+- **Checks** (`checks.py`) are advisory, not a gate: a draft is never
+  rejected. `check` flags a leak (phrasing that reads as written after the
+  fact — reconstructing the *reasoning*, "the agent", a summary, a given
+  output, `[thinking]`/`<think>` tags), a too-short draft, or more than half
+  the call's code lines (20+ characters) pasted verbatim. The flags are
+  recorded on the row and fed to the refine pass as feedback, so the
+  judge-and-refine loop fixes them instead of the record being dropped.
 
 ## SFT format
 
@@ -135,7 +103,7 @@ that sample holds every turn of the stretch once.
   key the Kaggle notebook sends to SGLang.
 - `chat_template_kwargs` is `{"enable_thinking": true, "preserve_thinking": true}`.
 - `turn_status` gives each assistant turn's status so training can mask
-  turns: `ok`, `rejected`, `teacher_empty` or `missing`.
+  turns: `ok`, `teacher_empty` or `missing`.
 - The harness's private `_arc3_control` keys and `reasoning_details` are
   dropped. A `content` of null becomes `""`.
 

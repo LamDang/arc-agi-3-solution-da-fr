@@ -2,9 +2,8 @@
 
 How we score the thinking that `think_gen` generates for GPT-6.1 Sol, and the
 refine loop that uses those scores to improve it. Sol's real reasoning is
-hidden, so unlike the qwen3.8-max calibration
-([think-gen-calibration.md](think-gen-calibration.md)) there is nothing to diff
-against. Written 2026-10-08. Code: [`think_gen/judge_sol.py`](../../think_gen/judge_sol.py),
+hidden, so there is nothing to diff against — the judge scores the thinking on
+four indirect checks instead. Written 2026-10-08. Code: [`think_gen/judge_sol.py`](../../think_gen/judge_sol.py),
 [`think_gen/refine.py`](../../think_gen/refine.py), prompts in
 [`think_gen/prompts.py`](../../think_gen/prompts.py).
 
@@ -95,25 +94,26 @@ gain.
 
 The same two-pass pipeline, run through the DVC stages on the frozen 30-request
 fold-0 NLL panel (`data/sol-nll-fold0-30`; games ar25, cd82, sk48, sp80, tn36 —
-none tuned on). 27 of 30 produced usable thinking (3 rejected by the length/leak
-gate); results on those 27:
+none tuned on). All 30 produced usable thinking (the generation gate was
+removed, so nothing is dropped; quality is handled by the refine loop):
 
 | metric | draft | refine 1 | refine 2 (final) |
 | --- | ---: | ---: | ---: |
-| coverage of Sol's words | 0.89 | 0.95 | **0.99** |
-| code leads to call | 0.96 | 1.00 | 1.00 |
-| code disagreements / record | 0.04 | 0.00 | 0.04 |
-| fact grounded | 0.44 | 0.85 | **0.93** |
-| fact errors / record | 0.96 | 0.19 | **0.07** |
-| call functionally same | – | – | 0.82 (27) |
+| coverage of Sol's words | 0.90 | 0.95 | **0.99** |
+| code leads to call | 0.97 | 1.00 | 1.00 |
+| code disagreements / record | 0.03 | 0.00 | 0.03 |
+| fact grounded | 0.40 | 0.83 | **0.93** |
+| fact errors / record | 1.00 | 0.20 | **0.07** |
+| call functionally same | – | – | 0.80 (30) |
 
-Out of sample the loop behaves as on dev: fact grounding 0.44 → 0.93, coverage
-0.89 → 0.99, errors ~1 → 0.07 per record. Run with
+Out of sample the loop behaves as on dev: fact grounding 0.40 → 0.93, coverage
+0.90 → 0.99, errors ~1 → 0.07 per record. Run with
 `dvc repro tg_final` (params `think_gen.manifest` =
-`experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json`). The five flash
+`experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json`). Flash
 call-regenerations that hit provider 429s under concurrency were re-run at low
 concurrency; the call check is the one metric the refine does not move, as on
-dev.
+dev. The generated-thinking copy of the panel is
+[`data/sol-nll-fold0-30-genthink`](../../../data/sol-nll-fold0-30-genthink/README.md).
 
 ## Cost of the full 25-game dataset
 
