@@ -1,0 +1,36 @@
+{
+ "dataset": "sol-nll-fold0-30-genthink",
+ "derived_from": {
+  "dataset": "data/sol-nll-fold0-30",
+  "requests_md5": "3ecfb4e5e42f2f29e10ed329babf7f57"
+ },
+ "thinking": {
+  "source": "think_gen refine-2 (generated, 2-pass judge+refine)",
+  "run_dir": "ARC3-Inference/runs/think-sol-nll30/refine2",
+  "manifest": "ARC3-Inference/experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json",
+  "pipeline_commit": "fa2a5853ee9f45dba9e5950fc31936bd21e02573",
+  "replaced": "final assistant turn's reasoning_content; context and code-only tool call unchanged"
+ },
+ "counts": {
+  "source": 30,
+  "included": 27,
+  "excluded": 3
+ },
+ "excluded": [
+  {
+   "sample_id": "sk48-d8078629-r42",
+   "key": "sk48-d8078629_p0#42",
+   "reason": "no status==ok generated thinking (rejected by length/leak gate)"
+  },
+  {
+   "sample_id": "cd82-fb555c5d-r26",
+   "key": "cd82-fb555c5d_p0#26",
+   "reason": "no status==ok generated thinking (rejected by length/leak gate)"
+  },
+  {
+   "sample_id": "sk48-d8078629-r99",
+   "key": "sk48-d8078629_p0#99",
+   "reason": "no status==ok generated thinking (rejected by length/leak gate)"
+  }
+ ]
+}
