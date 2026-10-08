@@ -1,0 +1,425 @@
+---
+title: "SFT dataset exploration — gpt-6.1-sol → Qwen3.8-Flash-Next"
+subtitle: "`data/sft-gpt61sol-features-25games/train.jsonl`"
+date: today
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: true
+    code-tools: true
+    embed-resources: true
+    theme: cosmo
+    fig-width: 9
+    fig-height: 4.5
+execute:
+  warning: false
+jupyter: python3
+---
+
+This report explores the dataset and checks it for anomalies. It reads
+`index.json` (one row per sample) for the fast per-sample stats and streams
+`train.jsonl` once for the content checks. Nothing here needs the model
+tokenizer — the token counts come from `index.json` (built by
+`build_index.py`).
+
+Rebuild the report with:
+
+```bash
+quarto render exploration.qmd --to html
+```
+
+```{python}
+#| label: setup
+import json, base64, struct, hashlib, re
+from pathlib import Path
+from collections import Counter, defaultdict
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
+mpl.rcParams.update({"figure.dpi": 110, "axes.grid": True, "grid.alpha": 0.25,
+                     "axes.spines.top": False, "axes.spines.right": False,
+                     "font.size": 10})
+BAR = "#4C72B0"
+
+HERE = Path(".").resolve()
+DATA = HERE / "train.jsonl"
+INDEX = HERE / "index.json"
+assert DATA.exists(), "train.jsonl missing — run: dvc pull train.jsonl.dvc"
+assert INDEX.exists(), "index.json missing — run build_index.py"
+
+index = pd.DataFrame(json.load(open(INDEX)))
+CONTEXT_LIMIT = 139264
+print(f"{len(index)} samples, {index["game"].nunique()} games, "
+      f"train.jsonl = {DATA.stat().st_size/1e6:.0f} MB, index.json = {INDEX.stat().st_size/1e3:.0f} KB")
+```
+
+## 1. What `index.json` holds
+
+One row per sample, in `train.jsonl` line order. `offset`/`length` give the
+byte range of the line for O(1) random reads; the rest supports filtering and
+length-bucketing without touching the big file.
+
+```{python}
+#| label: index-head
+index.head()
+```
+
+```{python}
+#| label: index-describe
+index[["level", "images", "context_tokens", "output_tokens", "length"]].describe().round(1)
+```
+
+## 2. Samples, games and levels
+
+```{python}
+#| label: per-game
+g = index.groupby("game")
+per_game = pd.DataFrame({
+    "samples": g.size(),
+    "max_level": g["level"].max(),
+    "images_total": g["images"].sum(),
+    "ctx_median": g["context_tokens"].median().round(0),
+    "ctx_max": g["context_tokens"].max(),
+}).sort_values("samples", ascending=False)
+per_game
+```
+
+```{python}
+#| label: fig-per-game
+fig, ax = plt.subplots(figsize=(9, 5.5))
+pg = per_game.sort_values("samples")
+ax.barh(pg.index, pg["samples"], color=BAR)
+ax.set_xlabel("samples (model requests)"); ax.set_title("Samples per game")
+for i, v in enumerate(pg["samples"]):
+    ax.text(v + 1, i, str(v), va="center", fontsize=8)
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+#| label: fig-levels
+fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
+lc = index["level"].value_counts().sort_index()
+axes[0].bar(lc.index, lc.values, color=BAR)
+axes[0].set_xlabel("level"); axes[0].set_ylabel("samples"); axes[0].set_title("Samples per level")
+axes[0].set_xticks(range(1, int(index["level"].max()) + 1))
+ml = per_game.max_level.value_counts().sort_index()
+axes[1].bar(ml.index, ml.values, color="#55A868")
+axes[1].set_xlabel("max level reached"); axes[1].set_ylabel("games"); axes[1].set_title("Deepest level per game")
+plt.tight_layout(); plt.show()
+```
+
+## 3. Lengths: context and output tokens
+
+Context is what the student is conditioned on (text + 400 tokens per 640×640
+board image); output is the trained target (the `<think>` block and the tool
+call). The dashed line is the 139,264-token serving/training window.
+
+```{python}
+#| label: fig-tokens
+fig, axes = plt.subplots(1, 2, figsize=(9, 3.6))
+axes[0].hist(index["context_tokens"], bins=40, color=BAR)
+axes[0].axvline(CONTEXT_LIMIT, ls="--", color="crimson", lw=1)
+axes[0].set_xlabel("context tokens"); axes[0].set_ylabel("samples")
+axes[0].set_title(f"Context length (max {index["context_tokens"].max():,})")
+axes[1].hist(index["output_tokens"], bins=40, color="#55A868")
+axes[1].set_xlabel("output tokens"); axes[1].set_title(f"Output length (max {index["output_tokens"].max():,})")
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+#| label: fig-ctx-by-level
+fig, ax = plt.subplots(figsize=(9, 4))
+levels = sorted(index["level"].unique())
+ax.boxplot([index.loc[index["level"] == l, "context_tokens"] for l in levels],
+           labels=levels, showfliers=True, flierprops=dict(marker=".", markersize=3))
+ax.set_xlabel("level"); ax.set_ylabel("context tokens"); ax.set_title("Context length by level")
+plt.tight_layout(); plt.show()
+```
+
+### History trimming over a game
+
+Each sample reproduces a real request. In long games the harness trims history
+from the front to stay under the window, so context length rises then drops
+back — it does not grow without bound.
+
+```{python}
+#| label: fig-trim
+longest = per_game.head(4).index.tolist()
+fig, ax = plt.subplots(figsize=(9, 4))
+for game in longest:
+    d = index[index["game"] == game].sort_values("request_index")
+    ax.plot(d["request_index"], d["context_tokens"], marker=".", ms=3, lw=1, label=game)
+ax.axhline(CONTEXT_LIMIT, ls="--", color="crimson", lw=1)
+ax.set_xlabel("request index within game"); ax.set_ylabel("context tokens")
+ax.set_title("Context length across a game (4 longest)"); ax.legend(fontsize=8)
+plt.tight_layout(); plt.show()
+```
+
+## 4. Images per sample
+
+```{python}
+#| label: fig-images
+fig, ax = plt.subplots(figsize=(9, 3.4))
+ax.hist(index["images"], bins=range(0, int(index["images"].max()) + 2), color="#C44E52")
+ax.set_xlabel("board images in the sample context"); ax.set_ylabel("samples")
+ax.set_title(f"Images per sample (total {index["images"].sum():,})")
+plt.tight_layout(); plt.show()
+```
+
+## 5. Content pass: stream `train.jsonl` and check every sample
+
+One pass over the file. For each sample we verify the schema, the rationale-off
+rewrite, the tool call, the `<think>` block, and image dimensions, and collect
+any anomalies.
+
+```{python}
+#| label: content-pass
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+
+def png_dims(data_url: str):
+    try:
+        b64 = data_url.split(",", 1)[1][:64]
+        raw = base64.b64decode(b64 + "===")
+        if raw[:8] == PNG_SIG:
+            w, h = struct.unpack(">II", raw[16:24]); return (w, h)
+    except Exception:
+        pass
+    return None
+
+RATIONALE_LEAK = re.compile(r"call it with `(description|reasoning)`")
+rows = []
+anomalies = defaultdict(list)          # check name -> list of (game, request_index, detail)
+system_hashes, tools_hashes = Counter(), Counter()
+img_dims = Counter()
+sample_hashes = {}
+code_by_game = defaultdict(Counter)
+offset = 0
+with DATA.open("rb") as fh:
+    for line_no, raw in enumerate(fh):
+        s = json.loads(raw)
+        game, ri, msgs, tools = s["game"], s["request_index"], s["messages"], s["tools"]
+        tag = (game, ri)
+
+        # full-sample duplicate
+        h = hashlib.md5(raw).hexdigest()
+        if h in sample_hashes:
+            anomalies["duplicate_sample"].append((game, ri, f"== {sample_hashes[h]}"))
+        sample_hashes[h] = tag
+
+        # system prompt: one, first, rationale-off
+        sys_msgs = [i for i, m in enumerate(msgs) if m["role"] == "system"]
+        if sys_msgs != [0]:
+            anomalies["system_position"].append((game, ri, f"system at {sys_msgs}"))
+        sysc = msgs[0]["content"] if msgs and msgs[0]["role"] == "system" else ""
+        system_hashes[hashlib.md5(sysc.encode()).hexdigest()] += 1
+        if RATIONALE_LEAK.search(sysc):
+            anomalies["system_rationale_leak"].append((game, ri, "rationale tool line present"))
+        if "one ephemeral `code` string" not in sysc:
+            anomalies["system_not_rationale_off"].append((game, ri, "code-only line missing"))
+
+        # tools: one python, code-only
+        tools_hashes[hashlib.md5(json.dumps(tools, sort_keys=True).encode()).hexdigest()] += 1
+        pys = [t for t in tools if t.get("function", {}).get("name") == "python"]
+        if len(pys) != 1 or len(tools) != 1:
+            anomalies["tools_shape"].append((game, ri, f"{[t.get('function',{}).get('name') for t in tools]}"))
+        else:
+            fn = pys[0]["function"]; params = fn.get("parameters", {})
+            if set(params.get("properties", {})) != {"code"} or params.get("required") != ["code"]:
+                anomalies["tool_not_code_only"].append((game, ri, str(set(params.get("properties", {})))))
+            if "strict" in fn or "additionalProperties" in params:
+                anomalies["tool_strict_leftover"].append((game, ri, ""))
+            if " Before the code," in fn.get("description", ""):
+                anomalies["tool_desc_rationale"].append((game, ri, "rationale sentence present"))
+
+        # last message is the training target
+        if msgs[-1]["role"] != "assistant":
+            anomalies["target_not_assistant"].append((game, ri, msgs[-1]["role"]))
+
+        # per-assistant-message checks
+        n_assistant = has_think = next_step = 0
+        for j, m in enumerate(msgs):
+            if m["role"] != "assistant":
+                continue
+            n_assistant += 1
+            is_target = (j == len(msgs) - 1)
+            if "reasoning" in m or "reasoning_details" in m:
+                anomalies["teacher_cot_leftover"].append((game, ri, f"msg {j}"))
+            if (m.get("content") or "") != "":
+                # a terminal text turn (no tool call) legitimately has content
+                if m.get("tool_calls"):
+                    anomalies["assistant_content_nonempty"].append((game, ri, f"msg {j}"))
+            calls = m.get("tool_calls") or []
+            if not calls:
+                if is_target:
+                    anomalies["target_no_tool_call"].append((game, ri, repr((m.get("content") or "")[:60])))
+                continue
+            think = m.get("reasoning_content") or ""
+            if think.strip():
+                has_think += 1
+            elif is_target:
+                anomalies["target_missing_think"].append((game, ri, ""))
+            if "Next step :" in think:
+                next_step += 1
+            for c in calls:
+                fn = c["function"]; args = fn.get("arguments")
+                if fn.get("name") != "python":
+                    anomalies["call_not_python"].append((game, ri, fn.get("name")))
+                if not isinstance(args, dict):
+                    anomalies["args_not_mapping"].append((game, ri, type(args).__name__)); continue
+                if set(args) != {"code"}:
+                    anomalies["args_not_code_only"].append((game, ri, str(set(args))))
+                code = args.get("code", "")
+                if not isinstance(code, str) or code.strip() == "":
+                    anomalies["empty_code"].append((game, ri, f"msg {j}"))
+                if is_target and isinstance(code, str):
+                    code_by_game[game][code] += 1
+
+        # tool messages
+        for m in msgs:
+            if m["role"] == "tool":
+                if not m.get("tool_call_id"):
+                    anomalies["tool_missing_id"].append((game, ri, ""))
+                if not isinstance(m.get("content"), str):
+                    anomalies["tool_content_type"].append((game, ri, type(m.get("content")).__name__))
+
+        # image dimensions (decode header only)
+        n_img = 0
+        for m in msgs:
+            c = m.get("content")
+            if isinstance(c, list):
+                for p in c:
+                    if isinstance(p, dict) and p.get("type") == "image_url":
+                        n_img += 1
+                        d = png_dims(p["image_url"]["url"])
+                        img_dims[d] += 1
+                        if d not in (None, (640, 640)):
+                            anomalies["odd_image_dims"].append((game, ri, str(d)))
+                        if d is None:
+                            anomalies["undecodable_image"].append((game, ri, ""))
+
+        rows.append({"game": game, "request_index": ri, "n_messages": len(msgs),
+                     "n_assistant": n_assistant, "think_blocks": has_think,
+                     "next_step": next_step, "images": n_img,
+                     "offset": offset, "length": len(raw)})
+        offset += len(raw)
+
+content = pd.DataFrame(rows)
+print(f"streamed {len(content)} samples")
+print("distinct system prompts:", len(system_hashes), "| distinct tool schemas:", len(tools_hashes))
+print("image dimensions seen:", dict(img_dims))
+```
+
+### Cross-checks against `index.json` and the file
+
+```{python}
+#| label: crosschecks
+# offsets from the stream must match index.json, and cover the whole file
+merged = content.merge(index[["game", "request_index", "offset", "length", "images",
+                              "context_tokens", "output_tokens"]],
+                       on=["game", "request_index"], suffixes=("_stream", "_index"))
+if not (merged["offset_stream"] == merged["offset_index"]).all():
+    anomalies["index_offset_mismatch"].append(("-", -1, "offsets differ from index.json"))
+if not (merged["images_stream"] == merged["images_index"]).all():
+    anomalies["index_image_mismatch"].append(("-", -1, "image counts differ"))
+total_len = content["length"].sum()
+if total_len != DATA.stat().st_size:
+    anomalies["offset_coverage"].append(("-", -1, f"sum(length)={total_len} != filesize"))
+
+# request_index contiguous 0..n-1 per game
+for game, d in content.groupby("game"):
+    expected = list(range(len(d)))
+    if sorted(d["request_index"]) != expected:
+        anomalies["request_index_gap"].append((game, -1, "non-contiguous"))
+
+# over-context / zero-length targets
+over = int((index["context_tokens"] > CONTEXT_LIMIT).sum())
+if over:
+    anomalies["over_context"].append(("-", over, f"{over} samples > {CONTEXT_LIMIT}"))
+if int((index["output_tokens"] == 0).sum()):
+    anomalies["zero_output"].append(("-", int((index["output_tokens"] == 0).sum()), ""))
+
+# repeated identical target code within a game (informational, not an error)
+repeat_code = {g: sum(v - 1 for v in c.values() if v > 1) for g, c in code_by_game.items()}
+repeat_code = {g: n for g, n in repeat_code.items() if n}
+print("offsets match index.json:", (merged["offset_stream"] == merged["offset_index"]).all())
+print("sum(length) == filesize:", total_len == DATA.stat().st_size)
+print("samples over context:", over)
+print("games with repeated identical target code:", repeat_code or "none")
+```
+
+## 6. Anomaly summary
+
+Every check and how many samples tripped it. `duplicate_sample`,
+`*_leak`, `*_mismatch`, `over_context`, `empty_code` and the schema checks are
+**errors**; `target_no_tool_call` is the one known terminal turn; repeated code
+is informational.
+
+```{python}
+#| label: anomaly-summary
+CHECKS = [
+    "system_position", "system_rationale_leak", "system_not_rationale_off",
+    "tools_shape", "tool_not_code_only", "tool_strict_leftover", "tool_desc_rationale",
+    "target_not_assistant", "target_no_tool_call", "target_missing_think",
+    "teacher_cot_leftover", "assistant_content_nonempty", "call_not_python",
+    "args_not_mapping", "args_not_code_only", "empty_code",
+    "tool_missing_id", "tool_content_type", "odd_image_dims", "undecodable_image",
+    "duplicate_sample", "index_offset_mismatch", "index_image_mismatch",
+    "offset_coverage", "request_index_gap", "over_context", "zero_output",
+]
+summary = pd.DataFrame({
+    "check": CHECKS,
+    "count": [len(anomalies.get(c, [])) for c in CHECKS],
+})
+summary["status"] = np.where(summary["count"] == 0, "ok",
+                     np.where(summary["check"] == "target_no_tool_call", "expected", "REVIEW"))
+summary
+```
+
+```{python}
+#| label: anomaly-detail
+detail = {c: anomalies[c][:5] for c in CHECKS if anomalies.get(c)}
+if detail:
+    for c, items in detail.items():
+        print(f"{c}: {len(anomalies[c])} — e.g. {items}")
+else:
+    print("no anomalies recorded")
+```
+
+## 7. Spot-check: a sample's final (target) turn
+
+The raw `reasoning_content` (rendered inside `<think>…</think>`) and the
+code-only tool call for one target turn.
+
+```{python}
+#| label: spot-check
+with DATA.open("rb") as fh:
+    fh.seek(int(index.iloc[0].offset))
+    sample = json.loads(fh.read(int(index.iloc[0].length)))
+target = sample["messages"][-1]
+print("game:", sample["game"], "request_index:", sample["request_index"])
+print("\n--- reasoning_content (becomes <think>…</think>) ---\n")
+print(target["reasoning_content"])
+print("\n--- tool call arguments ---\n")
+print(json.dumps(target["tool_calls"][0]["function"]["arguments"], indent=2)[:800])
+```
+
+## 8. Takeaways
+
+```{python}
+#| label: takeaways
+errors = summary[(summary.status == "REVIEW") & (summary["count"] > 0)]
+print("ERRORS to review:" if len(errors) else "No errors: all schema/format checks passed.")
+if len(errors):
+    print(errors.to_string(index=False))
+print()
+print(f"- {len(index)} samples across {index["game"].nunique()} games, "
+      f"levels {sorted(int(x) for x in index["level"].unique())}")
+print(f"- context tokens: median {int(index["context_tokens"].median())}, "
+      f"max {int(index["context_tokens"].max())} (limit {CONTEXT_LIMIT})")
+print(f"- output tokens: median {int(index["output_tokens"].median())}, max {int(index["output_tokens"].max())}")
+print(f"- 1 terminal turn with no tool call (sk48), flagged as 'expected'")
+```

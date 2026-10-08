@@ -1,1 +1,2 @@
 - Running, scoring, or inspecting a local eval through OpenRouter (setup, game files, limits, concurrency, run artifacts, token spend, saving and reproducing runs with DVC): see `ARC3-Inference/LOCAL_EVAL.md`.
+- Formatting harness games as SFT data for Qwen3.8-Flash-Next, or checking its chat template (request-log conversion, loss masks, template kwargs, `scripts/check_chat_template.py`): see `ARC3-Inference/experiments/sft-format/README.md`.
