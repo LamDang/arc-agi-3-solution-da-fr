@@ -82,3 +82,14 @@ Jupyter connection. Start the external collector, then authorize the disabled
 launch cell. The worker runs production numerical/chunk/capacity checks before
 continuing the same frozen panel. GPU correctness, actual throughput/VRAM,
 model selection and training capacity remain unmeasured.
+
+## Repository dataset
+
+The exact 30 full requests are also published in the repository's existing
+private DVC remote as
+[`data/sol-nll-fold0-30`](../../data/sol-nll-fold0-30/README.md).
+The 5.7 MiB `requests.jsonl` payload has a Git-tracked DVC pointer, with a
+Git-tracked index, source hashes, selection provenance and verification script.
+Fetch it using `dvc pull data/sol-nll-fold0-30/requests.jsonl.dvc`.
+This is the same frozen panel; exporting it did not resample or modify request
+objects. Processor/maps remain in the complete offline package.

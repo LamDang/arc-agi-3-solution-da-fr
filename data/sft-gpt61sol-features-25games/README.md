@@ -11,6 +11,10 @@ request (so every sample fits the model's context) rewritten into the
 rationale-off student format. All schema and format checks pass — see
 [Exploration & validation](#exploration--validation).
 
+The frozen 30-request fold-0 NLL evaluation subset is stored separately in
+[`../sol-nll-fold0-30`](../sol-nll-fold0-30/README.md), with a DVC payload,
+selected-request index and pinned source/processor provenance.
+
 ## Files
 
 This directory is a self-contained DVC pipeline (`dvc.yaml`): **raw run → data

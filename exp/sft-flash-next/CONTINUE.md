@@ -90,3 +90,13 @@ capacity checks before completing the paired sweep. Failed checks stop the
 run; valid smoke forwards count toward the panel. Preserve the manifest,
 code/runtime and model identities for resume. No extra reserve or full-fold
 scoring is authorized as part of this 30-request evaluation.
+
+## Small DVC dataset
+
+The selected requests are now retained in
+`data/sol-nll-fold0-30/requests.jsonl` (5.7 MiB), pushed to the existing private
+S3 DVC remote. Git tracks its DVC pointer, `index.json`, `provenance.json`,
+`export.py` and README. A fresh download was checked against both MD5 and
+SHA256. Fetch with `dvc pull data/sol-nll-fold0-30/requests.jsonl.dvc`, then
+verify with `python data/sol-nll-fold0-30/export.py`. Full objects, contexts,
+images and final replies are unchanged; JSON serialization alone differs.
