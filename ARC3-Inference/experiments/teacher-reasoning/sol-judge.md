@@ -103,14 +103,18 @@ Decisions that shape the cost (prices below are a **GPT-5-class stand-in**;
 `gpt-6.1-sol` pricing is not known here, so substitute it):
 
 - **One combined Sol judge, not three.** Words + code + fact return in a single
-  JSON from one call, so the ~62K context is read twice per request (combined
-  judge + final equivalence) instead of four times. Run the combined judge at
-  **xhigh** (keeps fact-check depth; one effort covers all three) and
-  equivalence at **high**.
-- **Refine only the flagged records.** On dev, ~80% fail the first pass, so the
-  refine flash call fires on ~0.8 of records. It is a flash call, so the
-  first-pass rate barely moves the total — the two Sol calls run on every record
-  regardless.
+  JSON from one call. Run it at **xhigh** (keeps fact-check depth; one effort
+  covers all three) and the equivalence at **high**.
+- **Two refine passes, then stop.** On dev the loop earns its keep for two
+  passes and no more: draft → judge → refine 1 → judge → refine 2 → equivalence
+  (see the results above — fact grounding 0.45 → 0.70 → 0.95, 4/20 → 13/20 →
+  15/20 perfect; a third pass only fights the coverage metric). So there are
+  **two combined-judge rounds** (after the draft, and after refine 1 to drive
+  refine 2) and **one final equivalence**. Refine runs only on the records the
+  previous round flagged: refine 1 on ~80% (draft failures), refine 2 on ~35%
+  (refine-1 failures); the second judge round runs on the ~80% that refine 1
+  produced. Refines are flash calls, so these rates barely move the total — the
+  cost is in the Sol judge rounds, which share each request's cached context.
 - **Run in game-turn order, split per compaction (history stretch).** Within a
   stretch the context is append-only, so processing requests in order lets each
   call hit the previous call's cached prefix; only the new turn (~3–5K tokens)
@@ -123,19 +127,27 @@ Decisions that shape the cost (prices below are a **GPT-5-class stand-in**;
   cheap. Run the equivalence call immediately after the combined judge (same
   turn, warm prefix).
 
-Resulting estimate (stand-in pricing, ±~40% for unknown Sol price, cache rate
-and per-turn increment):
+Resulting estimate for the full 1,171-request set, **two refine passes**
+(stand-in pricing, ±~40% for unknown Sol price, cache rate, per-turn increment
+and xhigh reasoning volume):
 
-| | with progressive stretch caching |
-| --- | ---: |
-| Sol input (cold stretch-starts + cheap warm reads) | ~$30–40 |
-| Sol output (combined xhigh + equivalence) | ~$59 |
-| Flash (draft + ~0.8 refine + regen) | ~$21 |
-| **total** | **~$110** (combined xhigh) / **~$85** (combined high) |
-| wall-clock | ~1–1.5 h (bounded by the longest stretch, run wide) |
+| | tokens / calls | ~$ |
+| --- | --- | ---: |
+| Sol input — judge 1 (all, progressive cache) | ~stretch-cold + warm reads | ~$20 |
+| Sol input — judge 2 (~80%) + equivalence (all), same cached context | ~130M cached | ~$16 |
+| Sol output — judge 1 combined xhigh (1,171 × ~4K) | ~4.7M | ~$47 |
+| Sol output — judge 2 combined xhigh (~940 × ~4K) | ~3.7M | ~$37 |
+| Sol output — equivalence (1,171 × ~1K) | ~1.2M | ~$12 |
+| Flash (draft 1,171 + refine1 ~940 + refine2 ~410 + regen 1,171) | ~3,700 calls | ~$22 |
+| **total (combined xhigh)** | | **~$155** |
+| **total (combined high)** | | **~$110** |
+| wall-clock | | ~1.5–2 h (longest stretch, run wide) |
 
-Once the context is cached away, **output becomes the floor**, so the combined
-judge's xhigh-vs-high effort is the main remaining cost knob (~$25).
+The second refine pass adds ~$45 over a single pass — almost entirely the
+second judge round's **xhigh output**, since its input reuses each request's
+already-cached context. Once the context is cached away, output is the floor, so
+the combined judge's **xhigh-vs-high** effort is the main remaining knob (~$45
+across the two judge rounds).
 
 ### Not yet implemented
 The combined judge, the stretch-aware serial-within/parallel-across scheduler,
