@@ -23,7 +23,9 @@ reserve as part of this current task. Selection is NLL-only to conserve quota.
 
 - 30 requests: six per fold-0 game, two uniformly sampled from each within-game
   context-length tertile; seed 20261008. Games: sk48, sp80, tn36, cd82, ar25.
-- All five expert counts: 512/448/384/320/256, 150 matched forwards. Complete
+- Staged counts: all 30 at 512, then all 30 at 256 (60 forwards). Stop if
+  256 weighted primary NLL is at most 1.05 × 512. Otherwise run all 30 at
+  448, then 384, then 320 (150 forwards maximum). Complete
   multimodal contexts, no truncation. Only final teacher replies are scored.
 - Per-token NLL with rationale/code/tool-format/prose labels and game/level/
   context-length metadata, paired weighted reporting and interactive HTML.
@@ -37,7 +39,7 @@ reserve as part of this current task. Selection is NLL-only to conserve quota.
   duplicate-worker lock and externally verified Jupyter downloads. Collector
   credentials come from environment variables; never print or commit values.
 - Notebook: `exp/sft-flash-next/nll/kaggle/kaggle-nll-30.ipynb`; GPU disabled.
-- 35 CPU tests passed; one old real-log integration test skipped because its
+- 41 CPU tests passed; one old real-log integration test skipped because its
   external assets were unavailable. The separate real Sol gate now passes. See committed `verification/pytest.xml`.
   CPU versions: Python 3.12.14, torch 2.14.1+cpu, torchvision 0.29.1+cpu,
   Transformers 5.18.0. Production CUDA smoke checks have not run.
@@ -49,7 +51,8 @@ tests and pinned requirements are under `exp/sft-flash-next/nll/`.
 
 Read `READINESS.md` and `verification/real-data.json` for measured preparation
 results. The actual panel is frozen and passes offline reprocessing:
-**6,403,160 processed tokens / 150 forwards**, with 12,108 final-reply tokens
+**2,561,264 initial processed tokens / 60 forwards**,
+with **6,403,160 tokens / 150 forwards maximum** if the gate fails, with 12,108 final-reply tokens
 per candidate. No contexts were truncated or requests replaced.
 
 Both S3 and Hugging Face downloads succeeded through the authorized network
@@ -61,19 +64,21 @@ Independent comparison against `analyze.py` and nesting checks pass.
 
 `run.py --preflight-only` now re-encodes every selected request offline and
 compares all target annotations, rather than relying only on file checksums.
-35 CPU tests passed; the existing old-log integration test remains skipped.
+41 CPU tests passed; the existing old-log integration test remains skipped.
 The separate real Sol data gate passed. Production CUDA checks have not run.
 
 The complete private offline package is at
-`/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip`, with the
+`/workspace/sol-nll-artifacts/complete-setup-staged/sol-nll-setup.zip`, with the
 panel at `/workspace/sol-nll-artifacts/panel30`. These generated files, inputs
 and wheels are outside Git. If absent in a future workspace, rebuild using
 the README; the committed verification records retain the frozen identities
 and chosen request IDs for comparison. Do not reroll or shrink the panel.
 
-At 850 tokens/s, expect 125.6 scoring minutes, about 2.8–3.1 hours across two
-cold capped sessions including overhead. At 500 tokens/s, expect 213.4 scoring
-minutes, about 4.6–5.1 hours across three. These remain estimates until the GPU
+For the initial pair at 850 tokens/s, expect 50.2 scoring minutes and
+70.2–80.2 minutes including one cold start. At 500 tokens/s, expect 85.4 scoring
+minutes and 105.4–115.4 minutes including startup; margins can require resume.
+The maximum triggered scan remains 2.8–3.1 hours nominally, 4.6–5.1 hours
+conservatively. These remain estimates until the GPU
 smoke step measures speed. Session caps pause the worker, not Kaggle billing.
 
 ## Next action
@@ -100,3 +105,18 @@ S3 DVC remote. Git tracks its DVC pointer, `index.json`, `provenance.json`,
 SHA256. Fetch with `dvc pull data/sol-nll-fold0-30/requests.jsonl.dvc`, then
 verify with `python data/sol-nll-fold0-30/export.py`. Full objects, contexts,
 images and final replies are unchanged; JSON serialization alone differs.
+
+## Current staged policy
+
+`nll/protocol.py` defines the relative primary-NLL gate, stage order and budget.
+The 5% limit is inclusive and relative to **512**, not perplexity, not an
+absolute 0.05 nats, and not relative to the best pruned candidate. A passing
+60-job panel is complete and selects 256; intermediate models are skipped.
+If the gate fails, all 150 jobs are required and selection uses the smallest
+configuration within 5% of the full baseline. Diagnostics do not expand a
+passing gate. Partial panels cannot trigger or decide the gate.
+
+The panel/dataset/maps and manifest hash are unchanged. Its existing counts,
+150 jobs and five-model token budget remain maximum capacity. New run identity
+binds the staged policy and updated scoring code; do not reuse old-protocol
+results. No GPU session has started.

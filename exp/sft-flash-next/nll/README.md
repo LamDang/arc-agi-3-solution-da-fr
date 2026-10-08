@@ -1,8 +1,8 @@
 # Sol NLL evaluation: 30 requests, CPU preparation complete
 
-The user-selected core is **30 requests / 150 model-request forwards**: two
+The user-selected core is **30 requests / 60 initial forwards, up to 150 if needed**: two
 requests from each context-length tertile in each of the five fold-0 games.
-There is no automatic reduction to 10 or 15 requests. Incomplete sessions
+There is no automatic reduction to 10 or 15 requests. Incomplete required stages
 resume the same frozen panel. This code does not train or play games.
 
 ## Current readiness
@@ -18,14 +18,21 @@ IDs, final-reply positions and semantic annotations. All five fold-0 games
 are excluded from the saved calibration statistics; all 20 training games
 contribute to the nested 48-layer expert maps. No GPU has started.
 
+The current protocol is **512 first, then 256** on all 30 requests. If the
+weighted primary NLL of 256 is **at most 1.05 × the full baseline**, stop and
+recommend 256. Only a larger increase triggers 448, then 384, then 320 on the
+same requests. The gate uses relative NLL, not perplexity. After a scan, choose
+the smallest evaluated configuration within 5% of the full baseline.
+
 The panel contains 1,268,524 prompt tokens and 12,108 final-reply tokens.
-Across five candidates that is **6,403,160 processed tokens** and 60,540 scored
-target tokens. Scoring alone is about **125.6 minutes at 850 tokens/s** or
-**213.4 minutes at 500 tokens/s**. Allowing 20–30 minutes per cold session,
-plan about **2.8–3.1 hours across two sessions** nominally, or **4.6–5.1 hours
-across three sessions** conservatively. The manifest's `estimated_minutes`
-adds one 30-minute startup; multi-session planning must add startup for each
-session. Production speed, numerical parity and capacity remain GPU checks.
+The initial pair processes **2,561,264 tokens** (24,216 scored targets):
+**50.2 scoring minutes at 850 tokens/s**, or **85.4 at 500 tokens/s**.
+With one 20–30 minute cold start, estimate **70.2–80.2 minutes** nominally,
+or **105.4–115.4 minutes** conservatively; session margins can require resume.
+If the gate fails, the maximum remains **6,403,160 processed tokens** across
+150 forwards, about **2.8–3.1 hours** nominally or **4.6–5.1 hours** conservatively.
+The unchanged frozen manifest records maximum capacity; `--preflight-only`
+prints the current `staged_budget`. Production speed/parity/capacity are pending.
 
 The complete private archive was rebuilt with real data and 42 offline
 Python 3.13 wheels. Generated data/wheels/archives remain outside Git.
@@ -119,8 +126,8 @@ this worker intentionally rejects an unqualified smaller GPU profile.
 When the data preflight and collector connection are ready, enable the GPU
 in the interactive notebook and set `START_GPU_RUN=True` in the final launch
 cell. The worker first checks kernels and repeats a short real request with
-two chunk sizes. It then checks the longest selected request and completes
-the paired panel. Smoke/capacity results that are valid count toward the panel.
+two chunk sizes. It then checks the longest selected baseline request, completes all 512 jobs,
+then all 256 jobs, and applies the conditional scan gate. Smoke/capacity results that are valid count toward the panel.
 A failed check stops before the full sweep. GPU-specific correctness and
 memory checks are pending until this first GPU smoke step.
 
@@ -170,8 +177,8 @@ Scoring on arbitrary mutable local checkpoints is rejected by this entry point.
 /tmp/sol-nll-venv/bin/python exp/sft-flash-next/nll/report.py --out /durable/path/sol-nll
 ```
 
-The report uses only requests completed by **every** expert configuration for
-paired comparisons. It produces CSV/JSON summaries, granular slices, level
+The report uses only requests completed by **every required** expert configuration
+for paired comparisons: 512/256 initially, all five only if the gate requires a scan. It produces CSV/JSON summaries, granular slices, level
 coverage, `selection.json` and an interactive HTML token viewer. Partial
 results never automatically select a model. Per-token outputs are exact
 full-vocabulary NLL on the teacher's final reply. History is context only.
@@ -180,17 +187,18 @@ format; tokens crossing a category boundary remain explicitly marked.
 
 The primary score is the weighted mean request NLL within each game, then
 an equal mean across games. Token-weighted NLL/PPL and categories are separate
-metrics. The recommendation is the smallest expert count within 0.05 nats of
-the best primary score, with code/game/leave-one-game-out diagnostics. This
+metrics. The recommendation is 256 if the complete initial pair passes the 5% relative
+primary-NLL gate; otherwise it is the smallest scanned configuration within
+5% of the 512 baseline, with code/game/leave-one-game-out diagnostics. This
 selects an imitation candidate; training capacity is still unverified.
 
-At the previous illustrative 51,280 tokens/request, 150 forwards process
-**7.692M tokens**: about **151 minutes at 850 tokens/s**, or **256 minutes at
-500 tokens/s**, plus roughly 20–30 minutes for each cold session. A typical
-complete run therefore needs around three hours and likely spans two capped
-sessions; slower hardware takes longer. Exact estimates are emitted by CPU
-preparation. Thirty replies × 280 targets × five models need only **168 KB**
-for the FP32 loss vectors. Context processing dominates cost.
+The initial pair has 60 forwards and 2,561,264 processed tokens. Conditional
+intermediates add 90 forwards and 3,841,896 tokens only if the gate fails.
+Keep all 30 requests fixed across stages and sessions. The protocol is part
+of the strict resume identity; old unconditional-sweep runs cannot silently
+resume under this code. See [the active protocol](../NLL_EVAL.md) for the
+inclusive threshold, selection rule and exact initial/maximum budgets.
 
 The optional extra diagnostic reserve in the design document is not implemented
-as an automatic extension. This setup stops after the requested 30-request core.
+as an automatic extension. This setup stops after the 512/256 pair passes, or after the triggered five-model
+comparison, always using the same 30-request core.

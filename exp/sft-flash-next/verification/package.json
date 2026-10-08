@@ -1,8 +1,8 @@
 {
-  "archive": "/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip",
-  "archive_sha256": "82fab1887b9f6ae6929b802a916975b4370a44e7c5446fe210aff8acc7ca5e7c",
-  "archive_bytes": 68859963,
-  "files_checked": 135,
+  "archive": "/workspace/sol-nll-artifacts/complete-setup-staged/sol-nll-setup.zip",
+  "archive_sha256": "213f87e7e2f469d7648c35ae349d7257753e3d1c6ce939156ff7879d5a499338",
+  "archive_bytes": 68862697,
+  "files_checked": 136,
   "offline_wheels": 42,
   "cpu_torch_included": false,
   "has_real_panel": true,
@@ -13,5 +13,23 @@
   "offline_cp313_dependency_resolution": "passed",
   "panel_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
   "gpu_started": false,
-  "packaged_real_data_preflight": "passed: all 30 requests re-encoded offline from packaged code and bundle"
+  "packaged_real_data_preflight": "passed: all 30 requests re-encoded offline from final staged package",
+  "protocol": {
+    "version": "512-then-256-relative-primary-nll-v1",
+    "baseline": 512,
+    "first_candidate": 256,
+    "threshold_relative": 0.05,
+    "metric": "equal-game mean of population-weighted request mean NLL",
+    "gate_requires_all_requests": 30,
+    "scan_counts": [
+      448,
+      384,
+      320
+    ],
+    "selection": "smallest evaluated count within 5% of full baseline NLL"
+  },
+  "initial_jobs": 60,
+  "maximum_jobs": 150,
+  "python_sources_match_archive": true,
+  "javascript_syntax": "passed"
 }

@@ -13,6 +13,7 @@ import numpy as np
 
 from common import LABELS, atomic_bytes, length_band, read_json, write_json, verify_manifest
 from results import load_result
+from protocol import BASE_COUNTS, POLICY, gate, choice
 
 
 def weighted_summary(rows, values):
@@ -44,11 +45,6 @@ def weighted_summary(rows, values):
                                     weighted_tokens=float(t), requests=n) for k, (s, t, n) in categories.items()})
 
 
-def choice(summaries):
-    best = min(s["primary"] for s in summaries.values())
-    return min(int(c) for c, s in summaries.items() if s["primary"] <= best + .05)
-
-
 def generate(root):
     root = Path(root)
     manifest, run = read_json(root / "manifest.json"), read_json(root / "run.json")
@@ -64,23 +60,33 @@ def generate(root):
                 values[row["sample_id"]] = loss
                 metrics.append(meta["metrics"])
         results[count], timing[count], status[count] = values, metrics, len(values)
-    common_ids = set.intersection(*(set(results[c]) for c in counts))
+    paired_base = set.intersection(*(set(results[c]) for c in BASE_COUNTS))
+    base_complete = len(paired_base) == len(samples)
+    base_rows = [r for r in samples if r["sample_id"] in paired_base]
+    base_summaries = {str(c): weighted_summary(base_rows, results[c]) for c in BASE_COUNTS}
+    decision = gate(base_summaries["512"]["primary"], base_summaries["256"]["primary"]) if base_complete else gate(None, None)
+    active_counts = counts if decision["status"] == "scan_required" else list(BASE_COUNTS)
+    common_ids = set.intersection(*(set(results[c]) for c in active_counts))
     common_rows = [r for r in samples if r["sample_id"] in common_ids]
-    complete = len(common_rows) == len(samples)
-    summaries = {str(c): weighted_summary(common_rows, results[c]) for c in counts}
+    complete = base_complete and len(common_rows) == len(samples)
+    summaries = {str(c): weighted_summary(common_rows, results[c]) if c in active_counts
+                 else weighted_summary([], {}) for c in counts}
     for c in counts:
         entry = summaries[str(c)]
         reference = summaries[str(counts[0])]["primary"]
-        entry.update(completed=status[c], common_requests=len(common_rows),
-                     delta_vs_full=entry["primary"]-reference if reference is not None else None,
+        entry.update(completed=status[c], common_requests=len(common_rows) if c in active_counts else 0,
+                     delta_vs_full=entry["primary"]-reference if reference is not None and entry["primary"] is not None else None,
                      scoring_seconds=sum(m.get("seconds", 0) for m in timing[c]),
                      peak_allocated_bytes=max((m.get("peak_allocated_bytes", 0) for m in timing[c]), default=0))
     selection = dict(status="complete" if complete else "incomplete", selected_experts=None,
+                     complete=complete, protocol=POLICY, gate=decision, required_counts=active_counts,
+                     skipped_counts=[c for c in counts if c not in active_counts] if decision["status"] == "stop_at_256" else [],
+                     required_jobs=len(samples)*len(active_counts), maximum_jobs=len(samples)*len(counts),
                      matched_requests=len(common_rows), required_requests=len(samples),
                      manifest_sha256=manifest["manifest_sha256"], identity=run["identity"],
                      training_fit="unverified", calibration="training-only")
     if complete:
-        candidate = choice(summaries)
+        candidate = choice({str(c): summaries[str(c)] for c in active_counts})
         candidate_summary, full = summaries[str(candidate)], summaries[str(counts[0])]
         flags = []
         a, b = candidate_summary["categories"]["tool_code"]["nll"], full["categories"]["tool_code"]["nll"]
@@ -91,7 +97,7 @@ def generate(root):
         leave_one_out = {}
         for game in manifest["validation_games"]:
             subset = [r for r in common_rows if r["game"] != game]
-            leave_one_out[game] = choice({str(c): weighted_summary(subset, results[c]) for c in counts})
+            leave_one_out[game] = choice({str(c): weighted_summary(subset, results[c]) for c in active_counts})
         if any(c != candidate for c in leave_one_out.values()):
             flags.append("leave_one_game_out_choice_changes")
         selection.update(selected_experts=candidate, diagnostic_flags=flags,
@@ -115,7 +121,7 @@ def generate(root):
                            ("context_length", lambda r: length_band(r["prompt_tokens"]))]:
         for value in sorted({key(r) for r in common_rows}):
             subset = [r for r in common_rows if key(r) == value]
-            for c in counts:
+            for c in active_counts:
                 s = weighted_summary(subset, results[c])
                 slices.append(dict(dimension=dimension, value=value, experts=c, requests=len(subset), **s))
     write_json(root / "slices.json", slices)
@@ -147,10 +153,10 @@ line-height:1.9;background:#f7f8fc;padding:16px}select{margin:8px}small{color:#5
 <p id="info"></p><pre id="tokens"></pre><small>Hover for token losses and labels. Overlapping character offsets
 are grouped for display. Full-precision values remain in the NPZ artifacts. Level means level at request time.</small>
 <script>const D=__DATA__; const el=id=>document.getElementById(id);
-el('status').textContent=`${D.selection.matched_requests}/${D.selection.required_requests} paired requests; ${D.selection.status}`;
+el('status').textContent=`${D.selection.matched_requests}/${D.selection.required_requests} paired requests; ${D.selection.status}; gate: ${D.selection.gate.status}${D.selection.gate.relative_increase===null?'':', relative NLL increase '+(100*D.selection.gate.relative_increase).toFixed(3)+'%'}`;
 const header=el('summary').insertRow();for(const text of ['Experts','Completed','Paired NLL','Δ full']){const th=document.createElement('th');th.textContent=text;header.appendChild(th)}
 for(const r of D.coverage){const tr=el('coverage').insertRow();for(const x of [r.game,`level ${r.level}`,`${r.sampled_requests}/${r.population_requests} requests`,r.status])tr.insertCell().textContent=x}
-for(const c of D.counts){const s=D.summaries[c];const row=el('summary').insertRow();for(const x of [c,s.completed,s.primary,s.delta_vs_full])row.insertCell().textContent=x===null?'pending':typeof x==='number'&&!Number.isInteger(x)?x.toFixed(5):x;
+for(const c of D.counts){const s=D.summaries[c];const row=el('summary').insertRow();for(const x of [c,s.completed,s.primary,s.delta_vs_full])row.insertCell().textContent=x===null?(D.selection.skipped_counts.includes(c)?'skipped':'pending'):typeof x==='number'&&!Number.isInteger(x)?x.toFixed(5):x;
 el('model').add(new Option(c,c))}
 D.samples.forEach((s,i)=>el('sample').add(new Option(`${s.game} level ${s.level} — ${s.sample_id}`,i)));
 function show(){const s=D.samples[+el('sample').value],m=el('model').value,delta=el('mode').value==='delta',loss=s.losses[m],ref=s.losses[D.counts[0]],chars=Array.from(s.target_text);

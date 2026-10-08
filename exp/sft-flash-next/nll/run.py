@@ -15,6 +15,7 @@ import numpy as np
 
 from common import COUNTS, code_hash, digest, file_hash, read_json, verify_manifest, write_json
 from results import bind_run, load_result, save_result
+from protocol import POLICY, budget, execute_stages
 
 
 def validate_bundle(bundle):
@@ -89,6 +90,7 @@ def worker(args):
             print(f"validated {row['sample_id']}: {annotation['total_tokens']} tokens", flush=True)
         print(json.dumps({"ready_cpu_bundle": True, "requests": 30, "jobs": manifest["jobs"],
                           "processed_tokens": manifest["processed_tokens"],
+                          "staged_budget": budget(manifest),
                           "estimated_minutes": manifest["estimated_minutes"]}, indent=2))
         return
     out.mkdir(parents=True, exist_ok=True)
@@ -120,7 +122,8 @@ def execute(args, manifest, bundle, out):
     stopping = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
-    state = {"phase": "loading", "completed": 0, "session_minutes": args.session_minutes}
+    state = {"phase": "loading", "completed": 0, "session_minutes": args.session_minutes,
+             "required_jobs": 60, "maximum_jobs": manifest["jobs"]}
     heartbeat_stop = threading.Event()
 
     def heartbeat():
@@ -148,6 +151,7 @@ def execute(args, manifest, bundle, out):
                       chunk=args.chunk, lm_block=args.lm_block, dtype="bfloat16", kernel_options=reap_model.OPTIONS,
                       fast_linear_attention=fast_linear, cuda=torch.version.cuda,
                       numerical_tolerance=args.noise_tolerance)
+        config["protocol"] = POLICY
         # JSON-normalize tuples so reconnecting does not cause false mismatch.
         config = json.loads(json.dumps(config))
         identity = bind_run(out, config)
@@ -156,9 +160,10 @@ def execute(args, manifest, bundle, out):
         completed = sum(load_result(out, identity, c, r) is not None for r in manifest["samples"]
                         for c in COUNTS)
         state["completed"] = completed
-        if completed == manifest["jobs"]:
+        from report import generate
+        if generate(out)["complete"]:
             state["phase"] = "complete"
-            print("All jobs already complete; no model load needed.", flush=True)
+            print("Staged protocol already complete; no model load needed.", flush=True)
             return
         state["phase"] = "awaiting_external_collector"
         collector_deadline = min(deadline-120, time.monotonic()+90)
@@ -203,7 +208,7 @@ def execute(args, manifest, bundle, out):
             state.update(phase="scoring", sample_id=row["sample_id"], experts=count)
             if encoded_id != row["sample_id"]:
                 encoded, metadata = encode(processor, read_json(bundle / row["path"]))
-                if any(metadata[k] != row[k] for k in metadata):
+                if digest(metadata) != digest({key: row[key] for key in metadata}):
                     raise ValueError("Runtime encoding differs from CPU-frozen annotations")
                 encoded_id = row["sample_id"]
             ids = encoded["input_ids"]
@@ -226,7 +231,7 @@ def execute(args, manifest, bundle, out):
                             peak_reserved_bytes=torch.cuda.max_memory_reserved())
                 state["completed"] += 1
                 rates.append(row["total_tokens"]/elapsed)
-                print(f"{state['completed']}/{manifest['jobs']} {row['sample_id']} {count}: "
+                print(f"{state['completed']}/{state['required_jobs']} {row['sample_id']} {count}: "
                       f"NLL={losses.mean():.6f}, {elapsed:.1f}s", flush=True)
             return losses
 
@@ -245,12 +250,13 @@ def execute(args, manifest, bundle, out):
             write_json(smoke_path, dict(identity=identity, sample_id=short["sample_id"],
                                        mean_abs_token_deltas=deltas, tolerance=args.noise_tolerance))
         evaluate(max(manifest["samples"], key=lambda r: r["total_tokens"]), 512)
-        for i, row in enumerate(manifest["samples"]):
-            order = COUNTS[i % len(COUNTS):] + COUNTS[:i % len(COUNTS)]
-            for count in order:
-                evaluate(row, count)
-            from report import generate
-            generate(out)
+        def checkpoint():
+            selection = generate(out)
+            state.update(protocol_gate=selection["gate"], required_jobs=selection["required_jobs"],
+                         maximum_jobs=selection["maximum_jobs"])
+            return selection
+
+        execute_stages(manifest["samples"], evaluate, checkpoint)
         state["phase"] = "complete"
     except InterruptedError as exc:
         state["phase"] = "paused"

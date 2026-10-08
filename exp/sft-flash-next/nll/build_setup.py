@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 
 from common import file_hash, write_json
+from protocol import POLICY
 
 
 def notebook():
@@ -15,7 +16,12 @@ def notebook():
         cells.append(dict(cell_type="markdown", metadata={}, source=text.splitlines(keepends=True)))
     def code(text):
         cells.append(dict(cell_type="code", metadata={}, execution_count=None, outputs=[], source=text.splitlines(keepends=True)))
-    markdown("""# Sol NLL: 30 requests, five expert configurations
+    markdown("""# Sol NLL: 30 requests, 512 baseline then 256
+
+Score all 30 requests at 512, then all 30 at 256 with teacher forcing.
+Stop at 256 if weighted primary NLL is no more than 5% above the full
+baseline. Otherwise scan 448, 384 and 320 on the same frozen requests.
+The gate uses relative NLL, not perplexity or an absolute 0.05-nat tolerance.
 
 Use an **interactive Kaggle Jupyter session** attached to the competition.
 The notebook is saved with **GPU disabled**. Attach the setup archive, the
@@ -140,6 +146,7 @@ def build(out, wheels=None, bundle=None):
     write_json(stage / "kaggle-nll-30.ipynb", nb)
     files = {str(p.relative_to(stage)): file_hash(p) for p in sorted(stage.rglob("*")) if p.is_file()}
     write_json(stage / "setup-manifest.json", dict(sha256=files, requests=30, jobs=150,
+                                                   protocol=POLICY, initial_jobs=60, maximum_jobs=150,
                                                    has_prepared_real_data=bool(bundle), has_offline_wheels=bool(wheels),
                                                    starts_gpu=False))
     archive = out / "sol-nll-setup.zip"

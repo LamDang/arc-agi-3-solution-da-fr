@@ -6,12 +6,16 @@ training, gameplay or model selection was performed.
 
 The frozen panel has six requests per fold-0 game, two per context-length
 tertile, seed 20261008. All five candidates (512/448/384/320/256) use the same
-full multimodal contexts and final-reply-only targets: 30 requests, 150 forwards.
+full multimodal contexts and final-reply-only targets: **60 initial forwards,
+150 maximum forwards**. Run all 512 requests, then all 256 requests. Stop if
+256 primary NLL is at most **1.05 × the full baseline**; otherwise scan
+448, 384 and 320. The relative gate requires all 30 matched requests.
 
 ## Exact panel and budget
 
 - Prompt tokens: **1,268,524**; final-reply tokens: **12,108**.
-- Sweep: **6,403,160 processed tokens**, **60,540 scored target tokens**.
+- Initial 512/256 pair: **2,561,264 processed tokens**, **24,216 scored targets**.
+- Maximum triggered scan: **6,403,160 processed tokens**, **60,540 scored targets**.
 - Full request lengths: **5,770–84,298 tokens**; **664 images** across the panel.
 - Coverage: **15 of 35 game-level cells sampled**; 20 explicitly not sampled.
 - All selected replies are tool calls. The dataset's sole terminal text-only
@@ -19,8 +23,10 @@ full multimodal contexts and final-reply-only targets: 30 requests, 150 forwards
 
 | Rate assumption | Scoring only | Cold sessions at 120-minute cap | Total with 20–30 min/session overhead |
 |---|---:|---:|---:|
-| 850 tokens/s | 125.6 min | 2 | 165.6–185.6 min (2.8–3.1 h) |
-| 500 tokens/s | 213.4 min | 3 | 273.4–303.4 min (4.6–5.1 h) |
+| Initial @850 tokens/s | 50.2 min | 1 | 70.2–80.2 min |
+| Initial @500 tokens/s | 85.4 min | 1 | 105.4–115.4 min |
+| Maximum @850 tokens/s | 125.6 min | 2 | 165.6–185.6 min (2.8–3.1 h) |
+| Maximum @500 tokens/s | 213.4 min | 3 | 273.4–303.4 min (4.6–5.1 h) |
 
 These are planning estimates, not measured production performance. The
 manifest's `estimated_minutes` adds a single 30-minute startup; the table
@@ -32,7 +38,7 @@ the durable mirror to avoid idle quota use.
 
 ## Verification completed
 
-**35 CPU tests passed; one existing real-log integration test skipped.** It
+**41 CPU tests passed; one existing real-log integration test skipped.** It
 requires old SGLang request logs via `REAP_TEST_LOG` / `REAP_TEST_EVAL_LOG`, which
 are not the new Sol dataset. This skip does not replace or block the separate
 real-data gate, which passed for all 30 selected Sol requests.
@@ -47,6 +53,8 @@ real-data gate, which passed for all 30 selected Sol requests.
 - Preparation verifies full prompt/image prefix equality, target suffix,
   final-only mask and semantic labels. Offline preflight re-encodes all 30
   requests and matches every stored annotation and manifest field.
+- Tests verify stage ordering, complete-pair gating, the inclusive 5% relative
+  threshold, conditional scan, early completion and idempotent resume.
 - The complete archive has real data, 42 offline Python 3.13 wheels and a
   checksum inventory. Offline dependency resolution, archive SHA256 inventory,
   notebook syntax and disabled-GPU defaults are verified.
@@ -59,11 +67,14 @@ Transformers 5.18.0. Keep Kaggle's own CUDA torch/torchvision stack.
 Panel manifest SHA256:
 `f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c`.
 
+Use the **staged** package below; the earlier `complete-setup-final` archive
+implements the superseded unconditional sweep.
+
 Private generated artifacts in this workspace (outside Git):
 
 - Panel: `/workspace/sol-nll-artifacts/panel30`.
-- Complete package: `/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip`.
-- Notebook: `/workspace/sol-nll-artifacts/complete-setup-final/kaggle-nll-30.ipynb`.
+- Complete package: `/workspace/sol-nll-artifacts/complete-setup-staged/sol-nll-setup.zip`.
+- Notebook: `/workspace/sol-nll-artifacts/complete-setup-staged/kaggle-nll-30.ipynb`.
 - Downloaded inputs: `/tmp/sol-nll-inputs`; wheels: `/tmp/sol-nll-wheels-cp313`.
 - CPU environment: `/tmp/sol-nll-venv`.
 
@@ -75,12 +86,13 @@ private when later staging. Archive checksum/size are recorded in
 Committed records: [real panel, maps and budget](verification/real-data.json),
 [JUnit results](verification/pytest.xml),
 [offline package verification](verification/package.json), and
-[real-data preflight log](verification/preflight.log).
+[staged packaged preflight log](verification/packaged-preflight.log), and
+[current staged budget](verification/staged-budget.json).
 
 Next step requires the user's GPU-start instruction and live interactive
 Jupyter connection. Start the external collector, then authorize the disabled
 launch cell. The worker runs production numerical/chunk/capacity checks before
-continuing the same frozen panel. GPU correctness, actual throughput/VRAM,
+continuing the staged comparison on the same frozen panel. GPU correctness, actual throughput/VRAM,
 model selection and training capacity remain unmeasured.
 
 ## Repository dataset
