@@ -1,0 +1,58 @@
+# SFT dataset pipeline: raw run -> data -> report.
+#
+#   raw    runs/gpt61sol-features-25games  (gpt-6.1-sol request logs, DVC-tracked)
+#   data   train.jsonl, meta.json, index.json
+#   report exploration.html
+#
+# Stages run from this directory. Python is the ARC3-Inference venv (pandas,
+# tokenizers, jinja2); the report stage also needs `quarto` on PATH. Rebuild
+# all of it with `dvc repro` (see README.md).
+stages:
+  # raw -> data: rewrite the teacher's requests into the rationale-off student
+  # format, one sample per request.
+  convert:
+    cmd: ../../ARC3-Inference/.venv/bin/python convert.py
+    deps:
+      - convert.py
+      - ../../ARC3-Inference/runs/gpt61sol-features-25games
+    outs:
+      - train.jsonl
+      - meta.json
+
+  # the model's tokenizer and chat template, pinned to one commit, for token
+  # counts and rendering. Not cached in DVC (model files; redownloaded on repro).
+  fetch_model_files:
+    cmd: >-
+      mkdir -p qwen &&
+      curl -sSfL -o qwen/tokenizer.json
+      https://huggingface.co/Qwen/Qwen3.8-Flash-Next/resolve/de4b8e4d43b917e7706784d8bb445c9af86a3540/tokenizer.json &&
+      curl -sSfL -o qwen/chat_template.jinja
+      https://huggingface.co/Qwen/Qwen3.8-Flash-Next/resolve/de4b8e4d43b917e7706784d8bb445c9af86a3540/chat_template.jinja
+    outs:
+      - qwen/tokenizer.json:
+          cache: false
+          persist: true
+      - qwen/chat_template.jinja:
+          cache: false
+          persist: true
+
+  # data -> index: byte offsets, level, token lengths and image count per sample.
+  index:
+    cmd: ../../ARC3-Inference/.venv/bin/python build_index.py --tokenizer qwen/tokenizer.json --template qwen/chat_template.jinja
+    deps:
+      - build_index.py
+      - train.jsonl
+      - qwen/tokenizer.json
+      - qwen/chat_template.jinja
+    outs:
+      - index.json
+
+  # data -> report: Quarto EDA + anomaly checks rendered to a self-contained page.
+  report:
+    cmd: QUARTO_PYTHON=../../ARC3-Inference/.venv/bin/python quarto render exploration.qmd --to html
+    deps:
+      - exploration.qmd
+      - train.jsonl
+      - index.json
+    outs:
+      - exploration.html

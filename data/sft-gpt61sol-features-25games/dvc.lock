@@ -1,0 +1,83 @@
+schema: '2.0'
+stages:
+  convert:
+    cmd: ../../ARC3-Inference/.venv/bin/python convert.py
+    deps:
+    - path: ../../ARC3-Inference/runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: convert.py
+      hash: md5
+      md5: bc224dc92121441e1d8d710e2cde7077
+      size: 9317
+    outs:
+    - path: meta.json
+      hash: md5
+      md5: 0170a4199d41eb05ad15ca1134afcba2
+      size: 2564
+    - path: train.jsonl
+      hash: md5
+      md5: b1b7eaed4fe609748d1980751354b9f2
+      size: 332843217
+  fetch_model_files:
+    cmd: mkdir -p qwen && curl -sSfL -o qwen/tokenizer.json 
+      https://huggingface.co/Qwen/Qwen3.8-Flash-Next/resolve/de4b8e4d43b917e7706784d8bb445c9af86a3540/tokenizer.json
+      && curl -sSfL -o qwen/chat_template.jinja 
+      https://huggingface.co/Qwen/Qwen3.8-Flash-Next/resolve/de4b8e4d43b917e7706784d8bb445c9af86a3540/chat_template.jinja
+    outs:
+    - path: qwen/chat_template.jinja
+      hash: md5
+      md5: 519239a4908bb1f805bbce5fa8c8a242
+      size: 8952
+    - path: qwen/tokenizer.json
+      hash: md5
+      md5: 085e10165f24499bb9d8fcee7e17f9ee
+      size: 12809320
+  index:
+    cmd: ../../ARC3-Inference/.venv/bin/python build_index.py --tokenizer 
+      qwen/tokenizer.json --template qwen/chat_template.jinja
+    deps:
+    - path: build_index.py
+      hash: md5
+      md5: 4312243237d8110d69c2c10f9854fdf9
+      size: 6456
+    - path: qwen/chat_template.jinja
+      hash: md5
+      md5: 519239a4908bb1f805bbce5fa8c8a242
+      size: 8952
+    - path: qwen/tokenizer.json
+      hash: md5
+      md5: 085e10165f24499bb9d8fcee7e17f9ee
+      size: 12809320
+    - path: train.jsonl
+      hash: md5
+      md5: b1b7eaed4fe609748d1980751354b9f2
+      size: 332843217
+    outs:
+    - path: index.json
+      hash: md5
+      md5: 370ec02490f6567c91bc6ef5140ac172
+      size: 230071
+  report:
+    cmd: QUARTO_PYTHON=../../ARC3-Inference/.venv/bin/python quarto render 
+      exploration.qmd --to html
+    deps:
+    - path: exploration.qmd
+      hash: md5
+      md5: 5d636962dc0a77d5b9e079da0e549f8d
+      size: 17311
+    - path: index.json
+      hash: md5
+      md5: 370ec02490f6567c91bc6ef5140ac172
+      size: 230071
+    - path: train.jsonl
+      hash: md5
+      md5: b1b7eaed4fe609748d1980751354b9f2
+      size: 332843217
+    outs:
+    - path: exploration.html
+      hash: md5
+      md5: f13ddf862e2c4d5097363042d4121278
+      size: 2591716

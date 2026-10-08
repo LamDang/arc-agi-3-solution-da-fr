@@ -1,4 +1,6 @@
 /train.jsonl
+/meta.json
+/index.json
 /exploration.html
 /exploration_files/
 /qwen/

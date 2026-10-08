@@ -22,32 +22,53 @@ Each row has:
 - `output_tokens`   the trained target length (the <think> + tool call)
 - `images`          board images in the context
 
-Needs `tokenizers` and `jinja2` (both in the ARC3-Inference venv). Rendering
-reuses ARC3-Inference/scripts/check_chat_template.py so the token counts match
-what that checker renders.
+Needs `tokenizers` and `jinja2` (both in the ARC3-Inference venv). The template
+is rendered the same way as ARC3-Inference/scripts/check_chat_template.py
+(standard-library jinja2 set up like transformers' apply_chat_template), kept
+self-contained here so the pipeline does not depend on that script.
 """
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import re
 from pathlib import Path
 from typing import Any
 
+import jinja2
+import jinja2.ext
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 from tokenizers import Tokenizer
 
 HERE = Path(__file__).resolve().parent
-_CHECKER = HERE / ".." / ".." / "ARC3-Inference" / "scripts" / "check_chat_template.py"
 _LEVEL = re.compile(r"step\s+\d+,\s*level\s+(\d+)", re.IGNORECASE)
 _IMAGE_PAD_EXPANSION = 400 - 1  # <|image_pad|> is one text token; 640x640 = 400 vision tokens
 
 
-def load_checker():
-    spec = importlib.util.spec_from_file_location("check_chat_template", _CHECKER)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def compile_template(source: str) -> jinja2.Template:
+    """A jinja2 environment set up like transformers' apply_chat_template
+    (trim_blocks, lstrip_blocks, tojson without ASCII escaping,
+    raise_exception), so no model code is needed to render."""
+    def raise_exception(message: str) -> None:
+        raise jinja2.exceptions.TemplateError(message)
+
+    def tojson(value: Any, ensure_ascii: bool = False, indent: int | None = None,
+               separators: Any = None, sort_keys: bool = False) -> str:
+        return json.dumps(value, ensure_ascii=ensure_ascii, indent=indent,
+                          separators=separators, sort_keys=sort_keys)
+
+    env = ImmutableSandboxedEnvironment(trim_blocks=True, lstrip_blocks=True,
+                                        extensions=[jinja2.ext.loopcontrols])
+    env.filters["tojson"] = tojson
+    env.globals["raise_exception"] = raise_exception
+    return env.from_string(source)
+
+
+def render(template: jinja2.Template, messages: list[dict[str, Any]],
+           tools: list[dict[str, Any]] | None, kwargs: dict[str, Any],
+           generation_prompt: bool = False) -> str:
+    return template.render(messages=messages, tools=tools or None,
+                           add_generation_prompt=generation_prompt, **kwargs)
 
 
 def message_text(message: dict[str, Any]) -> str:
@@ -81,8 +102,7 @@ def main() -> int:
                         help="Qwen3.8-Flash-Next chat_template.jinja")
     args = parser.parse_args()
 
-    checker = load_checker()
-    template = checker.compile_template(args.template.read_text(encoding="utf-8"))
+    template = compile_template(args.template.read_text(encoding="utf-8"))
     tokenizer = Tokenizer.from_file(str(args.tokenizer))
 
     rows: list[dict[str, Any]] = []
@@ -93,8 +113,8 @@ def main() -> int:
             sample = json.loads(raw)
             messages, tools = sample["messages"], sample["tools"]
             kwargs = sample.get("chat_template_kwargs") or {}
-            prompt = checker.render(template, messages[:-1], tools, kwargs, generation_prompt=True)
-            full = checker.render(template, messages, tools, kwargs)
+            prompt = render(template, messages[:-1], tools, kwargs, generation_prompt=True)
+            full = render(template, messages, tools, kwargs)
             if not full.startswith(prompt):
                 raise ValueError(f"line {line_no}: prompt is not a prefix of the sample")
             images = count_images(messages[:-1])

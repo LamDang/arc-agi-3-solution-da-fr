@@ -13,14 +13,23 @@ rationale-off student format. All schema and format checks pass — see
 
 ## Files
 
-| File | Tracked in | What it is |
-| --- | --- | --- |
-| `convert.py` | git | Builds `train.jsonl` + `meta.json` from the run's request logs. Standard library only. |
-| `train.jsonl` | DVC (`train.jsonl.dvc` in git) | The dataset, ~320 MB. One JSON line per sample. `dvc pull train.jsonl.dvc` to fetch. |
-| `index.json` | git (~225 KB) | One row per sample: byte offset, level, token lengths, image count. Random access + bucketing. |
-| `build_index.py` | git | Rebuilds `index.json` from `train.jsonl` (needs the Qwen tokenizer + template). |
-| `meta.json` | git | Dataset-level and per-game sample counts. |
-| `exploration.qmd` | git | Quarto EDA + anomaly report. Render to `exploration.html`. |
+This directory is a self-contained DVC pipeline (`dvc.yaml`): **raw run → data
+→ report**. The scripts, `dvc.yaml`, `dvc.lock` and `exploration.qmd` live in
+git; the generated artifacts (`train.jsonl`, `meta.json`, `index.json`,
+`exploration.html`) are DVC outputs, tracked by `dvc.lock` and stored in the
+DVC remote. `dvc pull` fetches them; `dvc repro` rebuilds them.
+
+| File | Tracked in | Stage | What it is |
+| --- | --- | --- | --- |
+| `dvc.yaml`, `dvc.lock` | git | — | The pipeline and its locked hashes. |
+| `convert.py` | git | `convert` | Builds `train.jsonl` + `meta.json` from the run's request logs. Standard library only. |
+| `build_index.py` | git | `index` | Builds `index.json` from `train.jsonl` (needs the Qwen tokenizer + template, `tokenizers`, `jinja2`). |
+| `exploration.qmd` | git | `report` | Quarto EDA + anomaly report source. |
+| `train.jsonl` | DVC | `convert` | The dataset, ~320 MB. One JSON line per sample. |
+| `meta.json` | DVC | `convert` | Dataset-level and per-game sample counts. |
+| `index.json` | DVC (~225 KB) | `index` | One row per sample: byte offset, level, token lengths, image count. Random access + bucketing. |
+| `exploration.html` | DVC (~2.5 MB) | `report` | Rendered EDA + anomaly report. |
+| `qwen/` | neither (re-fetched) | `fetch_model_files` | Pinned Qwen tokenizer + chat template, for token counts and rendering. |
 
 ## Sample format
 
@@ -142,12 +151,8 @@ levels, token-length and image distributions, history-trimming over a game) and
 a battery of anomaly checks (schema, rationale-off rewrite, tool-call shape,
 `<think>` presence, image dimensions, duplicates, offset/context integrity).
 
-Render it:
-
-```bash
-QUARTO_PYTHON=../../ARC3-Inference/.venv/bin/python \
-  quarto render exploration.qmd --to html      # writes exploration.html (gitignored)
-```
+It is the `report` stage of the pipeline: `dvc repro report` (or `dvc pull` to
+fetch the already-built `exploration.html`).
 
 Current result — **all schema/format checks pass**:
 
@@ -160,13 +165,34 @@ Current result — **all schema/format checks pass**:
   the game with no tool call), and a handful of repeated-identical-code probes
   within 3 games (informational, not an error).
 
-## Rebuild
+## Pipeline
+
+`dvc.yaml` defines the whole chain:
+
+```
+convert            raw run (runs/gpt61sol-features-25games) -> train.jsonl, meta.json
+fetch_model_files  Qwen tokenizer.json + chat_template.jinja  (pinned commit, not cached)
+index              train.jsonl + tokenizer/template          -> index.json
+report             train.jsonl + index.json                  -> exploration.html
+```
+
+Fetch the built artifacts:
 
 ```bash
-dvc pull ../../ARC3-Inference/runs/gpt61sol-features-25games.dvc   # source run
-python convert.py                                                 # -> train.jsonl, meta.json
-# rebuild the index (offsets are byte-exact to train.jsonl, so always after convert):
-hf download Qwen/Qwen3.8-Flash-Next tokenizer.json chat_template.jinja --local-dir qwen
-python build_index.py --tokenizer qwen/tokenizer.json --template qwen/chat_template.jinja
-dvc add train.jsonl && dvc push
+dvc pull            # train.jsonl, meta.json, index.json, exploration.html
 ```
+
+Rebuild from the raw run (offsets in `index.json` are byte-exact to
+`train.jsonl`, so the pipeline always rebuilds the index after convert):
+
+```bash
+dvc pull ../../ARC3-Inference/runs/gpt61sol-features-25games.dvc   # the raw run
+dvc repro                                                          # convert -> fetch -> index -> report
+dvc push                                                           # upload the outputs
+```
+
+Prerequisites for `dvc repro`: the ARC3-Inference venv (referenced directly in
+`dvc.yaml` for `pandas`, `tokenizers`, `jinja2`), `quarto` on `PATH` for the
+report stage, and internet for `fetch_model_files`. Editing this README or
+other docs does not invalidate any stage; each stage depends only on its own
+script/source and its data inputs.
