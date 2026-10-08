@@ -16,7 +16,7 @@ production CUDA performance or of the real sol validation sample.
 processed twice with the pinned processor, with identical full-context token
 IDs, final-reply positions and semantic annotations. All five fold-0 games
 are excluded from the saved calibration statistics; all 20 training games
-contribute to the nested 48-layer expert maps. No GPU has started.
+contribute to the nested 48-layer expert maps. The user started Kaggle on 2026-10-08; GPU qualification and staged scoring are now in progress. See `../READINESS.md`.
 
 The current protocol is **512 first, then 256** on all 30 requests. If the
 weighted primary NLL of 256 is **at most 1.05 × the full baseline**, stop and
@@ -128,8 +128,8 @@ in the interactive notebook and set `START_GPU_RUN=True` in the final launch
 cell. The worker first checks kernels and repeats a short real request with
 two chunk sizes. It then checks the longest selected baseline request, completes all 512 jobs,
 then all 256 jobs, and applies the conditional scan gate. Smoke/capacity results that are valid count toward the panel.
-A failed check stops before the full sweep. GPU-specific correctness and
-memory checks are pending until this first GPU smoke step.
+A failed check stops before the full sweep. Both GPU-specific correctness and
+memory checks must pass before any full-panel comparison.
 
 The session cap is 120 minutes by default. Start/end times include loading;
 new work is admitted conservatively with a persistence margin. At the cap,
@@ -202,3 +202,44 @@ inclusive threshold, selection rule and exact initial/maximum budgets.
 The optional extra diagnostic reserve in the design document is not implemented
 as an automatic extension. This setup stops after the 512/256 pair passes, or after the triggered five-model
 comparison, always using the same 30-request core.
+
+## Qualified CUDA kernels and chunk-stable scoring (2026-10-08)
+
+The observed Kaggle image uses Python 3.13.15, torch 2.11.0+cu128,
+CUDA 12.8, Triton 3.6.0 and CXX11 ABI=true on RTX PRO 6000 Blackwell.
+The original 42-wheel setup lacked fast kernels; the worker now rejects
+missing/unqualified FLA or missing native convolution before loading weights.
+
+Add these wheels to the existing CPU-prepared wheelhouse:
+
+- `flash_linear_attention-0.5.2-py3-none-any.whl`
+- `fla_core-0.5.2-py3-none-any.whl`
+- `causal_conv1d-1.7.0-cp313-cp313-linux_x86_64.whl`
+
+The native convolution wheel was built from the PyPI 1.7.0 source distribution
+on the exact Kaggle image. A torch-2.10 GitHub wheel is not ABI-compatible
+with torch 2.11. To rebuild on the matching image (requires nvcc and ninja):
+
+```bash
+CAUSAL_CONV1D_FORCE_BUILD=TRUE MAX_JOBS=2 python -m pip wheel \
+  --no-deps --no-build-isolation /path/to/causal_conv1d-1.7.0 \
+  --wheel-dir /path/to/qualified-wheels
+```
+
+Copy all 45 wheels into one wheelhouse and use the existing `build_setup.py`
+command. The existing notebook installs the three pinned kernels through
+`requirements-kaggle.lock`. The image already supplies their torch dependency;
+no torch wheel is included and no replacement is requested. Native wheel SHA256:
+`f928f1aa1de1306f26f58a3f2c7a6d9ac2d696090fd1bd26430951d82be9928b`.
+The wheel is specific to this Python/torch/CUDA/ABI combination; rebuild and
+requalify when the image changes. Generated wheels and archives stay outside Git.
+
+The production BF16 smoke check exposed shape-dependent GEMM rounding, which
+amplified through hard routing across 48 layers. `numerics.py` uses fixed
+256-row padded dense and expert projections, plus a fixed top-k expert sum
+order. It preserves weights, full contexts, pruning masks and teacher-forced
+final-reply targets. Reduced-precision BF16/FP16 reductions are disabled.
+The scoring-numerics policy is included in the run identity; results from
+previous unqualified attempts cannot be resumed into the corrected run.
+The 0.01-nat per-token chunk-parity tolerance is unchanged. The corrected
+short-request diagnostic matched exactly at chunk sizes 8192 and 4096.

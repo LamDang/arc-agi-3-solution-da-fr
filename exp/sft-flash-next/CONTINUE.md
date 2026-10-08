@@ -4,10 +4,13 @@ Repository: `LamDang/arc-agi-3-solution-da-fr`.
 Branch: `codex/sol-nll-30-setup`, based on dataset merge main
 `37fadfeedfd54d2129db4525e4167596cc7337b6`.
 
-The user's latest implementation instruction was: “15 request is a bit light,
-should do 30. prepare the setup, make sure to test it and tell me when you are
-ready to start the gpu.” **Do not allocate/start the GPU yet.** Finish CPU
-preparation, verify the actual data, then report readiness for GPU startup.
+The user started the interactive Kaggle Jupyter server on 2026-10-08.
+Real-data preparation and CPU preflight passed. The first GPU attempts
+revealed missing fast kernels, then BF16 chunk-shape sensitivity. Both are
+addressed; the corrected short-request smoke passed exactly. Longest-context
+capacity passed; the staged panel is in progress. See READINESS.md for current
+status. Do not start training or gameplay. Never commit the authenticated
+Jupyter URL; credentials live outside the repository.
 
 ## Read first
 

@@ -109,6 +109,7 @@ def execute(args, manifest, bundle, out):
     sys.path.insert(0, str(Path(args.reap_dir).resolve()))
     import reap_model
     import replay
+    import numerics
 
     if not torch.cuda.is_available():
         raise RuntimeError("GPU not available; no model was loaded")
@@ -145,6 +146,8 @@ def execute(args, manifest, bundle, out):
                 versions[name] = None
         reap_model.OPTIONS.update(compile_dequant=False, attention="einsum")
         fast_linear = reap_model.check_fast_linear_attention(log=print)
+        if not fast_linear or versions["causal-conv1d"] is None:
+            raise RuntimeError("Qualified FLA and native causal-conv1d kernels are required; stopped before loading weights")
         config = dict(manifest_sha256=manifest["manifest_sha256"], model=model_info,
                       code_sha256=code_hash(Path(__file__).parent, Path(args.reap_dir)),
                       versions=versions, gpu=device.name, capability=torch.cuda.get_device_capability(),
@@ -152,6 +155,7 @@ def execute(args, manifest, bundle, out):
                       fast_linear_attention=fast_linear, cuda=torch.version.cuda,
                       numerical_tolerance=args.noise_tolerance)
         config["protocol"] = POLICY
+        config["scoring_numerics"] = numerics.POLICY
         # JSON-normalize tuples so reconnecting does not cause false mismatch.
         config = json.loads(json.dumps(config))
         identity = bind_run(out, config)
@@ -174,6 +178,7 @@ def execute(args, manifest, bundle, out):
         state["phase"] = "loading"
         model, _ = reap_model.load_model(args.model_dir, record=False)
         model.eval()
+        numerics.configure(model, reap_model)
         if manifest["image_backend"] != "pil":
             raise ValueError("Expected the fixed PIL image-processing backend")
         processor = load_processor(bundle / "processor")

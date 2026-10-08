@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-08",
+  "gpu_started_by_user": true,
+  "identity": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+  "code_sha256": "8b85a370ba6f8c77dbcabaa219e89f39c8aec755407bd28272cc8caefa6b04d1",
+  "kernel_qualification": {
+    "causal_conv1d_relative_error": 0.0028705191798508167,
+    "causal_conv1d_wheel_sha256": "f928f1aa1de1306f26f58a3f2c7a6d9ac2d696090fd1bd26430951d82be9928b",
+    "causal_conv1d_wheel_bytes": 173329986,
+    "causal_conv1d": "1.7.0",
+    "flash_linear_attention": "0.5.2",
+    "fla_core": "0.5.2",
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "capability": [
+      12,
+      0
+    ],
+    "cxx11_abi": true,
+    "fla_check": "[reap] flash-linear-attention check: output error 4.4e-03, state error 3.1e-03 -> fast kernel\n"
+  },
+  "short_smoke": {
+    "identity": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+    "sample_id": "sp80-589a99af-r0",
+    "mean_abs_token_deltas": [
+      0.0,
+      0.0
+    ],
+    "tolerance": 0.01
+  },
+  "longest_capacity": {
+    "identity": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+    "count": 512,
+    "sample_id": "cd82-fb555c5d-r36",
+    "target_sha256": "f8839d6a966a34eab391e7a7f3817a4bd14661d607332fee749b5dddf547d94a",
+    "scored": 1004,
+    "nll_sum": 239.50007191649317,
+    "npz_sha256": "ea6cf2edb4d1815e4ac298e619072cfa6398f7b607e0f477d78cd73dc3789e7c",
+    "metrics": {
+      "seconds": 432.44857402200023,
+      "processed_tokens": 84298,
+      "peak_allocated_bytes": 79616178176,
+      "peak_reserved_bytes": 80851501056
+    }
+  },
+  "tests": {
+    "command": "python -m pytest exp/reap-flash-next/tests exp/sft-flash-next/nll/tests -q",
+    "passed": 54,
+    "skipped": 4,
+    "skip_reason": "Existing SGLang-log tests require REAP_TEST_LOG / REAP_TEST_PROCESSOR / REAP_TEST_EVAL_LOG"
+  },
+  "archive": {
+    "sha256": "af34abe844dafe9e60e24059469a737bda5897bead4c97d1f13170474cc5f9ad",
+    "inventory_files": 140,
+    "wheels": 45,
+    "inventory_verified": true,
+    "disabled_gpu_notebook_verified": true
+  },
+  "original_session_deadline_utc": "2026-10-08 13:53:43 UTC",
+  "staged_panel": "in_progress",
+  "selected_experts": null
+}

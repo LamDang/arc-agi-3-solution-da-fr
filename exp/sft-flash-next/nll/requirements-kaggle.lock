@@ -42,3 +42,8 @@ transformers==5.18.0
 typer==0.27.3
 typing_extensions==4.16.0
 urllib3==2.8.0
+# CUDA torch/torchvision remain supplied by the exact Kaggle image.
+# Native causal-conv wheel must be built against that image's torch ABI.
+flash-linear-attention==0.5.2
+fla-core==0.5.2
+causal-conv1d==1.7.0
