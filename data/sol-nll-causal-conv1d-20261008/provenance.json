@@ -1,0 +1,27 @@
+{
+  "artifact": "causal_conv1d-1.7.0-cp313-cp313-linux_x86_64.whl",
+  "sha256": "f928f1aa1de1306f26f58a3f2c7a6d9ac2d696090fd1bd26430951d82be9928b",
+  "bytes": 173329986,
+  "package": "causal-conv1d",
+  "version": "1.7.0",
+  "built_on": "Exact Kaggle image used for the 2026-10-08 Sol NLL runs",
+  "python": "3.13.15",
+  "torch": "2.11.0+cu128",
+  "cuda": "12.8",
+  "triton": "3.6.0",
+  "cxx11_abi": true,
+  "gpu": "RTX PRO 6000 Blackwell",
+  "compute_capability": [
+    12,
+    0
+  ],
+  "qualification_relative_error": 0.0028705191798508167,
+  "native_libraries": [
+    "causal_conv1d_cuda.cpython-313-x86_64-linux-gnu.so"
+  ],
+  "zip_crc_verified": true,
+  "identical_in_both_panel_wheelhouses": true,
+  "qualification_record": "exp/sft-flash-next/verification/gpu-qualification.json",
+  "storage": "private DVC remote storage",
+  "dvc_remote_round_trip_sha256_verified": true
+}

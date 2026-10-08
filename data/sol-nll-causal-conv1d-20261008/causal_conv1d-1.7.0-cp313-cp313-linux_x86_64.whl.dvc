@@ -1,0 +1,5 @@
+outs:
+- md5: 2e1e68c3d9147353dea121a9661b678b
+  size: 173329986
+  hash: md5
+  path: causal_conv1d-1.7.0-cp313-cp313-linux_x86_64.whl
