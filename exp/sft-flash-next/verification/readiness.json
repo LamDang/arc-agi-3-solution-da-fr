@@ -1,0 +1,26 @@
+{
+  "gpu_ready": false,
+  "gpu_started": false,
+  "core_requests": 30,
+  "model_request_jobs": 150,
+  "tests": {
+    "tests": 36,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "real_data_preflight": "blocked: uncached S3/Hugging Face inputs; enforced network proxy 403",
+  "required_hosts": [
+    "kaggle-arc-agi-3-dvc.s3.eu-west-3.amazonaws.com",
+    "huggingface.co"
+  ],
+  "cpu_environment": {
+    "python": "3.12.14",
+    "torch": "2.14.1+cpu",
+    "torchvision": "0.29.1+cpu",
+    "transformers": "5.18.0"
+  },
+  "notebook": "nll/kaggle/kaggle-nll-30.ipynb",
+  "setup_archive": "generated locally; rebuild with nll/build_setup.py",
+  "gpu_checks": "not run; first GPU session starts with numerical/chunk/capacity smoke checks"
+}
