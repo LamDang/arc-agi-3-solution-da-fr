@@ -37,3 +37,83 @@ stages:
     metrics:
       - metrics.json:
           cache: false
+
+  # think_gen Sol judge + 2-refine-pass pipeline (params: think_gen).
+  # Each stage's output is a separate, non-nested dir so DVC can track them
+  # independently; every stage's requests/ holds the retraceable request log.
+  tg_generate:
+    cmd: uv run --no-sync python -m think_gen.generate --run ${think_gen.source_run}
+      --out ${think_gen.out}/draft --manifest ${think_gen.manifest} --split ${think_gen.split}
+      --prompt b4 --summary none --history native
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/draft
+  tg_judge1:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run ${think_gen.source_run}
+      --gen ${think_gen.out}/draft --out ${think_gen.out}/judge1 --manifest ${think_gen.manifest}
+      --split ${think_gen.split} --checks words code fact --sol-model ${think_gen.judge_model}
+      --judge-effort ${think_gen.judge_effort} --sol-effort ${think_gen.fact_effort}
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.out}/draft
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/judge1
+  tg_refine1:
+    cmd: uv run --no-sync python -m think_gen.refine --run ${think_gen.source_run}
+      --gen ${think_gen.out}/draft --judge ${think_gen.out}/judge1 --out ${think_gen.out}/refine1
+      --manifest ${think_gen.manifest} --split ${think_gen.split}
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.out}/draft
+      - ${think_gen.out}/judge1
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/refine1
+  tg_judge2:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run ${think_gen.source_run}
+      --gen ${think_gen.out}/refine1 --out ${think_gen.out}/judge2 --manifest ${think_gen.manifest}
+      --split ${think_gen.split} --checks words code fact --sol-model ${think_gen.judge_model}
+      --judge-effort ${think_gen.judge_effort} --sol-effort ${think_gen.fact_effort}
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.out}/refine1
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/judge2
+  tg_refine2:
+    cmd: uv run --no-sync python -m think_gen.refine --run ${think_gen.source_run}
+      --gen ${think_gen.out}/refine1 --judge ${think_gen.out}/judge2 --out ${think_gen.out}/refine2
+      --manifest ${think_gen.manifest} --split ${think_gen.split}
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.out}/refine1
+      - ${think_gen.out}/judge2
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/refine2
+  tg_final:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run ${think_gen.source_run}
+      --gen ${think_gen.out}/refine2 --out ${think_gen.out}/final --manifest ${think_gen.manifest}
+      --split ${think_gen.split} --sol-model ${think_gen.judge_model}
+      --judge-effort ${think_gen.judge_effort} --sol-effort ${think_gen.fact_effort}
+      --model ${think_gen.student_model} --provider ${think_gen.provider}
+    deps:
+      - think_gen
+      - ${think_gen.source_run}
+      - ${think_gen.out}/refine2
+      - ${think_gen.manifest}
+    outs:
+      - ${think_gen.out}/final

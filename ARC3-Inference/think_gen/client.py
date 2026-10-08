@@ -47,6 +47,23 @@ def _slim(messages: list) -> list:
     return out
 
 
+def _digest(messages: list) -> dict:
+    """A compact, retraceable stand-in for the request messages: the appended
+    instruction (the last message, kept verbatim with images slimmed) plus a
+    verifiable reference to the context prefix (its message count, a sha and a
+    char length). The prefix itself is the source record's context, which lives
+    in the DVC-tracked source run, so it is not duplicated here; the sha lets a
+    reconstruction be checked. `log_tag.key` names which source record it is."""
+    msgs = messages or []
+    prefix = msgs[:-1]
+    ser = json.dumps(prefix, ensure_ascii=False, sort_keys=True)
+    return {
+        "n_messages": len(msgs),
+        "prefix": {"n": len(prefix), "sha1": hashlib.sha1(ser.encode()).hexdigest(), "chars": len(ser)},
+        "instruction": _slim(msgs[-1:])[0] if msgs else None,
+    }
+
+
 def log_call(log_path, request: dict, response: dict, tag: dict | None = None):
     """Append one request/response record. Never raises (logging must not break
     a call)."""
@@ -121,11 +138,12 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
             "secs": round(time.time() - t, 1),
         }
         log_call(log_path, {"api": "chat", "model": model, "provider": provider, "reasoning": reasoning,
-                            "tool_choice": tool_choice if tools else None, "messages": _slim(messages)},
+                            "temperature": temperature, "max_tokens": max_tokens,
+                            "tool_choice": tool_choice if tools else None, **_digest(messages)},
                  {k: out[k] for k in ("content", "reasoning", "tool_calls", "usage", "finish_reason", "secs")},
                  {**(log_tag or {}), "attempt": attempt + 1})
         return out
-    log_call(log_path, {"api": "chat", "model": model, "messages": _slim(messages)},
+    log_call(log_path, {"api": "chat", "model": model, **_digest(messages)},
              {"error": last}, log_tag)
     raise CallError(f"gave up after {retries + 1} attempts: {last}")
 
@@ -177,9 +195,10 @@ def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str 
             last = "empty answer"
             continue
         out = {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1)}
-        log_call(log_path, {"api": "responses", "model": model, "effort": effort, "messages": _slim(messages)},
+        log_call(log_path, {"api": "responses", "model": model, "effort": effort,
+                            "max_output_tokens": max_output_tokens, **_digest(messages)},
                  out, {**(log_tag or {}), "attempt": attempt + 1})
         return out
-    log_call(log_path, {"api": "responses", "model": model, "effort": effort, "messages": _slim(messages)},
+    log_call(log_path, {"api": "responses", "model": model, "effort": effort, **_digest(messages)},
              {"error": last}, log_tag)
     raise CallError(f"gave up after {retries + 1} attempts: {last}")

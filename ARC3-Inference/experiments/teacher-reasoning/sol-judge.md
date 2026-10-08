@@ -155,6 +155,45 @@ the 1h-cache flag and a `--dry-run` token/cost projector are design decisions
 from this analysis, to build before the full 25-game run. The dev-set results
 above use the current separate-judge code.
 
+## Reproducibility
+
+The pipeline is DVC stages (`dvc.yaml`, params under `think_gen:` in
+`params.yaml`): `tg_generate → tg_judge1 → tg_refine1 → tg_judge2 → tg_refine2
+→ tg_final`. Each stage writes a separate, non-nested directory under
+`think_gen.out` (`draft/ judge1/ refine1/ judge2/ refine2/ final/`) so DVC
+tracks them independently and `dvc repro` reruns only what changed. To run a
+different sample, point `think_gen.manifest` at another manifest and
+`dvc repro tg_final` (or `dvc exp run`). The source run holds the context and is
+itself DVC-tracked, so it is a dependency, not duplicated.
+
+**Request log.** Every Sol and flash call appends one JSON line to the stage's
+`requests/<game>.jsonl`, so a run is fully retraceable without storing the
+~62K-token context on every line:
+
+- `request` keeps the call's metadata (api, model, effort/reasoning,
+  temperature, token caps), the **appended instruction verbatim** (the judge or
+  reconstruct prompt — the part that varies), and a **reference** to the context
+  prefix: its message count, char length and a sha1. The prefix itself is the
+  source record's context (named by `key`, e.g. `bp35-…_p0#32`), which lives in
+  the DVC-tracked source run; the sha1 lets a reconstruction be verified.
+- `response` keeps the full content, tool calls, `finish_reason`, timing and the
+  complete `usage` (prompt/cached/completion/reasoning token counts, and cost
+  for flash), including the final give-up on failure.
+
+The results themselves (generated and refined thinking rows, judge verdicts,
+per-stage `summary.json`) are the stage outputs, as before.
+
+## The refine prompt across passes
+
+Refine 2 edits refine 1's output as its new draft and is given refine 1's fresh
+judge verdicts as feedback. So the **round-1 correction is kept** (it is the
+draft), but the round-1 **feedback text is not re-shown** — only the issues
+still open on the round-1 output. This is likely why round 2 traded a little
+coverage for the fact fixes: re-fixing a fact, the student is not reminded what
+it already had right. Carrying the earlier feedback forward (an accumulated
+"keep all of this, only these remain") is an untested lever against that
+regression.
+
 ## Limits
 - Prices and the cache discount/TTL for `gpt-6.1-sol` are unknown here; the
   dollar figures are stand-ins.

@@ -150,7 +150,7 @@ CHECKS = {"code": check_code, "words": check_words, "fact": check_fact, "call": 
 def judge_one(rec: logs.Record, thinking: str, done: dict, args) -> dict:
     out = {"key": rec.key, "game": rec.game}
     out.update(done)  # keep checks already finished on a rerun
-    log_path = args.gen / "judge_sol" / "requests" / f"{rec.game}.jsonl"
+    log_path = args.out / "requests" / f"{rec.game}.jsonl"
     for name in args.checks:
         if name in out:
             continue
@@ -197,6 +197,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", type=Path, required=True, help="source run (context, calls, stated words)")
     ap.add_argument("--gen", type=Path, required=True, help="think_gen.generate output directory")
+    ap.add_argument("--out", type=Path, help="where verdicts go (default <gen>/judge_sol); a separate "
+                    "dir keeps DVC stage outputs from nesting inside --gen")
     ap.add_argument("--manifest", type=Path, help="restrict to this evaluation manifest's records")
     ap.add_argument("--split", choices=["dev", "eval", "all"], default="dev")
     ap.add_argument("--games", nargs="*", help="game id prefixes (default: all in --gen)")
@@ -211,13 +213,15 @@ def main(argv=None):
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args(argv)
+    if args.out is None:
+        args.out = args.gen / "judge_sol"
 
     keys = None
     if args.manifest:
         man = json.loads(args.manifest.read_text())
         keys = {i["key"] for i in man["items"] if args.split in ("all", i["split"])}
 
-    (args.gen / "judge_sol").mkdir(exist_ok=True)
+    args.out.mkdir(parents=True, exist_ok=True)
     todo, rows_all = [], []
     for gpath in sorted(args.gen.glob("*.jsonl")):
         if args.games and not any(gpath.stem.rsplit("_p", 1)[0].startswith(g) for g in args.games):
@@ -229,7 +233,7 @@ def main(argv=None):
             continue
         srcs = logs.request_logs(args.run, [gpath.stem.rsplit("_p", 1)[0]])
         recs = {r.key: r for p in srcs for r in logs.read_log(p)}
-        jpath = args.gen / "judge_sol" / gpath.name
+        jpath = args.out / gpath.name
         done = {v["key"]: v for v in read_jsonl(jpath)}
         for key, grow in gen.items():
             rec = recs.get(key)
@@ -262,7 +266,7 @@ def main(argv=None):
                 log(f"[{v['key']}] {' '.join(flags)}")
 
     # a judged file may hold several lines per key across reruns; keep the last
-    for jpath in sorted((args.gen / "judge_sol").glob("*.jsonl")):
+    for jpath in sorted(args.out.glob("*.jsonl")):
         latest = {v["key"]: v for v in read_jsonl(jpath)}
         jpath.write_text("".join(json.dumps(v, ensure_ascii=False) + "\n" for v in latest.values()))
 
@@ -270,7 +274,7 @@ def main(argv=None):
     rows = list(by_key.values())
     per_game = {g: summarize([r for r in rows if r["game"] == g]) for g in sorted({r["game"] for r in rows})}
     summary = {"all": summarize(rows), "games": per_game, "checks": args.checks}
-    (args.gen / "judge_sol" / "summary.json").write_text(json.dumps(summary, indent=1))
+    (args.out / "summary.json").write_text(json.dumps(summary, indent=1))
     log(f"all: {json.dumps(summary['all'])}")
     for g, s in per_game.items():
         log(f"  {g}: {json.dumps(s)}")
