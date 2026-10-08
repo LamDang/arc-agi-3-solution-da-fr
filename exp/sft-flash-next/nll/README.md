@@ -235,6 +235,9 @@ command. The existing notebook installs the three pinned kernels through
 `requirements-kaggle.lock`. The image already supplies their torch dependency;
 no torch wheel is included and no replacement is requested. Native wheel SHA256:
 `f928f1aa1de1306f26f58a3f2c7a6d9ac2d696090fd1bd26430951d82be9928b`.
+The [exact qualified convolution wheel](../../../data/sol-nll-causal-conv1d-20261008/README.md)
+used by both panels is preserved in private DVC with retrieval instructions
+and build provenance; it can be reused on the matching image without rebuilding.
 The wheel is specific to this Python/torch/CUDA/ABI combination; rebuild and
 requalify when the image changes. Generated wheels and archives stay outside Git.
 
