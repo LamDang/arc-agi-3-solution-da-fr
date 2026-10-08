@@ -9,6 +9,9 @@ the run archived at `ARC3-Inference/runs/gpt61sol-features-25games.dvc`).
 - `train.jsonl` — the dataset (DVC-tracked; `dvc pull` to fetch). One JSON
   line per model request.
 - `meta.json` — per-game sample counts.
+- `index.json` — one small row per sample for O(1) random access and
+  length-bucketing (byte offset, level, token lengths); see below.
+- `build_index.py` — rebuilds `index.json` from `train.jsonl`.
 
 ## What the conversion does
 
@@ -94,12 +97,38 @@ index it:
 
 - **Sequential / streaming:** read line by line; each line is one independent
   sample. Memory stays at one sample at a time.
-- **Shuffled / random access:** plain JSONL is not addressable by index. Build
-  a one-time byte-offset index (`offsets[i]` = the start of line `i`), then
-  `seek(offsets[i]); readline()` for sample `i`. The index is 1334 integers.
+- **Shuffled / random access:** use `index.json`. Each row carries the byte
+  `offset` and `length` of its line, so a sample is one seek — no scan:
+
+  ```python
+  import json
+  index = json.load(open("index.json"))        # 1334 rows, ~225 KB
+  row = index[i]
+  with open("train.jsonl", "rb") as f:          # binary; train.jsonl is ASCII
+      f.seek(row["offset"])
+      sample = json.loads(f.read(row["length"]))
+  ```
+
+  The rows also hold `game`, `request_index`, `level`, `context_tokens`,
+  `output_tokens` and `images`, so you can filter (e.g. by level) or
+  length-bucket batches straight from `index.json` without touching
+  `train.jsonl`. Rebuild it after any change to `train.jsonl` (offsets are
+  byte-exact to the current file):
+
+  ```bash
+  python build_index.py --tokenizer qwen/tokenizer.json --template qwen/chat_template.jinja
+  ```
+
+  (`build_index.py` needs `tokenizers` + `jinja2` and the model's
+  `tokenizer.json` / `chat_template.jinja`; `hf download Qwen/Qwen3.8-Flash-Next
+  tokenizer.json chat_template.jinja --local-dir qwen`.)
 - **At scale (many runs):** convert to a memory-mapped format — HuggingFace
   `datasets` (Arrow), WebDataset, or Mosaic MDS — for O(1) indexed reads
-  without a custom index. Overkill for one run.
+  without a custom index.
+
+Token lengths in `index.json` (Qwen tokenizer; each 640×640 board image counted
+as 400 vision tokens): context min/median/max ≈ 5.5K / 51K / 108K, all under
+the 139K window; output median ~280, max ~4.3K.
 
 The real training-memory cost is not the file but the decoded images: a sample
 with up to 60 board images at 640×640 is ~70 MB of raw pixels once decoded, so
