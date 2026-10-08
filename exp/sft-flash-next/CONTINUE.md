@@ -1,5 +1,12 @@
 # Continue the 30-request Sol NLL setup
 
+**Final state (2026-10-08): both panels completed and all 120 evaluations,
+including 72,932 per-token losses, are verified. Generated thinking is the
+reference; 256 experts pass the separate thinking/code +5% gates. No intermediate
+counts, training or gameplay ran.** The earlier running-state notes below are
+historical. See [the final paired experiment](results/20261008-two-panels/README.md)
+for exact scores, DVC artifacts, reproduction and shutdown status.
+
 Repository: `LamDang/arc-agi-3-solution-da-fr`.
 Branch: `codex/sol-nll-30-setup`, based on dataset merge main
 `37fadfeedfd54d2129db4525e4167596cc7337b6`.

@@ -1,5 +1,12 @@
 # 30-request NLL setup — readiness
 
+**Final state (2026-10-08): both panels completed and all 120 evaluations,
+including 72,932 per-token losses, are verified. Generated thinking is the
+reference; 256 experts pass the separate thinking/code +5% gates. No intermediate
+counts, training or gameplay ran.** The earlier running-state notes below are
+historical. See [the final paired experiment](results/20261008-two-panels/README.md)
+for exact scores, DVC artifacts, reproduction and shutdown status.
+
 2026-10-08. **Real-data preparation passed; the user started the Kaggle
 session; GPU qualification and the source panel are complete.** The corrected short-request
 smoke passed with exactly zero per-token difference for an exact repeat and

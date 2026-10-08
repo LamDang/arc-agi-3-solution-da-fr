@@ -1,0 +1,2470 @@
+[
+  {
+    "dimension": "game",
+    "value": "ar25-0c556536",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.0468392529798032,
+    "per_game": {
+      "ar25-0c556536": 1.0468392529798032
+    },
+    "token_nll": 1.0587737673570308,
+    "perplexity": 2.882833796095289,
+    "population_request_nll": 1.0468392529798032,
+    "categories": {
+      "thinking": {
+        "nll": 1.4102685014823213,
+        "weighted_sum": 17636.11274528717,
+        "weighted_tokens": 12505.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.43411898462743675,
+        "weighted_sum": 2561.953187778818,
+        "weighted_tokens": 5901.5,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.039580602361555924,
+        "weighted_sum": 23.748361416933555,
+        "weighted_tokens": 600.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2771633807343642,
+        "weighted_sum": 34.64542259179552,
+        "weighted_tokens": 125.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "ar25-0c556536",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.0318435927187646,
+    "per_game": {
+      "ar25-0c556536": 1.0318435927187646
+    },
+    "token_nll": 1.046877051445144,
+    "perplexity": 2.848740741199765,
+    "population_request_nll": 1.0318435927187646,
+    "categories": {
+      "thinking": {
+        "nll": 1.405195220259285,
+        "weighted_sum": 17572.66882695249,
+        "weighted_tokens": 12505.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.4050192669444119,
+        "weighted_sum": 2390.221203872447,
+        "weighted_tokens": 5901.5,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.033553477065081466,
+        "weighted_sum": 20.13208623904888,
+        "weighted_tokens": 600.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.3666370494760292,
+        "weighted_sum": 45.829631184503654,
+        "weighted_tokens": 125.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "cd82-fb555c5d",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.049544373054442,
+    "per_game": {
+      "cd82-fb555c5d": 1.049544373054442
+    },
+    "token_nll": 0.8803322559114269,
+    "perplexity": 2.4117008751856837,
+    "population_request_nll": 1.049544373054442,
+    "categories": {
+      "thinking": {
+        "nll": 1.357202668003103,
+        "weighted_sum": 24021.808622320925,
+        "weighted_tokens": 17699.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.30192096427918375,
+        "weighted_sum": 3909.272645486871,
+        "weighted_tokens": 12948.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.01307492033776435,
+        "weighted_sum": 12.238125436147431,
+        "weighted_tokens": 936.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.1657394935248187,
+        "weighted_sum": 32.31920123733965,
+        "weighted_tokens": 195.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "cd82-fb555c5d",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.0646479650470404,
+    "per_game": {
+      "cd82-fb555c5d": 1.0646479650470404
+    },
+    "token_nll": 0.8953785272911731,
+    "perplexity": 2.4482623482021086,
+    "population_request_nll": 1.0646479650470404,
+    "categories": {
+      "thinking": {
+        "nll": 1.363899567492468,
+        "weighted_sum": 24140.34039483294,
+        "weighted_tokens": 17699.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.32749526796202294,
+        "weighted_sum": 4240.408729572273,
+        "weighted_tokens": 12948.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.016017203706413734,
+        "weighted_sum": 14.992102669203256,
+        "weighted_tokens": 936.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2976682176826906,
+        "weighted_sum": 58.04530244812466,
+        "weighted_tokens": 195.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "sk48-d8078629",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.015673224728403,
+    "per_game": {
+      "sk48-d8078629": 1.015673224728403
+    },
+    "token_nll": 1.0584151979012075,
+    "perplexity": 2.881800285253578,
+    "population_request_nll": 1.015673224728403,
+    "categories": {
+      "thinking": {
+        "nll": 1.313457427160471,
+        "weighted_sum": 89298.68682907253,
+        "weighted_tokens": 67987.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.2510030885057419,
+        "weighted_sum": 4058.7199411378465,
+        "weighted_tokens": 16170.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.008719127034279635,
+        "weighted_sum": 30.76108017693855,
+        "weighted_tokens": 3528.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2686165382808324,
+        "weighted_sum": 197.4331556364118,
+        "weighted_tokens": 735.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "sk48-d8078629",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.008799492013178,
+    "per_game": {
+      "sk48-d8078629": 1.008799492013178
+    },
+    "token_nll": 1.0580289065054576,
+    "perplexity": 2.8806872855840524,
+    "population_request_nll": 1.008799492013178,
+    "categories": {
+      "thinking": {
+        "nll": 1.3084821750828883,
+        "weighted_sum": 88960.43187844787,
+        "weighted_tokens": 67987.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.2603650056605412,
+        "weighted_sum": 4210.1021415309515,
+        "weighted_tokens": 16170.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.011582492474768922,
+        "weighted_sum": 40.86303345098476,
+        "weighted_tokens": 3528.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.46265016902858325,
+        "weighted_sum": 340.0478742360087,
+        "weighted_tokens": 735.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "sp80-589a99af",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.0644264095711333,
+    "per_game": {
+      "sp80-589a99af": 1.0644264095711333
+    },
+    "token_nll": 1.0792981941837765,
+    "perplexity": 2.942613682833634,
+    "population_request_nll": 1.0644264095711333,
+    "categories": {
+      "thinking": {
+        "nll": 1.6416190509384203,
+        "weighted_sum": 23979.129477057504,
+        "weighted_tokens": 14607.0,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.31435097479780705,
+        "weighted_sum": 3042.7602605553734,
+        "weighted_tokens": 9679.5,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.020939330724616352,
+        "weighted_sum": 13.568686309551396,
+        "weighted_tokens": 648.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.16301966790931555,
+        "weighted_sum": 22.007655167757598,
+        "weighted_tokens": 135.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "sp80-589a99af",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.0493697592581095,
+    "per_game": {
+      "sp80-589a99af": 1.0493697592581095
+    },
+    "token_nll": 1.0798124422896709,
+    "perplexity": 2.9441273055018486,
+    "population_request_nll": 1.0493697592581095,
+    "categories": {
+      "thinking": {
+        "nll": 1.639840673702699,
+        "weighted_sum": 23953.152720775324,
+        "weighted_tokens": 14607.0,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.31619528631905086,
+        "weighted_sum": 3060.612273925253,
+        "weighted_tokens": 9679.5,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.021825790289101327,
+        "weighted_sum": 14.14311210733766,
+        "weighted_tokens": 648.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.31444381609620603,
+        "weighted_sum": 42.449915172987815,
+        "weighted_tokens": 135.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "tn36-ef4dde99",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.0406602587469038,
+    "per_game": {
+      "tn36-ef4dde99": 1.0406602587469038
+    },
+    "token_nll": 1.024908402975046,
+    "perplexity": 2.786840182604929,
+    "population_request_nll": 1.0406602587469036,
+    "categories": {
+      "thinking": {
+        "nll": 1.4734074506539208,
+        "weighted_sum": 25003.724437597037,
+        "weighted_tokens": 16970.0,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.36674588651305073,
+        "weighted_sum": 3770.1477133541616,
+        "weighted_tokens": 10280.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.023981668526398665,
+        "weighted_sum": 17.26680133900704,
+        "weighted_tokens": 720.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.19523559578725128,
+        "weighted_sum": 29.28533936808769,
+        "weighted_tokens": 150.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game",
+    "value": "tn36-ef4dde99",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.016670723517162,
+    "per_game": {
+      "tn36-ef4dde99": 1.016670723517162
+    },
+    "token_nll": 1.0067252046054989,
+    "perplexity": 2.736624439703826,
+    "population_request_nll": 1.0166707235171617,
+    "categories": {
+      "thinking": {
+        "nll": 1.4420701277906132,
+        "weighted_sum": 24471.930068606707,
+        "weighted_tokens": 16970.0,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.3655504565093229,
+        "weighted_sum": 3757.858692915839,
+        "weighted_tokens": 10280.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.026095837524567924,
+        "weighted_sum": 18.789003017688906,
+        "weighted_tokens": 720.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.40356659310924076,
+        "weighted_sum": 60.534988966386116,
+        "weighted_tokens": 150.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:1",
+    "experts": 512,
+    "requests": 2,
+    "primary": 1.046606049630829,
+    "per_game": {
+      "ar25-0c556536": 1.046606049630829
+    },
+    "token_nll": 1.0414396491271496,
+    "perplexity": 2.8332930274671577,
+    "population_request_nll": 1.046606049630829,
+    "categories": {
+      "thinking": {
+        "nll": 1.4129727774159144,
+        "weighted_sum": 3630.633551570192,
+        "weighted_tokens": 2569.5,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.5428508945226823,
+        "weighted_sum": 769.4911429859021,
+        "weighted_tokens": 1417.5,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.09342017945399868,
+        "weighted_sum": 20.178758762063715,
+        "weighted_tokens": 216.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.08293724831052032,
+        "weighted_sum": 3.7321761739734143,
+        "weighted_tokens": 45.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:1",
+    "experts": 256,
+    "requests": 2,
+    "primary": 1.0194831187394158,
+    "per_game": {
+      "ar25-0c556536": 1.0194831187394158
+    },
+    "token_nll": 1.016662779153642,
+    "perplexity": 2.763955426017494,
+    "population_request_nll": 1.0194831187394158,
+    "categories": {
+      "thinking": {
+        "nll": 1.3990840671652933,
+        "weighted_sum": 3594.9465105812214,
+        "weighted_tokens": 2569.5,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.49761437721260465,
+        "weighted_sum": 705.3683796988671,
+        "weighted_tokens": 1417.5,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.0706265801166633,
+        "weighted_sum": 15.255341305199273,
+        "weighted_tokens": 216.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.07140565020851568,
+        "weighted_sum": 3.2132542593832056,
+        "weighted_tokens": 45.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:5",
+    "experts": 512,
+    "requests": 2,
+    "primary": 1.0519916190385115,
+    "per_game": {
+      "ar25-0c556536": 1.0519916190385115
+    },
+    "token_nll": 1.083147052748576,
+    "perplexity": 2.953961210215434,
+    "population_request_nll": 1.0519916190385115,
+    "categories": {
+      "thinking": {
+        "nll": 1.4324693722240376,
+        "weighted_sum": 7070.66882129785,
+        "weighted_tokens": 4936.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.4543756818310593,
+        "weighted_sum": 1072.3266091213,
+        "weighted_tokens": 2360.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.005087473384277323,
+        "weighted_sum": 0.976794889781246,
+        "weighted_tokens": 192.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2489696945587177,
+        "weighted_sum": 9.958787782348708,
+        "weighted_tokens": 40.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:5",
+    "experts": 256,
+    "requests": 2,
+    "primary": 1.0586289320317774,
+    "per_game": {
+      "ar25-0c556536": 1.0586289320317774
+    },
+    "token_nll": 1.0861790253829835,
+    "perplexity": 2.9629311311737476,
+    "population_request_nll": 1.0586289320317774,
+    "categories": {
+      "thinking": {
+        "nll": 1.4440288798995222,
+        "weighted_sum": 7127.726551184041,
+        "weighted_tokens": 4936.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.435948459025715,
+        "weighted_sum": 1028.8383633006874,
+        "weighted_tokens": 2360.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.013920339540103447,
+        "weighted_sum": 2.672705191699862,
+        "weighted_tokens": 192.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.43795208516675077,
+        "weighted_sum": 17.51808340667003,
+        "weighted_tokens": 40.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:7",
+    "experts": 512,
+    "requests": 2,
+    "primary": 1.041949240688691,
+    "per_game": {
+      "ar25-0c556536": 1.041949240688691
+    },
+    "token_nll": 1.0438408203495522,
+    "perplexity": 2.840104423540802,
+    "population_request_nll": 1.041949240688691,
+    "categories": {
+      "thinking": {
+        "nll": 1.3869620744838256,
+        "weighted_sum": 6934.810372419128,
+        "weighted_tokens": 5000.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.33904681528795483,
+        "weighted_sum": 720.135435671616,
+        "weighted_tokens": 2124.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.013504207109836427,
+        "weighted_sum": 2.592807765088594,
+        "weighted_tokens": 192.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.523861465886835,
+        "weighted_sum": 20.9544586354734,
+        "weighted_tokens": 40.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "ar25-0c556536:7",
+    "experts": 256,
+    "requests": 2,
+    "primary": 1.0189637866325192,
+    "per_game": {
+      "ar25-0c556536": 1.0189637866325192
+    },
+    "token_nll": 1.0241044806036868,
+    "perplexity": 2.7846006797505676,
+    "population_request_nll": 1.0189637866325192,
+    "categories": {
+      "thinking": {
+        "nll": 1.3699991530374456,
+        "weighted_sum": 6849.995765187228,
+        "weighted_tokens": 5000.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.3088580324260322,
+        "weighted_sum": 656.0144608728924,
+        "weighted_tokens": 2124.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.011479373657029926,
+        "weighted_sum": 2.204039742149746,
+        "weighted_tokens": 192.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.6274573379612605,
+        "weighted_sum": 25.09829351845042,
+        "weighted_tokens": 40.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "cd82-fb555c5d:1",
+    "experts": 512,
+    "requests": 5,
+    "primary": 1.1729050393263365,
+    "per_game": {
+      "cd82-fb555c5d": 1.1729050393263365
+    },
+    "token_nll": 1.0932521936129471,
+    "perplexity": 2.983962733866659,
+    "population_request_nll": 1.1729050393263365,
+    "categories": {
+      "thinking": {
+        "nll": 1.5046753446052803,
+        "weighted_sum": 20000.897018165688,
+        "weighted_tokens": 13292.5,
+        "requests": 5
+      },
+      "tool_code": {
+        "nll": 0.4792687902437653,
+        "weighted_sum": 3498.4225343843646,
+        "weighted_tokens": 7299.5,
+        "requests": 5
+      },
+      "tool_format": {
+        "nll": 0.015532407598027891,
+        "weighted_sum": 12.115277926461754,
+        "weighted_tokens": 780.0,
+        "requests": 5
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.19202789465537706,
+        "weighted_sum": 31.20453288149877,
+        "weighted_tokens": 162.5,
+        "requests": 5
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "cd82-fb555c5d:1",
+    "experts": 256,
+    "requests": 5,
+    "primary": 1.188863054814269,
+    "per_game": {
+      "cd82-fb555c5d": 1.188863054814269
+    },
+    "token_nll": 1.110303451366788,
+    "perplexity": 3.0352793143579295,
+    "population_request_nll": 1.188863054814269,
+    "categories": {
+      "thinking": {
+        "nll": 1.5057069114905592,
+        "weighted_sum": 20014.609120988258,
+        "weighted_tokens": 13292.5,
+        "requests": 5
+      },
+      "tool_code": {
+        "nll": 0.5244407897713858,
+        "weighted_sum": 3828.1555449362304,
+        "weighted_tokens": 7299.5,
+        "requests": 5
+      },
+      "tool_format": {
+        "nll": 0.018993939601912816,
+        "weighted_sum": 14.815272889491997,
+        "weighted_tokens": 780.0,
+        "requests": 5
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.321536828579161,
+        "weighted_sum": 52.24973464411366,
+        "weighted_tokens": 162.5,
+        "requests": 5
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "cd82-fb555c5d:4",
+    "experts": 512,
+    "requests": 1,
+    "primary": 0.43274104169496985,
+    "per_game": {
+      "cd82-fb555c5d": 0.43274104169496985
+    },
+    "token_nll": 0.4327410416949698,
+    "perplexity": 1.541476990742141,
+    "population_request_nll": 0.43274104169496985,
+    "categories": {
+      "thinking": {
+        "nll": 0.9123920136499292,
+        "weighted_sum": 4020.911604155238,
+        "weighted_tokens": 4407.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.07273614430424122,
+        "weighted_sum": 410.85011110250656,
+        "weighted_tokens": 5648.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.000787484036446647,
+        "weighted_sum": 0.12284750968567693,
+        "weighted_tokens": 156.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.03429748787202698,
+        "weighted_sum": 1.1146683558408768,
+        "weighted_tokens": 32.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "cd82-fb555c5d:4",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.4435725162108988,
+    "per_game": {
+      "cd82-fb555c5d": 0.4435725162108988
+    },
+    "token_nll": 0.4435725162108988,
+    "perplexity": 1.5582642105320226,
+    "population_request_nll": 0.4435725162108988,
+    "categories": {
+      "thinking": {
+        "nll": 0.936176826377282,
+        "weighted_sum": 4125.731273844682,
+        "weighted_tokens": 4407.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.07298454184934815,
+        "weighted_sum": 412.253184636043,
+        "weighted_tokens": 5648.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.0011335242289183256,
+        "weighted_sum": 0.1768297797112588,
+        "weighted_tokens": 156.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.17832516320033848,
+        "weighted_sum": 5.795567804011,
+        "weighted_tokens": 32.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sk48-d8078629:5",
+    "experts": 512,
+    "requests": 6,
+    "primary": 1.015673224728403,
+    "per_game": {
+      "sk48-d8078629": 1.015673224728403
+    },
+    "token_nll": 1.0584151979012075,
+    "perplexity": 2.881800285253578,
+    "population_request_nll": 1.015673224728403,
+    "categories": {
+      "thinking": {
+        "nll": 1.313457427160471,
+        "weighted_sum": 89298.68682907253,
+        "weighted_tokens": 67987.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.2510030885057419,
+        "weighted_sum": 4058.7199411378465,
+        "weighted_tokens": 16170.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.008719127034279635,
+        "weighted_sum": 30.76108017693855,
+        "weighted_tokens": 3528.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2686165382808324,
+        "weighted_sum": 197.4331556364118,
+        "weighted_tokens": 735.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sk48-d8078629:5",
+    "experts": 256,
+    "requests": 6,
+    "primary": 1.008799492013178,
+    "per_game": {
+      "sk48-d8078629": 1.008799492013178
+    },
+    "token_nll": 1.0580289065054576,
+    "perplexity": 2.8806872855840524,
+    "population_request_nll": 1.008799492013178,
+    "categories": {
+      "thinking": {
+        "nll": 1.3084821750828883,
+        "weighted_sum": 88960.43187844787,
+        "weighted_tokens": 67987.5,
+        "requests": 6
+      },
+      "tool_code": {
+        "nll": 0.2603650056605412,
+        "weighted_sum": 4210.1021415309515,
+        "weighted_tokens": 16170.0,
+        "requests": 6
+      },
+      "tool_format": {
+        "nll": 0.011582492474768922,
+        "weighted_sum": 40.86303345098476,
+        "weighted_tokens": 3528.0,
+        "requests": 6
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.46265016902858325,
+        "weighted_sum": 340.0478742360087,
+        "weighted_tokens": 735.0,
+        "requests": 6
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:1",
+    "experts": 512,
+    "requests": 1,
+    "primary": 1.1085659388066211,
+    "per_game": {
+      "sp80-589a99af": 1.1085659388066211
+    },
+    "token_nll": 1.1085659388066211,
+    "perplexity": 3.0300100574512823,
+    "population_request_nll": 1.1085659388066211,
+    "categories": {
+      "thinking": {
+        "nll": 1.4302226670803215,
+        "weighted_sum": 1962.9806105677412,
+        "weighted_tokens": 1372.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.6261764508713759,
+        "weighted_sum": 388.8555759911244,
+        "weighted_tokens": 621.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.020255119169830433,
+        "weighted_sum": 2.187552870341687,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.025347315380280122,
+        "weighted_sum": 0.5703145960563027,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:1",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.9395732604671581,
+    "per_game": {
+      "sp80-589a99af": 0.9395732604671581
+    },
+    "token_nll": 0.9395732604671581,
+    "perplexity": 2.5588892061163695,
+    "population_request_nll": 0.9395732604671581,
+    "categories": {
+      "thinking": {
+        "nll": 1.228387841500007,
+        "weighted_sum": 1685.9623124587595,
+        "weighted_tokens": 1372.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.4808605222519873,
+        "weighted_sum": 298.6143843184841,
+        "weighted_tokens": 621.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.02979887015415598,
+        "weighted_sum": 3.218277976648846,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.3492724657045045,
+        "weighted_sum": 7.858630478351351,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:3",
+    "experts": 512,
+    "requests": 3,
+    "primary": 0.9787315564189853,
+    "per_game": {
+      "sp80-589a99af": 0.9787315564189853
+    },
+    "token_nll": 1.0025305065655996,
+    "perplexity": 2.72516916902814,
+    "population_request_nll": 0.9787315564189853,
+    "categories": {
+      "thinking": {
+        "nll": 1.684032768736642,
+        "weighted_sum": 14224.182781134048,
+        "weighted_tokens": 8446.5,
+        "requests": 3
+      },
+      "tool_code": {
+        "nll": 0.3016093979784089,
+        "weighted_sum": 2315.4553482802453,
+        "weighted_tokens": 7677.0,
+        "requests": 3
+      },
+      "tool_format": {
+        "nll": 0.014703859872770723,
+        "weighted_sum": 4.764050598777715,
+        "weighted_tokens": 324.0,
+        "requests": 3
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.18354275433785763,
+        "weighted_sum": 12.38913591780539,
+        "weighted_tokens": 67.5,
+        "requests": 3
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:3",
+    "experts": 256,
+    "requests": 3,
+    "primary": 0.9848946803685498,
+    "per_game": {
+      "sp80-589a99af": 0.9848946803685498
+    },
+    "token_nll": 1.014264275975736,
+    "perplexity": 2.7573340140577285,
+    "population_request_nll": 0.9848946803685498,
+    "categories": {
+      "thinking": {
+        "nll": 1.6956697454590852,
+        "weighted_sum": 14322.474505020164,
+        "weighted_tokens": 8446.5,
+        "requests": 3
+      },
+      "tool_code": {
+        "nll": 0.31150245490551287,
+        "weighted_sum": 2391.4043463096223,
+        "weighted_tokens": 7677.0,
+        "requests": 3
+      },
+      "tool_format": {
+        "nll": 0.017835138958160753,
+        "weighted_sum": 5.778585022444084,
+        "weighted_tokens": 324.0,
+        "requests": 3
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.45803083536372874,
+        "weighted_sum": 30.91708138705169,
+        "weighted_tokens": 67.5,
+        "requests": 3
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:5",
+    "experts": 512,
+    "requests": 1,
+    "primary": 1.4994974719605585,
+    "per_game": {
+      "sp80-589a99af": 1.4994974719605585
+    },
+    "token_nll": 1.4994974719605583,
+    "perplexity": 4.479437461711779,
+    "population_request_nll": 1.4994974719605585,
+    "categories": {
+      "thinking": {
+        "nll": 1.9396700924734407,
+        "weighted_sum": 5944.118998384859,
+        "weighted_tokens": 3064.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.2907343009797498,
+        "weighted_sum": 278.6688274890902,
+        "weighted_tokens": 958.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.04599711374709958,
+        "weighted_sum": 4.967688284686755,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.018099361313034024,
+        "weighted_sum": 0.40723562954326553,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:5",
+    "experts": 256,
+    "requests": 1,
+    "primary": 1.521377097631958,
+    "per_game": {
+      "sp80-589a99af": 1.521377097631958
+    },
+    "token_nll": 1.521377097631958,
+    "perplexity": 4.5785259330010355,
+    "population_request_nll": 1.521377097631958,
+    "categories": {
+      "thinking": {
+        "nll": 1.9558296917243345,
+        "weighted_sum": 5993.640090289223,
+        "weighted_tokens": 3064.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.3336275620048002,
+        "weighted_sum": 319.782018181601,
+        "weighted_tokens": 958.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.03332373206693262,
+        "weighted_sum": 3.598963063228723,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.08972015467934398,
+        "weighted_sum": 2.0187034802852395,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:6",
+    "experts": 512,
+    "requests": 1,
+    "primary": 0.8423003774026643,
+    "per_game": {
+      "sp80-589a99af": 0.8423003774026643
+    },
+    "token_nll": 0.8423003774026643,
+    "perplexity": 2.321701628534465,
+    "population_request_nll": 0.8423003774026643,
+    "categories": {
+      "thinking": {
+        "nll": 1.0721480052050218,
+        "weighted_sum": 1847.8470869708553,
+        "weighted_tokens": 1723.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.14132507989341217,
+        "weighted_sum": 59.780508794913345,
+        "weighted_tokens": 423.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.015272171812455918,
+        "weighted_sum": 1.6493945557452392,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.3840430677490062,
+        "weighted_sum": 8.64096902435264,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "sp80-589a99af:6",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.8805841563438911,
+    "per_game": {
+      "sp80-589a99af": 0.8805841563438911
+    },
+    "token_nll": 0.8805841563438911,
+    "perplexity": 2.4123084602013685,
+    "population_request_nll": 0.8805841563438911,
+    "categories": {
+      "thinking": {
+        "nll": 1.1320428273902983,
+        "weighted_sum": 1951.075813007179,
+        "weighted_tokens": 1723.5,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.12012180878379569,
+        "weighted_sum": 50.81152511554558,
+        "weighted_tokens": 423.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.014326722639037115,
+        "weighted_sum": 1.5472860450160084,
+        "weighted_tokens": 108.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.07357777010220161,
+        "weighted_sum": 1.6554998272995363,
+        "weighted_tokens": 22.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:1",
+    "experts": 512,
+    "requests": 1,
+    "primary": 0.9296991464865642,
+    "per_game": {
+      "tn36-ef4dde99": 0.9296991464865642
+    },
+    "token_nll": 0.9296991464865642,
+    "perplexity": 2.5337467763182384,
+    "population_request_nll": 0.9296991464865642,
+    "categories": {
+      "thinking": {
+        "nll": 1.1379440711340831,
+        "weighted_sum": 3493.488298381635,
+        "weighted_tokens": 3070.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.4493421296154661,
+        "weighted_sum": 476.30265739239405,
+        "weighted_tokens": 1060.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.012652132161569796,
+        "weighted_sum": 1.5182558593883755,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.1261855838657752,
+        "weighted_sum": 3.1546395966443797,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:1",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.8317161006736701,
+    "per_game": {
+      "tn36-ef4dde99": 0.8317161006736701
+    },
+    "token_nll": 0.8317161006736701,
+    "perplexity": 2.297257684945418,
+    "population_request_nll": 0.8317161006736701,
+    "categories": {
+      "thinking": {
+        "nll": 1.0149727642474466,
+        "weighted_sum": 3115.966386239661,
+        "weighted_tokens": 3070.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.4022282161311347,
+        "weighted_sum": 426.3619090990028,
+        "weighted_tokens": 1060.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.037287736374002435,
+        "weighted_sum": 4.4745283648802925,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.3513402670558207,
+        "weighted_sum": 8.783506676395518,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:2",
+    "experts": 512,
+    "requests": 1,
+    "primary": 1.4346862517878285,
+    "per_game": {
+      "tn36-ef4dde99": 1.4346862517878285
+    },
+    "token_nll": 1.4346862517878285,
+    "perplexity": 4.1983275843552486,
+    "population_request_nll": 1.4346862517878285,
+    "categories": {
+      "thinking": {
+        "nll": 1.898447197741932,
+        "weighted_sum": 5486.512401474183,
+        "weighted_tokens": 2890.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.3676208962370349,
+        "weighted_sum": 391.5162544924422,
+        "weighted_tokens": 1065.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.00615535672518952,
+        "weighted_sum": 0.7386428070227424,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.137853342257948,
+        "weighted_sum": 3.4463335564486997,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:2",
+    "experts": 256,
+    "requests": 1,
+    "primary": 1.3914131070175477,
+    "per_game": {
+      "tn36-ef4dde99": 1.3914131070175477
+    },
+    "token_nll": 1.3914131070175477,
+    "perplexity": 4.020527476237046,
+    "population_request_nll": 1.3914131070175477,
+    "categories": {
+      "thinking": {
+        "nll": 1.8455421867439188,
+        "weighted_sum": 5333.616919689925,
+        "weighted_tokens": 2890.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.34151436679220465,
+        "weighted_sum": 363.71280063369795,
+        "weighted_tokens": 1065.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.01200586125161666,
+        "weighted_sum": 1.4407033501939992,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.24093260392510132,
+        "weighted_sum": 6.023315098127533,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:3",
+    "experts": 512,
+    "requests": 2,
+    "primary": 0.9263920864728601,
+    "per_game": {
+      "tn36-ef4dde99": 0.9263920864728601
+    },
+    "token_nll": 0.909948944884773,
+    "perplexity": 2.4841956992494065,
+    "population_request_nll": 0.9263920864728601,
+    "categories": {
+      "thinking": {
+        "nll": 1.5344715918202194,
+        "weighted_sum": 7043.224606454807,
+        "weighted_tokens": 4590.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.41458957083682413,
+        "weighted_sum": 2195.251777580984,
+        "weighted_tokens": 5295.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.02864727854822539,
+        "weighted_sum": 6.875346851574093,
+        "weighted_tokens": 240.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2675756663039607,
+        "weighted_sum": 13.378783315198035,
+        "weighted_tokens": 50.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:3",
+    "experts": 256,
+    "requests": 2,
+    "primary": 0.9172050516308458,
+    "per_game": {
+      "tn36-ef4dde99": 0.9172050516308458
+    },
+    "token_nll": 0.9029283300107883,
+    "perplexity": 2.4668161967550724,
+    "population_request_nll": 0.9172050516308458,
+    "categories": {
+      "thinking": {
+        "nll": 1.5300225015719842,
+        "weighted_sum": 7022.803282215407,
+        "weighted_tokens": 4590.0,
+        "requests": 2
+      },
+      "tool_code": {
+        "nll": 0.4031849031487398,
+        "weighted_sum": 2134.864062172577,
+        "weighted_tokens": 5295.0,
+        "requests": 2
+      },
+      "tool_format": {
+        "nll": 0.022992402911875764,
+        "weighted_sum": 5.5181766988501835,
+        "weighted_tokens": 240.0,
+        "requests": 2
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.48220473545874826,
+        "weighted_sum": 24.110236772937412,
+        "weighted_tokens": 50.0,
+        "requests": 2
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:6",
+    "experts": 512,
+    "requests": 1,
+    "primary": 1.011373241799735,
+    "per_game": {
+      "tn36-ef4dde99": 1.011373241799735
+    },
+    "token_nll": 1.0113732417997352,
+    "perplexity": 2.7493739790992073,
+    "population_request_nll": 1.011373241799735,
+    "categories": {
+      "thinking": {
+        "nll": 1.4676288871116183,
+        "weighted_sum": 3023.3155074499336,
+        "weighted_tokens": 2060.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.11678255946137933,
+        "weighted_sum": 104.5203907179345,
+        "weighted_tokens": 895.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.017863345758862614,
+        "weighted_sum": 2.1436014910635137,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.21110199680988445,
+        "weighted_sum": 5.277549920247111,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:6",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.9950864150076949,
+    "per_game": {
+      "tn36-ef4dde99": 0.9950864150076949
+    },
+    "token_nll": 0.995086415007695,
+    "perplexity": 2.7049580801533444,
+    "population_request_nll": 0.9950864150076949,
+    "categories": {
+      "thinking": {
+        "nll": 1.4200607976550705,
+        "weighted_sum": 2925.3252431694455,
+        "weighted_tokens": 2060.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.15931572173018663,
+        "weighted_sum": 142.58757094851703,
+        "weighted_tokens": 895.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.018210893099900243,
+        "weighted_sum": 2.185307171988029,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.5867906093561487,
+        "weighted_sum": 14.669765233903718,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:7",
+    "experts": 512,
+    "requests": 1,
+    "primary": 1.0154187394615752,
+    "per_game": {
+      "tn36-ef4dde99": 1.0154187394615752
+    },
+    "token_nll": 1.0154187394615752,
+    "perplexity": 2.760519093670524,
+    "population_request_nll": 1.0154187394615752,
+    "categories": {
+      "thinking": {
+        "nll": 1.3663265192285496,
+        "weighted_sum": 5957.183623836477,
+        "weighted_tokens": 4360.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.30664459703328617,
+        "weighted_sum": 602.5566331704073,
+        "weighted_tokens": 1965.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.04992461941631928,
+        "weighted_sum": 5.9909543299583135,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.1611213191819786,
+        "weighted_sum": 4.028032979549465,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "game_level",
+    "value": "tn36-ef4dde99:7",
+    "experts": 256,
+    "requests": 1,
+    "primary": 1.0473986151423669,
+    "per_game": {
+      "tn36-ef4dde99": 1.0473986151423669
+    },
+    "token_nll": 1.0473986151423669,
+    "perplexity": 2.850226928490153,
+    "population_request_nll": 1.0473986151423669,
+    "categories": {
+      "thinking": {
+        "nll": 1.3931693204798785,
+        "weighted_sum": 6074.218237292271,
+        "weighted_tokens": 4360.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.3513141730595645,
+        "weighted_sum": 690.3323500620443,
+        "weighted_tokens": 1965.0,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.043085728598136676,
+        "weighted_sum": 5.170287431776401,
+        "weighted_tokens": 120.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.2779266074008774,
+        "weighted_sum": 6.948165185021935,
+        "weighted_tokens": 25.0,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "16K-<48K",
+    "experts": 512,
+    "requests": 14,
+    "primary": 1.036720612434983,
+    "per_game": {
+      "sk48-d8078629": 0.9639439332662463,
+      "tn36-ef4dde99": 1.0542923928050283,
+      "sp80-589a99af": 0.9787315564189853,
+      "cd82-fb555c5d": 1.1346435606461434,
+      "ar25-0c556536": 1.0519916190385115
+    },
+    "token_nll": 1.0211801278711656,
+    "perplexity": 2.776469420273961,
+    "population_request_nll": 1.002460173465109,
+    "categories": {
+      "thinking": {
+        "nll": 1.42012098181569,
+        "weighted_sum": 82457.90468814621,
+        "weighted_tokens": 58064.0,
+        "requests": 14
+      },
+      "tool_code": {
+        "nll": 0.33342710567264144,
+        "weighted_sum": 9472.83078571258,
+        "weighted_tokens": 28410.5,
+        "requests": 14
+      },
+      "tool_format": {
+        "nll": 0.01764398386921567,
+        "weighted_sum": 54.20231844623054,
+        "weighted_tokens": 3072.0,
+        "requests": 14
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.17456845304355,
+        "weighted_sum": 111.72380994787201,
+        "weighted_tokens": 640.0,
+        "requests": 14
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "16K-<48K",
+    "experts": 256,
+    "requests": 14,
+    "primary": 1.0342136691756727,
+    "per_game": {
+      "sk48-d8078629": 0.9731303832908063,
+      "tn36-ef4dde99": 1.0143848277382275,
+      "sp80-589a99af": 0.9848946803685498,
+      "cd82-fb555c5d": 1.1400295224490025,
+      "ar25-0c556536": 1.0586289320317774
+    },
+    "token_nll": 1.0243212536787378,
+    "perplexity": 2.7852043716324153,
+    "population_request_nll": 1.003111509060199,
+    "categories": {
+      "thinking": {
+        "nll": 1.4197647187294373,
+        "weighted_sum": 82437.21862830604,
+        "weighted_tokens": 58064.0,
+        "requests": 14
+      },
+      "tool_code": {
+        "nll": 0.33875176278226393,
+        "weighted_sum": 9624.10695652551,
+        "weighted_tokens": 28410.5,
+        "requests": 14
+      },
+      "tool_format": {
+        "nll": 0.020763022080379025,
+        "weighted_sum": 63.78400383092437,
+        "weighted_tokens": 3072.0,
+        "requests": 14
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.398186181617275,
+        "weighted_sum": 254.83915623505598,
+        "weighted_tokens": 640.0,
+        "requests": 14
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "48K-<80K",
+    "experts": 512,
+    "requests": 11,
+    "primary": 1.0582930174356135,
+    "per_game": {
+      "sk48-d8078629": 1.06740251619056,
+      "sp80-589a99af": 1.1708989246816115,
+      "tn36-ef4dde99": 1.013395990630655,
+      "cd82-fb555c5d": 0.9978184149865501,
+      "ar25-0c556536": 1.041949240688691
+    },
+    "token_nll": 1.084497743469064,
+    "perplexity": 2.957953793976677,
+    "population_request_nll": 1.061086947037726,
+    "categories": {
+      "thinking": {
+        "nll": 1.3675926242568064,
+        "weighted_sum": 83783.51073615685,
+        "weighted_tokens": 61263.5,
+        "requests": 11
+      },
+      "tool_code": {
+        "nll": 0.3239016164015476,
+        "weighted_sum": 5957.846332090066,
+        "weighted_tokens": 18394.0,
+        "requests": 11
+      },
+      "tool_format": {
+        "nll": 0.007440784621965814,
+        "weighted_sum": 20.268697310234877,
+        "weighted_tokens": 2724.0,
+        "requests": 11
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.34603974882506655,
+        "weighted_sum": 196.37755745822525,
+        "weighted_tokens": 567.5,
+        "requests": 11
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "48K-<80K",
+    "experts": 256,
+    "requests": 11,
+    "primary": 1.06347138851331,
+    "per_game": {
+      "sk48-d8078629": 1.0444686007355497,
+      "sp80-589a99af": 1.2009806269879246,
+      "tn36-ef4dde99": 1.021242515075031,
+      "cd82-fb555c5d": 1.0317014131355253,
+      "ar25-0c556536": 1.0189637866325192
+    },
+    "token_nll": 1.0818990972314197,
+    "perplexity": 2.9502770973083283,
+    "population_request_nll": 1.051572877634595,
+    "categories": {
+      "thinking": {
+        "nll": 1.3585538976274207,
+        "weighted_sum": 83229.76670729749,
+        "weighted_tokens": 61263.5,
+        "requests": 11
+      },
+      "tool_code": {
+        "nll": 0.33817840375731506,
+        "weighted_sum": 6220.453558712054,
+        "weighted_tokens": 18394.0,
+        "requests": 11
+      },
+      "tool_format": {
+        "nll": 0.008908282009951205,
+        "weighted_sum": 24.266160195107084,
+        "weighted_tokens": 2724.0,
+        "requests": 11
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.47217936571702546,
+        "weighted_sum": 267.96179004441194,
+        "weighted_tokens": 567.5,
+        "requests": 11
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "<16K",
+    "experts": 512,
+    "requests": 4,
+    "primary": 1.2515910779345818,
+    "per_game": {
+      "sp80-589a99af": 1.1085659388066211,
+      "cd82-fb555c5d": 1.5996012453662956,
+      "ar25-0c556536": 1.046606049630829
+    },
+    "token_nll": 1.2261159098497612,
+    "perplexity": 3.4079669455685133,
+    "population_request_nll": 1.2402704633094088,
+    "categories": {
+      "thinking": {
+        "nll": 1.6035020849837398,
+        "weighted_sum": 9677.13508287687,
+        "weighted_tokens": 6035.0,
+        "requests": 4
+      },
+      "tool_code": {
+        "nll": 0.5943493742707509,
+        "weighted_sum": 1501.3265194079167,
+        "weighted_tokens": 2526.0,
+        "requests": 4
+      },
+      "tool_format": {
+        "nll": 0.047894148775889316,
+        "weighted_sum": 22.989191412426873,
+        "weighted_tokens": 480.0,
+        "requests": 4
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.06474738239454134,
+        "weighted_sum": 6.474738239454133,
+        "weighted_tokens": 100.0,
+        "requests": 4
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": "<16K",
+    "experts": 256,
+    "requests": 4,
+    "primary": 1.1866365940362873,
+    "per_game": {
+      "sp80-589a99af": 0.9395732604671581,
+      "cd82-fb555c5d": 1.600853402902288,
+      "ar25-0c556536": 1.0194831187394158
+    },
+    "token_nll": 1.1757138347788372,
+    "perplexity": 3.2404552681006686,
+    "population_request_nll": 1.1904487429810913,
+    "categories": {
+      "thinking": {
+        "nll": 1.5419730373102136,
+        "weighted_sum": 9305.807280167139,
+        "weighted_tokens": 6035.0,
+        "requests": 4
+      },
+      "tool_code": {
+        "nll": 0.5551818455831984,
+        "weighted_sum": 1402.3893419431593,
+        "weighted_tokens": 2526.0,
+        "requests": 4
+      },
+      "tool_format": {
+        "nll": 0.04310904933025154,
+        "weighted_sum": 20.69234367852074,
+        "weighted_tokens": 480.0,
+        "requests": 4
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.18311197924532027,
+        "weighted_sum": 18.311197924532028,
+        "weighted_tokens": 100.0,
+        "requests": 4
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": ">=80K",
+    "experts": 512,
+    "requests": 1,
+    "primary": 0.43274104169496985,
+    "per_game": {
+      "cd82-fb555c5d": 0.43274104169496985
+    },
+    "token_nll": 0.4327410416949698,
+    "perplexity": 1.541476990742141,
+    "population_request_nll": 0.43274104169496985,
+    "categories": {
+      "thinking": {
+        "nll": 0.9123920136499292,
+        "weighted_sum": 4020.911604155238,
+        "weighted_tokens": 4407.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.07273614430424122,
+        "weighted_sum": 410.85011110250656,
+        "weighted_tokens": 5648.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.000787484036446647,
+        "weighted_sum": 0.12284750968567693,
+        "weighted_tokens": 156.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.03429748787202698,
+        "weighted_sum": 1.1146683558408768,
+        "weighted_tokens": 32.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  },
+  {
+    "dimension": "context_length",
+    "value": ">=80K",
+    "experts": 256,
+    "requests": 1,
+    "primary": 0.4435725162108988,
+    "per_game": {
+      "cd82-fb555c5d": 0.4435725162108988
+    },
+    "token_nll": 0.4435725162108988,
+    "perplexity": 1.5582642105320226,
+    "population_request_nll": 0.4435725162108988,
+    "categories": {
+      "thinking": {
+        "nll": 0.936176826377282,
+        "weighted_sum": 4125.731273844682,
+        "weighted_tokens": 4407.0,
+        "requests": 1
+      },
+      "tool_code": {
+        "nll": 0.07298454184934815,
+        "weighted_sum": 412.253184636043,
+        "weighted_tokens": 5648.5,
+        "requests": 1
+      },
+      "tool_format": {
+        "nll": 0.0011335242289183256,
+        "weighted_sum": 0.1768297797112588,
+        "weighted_tokens": 156.0,
+        "requests": 1
+      },
+      "assistant_text": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      },
+      "turn_format": {
+        "nll": 0.17832516320033848,
+        "weighted_sum": 5.795567804011,
+        "weighted_tokens": 32.5,
+        "requests": 1
+      },
+      "boundary": {
+        "nll": null,
+        "weighted_sum": 0.0,
+        "weighted_tokens": 0.0,
+        "requests": 0
+      }
+    }
+  }
+]

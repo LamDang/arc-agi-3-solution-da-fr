@@ -1,5 +1,31 @@
 # Staged teacher-forced transcript NLL evaluation
 
+## Active two-panel decision (2026-10-08)
+
+The latest user instruction compares **thinking with thinking and Python code
+with Python code**, independently. The overall primary NLL below remains a
+reported diagnostic; its changing thinking/code mixture does not choose the
+reference between panels. At 512 experts, make the generated-thinking panel
+the reference when both category NLLs are lower than the original panel's.
+Category scores use sampling-weighted token pooling, consistent with the
+existing breakdowns. Preserve all 30 identical prompts and training-only maps.
+
+Compare the reference panel's 256 result with its own 512 baseline separately
+for thinking and Python code. If **either** increases by more than 5%, explicitly
+expand to 448, 384 and 320 using the same frozen requests and archived runtime.
+Otherwise stop at 256. Exactly +5% is accepted. Do not compare aggregate scores
+across targets with different lengths to decide this gate. Record both component
+gates, request-paired differences and aligned losses on identical Python tokens.
+Thinking text differs, so there is no token-by-token alignment of thinking.
+
+`nll/compare_panels.py --reference-metric categorywise` implements this analysis.
+The GPU runner stays in manual scope mode; any expansion uses `--expand-counts`
+and resumes its verified initial pair. Archive both complete panels, code,
+provenance and comparison results in DVC; commit/push the scalar summaries and
+pointers before shutting down the user-authorized Kaggle Jupyter server.
+
+The historical single-panel primary-score protocol follows for provenance.
+
 Current protocol, updated 2026-10-08: **512 baseline → 256 → conditional
 448/384/320 scan**, on the same frozen 30-request fold-0 panel. This supersedes
 the unconditional five-model sweep and the former absolute 0.05-nat selection

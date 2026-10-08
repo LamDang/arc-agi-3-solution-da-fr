@@ -98,3 +98,12 @@ thinking, tool-code and tool-format losses separate. Full contexts are
 preserved, and final replies are scored with teacher forcing.
 
 See [CPU audit](../../exp/sft-flash-next/verification/genthink-preflight.json).
+
+
+## Completed NLL evaluation
+
+This pipeline is the selected reference after comparing thinking and Python-code
+NLL separately against the original Sol panel on all 30 identical prompts.
+256 experts pass both +5% category gates. The
+[verified result dataset](../sol-nll-fold0-30-genthink-results-20261008/README.md)
+contains token losses, exact scoring/analysis code and the one-to-one comparison.

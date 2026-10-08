@@ -275,3 +275,45 @@ with the other durable run files when resuming a manual run.
 
 The original Kaggle session's two-hour deadline is 2026-10-08 13:53:43 UTC.
 It must not be reset implicitly to start the second panel.
+
+
+## Paired panel comparison and archival
+
+The current user-selected reference criterion compares thinking and Python-code
+NLL separately, rather than mixing their changed token proportions. After both
+512/256 panels complete:
+
+```bash
+python exp/sft-flash-next/nll/compare_panels.py \
+  --source /durable/source-panel --variant /durable/genthink-panel \
+  --out /durable/panel-comparison --reference-metric categorywise
+```
+
+The comparison requires all 120 result records, validates the frozen source/
+variant relationship, matching prompts/sampling/maps/code token IDs and scoring
+configurations, and checks each result checksum and token position. It records
+60 paired request/model rows, separate category means and per-game/context
+slices. Python token IDs match exactly and receive aligned per-token loss diffs;
+changed thinking traces are compared by request, not by token position.
+
+If both baseline category NLLs improve, the variant becomes the reference.
+If either reference-panel category NLL worsens by >5% at 256, use the exact
+staged runtime to resume with `--expand-counts 448 384 320`; otherwise no further
+GPU counts run. The overall primary score remains a diagnostic.
+
+`archive_results.py` verifies completion and preserves the exact runtime (its
+hash must match `run.json`), dependency locks, notebook, all required token-loss
+arrays, maps, reports, optional panel comparison and separate analysis code.
+It excludes credentials, collector state and model/wheel/processor binaries.
+
+```bash
+python exp/sft-flash-next/nll/archive_results.py \
+  --root /durable/genthink-panel --bundle /prepared/genthink-bundle \
+  --setup /exact/offline-setup --comparison /durable/panel-comparison \
+  --out data/sol-nll-fold0-30-genthink-results-20261008
+```
+
+Add/push the resulting `results.zip` with DVC and commit the pointer, provenance
+and scalar summaries. Verify a download from the DVC remote before shutting
+Kaggle down. The staged scoring code remains unchanged during the run; analysis
+code is stored separately to preserve strict resume identity.
