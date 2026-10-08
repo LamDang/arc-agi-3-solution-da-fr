@@ -66,21 +66,30 @@ records still imperfect after a pass.
 
 ## Results on the dev set (dev20, 20 records)
 
-| metric | draft | + fact-fix | refine 1 |
-| --- | ---: | ---: | ---: |
-| coverage of Sol's words | 0.88 | 0.88 | **0.99** |
-| code leads to call | 1.00 | 1.00 | 1.00 |
-| code disagreements / record | 0.05 | 0.05 | **0.00** |
-| fact grounded | 0.35 | 0.45 | **0.70** |
-| fact errors / record | 1.00 | 0.75 | **0.30** |
-| call functionally same | 0.55 | 0.55 | 0.55 |
+| metric | draft | + fact-fix | refine 1 | refine 2 |
+| --- | ---: | ---: | ---: | ---: |
+| coverage of Sol's words | 0.88 | 0.88 | **0.99** | 0.96 |
+| code leads to call | 1.00 | 1.00 | 1.00 | 1.00 |
+| code disagreements / record | 0.05 | 0.05 | **0.00** | 0.00 |
+| fact grounded | 0.35 | 0.45 | 0.70 | **0.95** |
+| fact errors / record | 1.00 | 0.75 | 0.30 | **0.05** |
+| call functionally same | 0.55 | 0.55 | 0.55 | 0.60 |
+| records fully perfect | 4/20 | – | 13/20 | **15/20** |
 
-One refine pass roughly halves the fact errors again and takes coverage to
-near-complete. Call equivalence is flat — it is downstream of the student's
-code-reproduction, which the refine (aimed at the thinking's content) does not
-change. After refine 1, 7 of 20 records are still imperfect (6 with one
-lingering fact error, 1 at 0.88 coverage); a second pass re-feeds the feedback
-to those.
+(A record is "perfect" when coverage = 1, no code disagreement, and the facts
+are grounded.)
+
+Each refine pass re-feeds the judge feedback to the records still imperfect
+after the previous pass (16 after the draft, 7 after refine 1). The gains are
+real but show a **trade-off**: refine 1 took coverage to near-complete and
+halved fact errors; refine 2, aimed at the 7 remaining (6 with one lingering
+fact error, 1 at 0.88 coverage), nearly eliminated fact errors (0.95 grounded,
+0.05 errors/record) but **lost a little coverage** (0.99 → 0.96) — correcting a
+stubborn fact on a record can drop a minor covered point. Call equivalence stays
+flat across passes: it is downstream of the student's code-reproduction, which
+the refine (aimed at the thinking's content) does not change. Two passes reach
+15/20 perfect; a third would chase single points with more coverage risk than
+gain.
 
 ## Cost of the full 25-game dataset
 
