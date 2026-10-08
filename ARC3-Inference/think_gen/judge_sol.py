@@ -209,6 +209,8 @@ def main(argv=None):
     (args.gen / "judge_sol").mkdir(exist_ok=True)
     todo, rows_all = [], []
     for gpath in sorted(args.gen.glob("*.jsonl")):
+        if args.games and not any(gpath.stem.rsplit("_p", 1)[0].startswith(g) for g in args.games):
+            continue
         gen = {r["key"]: r for r in read_jsonl(gpath)
                if r.get("thinking") and r.get("status") == "ok"
                and (keys is None or r["key"] in keys)}
