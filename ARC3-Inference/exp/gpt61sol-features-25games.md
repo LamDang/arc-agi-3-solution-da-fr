@@ -133,10 +133,25 @@ harness carried on and the level was solved later.
 
 **No budget burn.** On sk48 level 5 there were no game overs and no UP/DOWN runs longer than
 two moves, where the baseline ran out the budget with ~130 actions to force a reset. The model
-rewound with UNDO instead: 94 of the first 227 actions on the level were UNDO, in batches of up
-to 20 ("safely unwind ... without spending the budget on a death"). UNDO spares the budget bar
-but counts as actions, so it costs score like a budget burn; it was within the level's 282
-actions.
+backtracked with UNDO instead: 94 of the first 227 actions on the level were UNDO, in four
+bursts (actions 231–284, 312–331, 346–369, 376–377). Each burst was a planned rewind to a chosen
+position before a new test, not a way to waste moves:
+
+1. 54 UNDOs back to the level's start after a failed setup. On the first one it wrote: "safely
+   unwind the unsuccessful setup without spending the budget on a death". It also checked that
+   UNDO stops at the level boundary.
+2. 20 UNDOs back to the start ("exactly twenty successful moves since the original
+   configuration"), to run a 13-move plan found by a search over a bead-motion model it had
+   checked against all 87 recorded moves.
+3. 13 UNDOs to take that plan back after it failed, then a crossing from below; 5 more to set up
+   a mouse test.
+4. 2 UNDOs to put the arm right beside the black square for a click from that side.
+
+It counted the moves to rewind and checked the board after each burst. Not all of it was
+efficient: a rewind to the start costs as many actions as the moves it undoes, and one burst was
+sent as one call per UNDO, which timed out after 13. Every idea tested this way failed, and the
+level was solved after action 380 by a different route. UNDO counts as actions like any move; the
+level took 282 actions in all.
 
 **Step-back hints.** 8 in 3 games: sk48 level 5 (steps 47, 56, 66, 74, 82), bp35 level 7
 (step 45, after two deaths) and cd82 level 1 (steps 9 and 19). Read turn by turn up to step 82:
@@ -144,7 +159,7 @@ actions.
 | game | step | what followed | verdict |
 | --- | --- | --- | --- |
 | sk48 | 47 | One line ("more empty crossings and clicks are unhelpful"), then more probes of the black square | neutral |
-| sk48 | 56 | Ignored; 20 UNDOs, then 33 more | neutral |
+| sk48 | 56 | Ignored; carried on rewinding to the level start (20 UNDOs, then 33 more) | neutral |
 | sk48 | 66 | Kept probing; two turns later rebuilt the physics from the move history and searched a new idea | neutral, slightly helpful |
 | sk48 | 74 | An audit of past clicks, then 4 more no-op clicks | neutral |
 | bp35 | 45 | Ignored; carried on with its checked route and solved level 7 at step 49 | false alarm, no harm |
@@ -196,7 +211,9 @@ uv run --no-sync python scripts/base_transcripts/build.py \
   reasoning fields add 27% output tokens and give a stated intent on every call.
 - The handover notes made the long games cheaper (39% fewer prompt tokens overall) and kept the
   record of tried probes across cuts, which was the gap the compaction analysis found.
-- The no-budget-burn line stopped deliberate budget deaths, but the model moved to rewinding
-  with UNDO, which still spends actions. A line covering UNDO would be the next test.
+- The no-budget-burn line stopped deliberate budget deaths. The model backtracked with UNDO
+  instead, rewinding to a chosen position before each new test, which is legitimate exploration
+  rather than waste. It could be cheaper (fewer rewinds all the way to the start), but nothing
+  here calls for a line against UNDO.
 - The step-back hint rarely changed what gpt-6.1-sol did and fired twice as a false alarm,
   without harm.
