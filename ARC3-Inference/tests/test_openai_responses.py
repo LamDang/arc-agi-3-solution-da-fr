@@ -233,16 +233,16 @@ def test_python_rationale_fields_come_before_the_code(monkeypatch) -> None:
 
     monkeypatch.setenv("ARC3_PYTHON_RATIONALE", "1")
     tool = _python_tool_schema()["function"]
-    assert list(tool["parameters"]["properties"]) == ["description", "reasoning", "code"]
-    assert tool["parameters"]["required"] == ["description", "reasoning", "code"]
-    assert "detailed, step-by-step reasoning for it" in tool["description"]
+    assert list(tool["parameters"]["properties"]) == ["reasoning", "description", "code"]
+    assert tool["parameters"]["required"] == ["reasoning", "description", "code"]
+    assert "give in `reasoning` your detailed, step-by-step reasoning" in tool["description"]
     assert "Detailed, step-by-step reasoning for this call" in tool["parameters"]["properties"]["reasoning"]["description"]
     prompt = _build_system_prompt(tool_output_tokens=3072)
-    assert "your detailed, step-by-step reasoning for the call" in prompt
-    assert "call it with `description` (what the code does), `reasoning`" in prompt
+    assert "call it with `reasoning` (your detailed, step-by-step reasoning for the call" in prompt
+    assert "then `description` (what the code does)" in prompt
     assert "call it with one ephemeral `code` string" not in prompt
     # the order survives the Responses translation
     payload = responses_payload_from_chat(_chat_payload([{"role": "user", "content": "go"}]) | {"tools": [_python_tool_schema()]})
-    assert list(payload["tools"][0]["parameters"]["properties"]) == ["description", "reasoning", "code"]
+    assert list(payload["tools"][0]["parameters"]["properties"]) == ["reasoning", "description", "code"]
     assert payload["tools"][0]["strict"] is True
     assert tool["parameters"]["additionalProperties"] is False
