@@ -1,0 +1,50 @@
+---
+title: "Sol → Qwen: every reply, every token"
+subtitle: "Original Sol thinking and revised generated thinking · 30 identical request contexts"
+format:
+  html:
+    theme: default
+    page-layout: full
+    toc: false
+    embed-resources: true
+    html-math-method: plain
+    code-copy: false
+    anchor-sections: false
+    css: report.css
+    include-after-body: payload.html
+---
+
+```{=html}
+<div id="nll-report">
+  <div class="intro">
+    <p>Read the two final replies side by side. Each token is colored by its
+    teacher-forced negative log-likelihood (NLL), in nats. <strong>Lower is better.</strong>
+    Both panels use the same prompt, images and Python code; their final thinking differs.</p>
+    <p class="privacy-note">All text and token scores are embedded. This report works offline and makes no network requests.</p>
+  </div>
+  <div class="controls" aria-label="Report controls">
+    <label>Experts <select id="experts"><option value="256">256 · selected</option><option value="512">512 · baseline</option></select></label>
+    <label>Game <select id="game"><option value="all">All five games</option></select></label>
+    <label class="search-label">Find a request <input id="search" type="search" placeholder="Game or request ID" autocomplete="off"></label>
+    <label>Show <select id="section"><option value="full">Full reply</option><option value="thinking">Thinking only</option><option value="code">Python code only</option></select></label>
+    <label class="checkbox-label"><input id="boundaries" type="checkbox">Token boundaries</label>
+    <button type="button" id="expand-all">Expand all</button>
+    <button type="button" id="collapse-all">Collapse all</button>
+  </div>
+  <div class="scale-bar">
+    <div class="scale-description"><strong>One shared color scale</strong><span>Fixed across panels, requests and expert counts.</span></div>
+    <div class="legend"><div id="gradient" class="gradient"></div><div class="legend-labels"><span>0 · easy</span><span id="scale-middle">3</span><span id="scale-top">≥6 · hard</span></div></div>
+    <label>Scale maximum <select id="scale"><option value="6">6 nats</option><option value="4">4 nats</option><option value="2">2 nats</option><option value="10">10 nats</option></select></label>
+    <span class="scale-hint">Values above the maximum saturate. Hover or click a token for its exact NLL.</span>
+  </div>
+  <div id="overview" class="overview" aria-live="polite"></div>
+  <div class="request-list-heading"><h2>The paired replies</h2><span id="visible-count" aria-live="polite"></span></div>
+  <p class="reading-note">Thinking is paired by request, since its text and length changed. Python-code tokens match exactly;
+    their losses can differ because the preceding thinking differs. Tool wrappers and turn markers are scored too.</p>
+  <div id="requests"></div>
+  <div id="empty" hidden>No requests match these filters.</div>
+  <aside id="inspector" hidden aria-live="polite"><button id="close-inspector" type="button" aria-label="Close token details">×</button><div id="inspector-content"></div></aside>
+  <details class="method"><summary>Scoring, verification and provenance</summary><div id="provenance"></div></details>
+  <noscript>This interactive token report requires JavaScript. Its data is embedded locally.</noscript>
+</div>
+```

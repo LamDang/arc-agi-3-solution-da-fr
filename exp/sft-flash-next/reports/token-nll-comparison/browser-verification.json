@@ -1,0 +1,20 @@
+{
+  "browser": "Chromium",
+  "initial": {
+    "requests": 30,
+    "tokens": 36466,
+    "textOrLossMismatches": 0,
+    "experts": "256"
+  },
+  "expert_switch_verified": true,
+  "code_only_tokens": 16590,
+  "aligned_code_hover_verified": true,
+  "token_inspector_verified": true,
+  "game_filter_requests": 6,
+  "request_search_verified": true,
+  "global_scale_verified": true,
+  "collapse_expand_verified": true,
+  "mobile_no_horizontal_overflow": true,
+  "external_network_requests": 0,
+  "javascript_errors": 0
+}

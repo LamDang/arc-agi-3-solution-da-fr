@@ -60,3 +60,12 @@ from analysis code so strict scoring resume identity is preserved.
 
 Kaggle shutdown is recorded in `shutdown.json` after DVC remote round-trip
 verification and the Git push complete. No authenticated server URL is recorded.
+
+
+## Interactive token report
+
+[The Quarto HTML report](../../../../data/sol-nll-fold0-30-token-report-20261008/README.md)
+shows all 30 reply pairs with an identical per-token NLL color scale, an expert
+selector and exact hover/click scores. Thinking and tool-call rows align
+separately; identical Python tokens highlight together. The teacher-containing
+standalone HTML is in private DVC; Quarto source is committed.

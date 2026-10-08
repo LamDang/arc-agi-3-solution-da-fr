@@ -1,0 +1,28 @@
+{
+  "quarto_version": "1.10.19",
+  "requests": 30,
+  "completed_evaluations": 120,
+  "per_token_losses": 72932,
+  "default_experts": 256,
+  "default_shared_scale_nats": [
+    0,
+    6
+  ],
+  "identical_scale_across": "panels, requests, categories and expert counts; adjustable only globally",
+  "exact_one_token_per_highlight": true,
+  "full_replies_reconstructed": true,
+  "run_identities": {
+    "source": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+    "genthink": "89771445a3607f3c402bd5b87afce7331d9bfbe7c12647daff8ed03fa64420e8"
+  },
+  "report_sha256": "a370f2addd9f96b4c67056a9dd55f41f744b325dedcf1d4a2b35e3f08a345307",
+  "report_bytes": 3508340,
+  "sources": {
+    "build.py": "389c171e1638fb49169d0221694e9ce23794d447f9079a79c498153c8bcc1e06",
+    "report.qmd": "2587f83e9f501d8a3abf7437e148fd092eef442c582f93c3656037f35f2cb039",
+    "report.css": "372c4bc79636618af03dc9f6bbb8b5264243e65dbf658f517f15f0b86a332cf5",
+    "report.js": "fa2f753ca6047c914d324c637bef0ae086f4f9644aca40540dad51c0f72beba8"
+  },
+  "dvc_remote_round_trip_sha256_verified": true,
+  "browser_checks_passed": true
+}
