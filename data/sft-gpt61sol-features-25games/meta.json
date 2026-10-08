@@ -1,0 +1,188 @@
+{
+  "run": "gpt61sol-features-25games",
+  "model": "gpt-6.1-sol",
+  "format": "rationale-off: reasoning+description -> <think>, code-only tool call",
+  "totals": {
+    "games": 25,
+    "responses": 1334,
+    "assistant_turns": 1334,
+    "no_tool_call": 1
+  },
+  "games": [
+    {
+      "game": "ar25-0c556536",
+      "responses": 25,
+      "no_tool_call": 0,
+      "assistant_turns": 25,
+      "messages": 70
+    },
+    {
+      "game": "bp35-0a0ad940",
+      "responses": 113,
+      "no_tool_call": 0,
+      "assistant_turns": 113,
+      "messages": 327
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "responses": 39,
+      "no_tool_call": 0,
+      "assistant_turns": 39,
+      "messages": 111
+    },
+    {
+      "game": "cn04-2fe56bfb",
+      "responses": 32,
+      "no_tool_call": 0,
+      "assistant_turns": 32,
+      "messages": 88
+    },
+    {
+      "game": "dc22-fdcac232",
+      "responses": 91,
+      "no_tool_call": 0,
+      "assistant_turns": 91,
+      "messages": 264
+    },
+    {
+      "game": "ft09-0d8bbf25",
+      "responses": 15,
+      "no_tool_call": 0,
+      "assistant_turns": 15,
+      "messages": 44
+    },
+    {
+      "game": "g50t-5849a774",
+      "responses": 37,
+      "no_tool_call": 0,
+      "assistant_turns": 37,
+      "messages": 105
+    },
+    {
+      "game": "ka59-38d34dbb",
+      "responses": 54,
+      "no_tool_call": 0,
+      "assistant_turns": 54,
+      "messages": 156
+    },
+    {
+      "game": "lf52-271a04aa",
+      "responses": 123,
+      "no_tool_call": 0,
+      "assistant_turns": 123,
+      "messages": 360
+    },
+    {
+      "game": "lp85-305b61c3",
+      "responses": 31,
+      "no_tool_call": 0,
+      "assistant_turns": 31,
+      "messages": 86
+    },
+    {
+      "game": "ls20-9607627b",
+      "responses": 62,
+      "no_tool_call": 0,
+      "assistant_turns": 62,
+      "messages": 176
+    },
+    {
+      "game": "m0r0-492f87ba",
+      "responses": 31,
+      "no_tool_call": 0,
+      "assistant_turns": 31,
+      "messages": 90
+    },
+    {
+      "game": "r11l-495a7899",
+      "responses": 25,
+      "no_tool_call": 0,
+      "assistant_turns": 25,
+      "messages": 70
+    },
+    {
+      "game": "re86-8af5384d",
+      "responses": 65,
+      "no_tool_call": 0,
+      "assistant_turns": 65,
+      "messages": 184
+    },
+    {
+      "game": "s5i5-18d95033",
+      "responses": 43,
+      "no_tool_call": 0,
+      "assistant_turns": 43,
+      "messages": 119
+    },
+    {
+      "game": "sb26-7fbdac44",
+      "responses": 14,
+      "no_tool_call": 0,
+      "assistant_turns": 14,
+      "messages": 40
+    },
+    {
+      "game": "sc25-635fd71a",
+      "responses": 36,
+      "no_tool_call": 0,
+      "assistant_turns": 36,
+      "messages": 105
+    },
+    {
+      "game": "sk48-d8078629",
+      "responses": 147,
+      "no_tool_call": 1,
+      "assistant_turns": 147,
+      "messages": 428
+    },
+    {
+      "game": "sp80-589a99af",
+      "responses": 27,
+      "no_tool_call": 0,
+      "assistant_turns": 27,
+      "messages": 74
+    },
+    {
+      "game": "su15-1944f8ab",
+      "responses": 70,
+      "no_tool_call": 0,
+      "assistant_turns": 70,
+      "messages": 197
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "responses": 30,
+      "no_tool_call": 0,
+      "assistant_turns": 30,
+      "messages": 80
+    },
+    {
+      "game": "tr87-cd924810",
+      "responses": 28,
+      "no_tool_call": 0,
+      "assistant_turns": 28,
+      "messages": 77
+    },
+    {
+      "game": "tu93-0768757b",
+      "responses": 63,
+      "no_tool_call": 0,
+      "assistant_turns": 63,
+      "messages": 177
+    },
+    {
+      "game": "vc33-5430563c",
+      "responses": 25,
+      "no_tool_call": 0,
+      "assistant_turns": 25,
+      "messages": 74
+    },
+    {
+      "game": "wa30-ee6fef47",
+      "responses": 108,
+      "no_tool_call": 0,
+      "assistant_turns": 108,
+      "messages": 314
+    }
+  ]
+}
