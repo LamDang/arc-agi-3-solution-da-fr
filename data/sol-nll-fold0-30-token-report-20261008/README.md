@@ -17,6 +17,28 @@ remote. Git stores its pointer, checksum/provenance and browser verification.
 dvc pull data/sol-nll-fold0-30-token-report-20261008/report.html.dvc
 ```
 
+## Report artifact
+
+[Artifact manifest](artifact.json) identifies the standalone HTML, size, SHA256,
+DVC object and source. After pulling, open
+`data/sol-nll-fold0-30-token-report-20261008/report.html` in a browser. Verify the
+download from the repository root with:
+
+```bash
+python - <<'PY'
+import hashlib
+import json
+from pathlib import Path
+
+root = Path("data/sol-nll-fold0-30-token-report-20261008")
+artifact = json.loads((root / "artifact.json").read_text())
+payload = (root / artifact["path"]).read_bytes()
+assert len(payload) == artifact["bytes"]
+assert hashlib.sha256(payload).hexdigest() == artifact["sha256"]
+print("Verified report artifact:", root / artifact["path"])
+PY
+```
+
 The report uses the verified
 [original](../sol-nll-fold0-30-results-20261008/README.md) and
 [generated-thinking](../sol-nll-fold0-30-genthink-results-20261008/README.md)

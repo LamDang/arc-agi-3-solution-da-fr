@@ -1,0 +1,23 @@
+{
+  "name": "sol-nll-fold0-30-token-comparison",
+  "title": "30 paired Sol and generated-thinking replies by token NLL",
+  "path": "report.html",
+  "media_type": "text/html",
+  "bytes": 3508340,
+  "sha256": "a370f2addd9f96b4c67056a9dd55f41f744b325dedcf1d4a2b35e3f08a345307",
+  "storage": {
+    "type": "dvc",
+    "remote": "storage",
+    "access": "private",
+    "pointer": "data/sol-nll-fold0-30-token-report-20261008/report.html.dvc",
+    "md5": "63738d5039c391c2b3aa71c0ac6741fe"
+  },
+  "retrieve_command": "dvc pull data/sol-nll-fold0-30-token-report-20261008/report.html.dvc",
+  "self_contained": true,
+  "requests": 30,
+  "experts": [512, 256],
+  "per_token_losses": 72932,
+  "provenance": "provenance.json",
+  "browser_verification": "browser-verification.json",
+  "source": "exp/sft-flash-next/reports/token-nll-comparison/report.qmd"
+}

@@ -39,6 +39,16 @@ The detailed option reference is available in the [configuration guide](ARC3-Inf
 | [tufa-arc-agi-framework/](tufa-arc-agi-framework/) | Tufa's bundled game execution framework. |
 | [taaf-duck-harness-kaggle-share.ipynb](taaf-duck-harness-kaggle-share.ipynb) | Tufa's original bundled notebook; see the competition notebook above for this solution. |
 
+## Experiment artifacts
+
+[The 30-request token-NLL report](data/sol-nll-fold0-30-token-report-20261008/README.md)
+compares original Sol and generated-thinking replies side by side at 512 and
+256 experts, with one shared color scale and exact token losses. Its standalone
+Quarto HTML is tracked in private DVC; the artifact manifest, checksums, source
+and retrieval instructions are committed. See the
+[paired experiment results](exp/sft-flash-next/results/20261008-two-panels/README.md)
+for the category scores and pruning decision.
+
 ## Inspect a saved run
 
 The viewer does not require a model server or GPU. From the repository root, with `uv` installed:
