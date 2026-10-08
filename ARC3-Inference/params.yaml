@@ -82,9 +82,9 @@ eval:
 # request logs hold the context; the pipeline does not duplicate it.
 think_gen:
   source_run: runs/gpt61sol-features-25games   # base-agent run (DVC-tracked)
-  manifest: experiments/teacher-reasoning/evalset/sol25_dev30.json
-  split: dev
-  out: runs/think-sol-pipe        # draft/ judge1/ refine1/ judge2/ refine2/ final/
+  manifest: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+  split: eval
+  out: runs/think-sol-nll30        # draft/ judge1/ refine1/ judge2/ refine2/ final/
   student_model: qwen/qwen3.8-flash   # draft, refine and call regeneration
   provider: Alibaba
   judge_model: gpt-6.1-sol        # all four judge checks (sees the context)

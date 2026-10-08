@@ -1,0 +1,525 @@
+{
+ "run": "runs/gpt61sol-features-25games",
+ "source": "data/sol-nll-fold0-30",
+ "sample": "sol-nll-fold0-30",
+ "token_bin_edges": [
+  0,
+  1,
+  169,
+  430,
+  925
+ ],
+ "note": "frozen fold-0 NLL panel (30 requests) as a think_gen manifest",
+ "items": [
+  {
+   "key": "sk48-d8078629_p0#39",
+   "game": "sk48-d8078629_p0",
+   "index": 39,
+   "split": "eval",
+   "token_bin": 0,
+   "position": 0.27,
+   "reasoning_tokens": 0,
+   "prompt_tokens": 54538,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r39",
+    "stratum": 0,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 42431,
+    "input_sha256": "4f874e665355fb745d9f34b40d0265a66dff77b9efcb37ac2295a38aa81d2e12"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#0",
+   "game": "sp80-589a99af_p0",
+   "index": 0,
+   "split": "eval",
+   "token_bin": 0,
+   "position": 0.0,
+   "reasoning_tokens": 0,
+   "prompt_tokens": 5414,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r0",
+    "stratum": 0,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 5536,
+    "input_sha256": "6daa96ad9902aa8be511f7a147caa042cb11f11fa4c63e3c25d15587f535b359"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#5",
+   "game": "tn36-ef4dde99_p0",
+   "index": 5,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.17,
+   "reasoning_tokens": 492,
+   "prompt_tokens": 17657,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r5",
+    "stratum": 0,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 17739,
+    "input_sha256": "5a8906b38ca3a8adc0bf106d45e5b28d86bd0fc28faa17d2ab516adc5d4edcd8"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#3",
+   "game": "cd82-fb555c5d_p0",
+   "index": 3,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.08,
+   "reasoning_tokens": 44,
+   "prompt_tokens": 11322,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r3",
+    "stratum": 0,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 11299,
+    "input_sha256": "3a506ad846f8bf313db98c43edf1471e7857190931f17d1d69cf93edbdd2baaf"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#0",
+   "game": "ar25-0c556536_p0",
+   "index": 0,
+   "split": "eval",
+   "token_bin": 0,
+   "position": 0.0,
+   "reasoning_tokens": 0,
+   "prompt_tokens": 5417,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r0",
+    "stratum": 0,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 5539,
+    "input_sha256": "e381754acf6eb1eaaf0acc5fa3dbaa50dcb7ed0a0734f0f4a29f81dc9fae2d0e"
+   }
+  },
+  {
+   "key": "sk48-d8078629_p0#42",
+   "game": "sk48-d8078629_p0",
+   "index": 42,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.29,
+   "reasoning_tokens": 516,
+   "prompt_tokens": 61443,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r42",
+    "stratum": 1,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 48190,
+    "input_sha256": "631050c263a3901c9d11561cde1002a6ca56926a9c2a72dcff6f0e8102381e07"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#9",
+   "game": "sp80-589a99af_p0",
+   "index": 9,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.35,
+   "reasoning_tokens": 38,
+   "prompt_tokens": 30785,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r9",
+    "stratum": 1,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 28054,
+    "input_sha256": "c9d9fa6480137a78cfe0ddee150f2af5f7a7086bbfab483a65011b003b93c3f6"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#11",
+   "game": "tn36-ef4dde99_p0",
+   "index": 11,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.38,
+   "reasoning_tokens": 516,
+   "prompt_tokens": 34614,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r11",
+    "stratum": 1,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 33499,
+    "input_sha256": "dcf27d177190d1ac2789bb03457da4f8a87d403a476bdec1d416b50c2d718e74"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#18",
+   "game": "cd82-fb555c5d_p0",
+   "index": 18,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.47,
+   "reasoning_tokens": 94,
+   "prompt_tokens": 51091,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r18",
+    "stratum": 1,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 46428,
+    "input_sha256": "8b56bc46f246a9210524945b54aabde6e22757e867a8740a0335d4be2e49f843"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#10",
+   "game": "ar25-0c556536_p0",
+   "index": 10,
+   "split": "eval",
+   "token_bin": 4,
+   "position": 0.42,
+   "reasoning_tokens": 1034,
+   "prompt_tokens": 36094,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r10",
+    "stratum": 1,
+    "weight": 4.0,
+    "frozen_prompt_tokens": 35568,
+    "input_sha256": "03b680fe42a5a15bd3c94c29dfce4d7e3f7eeb7deb76c4eebb2f60c7714a9ae4"
+   }
+  },
+  {
+   "key": "sk48-d8078629_p0#82",
+   "game": "sk48-d8078629_p0",
+   "index": 82,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.56,
+   "reasoning_tokens": 109,
+   "prompt_tokens": 107416,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r82",
+    "stratum": 2,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 68227,
+    "input_sha256": "e2e4be73569279470e87670063f626ded26229ea31ae7bd1a2eaef72c925a110"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#22",
+   "game": "sp80-589a99af_p0",
+   "index": 22,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.85,
+   "reasoning_tokens": 816,
+   "prompt_tokens": 71758,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r22",
+    "stratum": 2,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 58372,
+    "input_sha256": "031adb693abb2f65da33665563978d177e949f3dcbe6588175475f42062d489c"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#24",
+   "game": "tn36-ef4dde99_p0",
+   "index": 24,
+   "split": "eval",
+   "token_bin": 2,
+   "position": 0.83,
+   "reasoning_tokens": 317,
+   "prompt_tokens": 69901,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r24",
+    "stratum": 2,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 63194,
+    "input_sha256": "49ecb2d6a3f7cddb6f257636a54e9bf74a8a002ae10ba6f912629c2099d765c3"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#26",
+   "game": "cd82-fb555c5d_p0",
+   "index": 26,
+   "split": "eval",
+   "token_bin": 4,
+   "position": 0.68,
+   "reasoning_tokens": 1034,
+   "prompt_tokens": 69632,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r26",
+    "stratum": 2,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 62263,
+    "input_sha256": "850af076b39191ce749bc9666c954399722059245e5f6370b85f8fc311891f84"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#18",
+   "game": "ar25-0c556536_p0",
+   "index": 18,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.75,
+   "reasoning_tokens": 851,
+   "prompt_tokens": 62904,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r18",
+    "stratum": 2,
+    "weight": 4.0,
+    "frozen_prompt_tokens": 60394,
+    "input_sha256": "3e66aa584b2f09becec3185b1a0d6c2496346347e11d7fcfb4e91198c416cd71"
+   }
+  },
+  {
+   "key": "sk48-d8078629_p0#85",
+   "game": "sk48-d8078629_p0",
+   "index": 85,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.58,
+   "reasoning_tokens": 25,
+   "prompt_tokens": 51489,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r85",
+    "stratum": 0,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 33191,
+    "input_sha256": "f914117526fbd9974dcf183c8384ab117a6ebc6f999216803c5c5d596f862739"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#8",
+   "game": "sp80-589a99af_p0",
+   "index": 8,
+   "split": "eval",
+   "token_bin": 4,
+   "position": 0.31,
+   "reasoning_tokens": 1034,
+   "prompt_tokens": 25792,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r8",
+    "stratum": 0,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 24120,
+    "input_sha256": "07426198ce3c1b5cd8ef0e4a94d405b7a24542a820e1e9e42717df96bfc5ca83"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#9",
+   "game": "tn36-ef4dde99_p0",
+   "index": 9,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.31,
+   "reasoning_tokens": 514,
+   "prompt_tokens": 30102,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r9",
+    "stratum": 0,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 29571,
+    "input_sha256": "8b1987b4fefcaecfa2b365311cb9e98badf8c1ab0db11c13542634d4e161b1dc"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#11",
+   "game": "cd82-fb555c5d_p0",
+   "index": 11,
+   "split": "eval",
+   "token_bin": 2,
+   "position": 0.29,
+   "reasoning_tokens": 322,
+   "prompt_tokens": 32502,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r11",
+    "stratum": 0,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 30843,
+    "input_sha256": "141d1a0871a392e3baf8fe3c94903e58dae37ea4767139d23713a8f9971066de"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#2",
+   "game": "ar25-0c556536_p0",
+   "index": 2,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.08,
+   "reasoning_tokens": 84,
+   "prompt_tokens": 9402,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r2",
+    "stratum": 0,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 9679,
+    "input_sha256": "7ba1d4e0950b4a9b6970d15be48d78b9825b612c8cd05a92ee318b93cf792258"
+   }
+  },
+  {
+   "key": "sk48-d8078629_p0#99",
+   "game": "sk48-d8078629_p0",
+   "index": 99,
+   "split": "eval",
+   "token_bin": 4,
+   "position": 0.68,
+   "reasoning_tokens": 4059,
+   "prompt_tokens": 85666,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r99",
+    "stratum": 1,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 55815,
+    "input_sha256": "0b7e3da2d0d7f8db1f3c57e0bc4e66dccb2fd0bc232a9c3227487a495e7bd50b"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#11",
+   "game": "sp80-589a99af_p0",
+   "index": 11,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.42,
+   "reasoning_tokens": 158,
+   "prompt_tokens": 35531,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r11",
+    "stratum": 1,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 31188,
+    "input_sha256": "ecb22878c8dee40ca1b4b2497b6c08d468ef754963d2f54592af0ecaa82a0913"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#12",
+   "game": "tn36-ef4dde99_p0",
+   "index": 12,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.41,
+   "reasoning_tokens": 160,
+   "prompt_tokens": 37110,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r12",
+    "stratum": 1,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 35760,
+    "input_sha256": "8d6b37327256b8ca4aa8472c683c7c6c2a0752802556851603f0c06d8caeb950"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#21",
+   "game": "cd82-fb555c5d_p0",
+   "index": 21,
+   "split": "eval",
+   "token_bin": 0,
+   "position": 0.55,
+   "reasoning_tokens": 0,
+   "prompt_tokens": 56988,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r21",
+    "stratum": 1,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 51741,
+    "input_sha256": "041e0e636fb813e28c4842145671f7d232e5674b3f376e97745f7346ef570768"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#11",
+   "game": "ar25-0c556536_p0",
+   "index": 11,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.46,
+   "reasoning_tokens": 144,
+   "prompt_tokens": 38889,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r11",
+    "stratum": 1,
+    "weight": 4.0,
+    "frozen_prompt_tokens": 37282,
+    "input_sha256": "2069fbdf118a1eb799092527ada55fc35dd46db7c12f28c44e7390a8ad513bd3"
+   }
+  },
+  {
+   "key": "sk48-d8078629_p0#100",
+   "game": "sk48-d8078629_p0",
+   "index": 100,
+   "split": "eval",
+   "token_bin": 0,
+   "position": 0.68,
+   "reasoning_tokens": 0,
+   "prompt_tokens": 91183,
+   "frozen": {
+    "sample_id": "sk48-d8078629-r100",
+    "stratum": 2,
+    "weight": 24.5,
+    "frozen_prompt_tokens": 57213,
+    "input_sha256": "64a7fb00339464eb3a0dc2faf8988ab78247fc3f2ba3fcccb78b93fb21979653"
+   }
+  },
+  {
+   "key": "sp80-589a99af_p0#26",
+   "game": "sp80-589a99af_p0",
+   "index": 26,
+   "split": "eval",
+   "token_bin": 2,
+   "position": 1.0,
+   "reasoning_tokens": 218,
+   "prompt_tokens": 87463,
+   "frozen": {
+    "sample_id": "sp80-589a99af-r26",
+    "stratum": 2,
+    "weight": 4.5,
+    "frozen_prompt_tokens": 67819,
+    "input_sha256": "9a22e98d2d3f2e79425845411aa902d8d7a18fa5127cbf3a05f5e6c3149c67c4"
+   }
+  },
+  {
+   "key": "tn36-ef4dde99_p0#28",
+   "game": "tn36-ef4dde99_p0",
+   "index": 28,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.97,
+   "reasoning_tokens": 848,
+   "prompt_tokens": 81156,
+   "frozen": {
+    "sample_id": "tn36-ef4dde99-r28",
+    "stratum": 2,
+    "weight": 5.0,
+    "frozen_prompt_tokens": 72894,
+    "input_sha256": "f5addea323002d61d0e9501031eaa5d37b39db20005bf4ac140abd321fbbd3ed"
+   }
+  },
+  {
+   "key": "cd82-fb555c5d_p0#36",
+   "game": "cd82-fb555c5d_p0",
+   "index": 36,
+   "split": "eval",
+   "token_bin": 3,
+   "position": 0.95,
+   "reasoning_tokens": 516,
+   "prompt_tokens": 95482,
+   "frozen": {
+    "sample_id": "cd82-fb555c5d-r36",
+    "stratum": 2,
+    "weight": 6.5,
+    "frozen_prompt_tokens": 83294,
+    "input_sha256": "72fc82ebfbbe6f812d6166493bfa52a3a9c7e1387f56f7483f0bf7f51297a9bd"
+   }
+  },
+  {
+   "key": "ar25-0c556536_p0#19",
+   "game": "ar25-0c556536_p0",
+   "index": 19,
+   "split": "eval",
+   "token_bin": 1,
+   "position": 0.79,
+   "reasoning_tokens": 41,
+   "prompt_tokens": 64661,
+   "frozen": {
+    "sample_id": "ar25-0c556536-r19",
+    "stratum": 2,
+    "weight": 4.0,
+    "frozen_prompt_tokens": 61381,
+    "input_sha256": "0b248fe2c6e410c87b8627d6ea486179c3e12f4eacc3b0f3a1ac8c5b74b925f4"
+   }
+  }
+ ]
+}
