@@ -91,6 +91,30 @@ the refine (aimed at the thinking's content) does not change. Two passes reach
 15/20 perfect; a third would chase single points with more coverage risk than
 gain.
 
+## Held-out fold-0 panel (sol-nll-fold0-30)
+
+The same two-pass pipeline, run through the DVC stages on the frozen 30-request
+fold-0 NLL panel (`data/sol-nll-fold0-30`; games ar25, cd82, sk48, sp80, tn36 —
+none tuned on). 27 of 30 produced usable thinking (3 rejected by the length/leak
+gate); results on those 27:
+
+| metric | draft | refine 1 | refine 2 (final) |
+| --- | ---: | ---: | ---: |
+| coverage of Sol's words | 0.89 | 0.95 | **0.99** |
+| code leads to call | 0.96 | 1.00 | 1.00 |
+| code disagreements / record | 0.04 | 0.00 | 0.04 |
+| fact grounded | 0.44 | 0.85 | **0.93** |
+| fact errors / record | 0.96 | 0.19 | **0.07** |
+| call functionally same | – | – | 0.82 (27) |
+
+Out of sample the loop behaves as on dev: fact grounding 0.44 → 0.93, coverage
+0.89 → 0.99, errors ~1 → 0.07 per record. Run with
+`dvc repro tg_final` (params `think_gen.manifest` =
+`experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json`). The five flash
+call-regenerations that hit provider 429s under concurrency were re-run at low
+concurrency; the call check is the one metric the refine does not move, as on
+dev.
+
 ## Cost of the full 25-game dataset
 
 Scale, from `runs/gpt61sol-features-25games`: **1,334** model responses,
