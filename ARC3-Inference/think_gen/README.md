@@ -23,8 +23,14 @@ the teacher actually thought. Results and the evaluation method:
 | read the request logs into one record per model response | `logs.py` | - |
 | generate the thinking, game by game, request by request | `generate.py` | `<out>/<game>.jsonl` |
 | calibration only: judge generated against real thinking | `judge.py` | `<out>/judge/` |
+| judge where the real thinking is hidden (gpt-6.1-sol): 4 checks | `judge_sol.py` | `<out>/judge_sol/` |
+| refine from the judge feedback (second pass) | `refine.py` | a new `<out>` |
 | read it side by side | `page.py` | an HTML page |
 | build SFT samples | `assemble.py` | one JSON line per history stretch |
+
+For the Sol judge (the four checks, the fact-check self-correction rule, the
+refine loop and the cost/caching analysis for the full run) see
+[sol-judge.md](../experiments/teacher-reasoning/sol-judge.md).
 
 ```bash
 # calibration on qwen3.8-max (real thinking available), two arms
