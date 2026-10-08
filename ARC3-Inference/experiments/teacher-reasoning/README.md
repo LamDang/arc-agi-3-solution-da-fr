@@ -10,6 +10,10 @@ Pages in this folder:
   distilling a teacher whose reasoning is hidden (rationalization,
   likelihood-reward RL, trace reconstruction), how generated reasoning is
   checked, and published comparisons.
+- [think-gen-calibration.md](think-gen-calibration.md): thinking generated
+  by qwen3.8-flash ([think_gen/](../../think_gen/README.md)) against
+  qwen3.8-max's real thinking, the evaluation method, and what the sol
+  data shows about its summaries and reasoning length.
 
 To distill a teacher's reasoning into the student, the API must return the
 teacher's whole chain of thought, not a summary. Tested on 2026-10-06 through

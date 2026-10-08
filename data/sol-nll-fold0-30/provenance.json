@@ -1,0 +1,427 @@
+{
+  "schema": 1,
+  "name": "sol-nll-fold0-30",
+  "created_utc": "2026-10-08",
+  "purpose": "frozen held-out teacher-transcript NLL evaluation; not training data",
+  "source_repository": "LamDang/arc-agi-3-solution-da-fr",
+  "source_dataset": "data/sft-gpt61sol-features-25games",
+  "source_dataset_revision": "37fadfeedfd54d2129db4525e4167596cc7337b6",
+  "source_dataset_md5": {
+    "train.jsonl": "b1b7eaed4fe609748d1980751354b9f2",
+    "index.json": "370ec02490f6567c91bc6ef5140ac172",
+    "meta.json": "0170a4199d41eb05ad15ca1134afcba2"
+  },
+  "preparation_commit": "d162b9a",
+  "frozen_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "fold": 0,
+  "fold_sha256": "6e153e3ca2a2ca33832f5fa5ad7ef767a5a3f66220f61458f581055e2d9c6750",
+  "seed": 20261008,
+  "sampling": "two-per-game-context-tertile-v1",
+  "strata": [
+    {
+      "game": "sk48-d8078629",
+      "stratum": 0,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 5537,
+      "max_context": 44059
+    },
+    {
+      "game": "sk48-d8078629",
+      "stratum": 1,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 44093,
+      "max_context": 57206
+    },
+    {
+      "game": "sk48-d8078629",
+      "stratum": 2,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 57213,
+      "max_context": 92764
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 0,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 5536,
+      "max_context": 24120
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 1,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 28054,
+      "max_context": 46336
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 2,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 47130,
+      "max_context": 67819
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 0,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 5526,
+      "max_context": 29571
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 1,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 31062,
+      "max_context": 52114
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 2,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 54375,
+      "max_context": 75899
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 0,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 5536,
+      "max_context": 33263
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 1,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 35251,
+      "max_context": 59922
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 2,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 62263,
+      "max_context": 90591
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 0,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 5539,
+      "max_context": 31140
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 1,
+      "population": 8,
+      "sampled": 2,
+      "min_context": 34614,
+      "max_context": 52786
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 2,
+      "population": 8,
+      "sampled": 2,
+      "min_context": 55126,
+      "max_context": 71525
+    }
+  ],
+  "validation_games": [
+    "sk48-d8078629",
+    "sp80-589a99af",
+    "tn36-ef4dde99",
+    "cd82-fb555c5d",
+    "ar25-0c556536"
+  ],
+  "processor_revision": "de4b8e4d43b917e7706784d8bb445c9af86a3540",
+  "processor_files_sha256": {
+    "chat_template.jinja": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "config.json": "889658f2508e8c61d409b02e70e0d78d8d4452ec65aaafbe129805d213d2e74b",
+    "generation_config.json": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
+    "merges.txt": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d",
+    "preprocessor_config.json": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
+    "tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "tokenizer_config.json": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+    "video_preprocessor_config.json": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+    "vocab.json": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+  },
+  "expert_counts": [
+    512,
+    448,
+    384,
+    320,
+    256
+  ],
+  "transformation": "canonical JSON serialization only; every source request object is unchanged",
+  "row_order": "frozen manifest order; interleaved game rounds, draw then stratum",
+  "scoring": "full multimodal context; final assistant reply only; no truncation",
+  "requests": 30,
+  "payload_bytes": 5973796,
+  "payload_sha256": "52a14ae74e4dcbb0ccc83038720c6c5b8b8eead20393af655a6f6dfde18610cc",
+  "index_sha256": "21740babaa2ee222be61726af6984c6ce4562b257b10025e2bc12366d05c81b5",
+  "export_script_sha256": "80149121e0a72997bd4281a72a1f6ebb56e7c07479873f163791f3244dfdfb74",
+  "prompt_tokens": 1268524,
+  "target_tokens": 12108,
+  "processed_tokens_all_candidates": 6403160,
+  "coverage": [
+    {
+      "game": "sk48-d8078629",
+      "level": 1,
+      "population_requests": 6,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 2,
+      "population_requests": 7,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 3,
+      "population_requests": 18,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 4,
+      "population_requests": 4,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 5,
+      "population_requests": 76,
+      "sampled_requests": 6,
+      "status": "sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 6,
+      "population_requests": 18,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 7,
+      "population_requests": 11,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 8,
+      "population_requests": 7,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 1,
+      "population_requests": 3,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 2,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 3,
+      "population_requests": 7,
+      "sampled_requests": 3,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 4,
+      "population_requests": 8,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 5,
+      "population_requests": 5,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 6,
+      "population_requests": 2,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 1,
+      "population_requests": 7,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 2,
+      "population_requests": 4,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 3,
+      "population_requests": 3,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 4,
+      "population_requests": 4,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 5,
+      "population_requests": 3,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 6,
+      "population_requests": 4,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 7,
+      "population_requests": 5,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 1,
+      "population_requests": 29,
+      "sampled_requests": 5,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 2,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 3,
+      "population_requests": 5,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 4,
+      "population_requests": 2,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 5,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 6,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 1,
+      "population_requests": 3,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 2,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 3,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 4,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 5,
+      "population_requests": 4,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 6,
+      "population_requests": 5,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 7,
+      "population_requests": 4,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 8,
+      "population_requests": 3,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    }
+  ],
+  "gpu_started": false
+}

@@ -76,3 +76,17 @@ eval:
     ARC3_GAME_CODE_DIR: ""
     # Infrastructure only: retry OpenRouter 429s instead of aborting the turn.
     ARC3_HTTP_RETRIES: -1
+
+# Settings for the think_gen Sol judge+refine pipeline (think_gen stages in
+# dvc.yaml; see experiments/teacher-reasoning/sol-judge.md). The source run's
+# request logs hold the context; the pipeline does not duplicate it.
+think_gen:
+  source_run: runs/gpt61sol-features-25games   # base-agent run (DVC-tracked)
+  manifest: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+  split: eval
+  out: runs/think-sol-nll30        # draft/ judge1/ refine1/ judge2/ refine2/ final/
+  student_model: qwen/qwen3.8-flash   # draft, refine and call regeneration
+  provider: Alibaba
+  judge_model: gpt-6.1-sol        # all four judge checks (sees the context)
+  judge_effort: high              # code, words, call
+  fact_effort: xhigh              # the fact-check

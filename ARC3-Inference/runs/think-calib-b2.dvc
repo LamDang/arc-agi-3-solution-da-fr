@@ -1,0 +1,6 @@
+outs:
+- md5: 894b0045a44ef7480594e0d3b425efa2.dir
+  size: 1082511
+  nfiles: 13
+  hash: md5
+  path: think-calib-b2
