@@ -151,11 +151,14 @@ Python-code-only loss and weighted thinking fractions are in
 `by-context-length.json`; the full underlying slices are already in the DVC ZIP.
 
 The previous committed pruning experiment reported **0.417 full-model NLL**,
-not 4, on Qwen's own logged generations in ls20/sb26/vc33 (35,514 generated
+the value the user confirmed remembering, on Qwen's own logged generations
+in ls20/sb26/vc33 (35,514 generated
 tokens; prefixes up to 32K). See
 [the earlier result](../../exp/reap-flash-next/README.md#pruned-routers-on-held-out-games).
 The present panel scores Sol final replies in five different games with full
 contexts and different calibration maps and request weights. The underlying
-teacher-forced cross-entropy definition is unchanged. A separate earlier value
-near 4 has not been identified; no numerical explanation for that value is
-claimed without its log and metric definition.
+teacher-forced cross-entropy definition is unchanged. The two baseline values
+measure different targets and contexts, so their difference is not a paired
+pruning gap or evidence of a changed loss formula. Predicting Sol reasoning
+rather than Qwen's own sampled output is a plausible contributor; these runs
+do not isolate the numerical contribution of each changed factor.
