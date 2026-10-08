@@ -101,3 +101,17 @@ def test_assemble_stretches_and_statuses(tmp_path):
     assert all("_arc3_control" not in m for m in s["messages"])
     s2 = assemble.sample(recs, [2], rows, raw_final=False)
     assert s2["turn_status"] == ["missing"]
+
+
+def test_b3_prompt_and_token_bins():
+    import json
+    from think_gen import evalset, prompts
+    reply = {"tool_calls": [{"id": "c1", "function": {"name": "python", "arguments": json.dumps(
+        {"description": "Press UP once.", "reasoning": "The door is above.", "code": "action(['UP'])"})}}]}
+    p = prompts.reconstruct_prompt_b3(reply, 400)
+    assert "The door is above." in p and "Press UP once." in p and "action(['UP'])" in p
+    assert "about 300 words" in p
+    assert prompts.LENGTH_NONE in prompts.reconstruct_prompt_b3(reply, 0)
+    assert checks.leaks("As the description says, I press UP.") == ["stated_fields"]
+    edges = [10, 20, 30]
+    assert [evalset.token_bin(t, edges) for t in (0, 5, 10, 25, 99)] == [0, 1, 2, 3, 4]

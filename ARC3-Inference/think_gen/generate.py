@@ -21,6 +21,11 @@ Summaries (`--summary`):
   none     never.
 A record with no summary gets the short-thinking instruction. A record whose
 teacher spent 0 reasoning tokens gets empty thinking, as the teacher had.
+
+`--prompt b3` (teachers whose python calls state `reasoning` and
+`description`) uses no summary: the thinking works through the stated
+reasoning and ends planning the described move, at a length set by the
+teacher's reasoning tokens; 0-token records get a few sentences.
 """
 import argparse
 import concurrent.futures as cf
@@ -94,13 +99,16 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
         "history_source": args.history_source, "model": args.model,
         "flash_reasoning": args.reasoning,
     }
-    if rec.reasoning_tokens == 0 and not rec.real_reasoning.strip():
+    if args.prompt == "b3":
+        row.update(summary="", summary_source="none")
+    elif rec.reasoning_tokens == 0 and not rec.real_reasoning.strip():
         row.update(thinking="", status="teacher_empty", attempts=0, checks={}, usage={}, cost=0)
         append_jsonl(out_path, row)
         return row
     msgs = context.history(rec.messages, thinking, args.history)
-    msgs.append({"role": "user", "content": prompts.reconstruct_prompt(
-        row["call"], summary, args.prompt, args.history)})
+    msgs.append({"role": "user", "content": prompts.reconstruct_prompt_b3(rec.reply, rec.reasoning_tokens)
+                 if args.prompt == "b3" else prompts.reconstruct_prompt(
+                     row["call"], summary, args.prompt, args.history)})
     attempts, usages, text, chk, extra = 0, [], "", {}, {}
     while attempts < args.max_attempts:
         attempts += 1

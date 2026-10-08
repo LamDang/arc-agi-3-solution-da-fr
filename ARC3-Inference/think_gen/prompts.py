@@ -48,6 +48,74 @@ RECONSTRUCT_B2 = RECONSTRUCT.replace(
 RECONSTRUCT_PROMPTS = {"b1": RECONSTRUCT, "b2": RECONSTRUCT_B2}
 
 
+# b3: for teachers whose python calls state `reasoning` and `description`
+# (ARC3_PYTHON_RATIONALE, runs/gpt61sol-features-25games). The thinking works
+# through the stated reasoning step by step and ends planning the described
+# move; its length follows the teacher's billed reasoning tokens.
+RECONSTRUCT_B3 = """\
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
+
+The conversation above is a game-playing agent's run, up to the moment it produced its next output. Its thinking for this step is missing: write it.
+
+The next output was a `python` call. With the code, the agent stated why it took this step and what the code does:
+
+<reasoning>
+{reasoning}
+</reasoning>
+
+<description>
+{description}
+</description>
+
+<code>
+{code}
+</code>
+
+{length}
+
+How to write the thinking:
+- Write it as your own private thinking at this moment, in first person, the way you think while working, not the way you would explain it afterwards. Plain text, no headings.
+- Start from the content of the reasoning above and work it out step by step: take its points in order, and for each one go back to what is visible in the conversation (the newest tool output, frame or message first), state the cells, positions, counts or values that matter, and derive the point from them. Where the reasoning states a conclusion, reach it; where it states a rule or hypothesis about the game, check it against the evidence and say what supports it; where something does not fit, say so and correct it.
+- Do not add facts, rules, coordinates or numbers that neither the conversation nor the reasoning supports. If a detail cannot be read from the conversation, leave it out rather than guess.
+- End by planning the next move, as the description says: what the code will do, which actions it will send, and what you expect to learn from its result. Describe the code; do not paste it.
+- The result of this output is not known yet: do not predict it as if it were seen.
+- Do not mention the reasoning, the description, this note, or being given the output. Do not refer to "the agent": it is you.
+- Answer with the thinking text only: no title, no {open} tags, no preface.
+"""
+
+# 0 reasoning tokens: the teacher answered without thinking; the stated
+# reasoning still has to be reached, so the thinking is short, not empty.
+LENGTH_NONE = "At this step the thinking was very short: write a few sentences, about as long as the reasoning above."
+LENGTH_TOKENS = "At this step the thinking was about {words} words long: match that length; a short step stays short, a long one is worked out in full."
+
+RECONSTRUCT_PROMPTS["b3"] = RECONSTRUCT_B3
+
+
+def python_args(reply: dict) -> dict:
+    """The first python call's arguments, {} when there is none."""
+    import json
+    for c in reply.get("tool_calls") or []:
+        fn = c.get("function") or {}
+        if fn.get("name") == "python":
+            try:
+                return json.loads(fn.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+
+def reconstruct_prompt_b3(reply: dict, reasoning_tokens: int) -> str:
+    from .context import THINK_OPEN
+    args = python_args(reply)
+    # ~0.75 words per token, rounded to tens
+    length = (LENGTH_TOKENS.format(words=max(10, int(round(reasoning_tokens * 0.75, -1))))
+              if reasoning_tokens else LENGTH_NONE)
+    return RECONSTRUCT_B3.format(
+        reasoning=(args.get("reasoning") or "").strip(),
+        description=(args.get("description") or "").strip(),
+        code=(args.get("code") or "").rstrip(), length=length, open=THINK_OPEN)
+
+
 def reconstruct_prompt(call: str, summary: str, version: str = PROMPT_VERSION,
                        history_mode: str = "native") -> str:
     from .context import THINK_CLOSE, THINK_OPEN

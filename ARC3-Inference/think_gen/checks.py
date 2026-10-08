@@ -10,6 +10,7 @@ LEAK_PATTERNS = {
     "next_output_was": r"\b(next|final) output (was|is)\b",
     "note": r"\bnote outside\b",
     "think_tags": r"\[/?thinking\]|</?think>",
+    "stated_fields": r"\b(stated reasoning|the reasoning (above|says|field)|the description (above|says|field)|description field)\b",
 }
 
 
