@@ -14,6 +14,10 @@ Pages in this folder:
   by qwen3.8-flash ([think_gen/](../../think_gen/README.md)) against
   qwen3.8-max's real thinking, the evaluation method, and what the sol
   data shows about its summaries and reasoning length.
+- [sol-nll-regen.md](sol-nll-regen.md): on the held-out
+  [`data/sol-nll-fold0-30`](../../../data/sol-nll-fold0-30/README.md) panel,
+  whether sol's attached thinking leads qwen3.8-flash back to a functionally
+  equivalent `python` call (think_gen's call-equivalence judge, run alone).
 
 To distill a teacher's reasoning into the student, the API must return the
 teacher's whole chain of thought, not a summary. Tested on 2026-10-06 through

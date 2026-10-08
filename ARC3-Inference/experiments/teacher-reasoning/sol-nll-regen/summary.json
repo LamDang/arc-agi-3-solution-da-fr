@@ -1,0 +1,30 @@
+{
+  "n_requests": 30,
+  "n_judged": 27,
+  "n_functionally_same": 21,
+  "call_functionally_same": 0.778,
+  "n_regen_error": 3,
+  "n_error": 0,
+  "per_game": {
+    "ar25-0c556536": {
+      "n": 6,
+      "same": 0.833
+    },
+    "cd82-fb555c5d": {
+      "n": 6,
+      "same": 0.667
+    },
+    "sk48-d8078629": {
+      "n": 5,
+      "same": 0.8
+    },
+    "sp80-589a99af": {
+      "n": 5,
+      "same": 1
+    },
+    "tn36-ef4dde99": {
+      "n": 5,
+      "same": 0.6
+    }
+  }
+}
