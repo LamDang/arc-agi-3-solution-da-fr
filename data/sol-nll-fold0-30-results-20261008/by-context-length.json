@@ -1,0 +1,106 @@
+{
+  "run_identity": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+  "length_basis": "processor-expanded prompt tokens, excluding the final scored reply; K = 1024",
+  "units": "nats per scored final-reply token",
+  "primary_weighting": "equal-game mean of population-weighted request means within the band",
+  "category_weighting": "sampling-weighted token pooling within the band",
+  "output_categories": "all non-thinking categories (Python code plus tool and turn formatting)",
+  "slices": [
+    {
+      "context_band": "16K-<48K",
+      "experts": 512,
+      "requests": 14,
+      "games": 5,
+      "primary_nll": 0.8231540033885215,
+      "pooled_token_nll": 0.7769349339463776,
+      "thinking_nll": 1.9570732444337136,
+      "output_nll": 0.3477352822297208,
+      "python_code_nll": 0.39071959702287606,
+      "weighted_thinking_fraction": 0.2666932998516151
+    },
+    {
+      "context_band": "16K-<48K",
+      "experts": 256,
+      "requests": 14,
+      "games": 5,
+      "primary_nll": 0.818480902996394,
+      "pooled_token_nll": 0.7823960346045821,
+      "thinking_nll": 1.9688023021628145,
+      "output_nll": 0.3509168153424125,
+      "python_code_nll": 0.39265431856473765,
+      "weighted_thinking_fraction": 0.2666932998516151
+    },
+    {
+      "context_band": "48K-<80K",
+      "experts": 512,
+      "requests": 11,
+      "games": 5,
+      "primary_nll": 0.8104351093814908,
+      "pooled_token_nll": 0.8554515310480403,
+      "thinking_nll": 1.9465720274744494,
+      "output_nll": 0.2928720069169997,
+      "python_code_nll": 0.34493719091679576,
+      "weighted_thinking_fraction": 0.34019442289261104
+    },
+    {
+      "context_band": "48K-<80K",
+      "experts": 256,
+      "requests": 11,
+      "games": 5,
+      "primary_nll": 0.8112441123594873,
+      "pooled_token_nll": 0.8490500759801578,
+      "thinking_nll": 1.9304278640902373,
+      "output_nll": 0.2914938725788624,
+      "python_code_nll": 0.34295635592722074,
+      "weighted_thinking_fraction": 0.34019442289261104
+    },
+    {
+      "context_band": "<16K",
+      "experts": 512,
+      "requests": 4,
+      "games": 3,
+      "primary_nll": 1.2804064860551514,
+      "pooled_token_nll": 1.257427835034313,
+      "thinking_nll": 2.696111079764037,
+      "output_nll": 0.5112209106107504,
+      "python_code_nll": 0.6061410341904921,
+      "weighted_thinking_fraction": 0.3415306338774645
+    },
+    {
+      "context_band": "<16K",
+      "experts": 256,
+      "requests": 4,
+      "games": 3,
+      "primary_nll": 1.2607115325723877,
+      "pooled_token_nll": 1.2397851625120608,
+      "thinking_nll": 2.7488189253422584,
+      "output_nll": 0.457089286169676,
+      "python_code_nll": 0.5455719832087967,
+      "weighted_thinking_fraction": 0.3415306338774645
+    },
+    {
+      "context_band": ">=80K",
+      "experts": 512,
+      "requests": 1,
+      "games": 1,
+      "primary_nll": 0.238545888363041,
+      "pooled_token_nll": 0.238545888363041,
+      "thinking_nll": 1.6257993432690163,
+      "output_nll": 0.0747943669598858,
+      "python_code_nll": 0.0769946811769459,
+      "weighted_thinking_fraction": 0.10557768924302789
+    },
+    {
+      "context_band": ">=80K",
+      "experts": 256,
+      "requests": 1,
+      "games": 1,
+      "primary_nll": 0.23072020360289078,
+      "pooled_token_nll": 0.23072020360289075,
+      "thinking_nll": 1.6487831458114257,
+      "output_nll": 0.06333192757382092,
+      "python_code_nll": 0.06543323916317209,
+      "weighted_thinking_fraction": 0.10557768924302789
+    }
+  ]
+}

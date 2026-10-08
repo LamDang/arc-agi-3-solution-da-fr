@@ -1,0 +1,322 @@
+{
+  "run_identities": {
+    "source": "970f3fca96f17d9747edec3749f0c4a345f4fc5ca2727d3c125dfacf9392884a",
+    "genthink": "89771445a3607f3c402bd5b87afce7331d9bfbe7c12647daff8ed03fa64420e8"
+  },
+  "summaries": {
+    "source": {
+      "512": {
+        "primary": 0.8585603467209093,
+        "per_game": {
+          "sk48-d8078629": 0.8238418013449416,
+          "sp80-589a99af": 0.8591452305732351,
+          "tn36-ef4dde99": 0.8133661865208573,
+          "cd82-fb555c5d": 0.855444922425763,
+          "ar25-0c556536": 0.9410035927397503
+        },
+        "token_nll": 0.7921033514610848,
+        "perplexity": 2.208035820776649,
+        "population_request_nll": 0.8417540798951788,
+        "categories": {
+          "thinking": {
+            "nll": 1.9906507725197564,
+            "weighted_sum": 50091.74071430089,
+            "weighted_tokens": 25163.5,
+            "requests": 30
+          },
+          "tool_code": {
+            "nll": 0.35306808981493154,
+            "weighted_sum": 19411.33050993512,
+            "weighted_tokens": 54979.0,
+            "requests": 30
+          },
+          "tool_format": {
+            "nll": 0.011159919072688594,
+            "weighted_sum": 71.78059947553304,
+            "weighted_tokens": 6432.0,
+            "requests": 30
+          },
+          "assistant_text": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          },
+          "turn_format": {
+            "nll": 0.04665542411491787,
+            "weighted_sum": 62.51826831398994,
+            "weighted_tokens": 1340.0,
+            "requests": 30
+          },
+          "boundary": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          }
+        }
+      },
+      "256": {
+        "primary": 0.853350823392733,
+        "per_game": {
+          "sk48-d8078629": 0.8249297273847875,
+          "sp80-589a99af": 0.8547987436924536,
+          "tn36-ef4dde99": 0.8058698338433453,
+          "cd82-fb555c5d": 0.8513228215488556,
+          "ar25-0c556536": 0.9298329904942227
+        },
+        "token_nll": 0.7909037676189644,
+        "perplexity": 2.2053886847314725,
+        "population_request_nll": 0.8394318874004525,
+        "categories": {
+          "thinking": {
+            "nll": 1.9929264895424117,
+            "weighted_sum": 50149.00571960048,
+            "weighted_tokens": 25163.5,
+            "requests": 30
+          },
+          "tool_code": {
+            "nll": 0.3494344969807995,
+            "weighted_sum": 19211.559209507373,
+            "weighted_tokens": 54979.0,
+            "requests": 30
+          },
+          "tool_format": {
+            "nll": 0.011148985142016957,
+            "weighted_sum": 71.71027243345307,
+            "weighted_tokens": 6432.0,
+            "requests": 30
+          },
+          "assistant_text": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          },
+          "turn_format": {
+            "nll": 0.07435378865383892,
+            "weighted_sum": 99.63407679614414,
+            "weighted_tokens": 1340.0,
+            "requests": 30
+          },
+          "boundary": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    "genthink": {
+      "512": {
+        "primary": 1.043428703816137,
+        "per_game": {
+          "sk48-d8078629": 1.015673224728403,
+          "sp80-589a99af": 1.0644264095711333,
+          "tn36-ef4dde99": 1.0406602587469038,
+          "cd82-fb555c5d": 1.049544373054442,
+          "ar25-0c556536": 1.0468392529798032
+        },
+        "token_nll": 1.0268807201743617,
+        "perplexity": 2.7923421394473134,
+        "population_request_nll": 1.031218271378811,
+        "categories": {
+          "thinking": {
+            "nll": 1.3866082716765893,
+            "weighted_sum": 179939.46211133516,
+            "weighted_tokens": 129769.5,
+            "requests": 30
+          },
+          "tool_code": {
+            "nll": 0.3154450562635382,
+            "weighted_sum": 17342.853748313068,
+            "weighted_tokens": 54979.0,
+            "requests": 30
+          },
+          "tool_format": {
+            "nll": 0.015171494819430652,
+            "weighted_sum": 97.58305467857795,
+            "weighted_tokens": 6432.0,
+            "requests": 30
+          },
+          "assistant_text": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          },
+          "turn_format": {
+            "nll": 0.23559012985178526,
+            "weighted_sum": 315.69077400139224,
+            "weighted_tokens": 1340.0,
+            "requests": 30
+          },
+          "boundary": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          }
+        }
+      },
+      "256": {
+        "primary": 1.034266306510851,
+        "per_game": {
+          "sk48-d8078629": 1.008799492013178,
+          "sp80-589a99af": 1.0493697592581095,
+          "tn36-ef4dde99": 1.016670723517162,
+          "cd82-fb555c5d": 1.0646479650470404,
+          "ar25-0c556536": 1.0318435927187646
+        },
+        "token_nll": 1.0254157556256311,
+        "perplexity": 2.7882544520946815,
+        "population_request_nll": 1.024044742485913,
+        "categories": {
+          "thinking": {
+            "nll": 1.380128026151101,
+            "weighted_sum": 179098.52388961532,
+            "weighted_tokens": 129769.5,
+            "requests": 30
+          },
+          "tool_code": {
+            "nll": 0.32119905858267267,
+            "weighted_sum": 17659.20304181676,
+            "weighted_tokens": 54979.0,
+            "requests": 30
+          },
+          "tool_format": {
+            "nll": 0.016933976598921558,
+            "weighted_sum": 108.91933748426347,
+            "weighted_tokens": 6432.0,
+            "requests": 30
+          },
+          "assistant_text": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          },
+          "turn_format": {
+            "nll": 0.4081400835880679,
+            "weighted_sum": 546.907712008011,
+            "weighted_tokens": 1340.0,
+            "requests": 30
+          },
+          "boundary": {
+            "nll": null,
+            "weighted_sum": 0.0,
+            "weighted_tokens": 0.0,
+            "requests": 0
+          }
+        }
+      }
+    }
+  },
+  "decision": {
+    "reference_metric": "categorywise",
+    "reference_panel": "genthink",
+    "baseline_comparison_at_experts": 512,
+    "genthink_minus_source": {
+      "thinking": -0.6040425008431671,
+      "tool_code": -0.03762303355139335
+    },
+    "pruning_gate": {
+      "status": "stop_at_256",
+      "components": {
+        "thinking": {
+          "status": "stop_at_256",
+          "baseline_primary": 1.3866082716765893,
+          "candidate_primary": 1.380128026151101,
+          "relative_increase": -0.004673450792019862,
+          "threshold_relative": 0.05,
+          "threshold_primary": 1.4559386852604188
+        },
+        "tool_code": {
+          "status": "stop_at_256",
+          "baseline_primary": 0.3154450562635382,
+          "candidate_primary": 0.32119905858267267,
+          "relative_increase": 0.0182409018777816,
+          "threshold_relative": 0.05,
+          "threshold_primary": 0.3312173090767151
+        }
+      },
+      "threshold_relative": 0.05,
+      "metric": "sampling-weighted thinking and Python-code NLL, independently"
+    },
+    "panel_gates": {
+      "source": {
+        "status": "stop_at_256",
+        "components": {
+          "thinking": {
+            "status": "stop_at_256",
+            "baseline_primary": 1.9906507725197564,
+            "candidate_primary": 1.9929264895424117,
+            "relative_increase": 0.0011432025416364677,
+            "threshold_relative": 0.05,
+            "threshold_primary": 2.0901833111457444
+          },
+          "tool_code": {
+            "status": "stop_at_256",
+            "baseline_primary": 0.35306808981493154,
+            "candidate_primary": 0.3494344969807995,
+            "relative_increase": -0.010291479006320547,
+            "threshold_relative": 0.05,
+            "threshold_primary": 0.37072149430567813
+          }
+        },
+        "threshold_relative": 0.05,
+        "metric": "sampling-weighted thinking and Python-code NLL, independently"
+      },
+      "genthink": {
+        "status": "stop_at_256",
+        "components": {
+          "thinking": {
+            "status": "stop_at_256",
+            "baseline_primary": 1.3866082716765893,
+            "candidate_primary": 1.380128026151101,
+            "relative_increase": -0.004673450792019862,
+            "threshold_relative": 0.05,
+            "threshold_primary": 1.4559386852604188
+          },
+          "tool_code": {
+            "status": "stop_at_256",
+            "baseline_primary": 0.3154450562635382,
+            "candidate_primary": 0.32119905858267267,
+            "relative_increase": 0.0182409018777816,
+            "threshold_relative": 0.05,
+            "threshold_primary": 0.3312173090767151
+          }
+        },
+        "threshold_relative": 0.05,
+        "metric": "sampling-weighted thinking and Python-code NLL, independently"
+      }
+    },
+    "requests": 30,
+    "paired_panel_model_results": 60,
+    "context_equivalence": "processor-verified frozen variant audit; matching IDs/weights/maps/code IDs",
+    "limitation": "Thinking targets differ in content and length; means are paired by request, not by thinking token.",
+    "selected_experts": 256,
+    "status": "accepted_at_256",
+    "paired_wins": {
+      "512": {
+        "thinking_nll": 29,
+        "tool_code_nll": 21
+      },
+      "256": {
+        "thinking_nll": 30,
+        "tool_code_nll": 16
+      }
+    }
+  },
+  "nll_tests_passed": 52,
+  "requests": 30,
+  "completed_evaluations": 120,
+  "per_token_losses_retrieved": 72932,
+  "source_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "variant_manifest_sha256": "15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea",
+  "verified_processor_identical_contexts": 30,
+  "aligned_python_token_pairs": 16590,
+  "intermediate_counts_evaluated": [],
+  "training_or_gameplay": false
+}

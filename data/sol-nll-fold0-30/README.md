@@ -127,8 +127,11 @@ assistant messages as targets. No tool execution or generation is needed.
 
 There are **1,268,524 prompt tokens**, **12,108 target tokens** and **664
 images**. Full processor-expanded request lengths range from **5,770 to
-84,298 tokens**. Five candidates yield **6,403,160 processed tokens** and
-**60,540 scored target tokens**. These counts depend on the pinned processor,
+84,298 tokens**. The initial 512/256 comparison uses **2,561,264 processed tokens** and
+**24,216 scored targets**. Only if 256 primary NLL exceeds 512 by more than 5%
+are 448/384/320 evaluated, bringing the maximum to **6,403,160 processed tokens**
+and **60,540 scored targets**. The unchanged provenance records maximum
+five-candidate capacity; this protocol change does not modify the dataset. These counts depend on the pinned processor,
 not on JSONL character counts.
 
 The panel samples **15 of 35 game-level cells**; 20 are explicitly unsampled.
@@ -142,3 +145,7 @@ reprocessing, and clean nested expert maps exclude all five validation games.
 See [readiness](../../exp/sft-flash-next/READINESS.md) and the
 [verification record](../../exp/sft-flash-next/verification/real-data.json).
 No GPU session, training or gameplay has been started.
+
+The complete first-panel evaluation is stored separately in
+[the DVC result dataset](../sol-nll-fold0-30-results-20261008/README.md),
+including per-token losses and per-game/category reports for 512 and 256.

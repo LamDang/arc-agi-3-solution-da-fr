@@ -1,0 +1,31 @@
+{
+  "dataset_revision": "debc8a3fcefd68809b45f1d6cd72d6a0f6a15787",
+  "dataset_md5": {
+    "requests.jsonl": "f16318a86de0b5e6c7980d2d93de4ce0"
+  },
+  "variant_manifest_sha256": "15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea",
+  "source_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "requests": 30,
+  "history_calls": 480,
+  "final_calls": 30,
+  "python_schemas": 30,
+  "extra_tool_fields": 0,
+  "system_code_only": true,
+  "prompts_and_images_token_identical": true,
+  "python_code_token_identical": true,
+  "serialization_note": "Source-bundle dictionary order restored because Qwen tool JSON rendering preserves insertion order.",
+  "prompt_tokens": 1268524,
+  "target_tokens": 24358,
+  "categories": {
+    "thinking": 15193,
+    "tool_code": 8295,
+    "tool_format": 720,
+    "assistant_text": 0,
+    "turn_format": 150,
+    "boundary": 0
+  },
+  "cpu_tests_passed": 64,
+  "cpu_tests_skipped": 4,
+  "preflight_requests": 30,
+  "gpu_started": false
+}

@@ -1,0 +1,55 @@
+{
+  "status": "awaiting_expansion_decision",
+  "selected_experts": null,
+  "complete": true,
+  "protocol": {
+    "version": "512-then-256-relative-primary-nll-v1",
+    "baseline": 512,
+    "first_candidate": 256,
+    "threshold_relative": 0.05,
+    "metric": "equal-game mean of population-weighted request mean NLL",
+    "gate_requires_all_requests": 30,
+    "scan_counts": [
+      448,
+      384,
+      320
+    ],
+    "selection": "smallest evaluated count within 5% of full baseline NLL"
+  },
+  "gate": {
+    "status": "stop_at_256",
+    "baseline_primary": 1.043428703816137,
+    "candidate_primary": 1.034266306510851,
+    "relative_increase": -0.008781047781967533,
+    "threshold_relative": 0.05,
+    "threshold_primary": 1.0956001390069439
+  },
+  "required_counts": [
+    512,
+    256
+  ],
+  "skipped_counts": [],
+  "required_jobs": 60,
+  "maximum_jobs": 150,
+  "matched_requests": 30,
+  "required_requests": 30,
+  "manifest_sha256": "15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea",
+  "identity": "89771445a3607f3c402bd5b87afce7331d9bfbe7c12647daff8ed03fa64420e8",
+  "training_fit": "unverified",
+  "calibration": "training-only",
+  "diagnostic_flags": [],
+  "leave_one_game_out": {
+    "sk48-d8078629": 256,
+    "sp80-589a99af": 256,
+    "tn36-ef4dde99": 256,
+    "cd82-fb555c5d": 256,
+    "ar25-0c556536": 256
+  },
+  "nll_candidate_experts": 256,
+  "scan_control": "manual",
+  "deferred_counts": [
+    448,
+    384,
+    320
+  ]
+}

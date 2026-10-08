@@ -1,0 +1,15 @@
+{
+  "archive_sha256": "d0c17e6a479ba6171363a590487346c10f3d95c9085ecf71adadc0b9f8f751ad",
+  "archive_bytes": 243623856,
+  "has_real_panel": true,
+  "gpu_started": false,
+  "nll_tests_passed": 45,
+  "manual_pair_only": true,
+  "manifest_sha256": "15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea",
+  "wheels": 45,
+  "source_primary": {
+    "512": 0.8585603467209093,
+    "256": 0.853350823392733
+  },
+  "user_authorized_new_session_minutes": 120
+}

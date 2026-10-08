@@ -1,0 +1,96 @@
+{
+  "reference_metric": "categorywise",
+  "reference_panel": "genthink",
+  "baseline_comparison_at_experts": 512,
+  "genthink_minus_source": {
+    "thinking": -0.6040425008431671,
+    "tool_code": -0.03762303355139335
+  },
+  "pruning_gate": {
+    "status": "stop_at_256",
+    "components": {
+      "thinking": {
+        "status": "stop_at_256",
+        "baseline_primary": 1.3866082716765893,
+        "candidate_primary": 1.380128026151101,
+        "relative_increase": -0.004673450792019862,
+        "threshold_relative": 0.05,
+        "threshold_primary": 1.4559386852604188
+      },
+      "tool_code": {
+        "status": "stop_at_256",
+        "baseline_primary": 0.3154450562635382,
+        "candidate_primary": 0.32119905858267267,
+        "relative_increase": 0.0182409018777816,
+        "threshold_relative": 0.05,
+        "threshold_primary": 0.3312173090767151
+      }
+    },
+    "threshold_relative": 0.05,
+    "metric": "sampling-weighted thinking and Python-code NLL, independently"
+  },
+  "panel_gates": {
+    "source": {
+      "status": "stop_at_256",
+      "components": {
+        "thinking": {
+          "status": "stop_at_256",
+          "baseline_primary": 1.9906507725197564,
+          "candidate_primary": 1.9929264895424117,
+          "relative_increase": 0.0011432025416364677,
+          "threshold_relative": 0.05,
+          "threshold_primary": 2.0901833111457444
+        },
+        "tool_code": {
+          "status": "stop_at_256",
+          "baseline_primary": 0.35306808981493154,
+          "candidate_primary": 0.3494344969807995,
+          "relative_increase": -0.010291479006320547,
+          "threshold_relative": 0.05,
+          "threshold_primary": 0.37072149430567813
+        }
+      },
+      "threshold_relative": 0.05,
+      "metric": "sampling-weighted thinking and Python-code NLL, independently"
+    },
+    "genthink": {
+      "status": "stop_at_256",
+      "components": {
+        "thinking": {
+          "status": "stop_at_256",
+          "baseline_primary": 1.3866082716765893,
+          "candidate_primary": 1.380128026151101,
+          "relative_increase": -0.004673450792019862,
+          "threshold_relative": 0.05,
+          "threshold_primary": 1.4559386852604188
+        },
+        "tool_code": {
+          "status": "stop_at_256",
+          "baseline_primary": 0.3154450562635382,
+          "candidate_primary": 0.32119905858267267,
+          "relative_increase": 0.0182409018777816,
+          "threshold_relative": 0.05,
+          "threshold_primary": 0.3312173090767151
+        }
+      },
+      "threshold_relative": 0.05,
+      "metric": "sampling-weighted thinking and Python-code NLL, independently"
+    }
+  },
+  "requests": 30,
+  "paired_panel_model_results": 60,
+  "context_equivalence": "processor-verified frozen variant audit; matching IDs/weights/maps/code IDs",
+  "limitation": "Thinking targets differ in content and length; means are paired by request, not by thinking token.",
+  "selected_experts": 256,
+  "status": "accepted_at_256",
+  "paired_wins": {
+    "512": {
+      "thinking_nll": 29,
+      "tool_code_nll": 21
+    },
+    "256": {
+      "thinking_nll": 30,
+      "tool_code_nll": 16
+    }
+  }
+}

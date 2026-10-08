@@ -64,3 +64,46 @@ assert set(last["tool_calls"][0]["function"]["arguments"]) == {"code"}  # code-o
   replaced; the context (including earlier assistant turns in their
   rationale-off form), the images, the tool schema and the Python code are
   byte-for-byte the source panel's. Rebuild with `python build.py`.
+
+## NLL evaluation and tool-contract audit
+
+The NLL audit of remote-main revision `debc8a3fcefd68809b45f1d6cd72d6a0f6a15787`
+confirmed all 30 Python schemas accept only `code`; all 480 historical calls
+and 30 final calls contain only `code`; every system prompt instructs a
+code-only Python call. No Sol-only reasoning/description argument fields
+needed removal. The generated thinking belongs in `reasoning_content`.
+
+The export sorts JSON keys. Qwen's tool-schema renderer preserves dictionary
+insertion order, so rendering the exported objects directly changes the
+serialized tool prompt. For a controlled comparison, `prepare_variant.py`
+restores the source frozen bundle's dictionary order while preserving every
+logical value. It verifies all 30 processor-expanded prompt-token sequences,
+images and final Python-code token sequences against that bundle. Only the
+final thinking changes. It reuses the original training-only maps and sampling
+weights; no resampling, truncation or validation calibration is performed.
+
+```bash
+python exp/sft-flash-next/nll/prepare_variant.py \
+  --source-bundle /path/to/original/panel30 \
+  --dataset data/sol-nll-fold0-30-genthink \
+  --revision debc8a3fcefd68809b45f1d6cd72d6a0f6a15787 \
+  --out /path/to/new/genthink-panel30
+```
+
+The prepared panel has 1,268,524 prompt tokens and 24,358 final-reply tokens:
+15,193 thinking, 8,295 tool-code, 720 tool-format and 150 turn-format tokens.
+The same 512-first/256-second protocol processes 2,585,764 tokens initially,
+up to 6,464,410 if the relative primary-NLL increase exceeds 5%. Reports keep
+thinking, tool-code and tool-format losses separate. Full contexts are
+preserved, and final replies are scored with teacher forcing.
+
+See [CPU audit](../../exp/sft-flash-next/verification/genthink-preflight.json).
+
+
+## Completed NLL evaluation
+
+This pipeline is the selected reference after comparing thinking and Python-code
+NLL separately against the original Sol panel on all 30 identical prompts.
+256 experts pass both +5% category gates. The
+[verified result dataset](../sol-nll-fold0-30-genthink-results-20261008/README.md)
+contains token losses, exact scoring/analysis code and the one-to-one comparison.

@@ -1,0 +1,349 @@
+{
+  "schema": 1,
+  "run_identity": "89771445a3607f3c402bd5b87afce7331d9bfbe7c12647daff8ed03fa64420e8",
+  "manifest_sha256": "15432affadbfbcba127f7ce253cbf096db17f92955848619686cc2c70a5e37ea",
+  "dataset_revision": "debc8a3fcefd68809b45f1d6cd72d6a0f6a15787",
+  "dataset_md5": {
+    "requests.jsonl": "f16318a86de0b5e6c7980d2d93de4ce0"
+  },
+  "variant": {
+    "name": "sol-nll-fold0-30-genthink",
+    "source_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+    "dataset_sha256": "ee3a754751bd24270cdd66fd4b663c8781da6c6c3175eb092189427ca3d85122",
+    "provenance": {
+      "dataset": "sol-nll-fold0-30-genthink",
+      "derived_from": {
+        "dataset": "data/sol-nll-fold0-30",
+        "requests_md5": "3ecfb4e5e42f2f29e10ed329babf7f57"
+      },
+      "thinking": {
+        "source": "think_gen refine-2 (generated, 2-pass judge+refine)",
+        "run_dir": "ARC3-Inference/runs/think-sol-nll30/refine2",
+        "manifest": "ARC3-Inference/experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json",
+        "pipeline_commit": "239dd4e4b8b83e6843f6eafcdc719eea9039033c",
+        "replaced": "final assistant turn's reasoning_content; context and code-only tool call unchanged"
+      },
+      "counts": {
+        "source": 30,
+        "included": 30,
+        "excluded": 0
+      },
+      "excluded": []
+    },
+    "index_sha256": "d3e60f27b1227f4557b765ad02ae57919182afe056065a51808c44a14857b6eb",
+    "transformation": "final thinking only; source-bundle dictionary order restored for token-identical prompts; no field changes or resampling",
+    "tool_contract_audit": [
+      {
+        "sample_id": "sk48-d8078629-r39",
+        "history_calls": 15,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "5f12f7fe25e6bd64bf532d10765ae029aa193c83b466f94e1e65a08b17ad202d",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r0",
+        "history_calls": 0,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "ee233c20f230c6332477932f3b26b87a14493902de0e3642e9a498371fcc77d6",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r5",
+        "history_calls": 5,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "1865cc0d279759f6365988fe7237463d7c1be980c0149bc19c03ff0428f46057",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r3",
+        "history_calls": 3,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "c9d3e453ad8a1787e783dd4f26307c4e183532ffd7c267543e9714cfdf2eabda",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r0",
+        "history_calls": 0,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "4710c1fba544d48a4fef2a7dda10973fedbc16090583ef9930a296f7ad336f47",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sk48-d8078629-r42",
+        "history_calls": 18,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "2a29fc90269398e23c3c007c902662581d4ba83246ff15c19f6f8958af69ce5b",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r9",
+        "history_calls": 9,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "7cc2c21ef330a3d09464db274056ccaa96a909f841b4994ba8e09ba028c8a040",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r11",
+        "history_calls": 11,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "909ad1e5bbe6515a3ca26665deabe413b89e089911d81752c01428cdf1481832",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r18",
+        "history_calls": 18,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "32a6d7b483c39e06a26f66ddcece2962a235c83ffb7ac8598c98a3b2a6499ee8",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r10",
+        "history_calls": 10,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "6ddc2310a219d24291fb9ac8c067cd63d752668939d32bbf775cec5d20cc5ce8",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sk48-d8078629-r82",
+        "history_calls": 33,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "b795800200f71d100ae725b54591953b484c7e2059250e2bb5232777d4668e5f",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r22",
+        "history_calls": 22,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "bcd68fa2a75e7782834a45afd1876c788f4a4656a8da136a4ac89d7226cef239",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r24",
+        "history_calls": 24,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "737ced2313992ad72fa0fd487589651cc51f4ff7bd8e9b9c6ced29d8cf6f3c79",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r26",
+        "history_calls": 26,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "c2830a85f27380a770ce43097258dc44e38ca1e5adb753211b287e8c15fd60e0",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r18",
+        "history_calls": 18,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "594f88b881eb91844f654428dce37d061190b720e1bd0cc92f3f0b4cb5c1bb6d",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sk48-d8078629-r85",
+        "history_calls": 15,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "a83aece3322f5410a833010ebfb2be9a24dcc7444f277c9b3db26fc76e047be8",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r8",
+        "history_calls": 8,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "f2286d5c02e5143e254365151c05d55a9f21922f7411afba849f1f31a61b5a47",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r9",
+        "history_calls": 9,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "ff9bc00960b1d2ca9182353e97753ee37eb314181d7883c864ec3b52b9cefdd0",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r11",
+        "history_calls": 11,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "e6ce52e8881e787648a6094d712c65bfdc70f1bc91e83736eef23bcf8fa78744",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r2",
+        "history_calls": 2,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "46d117a88daa24d7e3c94d9e6904ae6497295ac17c9c5f77d4331831a54683e6",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sk48-d8078629-r99",
+        "history_calls": 29,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "9164502b8c9e2e39c27cb632742f34c3aeb57ea027b18862265130c318cb954d",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r11",
+        "history_calls": 11,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "4af433441daab2ef31b2b99ca4910d5619a487e5625c5946321c27e24211fdb5",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r12",
+        "history_calls": 12,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "ad953a1e6336dfe22c522ea7626291237c3ad026527c2eafcad5c05f5c96aeb0",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r21",
+        "history_calls": 21,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "a58b646823ada61ab91e2bb51f13aa11813a203a3cb7234f4711f0c9663febda",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r11",
+        "history_calls": 11,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "c266e7a7434159887b393eaf596a5b54e56fc43a10a39c6b1647cf7d1b581013",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sk48-d8078629-r100",
+        "history_calls": 30,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "c934609019ae6bb175dc3a440d016468b856ffff208302f802ae73fd70e01447",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "sp80-589a99af-r26",
+        "history_calls": 26,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "866b56ea3c41df882c2361aaee9172f924dafe24c7046b1ce5af278b6f9e3a78",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "tn36-ef4dde99-r28",
+        "history_calls": 28,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "e8705f392aad413e6678c335e348676abc8e6fbc8319b31b1b845bb1474e6cc5",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "cd82-fb555c5d-r36",
+        "history_calls": 36,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "be588e09bef42d3114e3d9e42a5abf1862f258183b8173cefd0bfc9de6d1e491",
+        "prompts_images_code_unchanged": true
+      },
+      {
+        "sample_id": "ar25-0c556536-r19",
+        "history_calls": 19,
+        "final_calls": 1,
+        "python_schemas": 1,
+        "prompt_sha256": "fc56f6be7035d02e06bafa7e7f53a7db2fcb118969872604d5ad71cf1c18220a",
+        "prompts_images_code_unchanged": true
+      }
+    ]
+  },
+  "runtime_code_sha256": "3d819d2794ad08adeccac8ca770712445ace5df36f3b9701f4f982813b85dbcf",
+  "model": {
+    "model_id": "dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/Transformers/default/1",
+    "identity_kind": "immutable-kaggle-version+index-config-shard-sizes",
+    "index_sha256": "32732da58649d48911ae5f7efaf9d400d7e573d03a241aa483095f817ba7bd61",
+    "config_sha256": "0fabfa21fab8bfe69f02234f7ae8df4ed91b785fca2e22011c1230f6a07e5329",
+    "shard_sizes": {
+      "model-00001-of-00017.safetensors": 2899311784,
+      "model-00003-of-00017.safetensors": 5370548192,
+      "model-00004-of-00017.safetensors": 5370910416,
+      "model-00005-of-00017.safetensors": 5370140704,
+      "model-00006-of-00017.safetensors": 5370205184,
+      "model-00007-of-00017.safetensors": 5370927288,
+      "model-00008-of-00017.safetensors": 5344445352,
+      "model-00009-of-00017.safetensors": 5370355648,
+      "model-00010-of-00017.safetensors": 5370927288,
+      "model-00011-of-00017.safetensors": 5324173744,
+      "model-00012-of-00017.safetensors": 5370438520,
+      "model-00013-of-00017.safetensors": 5370927288,
+      "model-00014-of-00017.safetensors": 5342689856,
+      "model-00015-of-00017.safetensors": 5050474736,
+      "model-00017-of-00017.safetensors": 1284526608,
+      "model-ple-00001-of-00022.safetensors": 4800023992,
+      "model-ple-00002-of-00022.safetensors": 4800024000,
+      "model-ple-00003-of-00022.safetensors": 4800024000,
+      "model-ple-00004-of-00022.safetensors": 4800024000,
+      "model-ple-00005-of-00022.safetensors": 4800024000,
+      "model-ple-00006-of-00022.safetensors": 4800024000,
+      "model-ple-00007-of-00022.safetensors": 4800024000,
+      "model-ple-00008-of-00022.safetensors": 4800024000,
+      "model-ple-00009-of-00022.safetensors": 4800024000,
+      "model-ple-00010-of-00022.safetensors": 4800024000,
+      "model-ple-00011-of-00022.safetensors": 4800024000,
+      "model-ple-00012-of-00022.safetensors": 4800024000,
+      "model-ple-00013-of-00022.safetensors": 4800024000,
+      "model-ple-00014-of-00022.safetensors": 4800024000,
+      "model-ple-00015-of-00022.safetensors": 4800024000,
+      "model-ple-00016-of-00022.safetensors": 4800024000,
+      "model-ple-00017-of-00022.safetensors": 4800024000,
+      "model-ple-00018-of-00022.safetensors": 4800024008,
+      "model-ple-00019-of-00022.safetensors": 4800024008,
+      "model-ple-00020-of-00022.safetensors": 4800024008,
+      "model-ple-00021-of-00022.safetensors": 4800024008,
+      "model-ple-00022-of-00022.safetensors": 1600008000,
+      "model_extra_tensors.safetensors": 5214492152
+    }
+  },
+  "versions": {
+    "torch": "2.11.0+cu128",
+    "transformers": "5.18.0",
+    "tokenizers": "0.23.2",
+    "numpy": "2.5.3",
+    "safetensors": "0.8.0",
+    "flash-linear-attention": "0.5.2",
+    "causal-conv1d": "1.7.0"
+  },
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "evaluated_counts": [
+    512,
+    256
+  ],
+  "verified_results": 60,
+  "paired_requests": 30,
+  "scoring": "teacher-forced final reply only; full context",
+  "target_tokens_per_model": 24358,
+  "archive_sha256": "5e4fd3f12466ef45c1057360c5b799721878472ebc2abff130929032e7166bf1",
+  "archive_bytes": 1863075,
+  "excluded": "credentials, failed runs, collector/PID state, model/wheel/processor binaries",
+  "remote_round_trip_sha256_verified": true,
+  "verified_per_token_losses": 48716,
+  "independently_reprocessed_identical_contexts": 30
+}

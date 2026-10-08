@@ -1,0 +1,26 @@
+{
+  "timestamp_utc": "2026-10-08T14:40:53.359958+00:00",
+  "method": "SIGTERM to verified jupyter-server PID 12 after durable-export guard",
+  "server_pid": 12,
+  "shutdown_command_acknowledged": true,
+  "post_shutdown_connection_checks": [
+    {
+      "error_type": "ReadTimeout",
+      "jupyter_available": false
+    },
+    {
+      "error_type": "ReadTimeout",
+      "jupyter_available": false
+    },
+    {
+      "error_type": "ReadTimeout",
+      "jupyter_available": false
+    }
+  ],
+  "jupyter_endpoint_unavailable": true,
+  "results_verified_before_shutdown": 120,
+  "per_token_losses_retrieved": 72932,
+  "dvc_remote_round_trip_verified": true,
+  "results_commit_pushed_before_shutdown": "88c610e",
+  "quota_note": "Jupyter endpoint shutdown verified; Kaggle allocation/quota counters are not exposed by this endpoint."
+}
