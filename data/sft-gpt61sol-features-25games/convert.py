@@ -21,10 +21,12 @@ form. See README.md for the format and how to render it.
     python convert.py --run-dir ../../ARC3-Inference/runs/gpt61sol-features-25games \
         --out train.jsonl --meta meta.json
 
-One sample (one JSON line) per game: the whole trajectory as OpenAI chat
-messages, with loss intended on the assistant turns. Long games trim history,
-so the trajectory is reconstructed across requests rather than read from the
-last request alone.
+One sample (one JSON line) per model request: the exact context the model was
+sent for that step (already trimmed by the harness to fit the context) plus its
+reply. The reply is the last message and the only training target; everything
+before it is context. Each sample reproduces a real request, so each one fits
+the model's context by construction (the run's largest was ~120K tokens); there
+is nothing to split.
 """
 from __future__ import annotations
 
@@ -131,14 +133,6 @@ def transform_message(message: dict[str, Any]) -> dict[str, Any]:
     return message
 
 
-def message_identity(message: dict[str, Any]) -> str:
-    # Normalize content: a reply logs content="" where the same message in a
-    # later request's history omits it (None).
-    return json.dumps([message.get("role"), message.get("content") or "",
-                       message.get("tool_calls"), message.get("tool_call_id")],
-                      sort_keys=True, ensure_ascii=True)
-
-
 def read_log(path: Path):
     """(request, reply) pairs in order from a harness request log."""
     opener = lzma.open if path.name.endswith(".xz") else open
@@ -153,47 +147,18 @@ def read_log(path: Path):
                 request = None
 
 
-def reconstruct_game(path: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    """One full trajectory from a game's request log. History is trimmed from
-    the front in long games, so each step's new messages are the tail of its
-    request after the last message already in the trajectory."""
-    system: dict[str, Any] | None = None
-    original: list[dict[str, Any]] = []   # untrimmed conversation, as logged
-    stats = {"responses": 0, "no_tool_call": 0, "assistant_turns": 0}
-    for request, reply in read_log(path):
-        stats["responses"] += 1
-        if system is None:
-            system = request["messages"][0]
-        history = request["messages"][1:]
-        if not original:
-            new = history
-        else:
-            anchor = message_identity(original[-1])
-            index = next((i for i in range(len(history) - 1, -1, -1)
-                          if message_identity(history[i]) == anchor), None)
-            if index is None:
-                raise ValueError(f"{path.name}: lost the trajectory anchor at response {stats['responses']}")
-            new = history[index + 1:]
-        original.extend(new)
-        if not (reply and (reply.get("tool_calls") or (reply.get("content") or "").strip())):
-            continue  # an empty reply contributes no turn
-        if not reply.get("tool_calls"):
-            stats["no_tool_call"] += 1
-        original.append({"role": "assistant", **reply})
-        stats["assistant_turns"] += 1
-
-    if system is None:
-        raise ValueError(f"{path.name}: no requests")
-    messages = [{"role": "system", "content": rationale_off_system_prompt(system["content"])}]
-    messages.extend(transform_message(m) for m in original)
-    # tools: take any request's; they are identical within a game.
-    tools = None
-    for request, _ in read_log(path):
-        tools = rationale_off_tools(request.get("tools") or [])
-        break
-    sample = {"messages": messages, "tools": tools,
-              "chat_template_kwargs": {"preserve_thinking": True}}
-    return sample, stats
+def request_sample(request: dict[str, Any], reply: dict[str, Any]) -> dict[str, Any]:
+    """One training sample reproducing a real request: the context exactly as
+    the harness sent it (already trimmed to fit the model's context), rewritten
+    to rationale-off form, plus the reply as the final message and sole target."""
+    messages = request["messages"]
+    out: list[dict[str, Any]] = [
+        {"role": "system", "content": rationale_off_system_prompt(messages[0]["content"])}]
+    out.extend(transform_message(m) for m in messages[1:])
+    out.append(transform_message({"role": "assistant", **reply}))
+    return {"messages": out,
+            "tools": rationale_off_tools(request.get("tools") or []),
+            "chat_template_kwargs": request.get("chat_template_kwargs") or {"preserve_thinking": True}}
 
 
 def main() -> int:
@@ -211,28 +176,33 @@ def main() -> int:
         raise SystemExit(f"no request logs in {args.run_dir}")
 
     games: list[dict[str, Any]] = []
-    totals = {"games": 0, "responses": 0, "assistant_turns": 0, "no_tool_call": 0}
+    totals = {"games": 0, "samples": 0, "no_tool_call": 0}
     with args.out.open("w", encoding="utf-8") as out:
         for path in logs:
             game = path.name.split("_")[0]
-            sample, stats = reconstruct_game(path)
-            sample = {"game": game, **sample}
-            out.write(json.dumps(sample, ensure_ascii=True) + "\n")
+            stats = {"samples": 0, "no_tool_call": 0}
+            for request, reply in read_log(path):
+                if not (reply and (reply.get("tool_calls") or (reply.get("content") or "").strip())):
+                    continue  # an empty reply is not a training target
+                if not reply.get("tool_calls"):
+                    stats["no_tool_call"] += 1
+                sample = {"game": game, "request_index": stats["samples"],
+                          **request_sample(request, reply)}
+                out.write(json.dumps(sample, ensure_ascii=True) + "\n")
+                stats["samples"] += 1
             totals["games"] += 1
-            for key in ("responses", "assistant_turns", "no_tool_call"):
-                totals[key] += stats[key]
-            games.append({"game": game, **stats,
-                          "messages": len(sample["messages"])})
-            print(f"{game}: {stats['assistant_turns']} assistant turns "
-                  f"from {stats['responses']} responses"
+            totals["samples"] += stats["samples"]
+            totals["no_tool_call"] += stats["no_tool_call"]
+            games.append({"game": game, **stats})
+            print(f"{game}: {stats['samples']} samples"
                   + (f" ({stats['no_tool_call']} without a tool call)" if stats["no_tool_call"] else ""))
 
     meta = {"run": args.run_dir.name, "model": "gpt-6.1-sol",
+            "unit": "one sample per model request; the last message is the only training target",
             "format": "rationale-off: reasoning+description -> <think>, code-only tool call",
             "totals": totals, "games": games}
     args.meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-    print(f"\n{totals['games']} games, {totals['assistant_turns']} assistant turns "
-          f"-> {args.out}")
+    print(f"\n{totals['games']} games, {totals['samples']} samples -> {args.out}")
     return 0
 
 
