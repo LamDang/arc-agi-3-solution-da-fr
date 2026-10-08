@@ -243,3 +243,15 @@ The scoring-numerics policy is included in the run identity; results from
 previous unqualified attempts cannot be resumed into the corrected run.
 The 0.01-nat per-token chunk-parity tolerance is unchanged. The corrected
 short-request diagnostic matched exactly at chunk sizes 8192 and 4096.
+
+## Generated-thinking panel
+
+`prepare_variant.py` prepares `data/sol-nll-fold0-30-genthink` from the same
+frozen source bundle. It audits code-only system instructions, Python schemas
+and every historical/final call, restores render-sensitive dictionary order,
+and verifies token-identical prompts/images/Python code. It reuses all source
+sampling weights and train-only expert maps. See the
+[variant dataset documentation](../../../data/sol-nll-fold0-30-genthink/README.md)
+for the pinned revision, preparation command and separate thinking/tool loss
+budget. Use a separate bundle and result directory: source and variant runs
+have different manifest identities and must never be mixed.

@@ -1,0 +1,120 @@
+validated sk48-d8078629-r39: 42930 tokens
+validated sp80-589a99af-r0: 6008 tokens
+validated tn36-ef4dde99-r5: 18594 tokens
+validated cd82-fb555c5d-r3: 11725 tokens
+validated ar25-0c556536-r0: 5941 tokens
+validated sk48-d8078629-r42: 49046 tokens
+validated sp80-589a99af-r9: 28733 tokens
+validated tn36-ef4dde99-r11: 34721 tokens
+validated cd82-fb555c5d-r18: 46755 tokens
+validated ar25-0c556536-r10: 36982 tokens
+validated sk48-d8078629-r82: 68551 tokens
+validated sp80-589a99af-r22: 59295 tokens
+validated tn36-ef4dde99-r24: 63814 tokens
+validated cd82-fb555c5d-r26: 63882 tokens
+validated ar25-0c556536-r18: 61427 tokens
+validated sk48-d8078629-r85: 33556 tokens
+validated sp80-589a99af-r8: 26460 tokens
+validated tn36-ef4dde99-r9: 30391 tokens
+validated cd82-fb555c5d-r11: 31355 tokens
+validated ar25-0c556536-r2: 10221 tokens
+validated sk48-d8078629-r99: 56886 tokens
+validated sp80-589a99af-r11: 31839 tokens
+validated tn36-ef4dde99-r12: 36573 tokens
+validated cd82-fb555c5d-r21: 52170 tokens
+validated ar25-0c556536-r11: 37750 tokens
+validated sk48-d8078629-r100: 57707 tokens
+validated sp80-589a99af-r26: 68325 tokens
+validated tn36-ef4dde99-r28: 74188 tokens
+validated cd82-fb555c5d-r36: 84870 tokens
+validated ar25-0c556536-r19: 62187 tokens
+{
+  "ready_cpu_bundle": true,
+  "requests": 30,
+  "jobs": 150,
+  "processed_tokens": 6464410,
+  "staged_budget": {
+    "protocol": {
+      "version": "512-then-256-relative-primary-nll-v1",
+      "baseline": 512,
+      "first_candidate": 256,
+      "threshold_relative": 0.05,
+      "metric": "equal-game mean of population-weighted request mean NLL",
+      "gate_requires_all_requests": 30,
+      "scan_counts": [
+        448,
+        384,
+        320
+      ],
+      "selection": "smallest evaluated count within 5% of full baseline NLL"
+    },
+    "initial_jobs": 60,
+    "maximum_jobs": 150,
+    "initial_processed_tokens": 2585764,
+    "conditional_scan_processed_tokens": 3878646,
+    "maximum_processed_tokens": 6464410,
+    "initial_scored_tokens": 48716,
+    "maximum_scored_tokens": 121790,
+    "scenarios": {
+      "500": {
+        "initial": {
+          "scoring_minutes": 86.19213333333333,
+          "cold_sessions": 1,
+          "total_minutes": [
+            106.19213333333333,
+            116.19213333333333
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 215.48033333333333,
+          "cold_sessions": 3,
+          "total_minutes": [
+            275.4803333333333,
+            305.4803333333333
+          ]
+        }
+      },
+      "850": {
+        "initial": {
+          "scoring_minutes": 50.70125490196078,
+          "cold_sessions": 1,
+          "total_minutes": [
+            70.70125490196078,
+            80.70125490196078
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 126.75313725490196,
+          "cold_sessions": 2,
+          "total_minutes": [
+            166.75313725490196,
+            186.75313725490196
+          ]
+        }
+      },
+      "950": {
+        "initial": {
+          "scoring_minutes": 45.36428070175439,
+          "cold_sessions": 1,
+          "total_minutes": [
+            65.36428070175438,
+            75.36428070175438
+          ]
+        },
+        "maximum": {
+          "scoring_minutes": 113.41070175438595,
+          "cold_sessions": 2,
+          "total_minutes": [
+            153.41070175438597,
+            173.41070175438597
+          ]
+        }
+      }
+    }
+  },
+  "estimated_minutes": {
+    "500": 245.5,
+    "850": 156.8,
+    "950": 143.4
+  }
+}
