@@ -110,7 +110,7 @@ The externally verified mirror for the corrected active run is
 The original session deadline remains 13:53:43 UTC. Kernel installation and
 numerical repairs did not reset that cap. The longest-context capacity gate passed at 74.15 GiB peak allocated and
 75.30 GiB peak reserved. Its cold PLE reads took 432.45 seconds; the 95 GiB
-CPU-side table is being warmed in parallel. The complete 30-pair NLL gate
+CPU-side table was warmed read-only in 96.47 seconds using eight threads. The complete 30-pair NLL gate
 remains pending; no expert count is selected yet.
 
 ## Repository dataset

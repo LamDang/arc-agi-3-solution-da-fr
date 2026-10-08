@@ -44,3 +44,21 @@ def test_expert_fixed_rows_cover_empty_experts_and_tail():
         gate, up = (rows @ w1[e]).chunk(2, -1)
         expected.append((torch.nn.functional.silu(gate)*up) @ w2[e])
     torch.testing.assert_close(got, torch.cat(expected))
+
+
+def test_pruned_router_matches_masked_softmax_and_topk():
+    torch.manual_seed(3)
+    gate = SimpleNamespace(hidden_dim=5, weight=torch.randn(8, 5),
+                           top_k=2, norm_topk_prob=True)
+    flat = torch.randn(271, 5)
+    keep = torch.tensor([True, False, True, False, False, True, False, True])
+    logits, weights, selected = numerics.routing(gate, flat, keep)
+    expected_logits = torch.nn.functional.linear(flat, gate.weight)
+    probabilities = torch.softmax(expected_logits.masked_fill(~keep, float('-inf')), dim=-1)
+    expected_weights, expected_selected = probabilities.topk(2, dim=-1)
+    expected_weights /= expected_weights.sum(-1, keepdim=True)
+    torch.testing.assert_close(logits, expected_logits)
+    torch.testing.assert_close(selected, expected_selected)
+    torch.testing.assert_close(weights, expected_weights)
+    assert keep[selected].all()
+    torch.testing.assert_close(weights.sum(-1), torch.ones(len(flat)))

@@ -58,5 +58,11 @@
   },
   "original_session_deadline_utc": "2026-10-08 13:53:43 UTC",
   "staged_panel": "in_progress",
-  "selected_experts": null
+  "selected_experts": null,
+  "ple_prefetch": {
+    "bytes": 102400491520,
+    "seconds": 96.47060770999997,
+    "workers": 8,
+    "read_only": true
+  }
 }
