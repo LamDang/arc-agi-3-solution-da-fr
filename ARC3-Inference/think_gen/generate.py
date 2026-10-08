@@ -25,7 +25,9 @@ teacher spent 0 reasoning tokens gets empty thinking, as the teacher had.
 `--prompt b3` (teachers whose python calls state `reasoning` and
 `description`) uses no summary: the thinking works through the stated
 reasoning and ends planning the described move, at a length set by the
-teacher's reasoning tokens; 0-token records get a few sentences.
+teacher's reasoning tokens; 0-token records get a few sentences. `--prompt b4`
+makes it the full working behind the stated reasoning, traced back through
+earlier turns, at least 3 times the stated reasoning's length.
 """
 import argparse
 import concurrent.futures as cf
@@ -99,16 +101,20 @@ def generate_one(rec: logs.Record, thinking: dict[str, str], args, examples: lis
         "history_source": args.history_source, "model": args.model,
         "flash_reasoning": args.reasoning,
     }
-    if args.prompt == "b3":
+    if args.prompt in ("b3", "b4"):
         row.update(summary="", summary_source="none")
     elif rec.reasoning_tokens == 0 and not rec.real_reasoning.strip():
         row.update(thinking="", status="teacher_empty", attempts=0, checks={}, usage={}, cost=0)
         append_jsonl(out_path, row)
         return row
     msgs = context.history(rec.messages, thinking, args.history)
-    msgs.append({"role": "user", "content": prompts.reconstruct_prompt_b3(rec.reply, rec.reasoning_tokens)
-                 if args.prompt == "b3" else prompts.reconstruct_prompt(
-                     row["call"], summary, args.prompt, args.history)})
+    if args.prompt == "b4":
+        prompt, row["target_words"] = prompts.reconstruct_prompt_b4(rec.reply, rec.reasoning_tokens)
+    elif args.prompt == "b3":
+        prompt = prompts.reconstruct_prompt_b3(rec.reply, rec.reasoning_tokens)
+    else:
+        prompt = prompts.reconstruct_prompt(row["call"], summary, args.prompt, args.history)
+    msgs.append({"role": "user", "content": prompt})
     context_text = json.dumps(rec.messages, ensure_ascii=False) + json.dumps(rec.reply, ensure_ascii=False)
     attempts, usages, text, chk, extra = 0, [], "", {}, {}
     while attempts < args.max_attempts:

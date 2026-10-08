@@ -91,6 +91,38 @@ LENGTH_TOKENS = "At this step the thinking was about {words} words long: match t
 RECONSTRUCT_PROMPTS["b3"] = RECONSTRUCT_B3
 
 
+# b4: the thinking is the full working behind the stated reasoning, which is
+# its short version: each point traced back through the earlier turns that
+# established it. On the b3 dev20 run, short steps came out about as long as
+# the stated reasoning and mostly restated it.
+RECONSTRUCT_B4 = RECONSTRUCT_B3.replace(
+    """- Start from the content of the reasoning above and work it out step by step: take its points in order, and for each one go back to what is visible in the conversation (the newest tool output, frame or message first), state the cells, positions, counts or values that matter, and derive the point from them. Where the reasoning states a conclusion, reach it; where it states a rule or hypothesis about the game, check it against the evidence and say what supports it; where something does not fit, say so and correct it.
+""",
+    """- The reasoning above is the short version of this thinking; the thinking is the full working behind it, so it is much more detailed. Start from the content of the reasoning and work it out step by step, taking its points in order.
+- For each point, trace it back through the conversation: find the earlier tool outputs, frames, images and your own earlier calls that established it, and walk through that evidence in order up to the newest output. State the cells, positions, counts or values that matter, and derive the point from them, as you would at the time. Where the reasoning states a conclusion, reach it; where it states a rule or hypothesis about the game, check it against that evidence and say what supports it and what would contradict it; where something does not fit, say so and correct it.
+""").replace("{length}", "{length} Never write less than {min_words} words: the reasoning above alone is about {reason_words}.")
+
+RECONSTRUCT_PROMPTS["b4"] = RECONSTRUCT_B4
+MIN_LENGTH_FACTOR = 3  # b4: thinking at least this many times the stated reasoning
+
+
+def reconstruct_prompt_b4(reply: dict, reasoning_tokens: int) -> tuple[str, int]:
+    """The b4 prompt and its target length in words: the larger of the
+    teacher's reasoning (0.75 words per token) and MIN_LENGTH_FACTOR times
+    the stated reasoning."""
+    from .context import THINK_OPEN
+    args = python_args(reply)
+    reasoning = (args.get("reasoning") or "").strip()
+    reason_words = len(reasoning.split())
+    min_words = int(round(MIN_LENGTH_FACTOR * reason_words, -1))
+    words = max(min_words, int(round(reasoning_tokens * 0.75, -1)))
+    prompt = RECONSTRUCT_B4.format(
+        reasoning=reasoning, description=(args.get("description") or "").strip(),
+        code=(args.get("code") or "").rstrip(), length=f"Write about {words} words.",
+        min_words=min_words, reason_words=reason_words, open=THINK_OPEN)
+    return prompt, words
+
+
 def python_args(reply: dict) -> dict:
     """The first python call's arguments, {} when there is none."""
     import json

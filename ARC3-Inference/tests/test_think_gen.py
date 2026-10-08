@@ -120,3 +120,14 @@ def test_b3_prompt_and_token_bins():
 def test_leak_ignores_words_the_context_uses():
     assert checks.leaks("The agent moves left.") == ["the_agent"]
     assert checks.leaks("The agent moves left.", "the agent sprite is at (3, 4)") == []
+
+
+def test_b4_prompt_length_floor():
+    import json
+    reasoning = " ".join(["word"] * 60)
+    reply = {"tool_calls": [{"id": "c1", "function": {"name": "python", "arguments": json.dumps(
+        {"description": "Press UP once.", "reasoning": reasoning, "code": "action(['UP'])"})}}]}
+    p, words = prompts.reconstruct_prompt_b4(reply, 0)
+    assert words == 180 and "Write about 180 words." in p and "less than 180 words" in p
+    assert "trace it back through the conversation" in p and "{" not in p.replace("{'", "")
+    assert prompts.reconstruct_prompt_b4(reply, 2000)[1] == 1500
