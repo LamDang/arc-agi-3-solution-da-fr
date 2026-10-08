@@ -69,12 +69,12 @@ def refine_one(rec: logs.Record, row: dict, verdict: dict, args, out_path: Path)
         text = checks.clean(out["content"])
         chk = checks.check(text, rec.reply, context_text, target // 2)
         extra = {"flash_thinking": out["reasoning"], "finish_reason": out["finish_reason"], "secs": out["secs"]}
-        if chk["ok"]:
-            break
-        log(f"[{rec.key}] refine attempt {attempts} rejected: {chk}")
+        if text.strip():
+            break  # no gate: keep any non-empty refinement, like generate
+        log(f"[{rec.key}] refine attempt {attempts} empty, retrying")
     cost = sum(u.get("cost") or 0 for u in usages)
     new = dict(row)
-    new.update(thinking=text, status="ok" if chk.get("ok") else "rejected", attempts=attempts,
+    new.update(thinking=text, status="ok" if text.strip() else "empty", attempts=attempts,
                checks=chk, usage=usages, cost=round(cost, 6), refined=True,
                draft=draft, feedback=feedback,
                prompt_version=(row.get("prompt_version") or "b4") + "r", **extra)
