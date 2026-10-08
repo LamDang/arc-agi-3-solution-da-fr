@@ -63,8 +63,10 @@ execution, gradient storage or optimizer states in this evaluation.
 Read `data/sft-gpt61sol-features-25games/index.json` and the existing
 `data/game_folds/folds.json`. Use fold 0: **sk48, sp80, tn36, cd82, ar25**;
 join on full game IDs. The other 20 games are training/calibration only.
-The actual index and JSONL are DVC payloads not available in this workspace,
-so this document does not invent selected row IDs or validation row counts.
+The pinned index and JSONL were fetched during CPU continuation. Selected
+row IDs, exact lengths and population counts are recorded in
+[verification/real-data.json](verification/real-data.json); the immutable
+private bundle is described in [READINESS.md](READINESS.md).
 
 Fetch and verify the locked payload on a CPU preparation machine. Index rows
 already contain byte ranges, game, request index, level, approximate context
@@ -454,6 +456,8 @@ chunk parity, map parity and interrupted-result recovery. These checks prevent
 spending the scarce run on a wrong comparison; they are not extra benchmarks.
 
 The CPU/GPU entry points and recovery/reporting code are now implemented in
-[nll/](nll/README.md). Actual sampled IDs and the real-data preflight require
-network access to the uncached DVC and Hugging Face inputs. Measured sol NLLs,
-the chosen model and production runtime remain pending; no GPU has started.
+[nll/](nll/README.md). The actual 30-request panel and real-data CPU preflight now pass, with
+6,403,160 processed tokens across the five candidates. See
+[READINESS.md](READINESS.md) for exact preparation results and revised
+session estimates. Measured Sol NLLs, the chosen model and production runtime
+remain pending; no GPU has started.

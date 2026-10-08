@@ -1,5 +1,6 @@
 {
-  "gpu_ready": false,
+  "gpu_ready": true,
+  "gpu_smoke_ready": true,
   "gpu_started": false,
   "core_requests": 30,
   "model_request_jobs": 150,
@@ -9,18 +10,71 @@
     "errors": 0,
     "skipped": 1
   },
-  "real_data_preflight": "blocked: uncached S3/Hugging Face inputs; enforced network proxy 403",
-  "required_hosts": [
-    "kaggle-arc-agi-3-dvc.s3.eu-west-3.amazonaws.com",
-    "huggingface.co"
-  ],
+  "real_data_preflight": "passed: original and packaged bundles reprocessed offline",
+  "network_access": "S3 and Hugging Face actual pinned downloads succeeded through authorized proxy",
   "cpu_environment": {
     "python": "3.12.14",
     "torch": "2.14.1+cpu",
     "torchvision": "0.29.1+cpu",
     "transformers": "5.18.0"
   },
+  "panel_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "processed_tokens": 6403160,
+  "prompt_tokens": 1268524,
+  "final_reply_tokens": 12108,
+  "scored_tokens": 60540,
+  "runtime_scenarios": {
+    "850": {
+      "scoring_minutes": 125.5521568627451,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        165.5521568627451,
+        185.5521568627451
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "500": {
+      "scoring_minutes": 213.43866666666665,
+      "cold_sessions": 3,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        273.4386666666667,
+        303.4386666666667
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "950": {
+      "scoring_minutes": 112.3361403508772,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        152.3361403508772,
+        172.3361403508772
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    }
+  },
+  "calibration_training_games": 20,
+  "calibration_excluded_validation_games": 5,
   "notebook": "nll/kaggle/kaggle-nll-30.ipynb",
-  "setup_archive": "generated locally; rebuild with nll/build_setup.py",
-  "gpu_checks": "not run; first GPU session starts with numerical/chunk/capacity smoke checks"
+  "setup_archive": "/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip",
+  "setup_archive_sha256": "82fab1887b9f6ae6929b802a916975b4370a44e7c5446fe210aff8acc7ca5e7c",
+  "setup_archive_bytes": 68859963,
+  "offline_wheels": 42,
+  "gpu_checks": "not run; first authorized GPU session starts with numerical/chunk/capacity smoke checks",
+  "artifacts_committed": false,
+  "verification_records_committed": true
 }

@@ -75,7 +75,20 @@ def worker(args):
     bundle, out = Path(args.bundle), Path(args.out)
     manifest = validate_bundle(bundle)
     if args.preflight_only:
+        from data import encode, load_processor
+
+        processor = load_processor(bundle / "processor")
+        if type(processor.image_processor).__name__ != manifest["image_processor_class"]:
+            raise ValueError("Image processor backend differs from CPU preparation")
+        for row in manifest["samples"]:
+            _, annotation = encode(processor, read_json(bundle / row["path"]))
+            if digest(annotation) != digest({key: row[key] for key in annotation}):
+                raise ValueError(f"Reprocessed annotation mismatch: {row['sample_id']}")
+            if digest(read_json(bundle / "annotations" / f"{row['sample_id']}.json")) != digest(annotation):
+                raise ValueError(f"Stored annotation mismatch: {row['sample_id']}")
+            print(f"validated {row['sample_id']}: {annotation['total_tokens']} tokens", flush=True)
         print(json.dumps({"ready_cpu_bundle": True, "requests": 30, "jobs": manifest["jobs"],
+                          "processed_tokens": manifest["processed_tokens"],
                           "estimated_minutes": manifest["estimated_minutes"]}, indent=2))
         return
     out.mkdir(parents=True, exist_ok=True)

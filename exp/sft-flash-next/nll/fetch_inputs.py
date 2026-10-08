@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from common import file_hash
@@ -35,11 +36,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
+    out = Path(args.out).resolve()
+    # Managed workspaces can have a read-only home; keep download caches
+    # beside the inputs unless the caller selected another location.
+    os.environ.setdefault("HF_HOME", str(out / ".hf-cache"))
+    os.environ.setdefault("HF_XET_CACHE", str(out / ".hf-cache" / "xet"))
     import boto3
     from botocore.config import Config
     from huggingface_hub import snapshot_download
 
-    out = Path(args.out)
     client = boto3.client("s3", region_name="eu-west-3", config=Config(retries={"max_attempts": 1},
                                                                       connect_timeout=15, read_timeout=60))
     for name, checksum in LOCKED_MD5.items():
@@ -51,7 +56,9 @@ def main():
         rel = Path(entry["relpath"])
         if rel.is_absolute() or ".." in rel.parts:
             raise ValueError("Unsafe DVC directory entry")
-        if rel.parts[0] == "stats" and rel.suffix == ".npz":
+        if rel.parts[0] == "stats" and rel.suffix in (".npz", ".json"):
+            dvc_download(client, entry["md5"], out / "calib" / rel)
+        elif rel.name in ("plan.json", "summary.json"):
             dvc_download(client, entry["md5"], out / "calib" / rel)
     snapshot_download(MODEL, revision=REVISION, local_dir=out / "processor",
                       allow_patterns=["*.json", "*.jinja", "*.txt", "*.model"],

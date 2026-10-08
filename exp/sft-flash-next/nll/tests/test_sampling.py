@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from prepare import clean_maps, sample_panel
+from common import write_json
 
 
 def fixture():
@@ -50,6 +51,9 @@ def test_maps_exclude_entire_validation_fold_and_are_nested(tmp_path):
     train = np.zeros((2, 16, 3))
     train[:, :, 0] = np.arange(16)
     np.savez(root / "train_p0.npz", gate_norm=train)
+    write_json(root / "train_p0.json", dict(run="source/train_p0",
+        categories=["context", "generated", "image"], samples=[dict(tokens=10)],
+        model_dir="/kaggle/input/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1"))
     leaked = np.zeros_like(train)
     leaked[:, 0, :] = 1e10
     for g in "abcde":
@@ -59,3 +63,7 @@ def test_maps_exclude_entire_validation_fold_and_are_nested(tmp_path):
     assert set(maps["8"]["kept"]["1"]) <= set(maps["12"]["kept"]["1"])
     assert len(maps["8"]["excluded_validation_runs"]) == 5
     assert list(maps["8"]["calibration_runs"]) == ["stats/source/train_p0.npz"]
+    assert maps["8"]["calibration_provenance"]["source/train_p0"]["game"] == "train"
+    write_json(root / "train_p0.json", dict(run="source/train_p0", categories=["image", "context", "generated"]))
+    with pytest.raises(ValueError, match="provenance"):
+        clean_maps(tmp_path, folds, counts=(16, 12, 8))

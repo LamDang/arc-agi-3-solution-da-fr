@@ -54,7 +54,7 @@ def sample_panel(index, folds, fold=0, seed=20261008):
 def clean_maps(stats_dir, folds, fold=0, counts=COUNTS):
     validation = set(next(x["games"] for x in folds["folds"] if x["fold"] == fold))
     known = {g for f in folds["folds"] for g in f["games"]}
-    total, used, excluded = None, {}, []
+    total, used, excluded, provenance = None, {}, [], {}
     for path in sorted(Path(stats_dir).glob("stats/*/*.npz")):
         game = path.stem.rsplit("_p", 1)[0]
         if game not in known:
@@ -62,6 +62,18 @@ def clean_maps(stats_dir, folds, fold=0, counts=COUNTS):
         if game in validation:
             excluded.append(str(path.relative_to(stats_dir)))
             continue
+        metadata_path = path.with_suffix(".json")
+        metadata = read_json(metadata_path)
+        run_key = f"{path.parent.name}/{path.stem}"
+        if (metadata.get("run") != run_key
+                or metadata.get("categories") != ["context", "generated", "image"]
+                or not metadata.get("model_dir", "").lower().endswith(
+                    "intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1")
+                or not metadata.get("samples")):
+            raise ValueError(f"Invalid calibration provenance: {metadata_path}")
+        provenance[run_key] = dict(game=game, metadata_sha256=file_hash(metadata_path),
+                                   model_dir=metadata["model_dir"], categories=metadata["categories"],
+                                   samples=metadata["samples"])
         with np.load(path, allow_pickle=False) as archive:
             a = archive["gate_norm"].astype(np.float64)
         if a.ndim != 3 or a.shape[-1] != 3 or not np.isfinite(a).all() or (a < 0).any():
@@ -82,6 +94,7 @@ def clean_maps(stats_dir, folds, fold=0, counts=COUNTS):
                            "kept": {str(i): sorted(row[:count].tolist()) for i, row in enumerate(order)},
                            "criterion": "gate_norm", "categories": ["context", "generated", "image"],
                            "calibration_runs": used, "excluded_validation_runs": excluded,
+                           "calibration_provenance": provenance,
                            "validation_exposed": False}
     return maps
 

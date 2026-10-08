@@ -1,0 +1,1146 @@
+{
+  "manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "dataset_md5": {
+    "train.jsonl": "b1b7eaed4fe609748d1980751354b9f2",
+    "index.json": "370ec02490f6567c91bc6ef5140ac172",
+    "meta.json": "0170a4199d41eb05ad15ca1134afcba2"
+  },
+  "calibration_dvc_md5": "8b2bb7ee1cb7db8f1aaa646caff29f29.dir",
+  "processor_files": {
+    "chat_template.jinja": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "config.json": "889658f2508e8c61d409b02e70e0d78d8d4452ec65aaafbe129805d213d2e74b",
+    "generation_config.json": "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e",
+    "merges.txt": "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d",
+    "preprocessor_config.json": "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516",
+    "tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+    "tokenizer_config.json": "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27",
+    "video_preprocessor_config.json": "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13",
+    "vocab.json": "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+  },
+  "maps": {
+    "512": "775d7f0261099c3dd86dbf698eb42cc54f0c963f9c99664c05f2a1b5e57cf07b",
+    "448": "890dddc52aec4aaadc8b235d4fd4ee028336234e49000cf844e28caedab065c5",
+    "384": "0f42358d9a0536642e6ca4b3c68ec87a589a75c2f99f82bd8fb73d7dbdeb9966",
+    "320": "d2cfb33ddc42118b883db05542f5ff413a3d40b3e5a4b2b7afaccce8518ccf76",
+    "256": "28ba13fe695f8f723bf3c01fa239b712edaf5ffdae831fafbef6423b46826b0d"
+  },
+  "requests": 30,
+  "jobs": 150,
+  "prompt_tokens": 1268524,
+  "final_reply_tokens": 12108,
+  "scored_tokens": 60540,
+  "processed_tokens": 6403160,
+  "min_request_tokens": 5770,
+  "max_request_tokens": 84298,
+  "image_count": 664,
+  "calibration_training_games": [
+    "bp35",
+    "cn04",
+    "dc22",
+    "ft09",
+    "g50t",
+    "ka59",
+    "lf52",
+    "lp85",
+    "ls20",
+    "m0r0",
+    "r11l",
+    "re86",
+    "s5i5",
+    "sb26",
+    "sc25",
+    "su15",
+    "tr87",
+    "tu93",
+    "vc33",
+    "wa30"
+  ],
+  "calibration_training_runs": 20,
+  "excluded_validation_runs": [
+    "stats/kaggle_v3/ar25_p0.npz",
+    "stats/kaggle_v3/cd82_p0.npz",
+    "stats/kaggle_v3/sk48_p0.npz",
+    "stats/kaggle_v3/sp80_p0.npz",
+    "stats/kaggle_v3/tn36_p0.npz"
+  ],
+  "map_layers": 48,
+  "maps_match_repository_analyze": true,
+  "nested_maps": true,
+  "coverage": [
+    {
+      "game": "sk48-d8078629",
+      "level": 1,
+      "population_requests": 6,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 2,
+      "population_requests": 7,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 3,
+      "population_requests": 18,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 4,
+      "population_requests": 4,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 5,
+      "population_requests": 76,
+      "sampled_requests": 6,
+      "status": "sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 6,
+      "population_requests": 18,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 7,
+      "population_requests": 11,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sk48-d8078629",
+      "level": 8,
+      "population_requests": 7,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 1,
+      "population_requests": 3,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 2,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 3,
+      "population_requests": 7,
+      "sampled_requests": 3,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 4,
+      "population_requests": 8,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 5,
+      "population_requests": 5,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "sp80-589a99af",
+      "level": 6,
+      "population_requests": 2,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 1,
+      "population_requests": 7,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 2,
+      "population_requests": 4,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 3,
+      "population_requests": 3,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 4,
+      "population_requests": 4,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 5,
+      "population_requests": 3,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 6,
+      "population_requests": 4,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "level": 7,
+      "population_requests": 5,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 1,
+      "population_requests": 29,
+      "sampled_requests": 5,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 2,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 3,
+      "population_requests": 5,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 4,
+      "population_requests": 2,
+      "sampled_requests": 1,
+      "status": "sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 5,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "level": 6,
+      "population_requests": 1,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 1,
+      "population_requests": 3,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 2,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 3,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 4,
+      "population_requests": 2,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 5,
+      "population_requests": 4,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 6,
+      "population_requests": 5,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 7,
+      "population_requests": 4,
+      "sampled_requests": 2,
+      "status": "sampled"
+    },
+    {
+      "game": "ar25-0c556536",
+      "level": 8,
+      "population_requests": 3,
+      "sampled_requests": 0,
+      "status": "not sampled"
+    }
+  ],
+  "strata": [
+    {
+      "game": "sk48-d8078629",
+      "stratum": 0,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 5537,
+      "max_context": 44059
+    },
+    {
+      "game": "sk48-d8078629",
+      "stratum": 1,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 44093,
+      "max_context": 57206
+    },
+    {
+      "game": "sk48-d8078629",
+      "stratum": 2,
+      "population": 49,
+      "sampled": 2,
+      "min_context": 57213,
+      "max_context": 92764
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 0,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 5536,
+      "max_context": 24120
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 1,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 28054,
+      "max_context": 46336
+    },
+    {
+      "game": "sp80-589a99af",
+      "stratum": 2,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 47130,
+      "max_context": 67819
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 0,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 5526,
+      "max_context": 29571
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 1,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 31062,
+      "max_context": 52114
+    },
+    {
+      "game": "tn36-ef4dde99",
+      "stratum": 2,
+      "population": 10,
+      "sampled": 2,
+      "min_context": 54375,
+      "max_context": 75899
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 0,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 5536,
+      "max_context": 33263
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 1,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 35251,
+      "max_context": 59922
+    },
+    {
+      "game": "cd82-fb555c5d",
+      "stratum": 2,
+      "population": 13,
+      "sampled": 2,
+      "min_context": 62263,
+      "max_context": 90591
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 0,
+      "population": 9,
+      "sampled": 2,
+      "min_context": 5539,
+      "max_context": 31140
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 1,
+      "population": 8,
+      "sampled": 2,
+      "min_context": 34614,
+      "max_context": 52786
+    },
+    {
+      "game": "ar25-0c556536",
+      "stratum": 2,
+      "population": 8,
+      "sampled": 2,
+      "min_context": 55126,
+      "max_context": 71525
+    }
+  ],
+  "selected_requests": [
+    {
+      "sample_id": "sk48-d8078629-r39",
+      "game": "sk48-d8078629",
+      "request_index": 39,
+      "stratum": 0,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 42431,
+      "target_tokens": 223,
+      "total_tokens": 42654,
+      "images": 21,
+      "category_counts": {
+        "thinking": 94,
+        "tool_code": 100,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "4f874e665355fb745d9f34b40d0265a66dff77b9efcb37ac2295a38aa81d2e12",
+      "target_sha256": "3cfcd47681b2b68a8a504f33c8c4802f4c7d02477d7bf3c8e626bbc02905fd34"
+    },
+    {
+      "sample_id": "sp80-589a99af-r0",
+      "game": "sp80-589a99af",
+      "request_index": 0,
+      "stratum": 0,
+      "weight": 4.5,
+      "level": 1,
+      "prompt_tokens": 5536,
+      "target_tokens": 234,
+      "total_tokens": 5770,
+      "images": 1,
+      "category_counts": {
+        "thinking": 67,
+        "tool_code": 138,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "6daa96ad9902aa8be511f7a147caa042cb11f11fa4c63e3c25d15587f535b359",
+      "target_sha256": "34dddda336c7e0b9f7b1dbe1f374cedd734a9ba857d55ed4f0d28620708eaaa3"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r5",
+      "game": "tn36-ef4dde99",
+      "request_index": 5,
+      "stratum": 0,
+      "weight": 5.0,
+      "level": 1,
+      "prompt_tokens": 17739,
+      "target_tokens": 366,
+      "total_tokens": 18105,
+      "images": 7,
+      "category_counts": {
+        "thinking": 125,
+        "tool_code": 212,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "5a8906b38ca3a8adc0bf106d45e5b28d86bd0fc28faa17d2ab516adc5d4edcd8",
+      "target_sha256": "f4d85d6f24a2add66c59b19da3055d540c66eaa075454fa727e10b08b423fe22"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r3",
+      "game": "cd82-fb555c5d",
+      "request_index": 3,
+      "stratum": 0,
+      "weight": 6.5,
+      "level": 1,
+      "prompt_tokens": 11299,
+      "target_tokens": 185,
+      "total_tokens": 11484,
+      "images": 5,
+      "category_counts": {
+        "thinking": 81,
+        "tool_code": 75,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "3a506ad846f8bf313db98c43edf1471e7857190931f17d1d69cf93edbdd2baaf",
+      "target_sha256": "05e52f48480cab7158f6a248e75ed3311456c6d5bea6c62eca21f88d2eb7fb77"
+    },
+    {
+      "sample_id": "ar25-0c556536-r0",
+      "game": "ar25-0c556536",
+      "request_index": 0,
+      "stratum": 0,
+      "weight": 4.5,
+      "level": 1,
+      "prompt_tokens": 5539,
+      "target_tokens": 245,
+      "total_tokens": 5784,
+      "images": 1,
+      "category_counts": {
+        "thinking": 67,
+        "tool_code": 149,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "e381754acf6eb1eaaf0acc5fa3dbaa50dcb7ed0a0734f0f4a29f81dc9fae2d0e",
+      "target_sha256": "dd5f19683f9454dd632bbbf65b1f0646ff01745bcef623f394937b8e17ed7656"
+    },
+    {
+      "sample_id": "sk48-d8078629-r42",
+      "game": "sk48-d8078629",
+      "request_index": 42,
+      "stratum": 1,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 48190,
+      "target_tokens": 327,
+      "total_tokens": 48517,
+      "images": 25,
+      "category_counts": {
+        "thinking": 88,
+        "tool_code": 210,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "631050c263a3901c9d11561cde1002a6ca56926a9c2a72dcff6f0e8102381e07",
+      "target_sha256": "cf9a80913067e0588efbd447d3b0b5c4c679145404e411d66712242f0e276804"
+    },
+    {
+      "sample_id": "sp80-589a99af-r9",
+      "game": "sp80-589a99af",
+      "request_index": 9,
+      "stratum": 1,
+      "weight": 4.5,
+      "level": 3,
+      "prompt_tokens": 28054,
+      "target_tokens": 289,
+      "total_tokens": 28343,
+      "images": 11,
+      "category_counts": {
+        "thinking": 96,
+        "tool_code": 164,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "c9d9fa6480137a78cfe0ddee150f2af5f7a7086bbfab483a65011b003b93c3f6",
+      "target_sha256": "3f07db72c630c28f4198844777514a4df8fb6278188e760fc076f07f8dbe3d45"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r11",
+      "game": "tn36-ef4dde99",
+      "request_index": 11,
+      "stratum": 1,
+      "weight": 5.0,
+      "level": 3,
+      "prompt_tokens": 33499,
+      "target_tokens": 804,
+      "total_tokens": 34303,
+      "images": 13,
+      "category_counts": {
+        "thinking": 101,
+        "tool_code": 674,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "dcf27d177190d1ac2789bb03457da4f8a87d403a476bdec1d416b50c2d718e74",
+      "target_sha256": "3d1ea45b44ded4babead3004bf9ba6430b96171a968e5d71669ff727142e8262"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r18",
+      "game": "cd82-fb555c5d",
+      "request_index": 18,
+      "stratum": 1,
+      "weight": 6.5,
+      "level": 1,
+      "prompt_tokens": 46428,
+      "target_tokens": 157,
+      "total_tokens": 46585,
+      "images": 33,
+      "category_counts": {
+        "thinking": 75,
+        "tool_code": 53,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "8b56bc46f246a9210524945b54aabde6e22757e867a8740a0335d4be2e49f843",
+      "target_sha256": "712427c145a5d3a83b986a8689b22f7ce4fc945dee8439a82b6aa97a85c18477"
+    },
+    {
+      "sample_id": "ar25-0c556536-r10",
+      "game": "ar25-0c556536",
+      "request_index": 10,
+      "stratum": 1,
+      "weight": 4.0,
+      "level": 5,
+      "prompt_tokens": 35568,
+      "target_tokens": 643,
+      "total_tokens": 36211,
+      "images": 13,
+      "category_counts": {
+        "thinking": 125,
+        "tool_code": 489,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "03b680fe42a5a15bd3c94c29dfce4d7e3f7eeb7deb76c4eebb2f60c7714a9ae4",
+      "target_sha256": "707e60d2587eb842e3bff6fa8f1fd6db9357222b7a0f7dc0743bb76b7d2b85b4"
+    },
+    {
+      "sample_id": "sk48-d8078629-r82",
+      "game": "sk48-d8078629",
+      "request_index": 82,
+      "stratum": 2,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 68227,
+      "target_tokens": 186,
+      "total_tokens": 68413,
+      "images": 46,
+      "category_counts": {
+        "thinking": 89,
+        "tool_code": 68,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "e2e4be73569279470e87670063f626ded26229ea31ae7bd1a2eaef72c925a110",
+      "target_sha256": "2a6c17dbfa87d7b50481fe2be792d6c474cf8ad8ef7e3aff4d55741f219be96a"
+    },
+    {
+      "sample_id": "sp80-589a99af-r22",
+      "game": "sp80-589a99af",
+      "request_index": 22,
+      "stratum": 2,
+      "weight": 4.5,
+      "level": 5,
+      "prompt_tokens": 58372,
+      "target_tokens": 334,
+      "total_tokens": 58706,
+      "images": 27,
+      "category_counts": {
+        "thinking": 92,
+        "tool_code": 213,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "031adb693abb2f65da33665563978d177e949f3dcbe6588175475f42062d489c",
+      "target_sha256": "794a9bba38defd8368b38a898fe14cb217723f2b483adfe8ae2a0b27383d5e17"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r24",
+      "game": "tn36-ef4dde99",
+      "request_index": 24,
+      "stratum": 2,
+      "weight": 5.0,
+      "level": 6,
+      "prompt_tokens": 63194,
+      "target_tokens": 331,
+      "total_tokens": 63525,
+      "images": 27,
+      "category_counts": {
+        "thinking": 123,
+        "tool_code": 179,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "49ecb2d6a3f7cddb6f257636a54e9bf74a8a002ae10ba6f912629c2099d765c3",
+      "target_sha256": "ca3685c6e00fcca70ddbf8bca6780e9f19a757585b98b338919c9d86d2137d34"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r26",
+      "game": "cd82-fb555c5d",
+      "request_index": 26,
+      "stratum": 2,
+      "weight": 6.5,
+      "level": 1,
+      "prompt_tokens": 62263,
+      "target_tokens": 911,
+      "total_tokens": 63174,
+      "images": 44,
+      "category_counts": {
+        "thinking": 121,
+        "tool_code": 761,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "850af076b39191ce749bc9666c954399722059245e5f6370b85f8fc311891f84",
+      "target_sha256": "9d3540f0ad46115888665a6c6b1087248da1d5271258cc9fe25e7d27e5f84d57"
+    },
+    {
+      "sample_id": "ar25-0c556536-r18",
+      "game": "ar25-0c556536",
+      "request_index": 18,
+      "stratum": 2,
+      "weight": 4.0,
+      "level": 7,
+      "prompt_tokens": 60394,
+      "target_tokens": 329,
+      "total_tokens": 60723,
+      "images": 26,
+      "category_counts": {
+        "thinking": 97,
+        "tool_code": 203,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "3e66aa584b2f09becec3185b1a0d6c2496346347e11d7fcfb4e91198c416cd71",
+      "target_sha256": "7b82e3dfe75174826d9fa2f8f970ad4a3fa52ac6a8a2b7aec7390c3a9d7f86c5"
+    },
+    {
+      "sample_id": "sk48-d8078629-r85",
+      "game": "sk48-d8078629",
+      "request_index": 85,
+      "stratum": 0,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 33191,
+      "target_tokens": 183,
+      "total_tokens": 33374,
+      "images": 22,
+      "category_counts": {
+        "thinking": 66,
+        "tool_code": 88,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "f914117526fbd9974dcf183c8384ab117a6ebc6f999216803c5c5d596f862739",
+      "target_sha256": "9626416ab00bd72b81711347093358faabaf5e06ea2852938c7de9d713f0324c"
+    },
+    {
+      "sample_id": "sp80-589a99af-r8",
+      "game": "sp80-589a99af",
+      "request_index": 8,
+      "stratum": 0,
+      "weight": 4.5,
+      "level": 3,
+      "prompt_tokens": 24120,
+      "target_tokens": 1307,
+      "total_tokens": 25427,
+      "images": 9,
+      "category_counts": {
+        "thinking": 109,
+        "tool_code": 1169,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "07426198ce3c1b5cd8ef0e4a94d405b7a24542a820e1e9e42717df96bfc5ca83",
+      "target_sha256": "313d5bf42c1bef2ad161ab3637eb12c4ce0fe10875f54446abf8d9b47f4f0c44"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r9",
+      "game": "tn36-ef4dde99",
+      "request_index": 9,
+      "stratum": 0,
+      "weight": 5.0,
+      "level": 2,
+      "prompt_tokens": 29571,
+      "target_tokens": 352,
+      "total_tokens": 29923,
+      "images": 12,
+      "category_counts": {
+        "thinking": 110,
+        "tool_code": 213,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "8b1987b4fefcaecfa2b365311cb9e98badf8c1ab0db11c13542634d4e161b1dc",
+      "target_sha256": "76027ff9edb16cbc15fdae3608c56e9e3a85e18a22b92293b5e7a1a9758642a8"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r11",
+      "game": "cd82-fb555c5d",
+      "request_index": 11,
+      "stratum": 0,
+      "weight": 6.5,
+      "level": 1,
+      "prompt_tokens": 30843,
+      "target_tokens": 265,
+      "total_tokens": 31108,
+      "images": 20,
+      "category_counts": {
+        "thinking": 104,
+        "tool_code": 132,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "141d1a0871a392e3baf8fe3c94903e58dae37ea4767139d23713a8f9971066de",
+      "target_sha256": "c88ab213b0227d511008da56f9c732e42286f65b109fdfc8c010add6a1b1438a"
+    },
+    {
+      "sample_id": "ar25-0c556536-r2",
+      "game": "ar25-0c556536",
+      "request_index": 2,
+      "stratum": 0,
+      "weight": 4.5,
+      "level": 1,
+      "prompt_tokens": 9679,
+      "target_tokens": 302,
+      "total_tokens": 9981,
+      "images": 3,
+      "category_counts": {
+        "thinking": 107,
+        "tool_code": 166,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "7ba1d4e0950b4a9b6970d15be48d78b9825b612c8cd05a92ee318b93cf792258",
+      "target_sha256": "a11cd96e84df54648917c47762b900df433b78cb2fd27170376ca301e074591b"
+    },
+    {
+      "sample_id": "sk48-d8078629-r99",
+      "game": "sk48-d8078629",
+      "request_index": 99,
+      "stratum": 1,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 55815,
+      "target_tokens": 244,
+      "total_tokens": 56059,
+      "images": 40,
+      "category_counts": {
+        "thinking": 101,
+        "tool_code": 114,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "0b7e3da2d0d7f8db1f3c57e0bc4e66dccb2fd0bc232a9c3227487a495e7bd50b",
+      "target_sha256": "5f8844d54675f2f36d0b9edf7fa4f4e2d7a73dda1f2edfa5d2a754bf31a62fb0"
+    },
+    {
+      "sample_id": "sp80-589a99af-r11",
+      "game": "sp80-589a99af",
+      "request_index": 11,
+      "stratum": 1,
+      "weight": 4.5,
+      "level": 3,
+      "prompt_tokens": 31188,
+      "target_tokens": 495,
+      "total_tokens": 31683,
+      "images": 13,
+      "category_counts": {
+        "thinking": 93,
+        "tool_code": 373,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "ecb22878c8dee40ca1b4b2497b6c08d468ef754963d2f54592af0ecaa82a0913",
+      "target_sha256": "ffdfa4a6b787683e977cdb26197fdd37f5cc14625ae3de5e1148ad22f9f29c1e"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r12",
+      "game": "tn36-ef4dde99",
+      "request_index": 12,
+      "stratum": 1,
+      "weight": 5.0,
+      "level": 3,
+      "prompt_tokens": 35760,
+      "target_tokens": 512,
+      "total_tokens": 36272,
+      "images": 13,
+      "category_counts": {
+        "thinking": 98,
+        "tool_code": 385,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "8d6b37327256b8ca4aa8472c683c7c6c2a0752802556851603f0c06d8caeb950",
+      "target_sha256": "97c4216f8a1d20791af65056812b80cd7fd50bca34af9990be49b54537df6e11"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r21",
+      "game": "cd82-fb555c5d",
+      "request_index": 21,
+      "stratum": 1,
+      "weight": 6.5,
+      "level": 1,
+      "prompt_tokens": 51741,
+      "target_tokens": 200,
+      "total_tokens": 51941,
+      "images": 37,
+      "category_counts": {
+        "thinking": 69,
+        "tool_code": 102,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "041e0e636fb813e28c4842145671f7d232e5674b3f376e97745f7346ef570768",
+      "target_sha256": "d300c6689124770b1af4ba91926401280f6544d0ebb570d1dc745d578b2b317a"
+    },
+    {
+      "sample_id": "ar25-0c556536-r11",
+      "game": "ar25-0c556536",
+      "request_index": 11,
+      "stratum": 1,
+      "weight": 4.0,
+      "level": 5,
+      "prompt_tokens": 37282,
+      "target_tokens": 238,
+      "total_tokens": 37520,
+      "images": 14,
+      "category_counts": {
+        "thinking": 108,
+        "tool_code": 101,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "2069fbdf118a1eb799092527ada55fc35dd46db7c12f28c44e7390a8ad513bd3",
+      "target_sha256": "628cf955bc6b8846789687ce1251c88b650f7947c06503bc9356ebffb210d02f"
+    },
+    {
+      "sample_id": "sk48-d8078629-r100",
+      "game": "sk48-d8078629",
+      "request_index": 100,
+      "stratum": 2,
+      "weight": 24.5,
+      "level": 5,
+      "prompt_tokens": 57213,
+      "target_tokens": 206,
+      "total_tokens": 57419,
+      "images": 41,
+      "category_counts": {
+        "thinking": 97,
+        "tool_code": 80,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "64a7fb00339464eb3a0dc2faf8988ab78247fc3f2ba3fcccb78b93fb21979653",
+      "target_sha256": "81641c30cb0eb7b12ba46604d7fbbe2cee55600dc04ce54754a9e0fc9883819a"
+    },
+    {
+      "sample_id": "sp80-589a99af-r26",
+      "game": "sp80-589a99af",
+      "request_index": 26,
+      "stratum": 2,
+      "weight": 4.5,
+      "level": 6,
+      "prompt_tokens": 67819,
+      "target_tokens": 210,
+      "total_tokens": 68029,
+      "images": 30,
+      "category_counts": {
+        "thinking": 87,
+        "tool_code": 94,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "9a22e98d2d3f2e79425845411aa902d8d7a18fa5127cbf3a05f5e6c3149c67c4",
+      "target_sha256": "44c72923e8dd467053d828bd224c1e70d43506c6d5a175606054444cbaacfa32"
+    },
+    {
+      "sample_id": "tn36-ef4dde99-r28",
+      "game": "tn36-ef4dde99",
+      "request_index": 28,
+      "stratum": 2,
+      "weight": 5.0,
+      "level": 7,
+      "prompt_tokens": 72894,
+      "target_tokens": 540,
+      "total_tokens": 73434,
+      "images": 30,
+      "category_counts": {
+        "thinking": 118,
+        "tool_code": 393,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "f5addea323002d61d0e9501031eaa5d37b39db20005bf4ac140abd321fbbd3ed",
+      "target_sha256": "d83de8eca07bec0ca00ebc676b94ccb21cb13ad6b6ef16754f222a45025bec73"
+    },
+    {
+      "sample_id": "cd82-fb555c5d-r36",
+      "game": "cd82-fb555c5d",
+      "request_index": 36,
+      "stratum": 2,
+      "weight": 6.5,
+      "level": 4,
+      "prompt_tokens": 83294,
+      "target_tokens": 1004,
+      "total_tokens": 84298,
+      "images": 54,
+      "category_counts": {
+        "thinking": 106,
+        "tool_code": 869,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "72fc82ebfbbe6f812d6166493bfa52a3a9c7e1387f56f7483f0bf7f51297a9bd",
+      "target_sha256": "f8839d6a966a34eab391e7a7f3817a4bd14661d607332fee749b5dddf547d94a"
+    },
+    {
+      "sample_id": "ar25-0c556536-r19",
+      "game": "ar25-0c556536",
+      "request_index": 19,
+      "stratum": 2,
+      "weight": 4.0,
+      "level": 7,
+      "prompt_tokens": 61381,
+      "target_tokens": 486,
+      "total_tokens": 61867,
+      "images": 26,
+      "category_counts": {
+        "thinking": 129,
+        "tool_code": 328,
+        "tool_format": 24,
+        "assistant_text": 0,
+        "turn_format": 5,
+        "boundary": 0
+      },
+      "input_sha256": "0b248fe2c6e410c87b8627d6ea486179c3e12f4eacc3b0f3a1ac8c5b74b925f4",
+      "target_sha256": "7526775f07808ccd0e47e91feb844c4f31bc89d81fe3f16fc58d6fc045a34ee1"
+    }
+  ],
+  "real_data_preflight": "passed: all 30 requests re-encoded offline; every annotation matches",
+  "gpu_started": false,
+  "runtime_scenarios": {
+    "850": {
+      "scoring_minutes": 125.5521568627451,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        165.5521568627451,
+        185.5521568627451
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "500": {
+      "scoring_minutes": 213.43866666666665,
+      "cold_sessions": 3,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        273.4386666666667,
+        303.4386666666667
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    },
+    "950": {
+      "scoring_minutes": 112.3361403508772,
+      "cold_sessions": 2,
+      "overhead_minutes_per_session": [
+        20,
+        30
+      ],
+      "total_minutes": [
+        152.3361403508772,
+        172.3361403508772
+      ],
+      "session_cap_minutes": 120,
+      "measured": false
+    }
+  }
+}

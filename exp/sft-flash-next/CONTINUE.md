@@ -38,48 +38,55 @@ reserve as part of this current task. Selection is NLL-only to conserve quota.
   credentials come from environment variables; never print or commit values.
 - Notebook: `exp/sft-flash-next/nll/kaggle/kaggle-nll-30.ipynb`; GPU disabled.
 - 35 CPU tests passed; one old real-log integration test skipped because its
-  external assets were unavailable. See committed `verification/pytest.xml`.
+  external assets were unavailable. The separate real Sol gate now passes. See committed `verification/pytest.xml`.
   CPU versions: Python 3.12.14, torch 2.14.1+cpu, torchvision 0.29.1+cpu,
   Transformers 5.18.0. Production CUDA smoke checks have not run.
 
 The replay extension is in `exp/reap-flash-next/replay.py`; new entry points,
 tests and pinned requirements are under `exp/sft-flash-next/nll/`.
 
-## Remaining work and blocker
+## CPU preparation completed in the continuation
 
-The previous managed workspace's enforced network proxy returned HTTP 403
-for `kaggle-arc-agi-3-dvc.s3.eu-west-3.amazonaws.com` and `huggingface.co`.
-AWS credentials were reported configured, but the real dataset, separated
-REAP statistics and pinned processor were not cached. Recheck this session's
-network/credential readiness; do not assume the old restriction still applies.
-Use the authorized network path and handle actual redirects through normal
-environment configuration. Never bypass a destination-policy denial.
+Read `READINESS.md` and `verification/real-data.json` for measured preparation
+results. The actual panel is frozen and passes offline reprocessing:
+**6,403,160 processed tokens / 150 forwards**, with 12,108 final-reply tokens
+per candidate. No contexts were truncated or requests replaced.
 
-Once inputs are accessible, run the README's CPU-only sequence:
+Both S3 and Hugging Face downloads succeeded through the authorized network
+path in this session. The fetcher now retains calibration metadata and uses
+writable HF download caches because the managed home directory is read-only.
+Map building verifies calibration run/category/model provenance; all 20
+training games contribute and all five validation games are excluded.
+Independent comparison against `analyze.py` and nesting checks pass.
 
-1. `fetch_inputs.py` — existing DVC payloads and pinned HF processor, no weights.
-2. `prepare.py` — freeze actual 30 IDs, full target annotations, clean maps,
-   level coverage, exact token/time budget and immutable manifest.
-3. `run.py --preflight-only` — validate the real prepared bundle.
-4. Fix any real-data issues and run relevant tests. Synthetic/tiny-model tests
-   are useful but do not substitute for this real-data gate.
-5. Rebuild `build_setup.py --bundle ... --wheels ...` and verify the archive.
-6. Report GPU readiness, exact estimated cost and remaining GPU smoke checks.
+`run.py --preflight-only` now re-encodes every selected request offline and
+compares all target annotations, rather than relying only on file checksums.
+35 CPU tests passed; the existing old-log integration test remains skipped.
+The separate real Sol data gate passed. Production CUDA checks have not run.
 
-The 42-wheel Python 3.13 Kaggle wheelhouse and ~60 MB staging archive were
-generated locally and are **not in Git**. Rebuild them with README commands;
-do not rely on old `/tmp` or `build/` files surviving this session. Keep Kaggle's
-CUDA torch/torchvision; never install the CPU torch lock onto the GPU image.
+The complete private offline package is at
+`/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip`, with the
+panel at `/workspace/sol-nll-artifacts/panel30`. These generated files, inputs
+and wheels are outside Git. If absent in a future workspace, rebuild using
+the README; the committed verification records retain the frozen identities
+and chosen request IDs for comparison. Do not reroll or shrink the panel.
 
-No GPU allocation, Kaggle upload, real-data evaluation or actual model
-selection has occurred. The chosen 30 requests/maps and exact budget remain
-pending. Illustrative cost is 7.692M processed tokens: about 151 scoring
-minutes at 850 tokens/s, plus cold starts. Default worker cap is 120 minutes
-per session; resume all 30 requests rather than shrinking the sample. The cap
-does not deallocate Kaggle itself, so stop/disable its GPU after verifying the
-external mirror to avoid idle quota use.
+At 850 tokens/s, expect 125.6 scoring minutes, about 2.8–3.1 hours across two
+cold capped sessions including overhead. At 500 tokens/s, expect 213.4 scoring
+minutes, about 4.6–5.1 hours across three. These remain estimates until the GPU
+smoke step measures speed. Session caps pause the worker, not Kaggle billing.
 
-Do not declare GPU-ready until the actual prepared panel passes. When the user
-later starts the Kaggle interactive Jupyter session, the worker performs
-short-request numerical/chunk-parity and longest-request capacity checks
-before the full sweep. Jupyter URL/token and live connection are session inputs.
+## Next action
+
+**Report readiness and wait for the user's GPU-start instruction.** Do not
+start a GPU, Kaggle upload, training or gameplay merely because CPU gates pass.
+When authorized, use the qualified RTX PRO 6000 Blackwell 96 GB interactive
+session, stage the private archive and immutable model version, and connect
+the external Jupyter collector. Live Jupyter URL/token are session inputs.
+The notebook is saved with GPU disabled and `START_GPU_RUN=False`.
+
+The first GPU worker performs numerical/chunk-parity and longest-request
+capacity checks before completing the paired sweep. Failed checks stop the
+run; valid smoke forwards count toward the panel. Preserve the manifest,
+code/runtime and model identities for resume. No extra reserve or full-fold
+scoring is authorized as part of this 30-request evaluation.

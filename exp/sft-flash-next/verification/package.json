@@ -1,0 +1,17 @@
+{
+  "archive": "/workspace/sol-nll-artifacts/complete-setup-final/sol-nll-setup.zip",
+  "archive_sha256": "82fab1887b9f6ae6929b802a916975b4370a44e7c5446fe210aff8acc7ca5e7c",
+  "archive_bytes": 68859963,
+  "files_checked": 135,
+  "offline_wheels": 42,
+  "cpu_torch_included": false,
+  "has_real_panel": true,
+  "crc_valid": true,
+  "sha256_inventory_valid": true,
+  "notebook_cells_compile": true,
+  "notebook_gpu_disabled": true,
+  "offline_cp313_dependency_resolution": "passed",
+  "panel_manifest_sha256": "f75451395a05abaee253543275b901a471b98adbf7112a5b48bac5e6faf0960c",
+  "gpu_started": false,
+  "packaged_real_data_preflight": "passed: all 30 requests re-encoded offline from packaged code and bundle"
+}

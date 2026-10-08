@@ -1,4 +1,4 @@
-# Sol NLL evaluation: 30 requests, ready-to-stage code
+# Sol NLL evaluation: 30 requests, CPU preparation complete
 
 The user-selected core is **30 requests / 150 model-request forwards**: two
 requests from each context-length tertile in each of the five fold-0 games.
@@ -12,24 +12,28 @@ and notebook are implemented. CPU tests use both format fixtures and the
 repository's tiny real Flash-Next architecture. They are not measurements of
 production CUDA performance or of the real sol validation sample.
 
-**The real-data preflight is blocked in the current managed workspace.** Its
-enforced network policy rejects the DVC S3 bucket and Hugging Face with proxy
-HTTP 403. The dataset, original tokenizer/processor and separated calibration
-statistics are not cached here. The setup archive can be built without them,
-but is explicitly marked `has_real_panel: false` and cannot launch scoring.
-No GPU session has been started or uploaded by this setup.
+**The real-data CPU gate passed on 2026-10-08.** All 30 frozen requests were
+processed twice with the pinned processor, with identical full-context token
+IDs, final-reply positions and semantic annotations. All five fold-0 games
+are excluded from the saved calibration statistics; all 20 training games
+contribute to the nested 48-layer expert maps. No GPU has started.
 
-To finish preparation in this workspace, network access is needed to:
+The panel contains 1,268,524 prompt tokens and 12,108 final-reply tokens.
+Across five candidates that is **6,403,160 processed tokens** and 60,540 scored
+target tokens. Scoring alone is about **125.6 minutes at 850 tokens/s** or
+**213.4 minutes at 500 tokens/s**. Allowing 20–30 minutes per cold session,
+plan about **2.8–3.1 hours across two sessions** nominally, or **4.6–5.1 hours
+across three sessions** conservatively. The manifest's `estimated_minutes`
+adds one 30-minute startup; multi-session planning must add startup for each
+session. Production speed, numerical parity and capacity remain GPU checks.
 
-- `kaggle-arc-agi-3-dvc.s3.eu-west-3.amazonaws.com` for the existing DVC inputs;
-- `huggingface.co` and any download hosts it redirects the pinned small
-  processor files to. Actual redirects should be allowed through the normal
-  environment configuration, not bypassed.
-
-The runtime reports AWS credentials configured. No credential values are
-stored in source or artifacts. An already authorized machine with these inputs
-can run the same CPU preparation commands instead. A live Kaggle Jupyter URL
-and its authentication are needed only when the user starts the GPU session.
+The complete private archive was rebuilt with real data and 42 offline
+Python 3.13 wheels. Generated data/wheels/archives remain outside Git.
+See [readiness](../READINESS.md) and the committed verification records for
+identities, coverage and artifact locations. S3 and Hugging Face downloads
+succeeded through this session's authorized network path; future sessions
+must recheck access. A live Kaggle Jupyter URL and authentication are needed
+only when the user starts the GPU session.
 
 ## 1. Prepare inputs without allocating a GPU
 
@@ -54,7 +58,7 @@ python -m venv /tmp/sol-nll-venv
 ```
 
 The fetcher downloads the ~333 MB JSONL, its small index/meta, saved REAP
-statistics and processor files; **no model weights**. Calibration maps are
+statistics, per-run provenance and processor files; **no model weights**. Calibration maps are
 rebuilt on CPU, excluding every fold-0 game. The preparer creates:
 
 - immutable sampling weights and selected IDs (seed 20261008);
