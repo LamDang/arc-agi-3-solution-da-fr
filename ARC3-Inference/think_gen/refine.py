@@ -53,7 +53,9 @@ def refine_one(rec: logs.Record, row: dict, verdict: dict, args, out_path: Path)
         attempts += 1
         try:
             out = client.chat(msgs, model=args.model, provider=args.provider, tools=rec.tools,
-                              reasoning=args.reasoning, max_tokens=args.max_tokens)
+                              reasoning=args.reasoning, max_tokens=args.max_tokens,
+                              log_path=args.out / "requests" / f"{rec.game}.jsonl",
+                              log_tag={"key": rec.key, "check": "refine"})
         except client.CallError as e:
             log(f"[{rec.key}] refine call failed: {e}")
             usages.append({"error": str(e)[:300]})

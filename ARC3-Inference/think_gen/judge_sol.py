@@ -58,13 +58,14 @@ def parse_json(text: str) -> dict | None:
         return None
 
 
-def responses_json(msgs: list, model: str, effort: str, want: str, max_tokens: int) -> dict:
+def responses_json(msgs: list, model: str, effort: str, want: str, max_tokens: int,
+                   log_path=None, log_tag: dict | None = None) -> dict:
     """One OpenAI Responses JSON call, retried until it parses and has `want`."""
     last = ""
     for _ in range(3):
         try:
-            res = client.openai_responses(msgs, model=model, effort=effort,
-                                          json_mode=True, max_output_tokens=max_tokens)
+            res = client.openai_responses(msgs, model=model, effort=effort, json_mode=True,
+                                          max_output_tokens=max_tokens, log_path=log_path, log_tag=log_tag)
         except client.CallError as e:
             last = str(e)[:200]
             continue
@@ -77,35 +78,37 @@ def responses_json(msgs: list, model: str, effort: str, want: str, max_tokens: i
     return {"error": last}
 
 
-def sol_judge(rec: logs.Record, prompt: str, args, want: str, effort: str) -> dict:
+def sol_judge(rec: logs.Record, prompt: str, args, want: str, effort: str, kind: str, log_path=None) -> dict:
     """A gpt-6.1-sol judge call with the teacher's own context (frames and
     images) in front of the judge instruction. The shared context prefix is
     identical across a record's checks, so after the first call it is served
     from the Responses prompt cache."""
     msgs = list(rec.messages) + [{"role": "user", "content": prompt}]
-    return responses_json(msgs, args.sol_model, effort, want, args.sol_max_tokens)
+    return responses_json(msgs, args.sol_model, effort, want, args.sol_max_tokens,
+                          log_path=log_path, log_tag={"key": rec.key, "check": kind})
 
 
-def check_code(rec: logs.Record, thinking: str, args) -> dict:
+def check_code(rec: logs.Record, thinking: str, args, log_path=None) -> dict:
     return sol_judge(rec, prompts.judge_code_prompt(context.call_text(rec.reply), thinking),
-                     args, "leads_to_call", args.judge_effort)
+                     args, "leads_to_call", args.judge_effort, "code", log_path)
 
 
-def check_words(rec: logs.Record, thinking: str, args) -> dict:
+def check_words(rec: logs.Record, thinking: str, args, log_path=None) -> dict:
     a = prompts.python_args(rec.reply)
     if not any((a.get("reasoning"), a.get("description"), rec.summary)):
         return {"skipped": "no stated words"}
     return sol_judge(rec, prompts.judge_words_prompt(
         a.get("reasoning") or "", a.get("description") or "", rec.summary, thinking),
-        args, "covered", args.judge_effort)
+        args, "covered", args.judge_effort, "words", log_path)
 
 
-def check_fact(rec: logs.Record, thinking: str, args) -> dict:
+def check_fact(rec: logs.Record, thinking: str, args, log_path=None) -> dict:
     """gpt-6.1-sol fact-checks the thinking against its own real context."""
-    return sol_judge(rec, prompts.judge_fact_prompt(thinking), args, "grounded", args.sol_effort)
+    return sol_judge(rec, prompts.judge_fact_prompt(thinking), args, "grounded", args.sol_effort,
+                     "fact", log_path)
 
 
-def regen_code(rec: logs.Record, thinking: str, args) -> tuple[str, dict]:
+def regen_code(rec: logs.Record, thinking: str, args, log_path=None) -> tuple[str, dict]:
     """Flash's python call, made from the thinking in the code-only request."""
     msgs, tools = context.code_only_request(rec.messages, rec.tools)
     msgs += [{"role": "user", "content": thinking},
@@ -113,7 +116,8 @@ def regen_code(rec: logs.Record, thinking: str, args) -> tuple[str, dict]:
     try:
         res = client.chat(msgs, model=args.model, provider=args.provider, tools=tools,
                           tool_choice={"type": "function", "function": {"name": "python"}},
-                          reasoning=True, max_tokens=args.max_tokens, temperature=0.4)
+                          reasoning=True, max_tokens=args.max_tokens, temperature=0.4,
+                          log_path=log_path, log_tag={"key": rec.key, "check": "regen"})
     except client.CallError as e:
         return "", {"error": str(e)[:200]}
     for c in res.get("tool_calls") or []:
@@ -126,14 +130,15 @@ def regen_code(rec: logs.Record, thinking: str, args) -> tuple[str, dict]:
     return "", {"error": "no python call", "content": (res.get("content") or "")[:150]}
 
 
-def check_call(rec: logs.Record, thinking: str, args) -> dict:
+def check_call(rec: logs.Record, thinking: str, args, log_path=None) -> dict:
     sol_code = (prompts.python_args(rec.reply).get("code") or "").strip()
     if not sol_code:
         return {"skipped": "teacher call has no python code"}
-    code, meta = regen_code(rec, thinking, args)
+    code, meta = regen_code(rec, thinking, args, log_path)
     if not code.strip():
         return {"regen_error": meta.get("error", "empty"), "regen_code": ""}
-    v = sol_judge(rec, prompts.judge_call_prompt(sol_code, code), args, "functionally_same", args.judge_effort)
+    v = sol_judge(rec, prompts.judge_call_prompt(sol_code, code), args, "functionally_same",
+                  args.judge_effort, "call", log_path)
     v["regen_code"] = code
     v["_regen_cost"] = meta.get("cost", 0)
     return v
@@ -145,10 +150,11 @@ CHECKS = {"code": check_code, "words": check_words, "fact": check_fact, "call": 
 def judge_one(rec: logs.Record, thinking: str, done: dict, args) -> dict:
     out = {"key": rec.key, "game": rec.game}
     out.update(done)  # keep checks already finished on a rerun
+    log_path = args.gen / "judge_sol" / "requests" / f"{rec.game}.jsonl"
     for name in args.checks:
         if name in out:
             continue
-        out[name] = CHECKS[name](rec, thinking, args)
+        out[name] = CHECKS[name](rec, thinking, args, log_path)
     return out
 
 

@@ -1,7 +1,19 @@
-"""Minimal OpenRouter chat-completions client with retries."""
+"""Minimal OpenRouter chat-completions client with retries.
+
+Every call can be logged, request and response, by passing `log_path` (and a
+`log_tag` naming the record and check). The log keeps the exact messages sent,
+with image data URIs reduced to a sha reference and byte count so the file
+stays small — the image bytes live in the source run. One JSON line per call
+(including the final give-up), appended thread-safely, so a judge or generation
+run has a complete, replayable record of what was asked and what came back.
+"""
+import hashlib
+import json
 import os
 import random
+import threading
 import time
+from pathlib import Path
 
 import requests
 
@@ -9,15 +21,52 @@ URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "qwen/qwen3.8-flash"
 PROVIDER = "Alibaba"  # the only provider serving qwen3.8-flash (2026-10-07)
 
+_log_lock = threading.Lock()
+
 
 class CallError(RuntimeError):
     pass
 
 
+def _slim(messages: list) -> list:
+    """Messages with image data URIs replaced by a short sha ref + byte count."""
+    out = []
+    for m in messages or []:
+        c = m.get("content")
+        if isinstance(c, list):
+            parts = []
+            for p in c:
+                if isinstance(p, dict) and p.get("type") == "image_url":
+                    url = (p.get("image_url") or {}).get("url", "")
+                    parts.append({"type": "image_url", "sha": hashlib.sha1(url.encode()).hexdigest()[:12],
+                                  "bytes": len(url)})
+                else:
+                    parts.append(p)
+            m = {**m, "content": parts}
+        out.append(m)
+    return out
+
+
+def log_call(log_path, request: dict, response: dict, tag: dict | None = None):
+    """Append one request/response record. Never raises (logging must not break
+    a call)."""
+    if not log_path:
+        return
+    try:
+        rec = {"ts": round(time.time(), 3), **(tag or {}), "request": request, "response": response}
+        p = Path(log_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with _log_lock, open(p, "a") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001 - logging is best-effort
+        print(f"[request-log] failed: {e!r}", flush=True)
+
+
 def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
          tools: list | None = None, reasoning: bool = False, max_tokens: int = 8192,
          temperature: float = 0.7, retries: int = 6, timeout: int = 900,
-         json_mode: bool = False, tool_choice: str | dict = "none") -> dict:
+         json_mode: bool = False, tool_choice: str | dict = "none",
+         log_path=None, log_tag: dict | None = None) -> dict:
     """One completion. Returns {"content", "reasoning", "usage", "provider",
     "finish_reason", "secs"}. Retries 429s, 5xx, network errors and empty
     answers with exponential backoff."""
@@ -62,7 +111,7 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         if not content.strip() and not msg.get("tool_calls") and ch.get("finish_reason") != "length":
             last = f"empty answer (finish {ch.get('finish_reason')})"
             continue
-        return {
+        out = {
             "content": content,
             "reasoning": msg.get("reasoning") or "",
             "tool_calls": msg.get("tool_calls") or [],
@@ -71,6 +120,13 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
             "finish_reason": ch.get("finish_reason"),
             "secs": round(time.time() - t, 1),
         }
+        log_call(log_path, {"api": "chat", "model": model, "provider": provider, "reasoning": reasoning,
+                            "tool_choice": tool_choice if tools else None, "messages": _slim(messages)},
+                 {k: out[k] for k in ("content", "reasoning", "tool_calls", "usage", "finish_reason", "secs")},
+                 {**(log_tag or {}), "attempt": attempt + 1})
+        return out
+    log_call(log_path, {"api": "chat", "model": model, "messages": _slim(messages)},
+             {"error": last}, log_tag)
     raise CallError(f"gave up after {retries + 1} attempts: {last}")
 
 
@@ -79,7 +135,8 @@ OPENAI_URL = "https://api.openai.com/v1/responses"
 
 def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str = "high",
                      tools: list | None = None, json_mode: bool = False,
-                     max_output_tokens: int = 32000, retries: int = 6, timeout: int = 900) -> dict:
+                     max_output_tokens: int = 32000, retries: int = 6, timeout: int = 900,
+                     log_path=None, log_tag: dict | None = None) -> dict:
     """One OpenAI Responses call from chat-completions messages (images kept),
     through the harness's converter. Returns {"content", "usage", "secs"};
     usage carries OpenAI's token counts."""
@@ -119,5 +176,10 @@ def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str 
         if not content.strip():
             last = "empty answer"
             continue
-        return {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1)}
+        out = {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1)}
+        log_call(log_path, {"api": "responses", "model": model, "effort": effort, "messages": _slim(messages)},
+                 out, {**(log_tag or {}), "attempt": attempt + 1})
+        return out
+    log_call(log_path, {"api": "responses", "model": model, "effort": effort, "messages": _slim(messages)},
+             {"error": last}, log_tag)
     raise CallError(f"gave up after {retries + 1} attempts: {last}")
