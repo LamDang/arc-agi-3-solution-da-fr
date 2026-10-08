@@ -6,24 +6,30 @@
         --gen runs/think-sol-b4/dev20 \
         --manifest experiments/teacher-reasoning/evalset/sol25_dev20.json
 
-For every generated record (status ok, with thinking) it runs:
+All four checks run on gpt-6.1-sol with the teacher's own context (frames and
+images) in front of the judge instruction, so the judge reads the thinking and
+the code against the real game state. For every generated record (status ok,
+with thinking) it runs:
 
-  1 code   judge model: does the thinking's plan match the python code the
-           teacher ran? -> code_leads, code_disagreements;
-  2 words  judge model: how much of the teacher's own stated reasoning,
-           description and summary does the thinking cover? -> words_coverage,
-           with a contradiction or not;
-  3 fact   gpt-6.1-sol, given the real context and images, flags claims in the
-           thinking that the state does not support -> fact_errors, grounded;
+  1 code   does the thinking's plan match the python code the teacher ran?
+           Lenient: code that inspects, prints or computes more than the
+           thinking says is fine; only a different decision is a disagreement.
+           -> code_leads_to_call, code_disagreements;
+  2 words  how much of the teacher's own stated reasoning, description and
+           summary does the thinking cover? -> words_coverage, contradictions;
+  3 fact   flags claims in the thinking the real state does not support
+           -> fact_errors, grounded;
   4 call   regenerate a python call from the thinking (code-only request, the
-           student model flash) and ask the judge model whether it makes the
-           same next move as the teacher -> call_same_move.
+           student model flash) and judge whether it is FUNCTIONALLY the same
+           as the teacher's code -- same effect on the game, not same text or
+           printed output -> call_functionally_same.
 
-The judge model (checks 1, 2 and 4's comparison) and the fact-check model are
-OpenAI gpt-6 models reached through the Responses API (`--judge-model`,
-default gpt-6-luna at high effort; `--sol-model`, default gpt-6.1-sol at
-xhigh). Regeneration (check 4) uses the student model flash on OpenRouter, so
-it tests whether the thinking leads the student back to the teacher's call.
+The judge model is an OpenAI gpt-6 model on the Responses API (`--sol-model`,
+default gpt-6.1-sol). The fact-check runs at `--sol-effort` (default xhigh),
+the other three at `--judge-effort` (default high). A record's four calls share
+the same context prefix, so the Responses prompt cache serves it after the
+first. Regeneration (check 4) uses the student model flash on OpenRouter, so it
+tests whether the thinking leads the student back to the teacher's call.
 
 The source `--run` provides each record's context, call, stated words and
 tools; `--gen` is a think_gen.generate output directory. `--manifest`/`--split`
@@ -71,31 +77,32 @@ def responses_json(msgs: list, model: str, effort: str, want: str, max_tokens: i
     return {"error": last}
 
 
-def judge_json(prompt: str, args, want: str) -> dict:
-    """A judge-model call on a single user prompt (checks 1, 2 and 4b)."""
-    return responses_json([{"role": "user", "content": prompt}], args.judge_model,
-                          args.judge_effort, want, args.judge_max_tokens)
+def sol_judge(rec: logs.Record, prompt: str, args, want: str, effort: str) -> dict:
+    """A gpt-6.1-sol judge call with the teacher's own context (frames and
+    images) in front of the judge instruction. The shared context prefix is
+    identical across a record's checks, so after the first call it is served
+    from the Responses prompt cache."""
+    msgs = list(rec.messages) + [{"role": "user", "content": prompt}]
+    return responses_json(msgs, args.sol_model, effort, want, args.sol_max_tokens)
 
 
 def check_code(rec: logs.Record, thinking: str, args) -> dict:
-    return judge_json(prompts.judge_code_prompt(context.call_text(rec.reply), thinking),
-                      args, "leads_to_call")
+    return sol_judge(rec, prompts.judge_code_prompt(context.call_text(rec.reply), thinking),
+                     args, "leads_to_call", args.judge_effort)
 
 
 def check_words(rec: logs.Record, thinking: str, args) -> dict:
     a = prompts.python_args(rec.reply)
     if not any((a.get("reasoning"), a.get("description"), rec.summary)):
         return {"skipped": "no stated words"}
-    return judge_json(prompts.judge_words_prompt(
-        a.get("reasoning") or "", a.get("description") or "", rec.summary, thinking), args, "covered")
+    return sol_judge(rec, prompts.judge_words_prompt(
+        a.get("reasoning") or "", a.get("description") or "", rec.summary, thinking),
+        args, "covered", args.judge_effort)
 
 
 def check_fact(rec: logs.Record, thinking: str, args) -> dict:
     """gpt-6.1-sol fact-checks the thinking against its own real context."""
-    msgs = list(rec.messages) + [{"role": "user", "content": prompts.judge_fact_prompt(thinking)}]
-    v = responses_json(msgs, args.sol_model, args.sol_effort, "grounded", args.sol_max_tokens)
-    v["_sol_tokens"] = v.pop("_tokens", None)
-    return v
+    return sol_judge(rec, prompts.judge_fact_prompt(thinking), args, "grounded", args.sol_effort)
 
 
 def regen_code(rec: logs.Record, thinking: str, args) -> tuple[str, dict]:
@@ -126,7 +133,7 @@ def check_call(rec: logs.Record, thinking: str, args) -> dict:
     code, meta = regen_code(rec, thinking, args)
     if not code.strip():
         return {"regen_error": meta.get("error", "empty"), "regen_code": ""}
-    v = judge_json(prompts.judge_call_prompt(sol_code, code), args, "same_next_move")
+    v = sol_judge(rec, prompts.judge_call_prompt(sol_code, code), args, "functionally_same", args.judge_effort)
     v["regen_code"] = code
     v["_regen_cost"] = meta.get("cost", 0)
     return v
@@ -164,8 +171,8 @@ def summarize(rows: list[dict]) -> dict:
             grounded.append(bool(f["grounded"]))
             facts.append(len(f.get("errors") or []))
         cl = r.get("call") or {}
-        if "same_next_move" in cl:
-            same.append(bool(cl["same_next_move"]))
+        if "functionally_same" in cl:
+            same.append(bool(cl["functionally_same"]))
     return {
         "n": len(rows),
         "words_coverage": _f(cov),
@@ -175,7 +182,7 @@ def summarize(rows: list[dict]) -> dict:
         "fact_grounded": _f(grounded),
         "fact_errors_mean": _f(facts),
         "fact_n": len(grounded),
-        "call_same_next_move": _f(same),
+        "call_functionally_same": _f(same),
         "call_n": len(same),
     }
 
@@ -189,11 +196,9 @@ def main(argv=None):
     ap.add_argument("--games", nargs="*", help="game id prefixes (default: all in --gen)")
     efforts = ["minimal", "low", "medium", "high", "xhigh"]
     ap.add_argument("--checks", nargs="+", choices=list(CHECKS), default=list(CHECKS))
-    ap.add_argument("--judge-model", default="gpt-6-luna", help="checks 1, 2 and 4b (Responses API)")
-    ap.add_argument("--judge-effort", default="high", choices=efforts)
-    ap.add_argument("--judge-max-tokens", type=int, default=8000)
-    ap.add_argument("--sol-model", default="gpt-6.1-sol", help="fact-check: sees the real context")
-    ap.add_argument("--sol-effort", default="xhigh", choices=efforts)
+    ap.add_argument("--sol-model", default="gpt-6.1-sol", help="judge model for all four checks (sees the context)")
+    ap.add_argument("--sol-effort", default="xhigh", choices=efforts, help="effort for the fact-check")
+    ap.add_argument("--judge-effort", default="high", choices=efforts, help="effort for code, words and call")
     ap.add_argument("--sol-max-tokens", type=int, default=16000)
     ap.add_argument("--model", default=client.MODEL, help="call regenerator: the student model (flash)")
     ap.add_argument("--provider", default=client.PROVIDER)

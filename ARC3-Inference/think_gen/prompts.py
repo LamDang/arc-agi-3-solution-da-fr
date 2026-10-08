@@ -213,38 +213,45 @@ def judge_prompt(call: str, real: str, generated: str) -> str:
 
 
 # Sol judge: four checks on generated thinking where the teacher's real
-# thinking is hidden (gpt-6.1-sol), so there is nothing to diff against.
-# Each check uses something that IS known about the step:
+# thinking is hidden (gpt-6.1-sol), so there is nothing to diff against. All
+# four run on gpt-6.1-sol with the teacher's own context (frames and images)
+# in front of them, and each uses something else that IS known about the step:
 #   1 code     the python code the teacher ran;
 #   2 words    the teacher's own stated reasoning, description and summary;
-#   3 fact     the real game context and images (checked by gpt-6.1-sol);
-#   4 call     the teacher's actual call (regenerate one from the thinking
-#              and compare the next move).
+#   3 fact     the real game state (claims checked against it);
+#   4 call     the teacher's actual call (regenerate one from the thinking and
+#              judge whether it does the same thing).
+# Each prompt is appended after the context, as a user turn.
 
 # 1. Code consistency: does the thinking's plan match the code the teacher ran?
+# Lenient on code that does MORE than the thinking: extra inspection, prints,
+# asserts and implicit computation are expected, not disagreements.
 JUDGE_CODE = """\
-You check an agent's private thinking at one step of a grid puzzle game against the code it then ran. The thinking should lead to exactly this code: the move or moves it decides on, the targets and values it computes, and what the code inspects or does should all follow from it. You see only the thinking and the code, not the game.
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
+
+Above is the context you had at one step of a game you were playing, up to the moment of your next move. Below is a written-out version of your private thinking for that step, produced afterwards by another model, and the code you then ran. Using the context above to follow what the code does, check that the thinking leads to this code: the move or moves it decides on, and the targets and values it commits to, should match what the code actually does.
 
 <thinking>
 {thinking}
 </thinking>
 
-The code that followed:
+The code you ran:
 {call}
 
-1. List what the code actually does: every real game action it sends (the arguments of each `action(...)`, in order), and the main things it computes, inspects or asserts.
-2. For each item, say whether the thinking decides on it or accounts for it (same content, any wording).
-3. List the disagreements: a move, target or value in the code that the thinking decides differently, a plan in the thinking the code does not carry out, or a step the code takes that the thinking never mentions.
+Judge only genuine conflicts. The code may inspect, print, assert or sanity-check more than the thinking mentions, and may compute details the thinking leaves implicit; that is expected and is NOT a disagreement, so do not list it. List a disagreement only where the code's actual decision departs from the thinking: a different game action, a different target or value, or a step the thinking commits to that the code does not carry out. Set leads_to_call true when the code carries out the move the thinking decided on, even if the code also does more.
 
 Answer with JSON only:
-{{"code_does": ["..."], "accounted_for": [true, false], "disagreements": ["..."], "leads_to_call": true, "notes": "one sentence"}}"""
+{{"disagreements": ["..."], "leads_to_call": true, "notes": "one sentence"}}"""
 
 
-# 2. Coverage of the teacher's own words (stated reasoning, description, summary).
+# 2. Coverage of the teacher's own words (stated reasoning, description, summary),
+# with the context in front so the thinking can be understood against the state.
 JUDGE_WORDS = """\
-You compare an agent's private thinking at one step of a grid puzzle game with the agent's own brief account of that same step. The account is ground truth for what the agent thought; the thinking was written separately and should contain the same points, worked out in more detail.
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
 
-The agent's account of the step:
+Above is the context you had at one step of a game you were playing. Below is a written-out version of your private thinking for that step, produced afterwards by another model, and your own brief account of the step (the reasoning, description and summary you gave with your move). The account is the ground truth for what you thought; the thinking should contain the same points, worked out in more detail. Use the context above to understand the thinking.
+
+Your account of the step:
 {account}
 
 <thinking>
@@ -280,16 +287,20 @@ Answer with JSON only:
 {{"errors": [{{"claim": "...", "actual": "..."}}], "grounded": true, "notes": "one sentence"}}"""
 
 
-# 4. Equivalence of a regenerated call with the teacher's. Flash is first given
-# the thinking and the code-only request (REGEN_NOTE) and made to produce a
-# python call; this judge then compares the two calls' next move.
+# 4. Functional equivalence of a regenerated call with the teacher's. Flash is
+# first given the thinking and the code-only request (REGEN_NOTE) and made to
+# produce a python call; this judge then, with the context in front, decides
+# whether the two snippets would do the same thing to the game, not whether
+# their text or printed output matches.
 REGEN_NOTE = """\
 That is your private thinking for this step. Now make the `python` tool call it leads to: call `python` with the `code` that carries out the move you decided on. Do not add any other text."""
 
 JUDGE_CALL = """\
-You compare two Python snippets an agent could run at one step of a grid puzzle game. Only the real environment actions they send matter, that is the calls to `action(...)`, not how the code computes them or what it prints. Snippet A is what the agent actually ran. Snippet B was produced by another model from a reconstruction of the agent's thinking, without seeing A.
+[Note outside the game: this is not a turn of the game, and you must not call any tool.]
 
-Snippet A (actual):
+Above is the context you had at one step of a game you were playing. Below are two Python snippets for that step. Snippet A is the code you actually ran. Snippet B was produced by another model from a reconstruction of your thinking, without seeing A. Using the context above, judge whether the two snippets are functionally the same: run on this state, would they carry out the same operation and have the same effect on the game, the same move or moves on the same targets, regardless of how the code is written, what it prints, or how it computes the result?
+
+Snippet A (yours):
 ```python
 {sol_code}
 ```
@@ -299,12 +310,10 @@ Snippet B (regenerated):
 {regen_code}
 ```
 
-1. List the game actions A sends, in order (e.g. "MOUSE(row=39,col=45)", "LEFT"); write "(none: inspection only)" if it sends no action.
-2. Do the same for B.
-3. Do they make the same next move? Yes if the first action matches, or the first batch matches in order, with MOUSE targets the same or within a cell or two; a snippet that only inspects matches another that only inspects.
+Ignore differences in inspection, printing, variable names and style; weigh only what each snippet would actually do to the game. List the functional differences that would change what happens in the game, if any.
 
 Answer with JSON only:
-{{"a_actions": ["..."], "b_actions": ["..."], "same_next_move": true, "notes": "one sentence"}}"""
+{{"differences": ["..."], "functionally_same": true, "notes": "one sentence"}}"""
 
 
 def judge_code_prompt(call: str, generated: str) -> str:
