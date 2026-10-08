@@ -37,6 +37,8 @@ from inference.agent.prompts import (
     PERSISTENT_FUNCTIONS_LINE,
     EPHEMERAL_FUNCTIONS_LINE,
     SUMMARY_REQUEST_PROMPT,
+    NOTE_COMPACTION_PROMPT,
+    NOTE_COMPACTION_TOOL_RESULT,
     PREFER_TOOL_CALLS_LINE,
     GAME_OVERVIEW_ADDENDUM,
     WORLD_MODEL_ADDENDUM,
@@ -55,6 +57,7 @@ from inference.agent.prompts import (
     ACTION_INFO_ADDENDUM,
     UNDO_INFO_ADDENDUM,
     RESET_INFO_ADDENDUM,
+    NO_BUDGET_BURN_ADDENDUM,
 )
 
 from inference.agent.vision_context import (
@@ -291,7 +294,79 @@ def _persistent_history_assistant_turns() -> int:
     0 or negative disables the cap entirely, leaving the token budget as the
     only limit."""
     return _get_env_int("ARC3_HISTORY_ASSISTANT_TURNS", 30)
+
+
+def _note_compaction_tokens() -> int:
+    """Prompt size at a turn start that triggers a note compaction. 0 disables.
+
+    Instead of letting the trimmer drop the oldest half of history with nothing
+    in its place (at the budget, ~119K with a 128K window), the harness asks the
+    model for a handover note first: NOTE_COMPACTION_PROMPT, answered with a
+    python call whose code is comments only. History is then cut to the last
+    ARC3_NOTE_COMPACTION_KEEP_TURNS turns and the note exchange, and the turn
+    goes on with its normal opener. Set it below the trimmer's budget, or the
+    trimmer cuts first."""
+    return max(0, _get_env_int("ARC3_NOTE_COMPACTION_TOKENS", 0))
+
+
+def _note_compaction_keep_turns() -> int:
+    """Turns kept verbatim by a note compaction, counted by their openers.
+
+    20 kept turns of gpt-6.1-sol came to 61-87K tokens (two images and a
+    repeated opener per turn), leaving room for only 9-18 turns before the
+    next note; 10 leaves about twice that."""
+    return max(1, _get_env_int("ARC3_NOTE_COMPACTION_KEEP_TURNS", 10))
+
+
 _WM_NUDGE_TURNS = _get_env_int("ARC3_WM_NUDGE_TURNS", 0)
+
+
+def _repeat_hint_text(repeated: int, *, visits: int, current_repeated: bool) -> list[str]:
+    """The lines of the ARC3_REPEAT_HINT message."""
+    which = (
+        f"The current board position and {repeated - 1} other position(s)"
+        if current_repeated else f"{repeated} board positions"
+    )
+    return [
+        f"Repetition check: {which} on this level have each been reached at least "
+        f"{visits} times (boards compared without the 2-pixel border).",
+        "If you are stuck on this level, take a step back and assess:",
+        "- list the facts you know and have tested;",
+        "- look at every visual element on the board;",
+        "- list what must be true to pass the level, and work backward from it;",
+        "- prioritize the strategy most likely to succeed.",
+        "If you are progressing normally and the repetition is part of the game's mechanics, ignore this message.",
+    ]
+
+
+def _repeated_positions(
+    history_entries: list[HistoryEntry],
+    current_frame: Frame | None,
+    *,
+    visits: int,
+    border: int = 2,
+) -> tuple[int, bool]:
+    """Positions of the current level reached at least `visits` times.
+
+    A position is the board without its `border`-pixel frame, where most step
+    and timer bars sit, compared exactly. Every history frame of the level
+    counts as a visit, its starting board and the board after an automatic
+    RESET included. Returns how many positions reached `visits`, and whether
+    the current board is one of them.
+    """
+    if current_frame is None:
+        return 0, False
+
+    def key(frame: Frame) -> tuple[tuple[int, ...], ...]:
+        return tuple(tuple(row[border:len(row) - border]) for row in frame.grid[border:len(frame.grid) - border])
+
+    counts: dict[tuple[tuple[int, ...], ...], int] = {}
+    for entry in history_entries:
+        if entry.frame is not None and entry.frame.level == current_frame.level:
+            k = key(entry.frame)
+            counts[k] = counts.get(k, 0) + 1
+    repeated = sum(1 for n in counts.values() if n >= visits)
+    return repeated, counts.get(key(current_frame), 0) >= visits
 _WM_WIPE_ON_GAME_OVER = _get_env_int("ARC3_WM_WIPE_ON_GAME_OVER", 1)
 _AUTO_FRAME_DIFF = _get_env_bool("ARC3_AUTO_FRAME_DIFF", False)
 _AUTO_FRAME_DIFF_BUDGET = _get_env_int("ARC3_AUTO_FRAME_DIFF_BUDGET", 300)
@@ -311,6 +386,80 @@ _PYTHON_TOOL_DESCRIPTION = (
     "The raw numeric grid is not available. Use `.segmentation` as the primary view; use `.ascii` only to read a small, specific region. "
     "Use `print(...)` for compact output or assign final data to `result`."
 )
+
+# ARC3_PYTHON_RATIONALE: the python tool also takes the reasoning behind the
+# call and what the code does, written before the code, reasoning first so the
+# model thinks before it decides. They are logged with the call and shown in
+# the transcript; the harness does not run or check them.
+_PYTHON_RATIONALE_TOOL_SENTENCE = (
+    " Before the code, give in `reasoning` your detailed, step-by-step reasoning: the "
+    "observations, deductions, assumptions and decision behind the call, as far as each "
+    "applies; then say in `description` what the code does."
+)
+_PYTHON_RATIONALE_PROPERTIES = {
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "Detailed, step-by-step reasoning for this call, written before deciding what to "
+            "run. Go step by step and include, when relevant: the observations it builds on, "
+            "what you deduce from them, the assumptions you are making, and the decision you "
+            "take. Say why the call helps solve the game now and what you expect to see."
+        ),
+    },
+    "description": {
+        "type": "string",
+        "description": "One or two sentences: what this code does.",
+    },
+}
+_PYTHON_PROMPT_CODE_LINE = "- The only tool is `python`; call it with one ephemeral `code` string.\n"
+_PYTHON_PROMPT_RATIONALE_LINE = (
+    "- The only tool is `python`; call it with `reasoning` (your detailed, step-by-step "
+    "reasoning for the call, written first: go step by step and include, when relevant, the "
+    "observations it builds on, your deductions, your assumptions and the decision you take, "
+    "and what you expect to see), then `description` (what the code does) and one ephemeral "
+    "`code` string.\n"
+)
+
+
+def _python_rationale() -> bool:
+    return _get_env_bool("ARC3_PYTHON_RATIONALE", False)
+
+
+def _python_tool_schema() -> dict[str, Any]:
+    """The python tool's function schema, with the reasoning and description
+    fields first when ARC3_PYTHON_RATIONALE is on: a model writes arguments in
+    schema order, so the reasoning comes before the decision and the code."""
+    code = {
+        "type": "string",
+        "description": "Python code to run. The snippet is ephemeral and is not saved across tool calls.",
+    }
+    if not _python_rationale():
+        return {
+            "type": "function",
+            "function": {
+                "name": "python",
+                "description": _PYTHON_TOOL_DESCRIPTION,
+                "parameters": {"type": "object", "properties": {"code": code}, "required": ["code"]},
+            },
+        }
+    properties = {**_PYTHON_RATIONALE_PROPERTIES, "code": code}
+    return {
+        "type": "function",
+        "function": {
+            "name": "python",
+            "description": _PYTHON_TOOL_DESCRIPTION + _PYTHON_RATIONALE_TOOL_SENTENCE,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": list(properties),
+                "additionalProperties": False,
+            },
+            # Without it the fields are optional in practice: replayed from logged
+            # requests whose history has code-only calls, 26 of 30 left them out.
+            # strict makes OpenAI enforce the schema.
+            "strict": True,
+        },
+    }
 
 def _normalize_valid_actions(valid_actions: list[str] | None) -> list[str]:
     names: list[str] = []
@@ -557,6 +706,24 @@ def _http_retry_delay_seconds(
         except ValueError:
             pass
     return backoff
+
+
+_TRANSIENT_STREAM_ERROR_CODES = frozenset(
+    {"server_is_overloaded", "rate_limit_exceeded", "server_error", "slow_down"}
+)
+
+
+def _is_transient_stream_error(error: Any) -> bool:
+    """An error reported inside a response stream that a retry can clear:
+    OpenAI's overload and rate-limit codes, read from the error object or its
+    text."""
+    if isinstance(error, dict):
+        code = str(error.get("code") or error.get("type") or "")
+        if code in _TRANSIENT_STREAM_ERROR_CODES:
+            return True
+        error = error.get("message") or ""
+    text = str(error or "")
+    return any(code in text for code in _TRANSIENT_STREAM_ERROR_CODES)
 
 
 def _post_with_retries(
@@ -969,6 +1136,12 @@ def _apply_history_image_window(
 # summary-aware drain navigates by these, and losing one would silently return
 # it to ordinary block dropping.
 _SUMMARY_CONTROL_KIND = "summary"
+# Tag for the three messages of a note compaction: the request, the reply whose
+# python code is the note, and the stand-in tool result. Never pruned.
+_NOTE_CONTROL_KIND = "note"
+# Below this the reply is not a note (the 16 replayed ones ran 4,000-9,400
+# characters).
+_NOTE_MIN_USABLE_CHARS = 300
 # Below this a reply that also called a tool is a preamble rather than a
 # summary. Real ones measured 4,385 to 6,248 characters; an introduction to a
 # tool call measured nine.
@@ -1205,6 +1378,9 @@ def _prune_control_kind_enabled(kind: str) -> bool:
                  `short` mode) - a restatement of unchanged state
     - 'stub'   : the placeholder that ARC3_STUB_DEAD_REASONING leaves behind
     """
+    if kind == _NOTE_CONTROL_KIND:
+        # the note stands in for the turns a compaction removed
+        return False
     if _prune_control_context_enabled():
         return True
     env_name = _CONTROL_KIND_ENV.get(kind)
@@ -2722,17 +2898,23 @@ def _build_system_prompt(
             prompt += UNDO_INFO_ADDENDUM
         if reset_exposed():
             prompt += RESET_INFO_ADDENDUM
-    prompt += (
+    python_head = (
         PYTHON_ADDENDUM_HEAD.replace(
             "- Every `python` tool call starts fresh. Re-import modules or re-define any custom utility logic you need.\n",
             "- Python variables reset between tool calls. Re-import modules as needed; "
             "eligible functions are retained as described in the tool session rules below.\n",
         ) if _persistent_functions() else PYTHON_ADDENDUM_HEAD
     )
+    if _python_rationale():
+        python_head = python_head.replace(_PYTHON_PROMPT_CODE_LINE, _PYTHON_PROMPT_RATIONALE_LINE)
+    prompt += python_head
     prompt += (
         WORLD_MODEL_FREE_ADDENDUM if _memory_sections_disabled() else WORLD_MODEL_ADDENDUM
     )
     prompt += PYTHON_ADDENDUM_TAIL
+    if _get_env_bool("ARC3_NO_BUDGET_BURN", False) and not reset_exposed():
+        # follows the tail's flag-semantics line, which explains budget deaths
+        prompt += NO_BUDGET_BURN_ADDENDUM
     if _get_env_bool("ARC3_FRAME_DIFF_HINT", False):
         # documents `frame_diff(before, after)`. The function stays callable
         # either way - this only controls whether the model is told about it,
@@ -3393,6 +3575,7 @@ def _append_request_snapshot(
     chat_template_kwargs: dict[str, Any] | None = None,
     request_params: dict[str, Any] | None = None,
     response_id: str | None = None,
+    kind: str | None = None,
 ) -> None:
     # A response line carries the model's reply, not the request again: the
     # request line just before it already holds the messages and tools.
@@ -3423,6 +3606,8 @@ def _append_request_snapshot(
         payload["action"] = action
     if request_index_within_turn is not None:
         payload["request_index_within_turn"] = request_index_within_turn
+    if kind:
+        payload["kind"] = kind
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(
             json.dumps(
@@ -3648,6 +3833,8 @@ class ToolAgent:
         self._death_ledger_attempts: list[dict[str, Any]] = []
         self._death_ledger_index: dict[str, list[tuple[int, int]]] = {}
         self._death_ledger_total: int = 0
+        # analyzer turns since the repetition hint was last shown; None: never shown
+        self._repeat_hint_turns_since: int | None = None
         self._history_messages: list[dict[str, Any]] = []
         self._session_runtime_dir: Path | None = None
         self._session_total_tokens = 0
@@ -4878,6 +5065,35 @@ class ToolAgent:
             lines.append(f"Current state: step {step}, level {level}.")
         return lines
 
+    def _repeat_hint_lines(
+        self, current_frame: Frame | None, history_entries: list[HistoryEntry]
+    ) -> list[str]:
+        """Suggest a step back once several board positions keep coming back.
+
+        Fires when ARC3_REPEAT_HINT_POSITIONS positions of the current level
+        (default 3) have each been seen ARC3_REPEAT_HINT_VISITS times (default
+        3), the 2-pixel border left out. On the 5 analysed runs, 3 positions at
+        their third visit caught 15 of 17 hand-labelled stuck stretches, most
+        before a second game over, and fired on 7 of 250 normal levels
+        (exp/stuck-detection.md). Once shown, it waits
+        ARC3_REPEAT_HINT_COOLDOWN analyzer turns (default 10) even while the
+        repetition continues.
+        """
+        if not _get_env_bool("ARC3_REPEAT_HINT", False):
+            return []
+        if self._repeat_hint_turns_since is not None:
+            self._repeat_hint_turns_since += 1
+            if self._repeat_hint_turns_since < max(1, _get_env_int("ARC3_REPEAT_HINT_COOLDOWN", 10)):
+                return []
+        visits = max(2, _get_env_int("ARC3_REPEAT_HINT_VISITS", 3))
+        repeated, current_repeated = _repeated_positions(
+            history_entries, current_frame, visits=visits
+        )
+        if repeated < max(1, _get_env_int("ARC3_REPEAT_HINT_POSITIONS", 3)):
+            return []
+        self._repeat_hint_turns_since = 0
+        return _repeat_hint_text(repeated, visits=visits, current_repeated=current_repeated)
+
     def _build_user_prompt(
         self,
         action_num: int,
@@ -5175,6 +5391,7 @@ class ToolAgent:
                     current_frame, history_entries, previous_step_summary
                 )
             )
+        lines.extend(self._repeat_hint_lines(current_frame, history_entries))
         lines.extend(
             [
                 "Only tool: `python`. It receives `current_frame`, `previous_frame`, `history`, `transitions`, `last_transition`, `valid_actions`, `last_action_call_result`, `frame_diff(before, after)`, and `action(actions)`.",
@@ -5250,27 +5467,7 @@ class ToolAgent:
 
     def _tools(self, state_path: Path) -> list[dict[str, Any]]:
         self._ensure_session(state_path)
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "python",
-                    "description": _PYTHON_TOOL_DESCRIPTION,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "code": {
-                                "type": "string",
-                                "description": (
-                                    "Python code to run. The snippet is ephemeral and is not saved across tool calls."
-                                ),
-                            },
-                        },
-                        "required": ["code"],
-                    },
-                },
-            }
-        ]
+        return [_python_tool_schema()]
 
     def _harness_template_kwargs(self) -> dict[str, Any]:
         """Chat-template kwargs the HARNESS sets per request.
@@ -5373,47 +5570,75 @@ class ToolAgent:
         initial_grace = 0.0
         if not self._http_initial_grace_used:
             initial_grace = _env_float("ARC3_HTTP_RETRY_INITIAL_SECONDS", 0.0)
-        _diag(self, "request")
-        try:
-            response = _post_with_retries(
-                lambda: post_chat(payload),
-                retries=_env_int("ARC3_HTTP_RETRIES", 3),
-                base_seconds=_env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
-                max_seconds=_env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
-                initial_seconds=initial_grace,
+        request_payload = payload
+        stream_retries = _env_int("ARC3_HTTP_RETRIES", 3)
+        stream_attempt = 0
+        while True:
+            _diag(self, "request")
+            try:
+                response = _post_with_retries(
+                    lambda: post_chat(request_payload),
+                    retries=_env_int("ARC3_HTTP_RETRIES", 3),
+                    base_seconds=_env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
+                    max_seconds=_env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
+                    initial_seconds=initial_grace,
+                )
+            finally:
+                # consumed whether the call succeeded or failed: the grace covers
+                # the server coming up, and by now it either did or will not
+                self._http_initial_grace_used = True
+            try:
+                response.raise_for_status()
+            except requests.HTTPError as exc:
+                detail = response.text.strip()
+                message = f"{exc}"
+                if detail:
+                    message += f" | response: {detail}"
+                raise requests.RequestException(message) from exc
+            if getattr(response, "status_code", 200) >= 400:
+                detail = response.text.strip()
+                message = f"{response.status_code} Error"
+                if detail:
+                    message += f" | response: {detail}"
+                raise requests.RequestException(message)
+            if request_payload.get("stream"):
+                # decode_unicode=True decodes each transport chunk INDEPENDENTLY, so a
+                # multi-byte UTF-8 sequence straddling a chunk boundary is split into
+                # two broken halves - an em-dash (E2 80 94) becomes "\u00e2" plus
+                # fragments. Most characters survive, which is why short probes look
+                # clean and only long streamed replies are corrupted. The assembler
+                # already decodes bytes itself, and a complete SSE line is always a
+                # whole UTF-8 sequence, so hand it raw bytes instead.
+                assemble = assemble_streamed_responses if responses_api else assemble_streamed_chat_response
+                payload = assemble(response.iter_lines(decode_unicode=False))
+            elif responses_api:
+                payload = chat_response_from_responses(response.json())
+            else:
+                payload = response.json()
+            # OpenAI reports overload inside a 200 stream (an error event or a
+            # failed response), which _post_with_retries never sees. Retried
+            # here, in place, the turn keeps its tool work; let through, it
+            # rolls the turn back, and ten in a row end the game.
+            error = payload.get("error") if not payload.get("choices") else None
+            if not (
+                responses_api
+                and _is_transient_stream_error(error)
+                and (stream_retries < 0 or stream_attempt < stream_retries)
+            ):
+                break
+            delay = _http_retry_delay_seconds(
+                stream_attempt,
+                None,
+                _env_float("ARC3_HTTP_RETRY_BASE_SECONDS", 5.0),
+                _env_float("ARC3_HTTP_RETRY_MAX_SECONDS", 5.0),
             )
-        finally:
-            # consumed whether the call succeeded or failed: the grace covers
-            # the server coming up, and by now it either did or will not
-            self._http_initial_grace_used = True
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            detail = response.text.strip()
-            message = f"{exc}"
-            if detail:
-                message += f" | response: {detail}"
-            raise requests.RequestException(message) from exc
-        if getattr(response, "status_code", 200) >= 400:
-            detail = response.text.strip()
-            message = f"{response.status_code} Error"
-            if detail:
-                message += f" | response: {detail}"
-            raise requests.RequestException(message)
-        if payload.get("stream"):
-            # decode_unicode=True decodes each transport chunk INDEPENDENTLY, so a
-            # multi-byte UTF-8 sequence straddling a chunk boundary is split into
-            # two broken halves - an em-dash (E2 80 94) becomes "\u00e2" plus
-            # fragments. Most characters survive, which is why short probes look
-            # clean and only long streamed replies are corrupted. The assembler
-            # already decodes bytes itself, and a complete SSE line is always a
-            # whole UTF-8 sequence, so hand it raw bytes instead.
-            assemble = assemble_streamed_responses if responses_api else assemble_streamed_chat_response
-            payload = assemble(response.iter_lines(decode_unicode=False))
-        elif responses_api:
-            payload = chat_response_from_responses(response.json())
-        else:
-            payload = response.json()
+            log.warning(
+                "transient error in the response stream (%s); retrying in %.1fs (%d/%s)",
+                str(error)[:200], delay, stream_attempt + 1,
+                "unlimited" if stream_retries < 0 else stream_retries,
+            )
+            time.sleep(delay)
+            stream_attempt += 1
         choices = payload.get("choices", [])
         if not choices:
             detail = payload.get("error") or {
@@ -6296,6 +6521,171 @@ class ToolAgent:
             text,
         )
 
+    def _maybe_compact_with_note(
+        self,
+        opening_message: dict[str, Any],
+        tools: list[dict[str, Any]] | None,
+        append_transcript,
+        *,
+        state_path: Path,
+        analysis_step: int | None,
+        display_action_num: int,
+        request_timeout_seconds: float | None = None,
+    ) -> None:
+        """Cut history to its last turns behind a handover note the model writes.
+
+        Called at a turn start, before the opener is appended: the request is the
+        current history plus NOTE_COMPACTION_PROMPT, so its prefix is cached. On
+        a usable reply history becomes the last ARC3_NOTE_COMPACTION_KEEP_TURNS
+        turns followed by the note exchange, and the turn goes on with its
+        opener. On any failure history is left alone and the trimmer still cuts
+        at the budget as before.
+        """
+        threshold = _note_compaction_tokens()
+        history = self._history_messages
+        if threshold <= 0 or not history:
+            return
+        system_message = {"role": "system", "content": self._system_prompt}
+        used = self._estimate_request_input_tokens(
+            [system_message, *history, opening_message], tools=tools
+        )
+        if used < threshold:
+            return
+        keep_turns = _note_compaction_keep_turns()
+        # a turn starts at its opener; resumptions, nudges and notes are tagged
+        starts = [
+            index
+            for index, message in enumerate(history)
+            if str(message.get("role", "")).strip() == "user"
+            and not message.get(_CONTROL_MESSAGE_KEY)
+        ]
+        if len(starts) <= keep_turns:
+            return
+        # Kept turns large enough to stay near the threshold would bring a note
+        # every turn (seen at 20K with 5 kept turns), so fewer are kept until the
+        # prompt is at most 3/4 of it. The last 20 turns of the gpt-6.1-sol
+        # games ran 40-70K, under the cap at 110K.
+        first = len(starts) - keep_turns
+        while first < len(starts) - 1 and self._estimate_request_input_tokens(
+            [system_message, *history[starts[first]:], opening_message], tools=tools
+        ) > threshold * 3 // 4:
+            first += 1
+        cut = starts[first]
+        keep_turns = len(starts) - first
+        step = re.search(r"Current state: step (\d+)", _message_display_text(history[cut]))
+        request_text = NOTE_COMPACTION_PROMPT.format(
+            threshold_k=round(threshold / 1000),
+            keep_turns=keep_turns,
+            kept_from=f" (from game step {step.group(1)} on)" if step else "",
+        )
+        request = _mark_control_message(
+            {"role": "user", "content": request_text}, _NOTE_CONTROL_KIND
+        )
+        messages = [system_message, *history, request]
+        log_path = _resolve_request_log_path(state_path) if self._save_request_logs else None
+        log_fields = {
+            "analysis_step": analysis_step,
+            "action": display_action_num,
+            "request_index_within_turn": 0,
+            "chat_template_kwargs": self._harness_template_kwargs(),
+            "kind": "note_compaction",
+        }
+        if log_path is not None:
+            _append_request_snapshot(
+                log_path,
+                messages=json.loads(json.dumps(messages)),
+                tools=tools,
+                event="request",
+                tool_choice=_request_tool_choice(tools),
+                **log_fields,
+            )
+        try:
+            result = self._chat_completion(
+                messages, tools=tools, request_timeout_seconds=request_timeout_seconds
+            )
+        except BaseException as exc:  # a failed note must not end the turn
+            log.warning("note compaction request failed: %s", exc)
+            append_transcript("ANALYZER STATUS", f"note_compaction_failed: {exc}")
+            return
+        # the tokens were generated whether or not the note is usable
+        self._accumulate_usage_tokens(
+            getattr(result, "usage", None), count_toward_turn=False
+        )
+        if log_path is not None:
+            _append_request_snapshot(
+                log_path,
+                messages=None,
+                tools=None,
+                event="response",
+                reply=result.message,
+                tool_choice=_request_tool_choice(tools),
+                finish_reason=result.finish_reason,
+                served_by=result.served_by,
+                usage=result.usage,
+                request_params=getattr(self, "_last_request_params", None),
+                response_id=result.response_id,
+                **log_fields,
+            )
+        message = result.message or {}
+        content = _normalize_message_content(message.get("content", "")).strip()
+        reply: dict[str, Any] = {"role": "assistant"}
+        tool_result: dict[str, Any] | None = None
+        note = ""
+        for call in message.get("tool_calls") or []:
+            function = call.get("function") or {}
+            if str(function.get("name", "")).strip() != "python":
+                continue
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                continue
+            note = str(arguments.get("code") or "") if isinstance(arguments, dict) else ""
+            if note.strip():
+                # the one call, as made; any other call in the reply is dropped
+                reply["tool_calls"] = [json.loads(json.dumps(call))]
+                tool_result = {
+                    "role": "tool",
+                    "tool_call_id": call.get("id", ""),
+                    "content": NOTE_COMPACTION_TOOL_RESULT,
+                }
+                break
+        if tool_result is None:
+            # a note written as text instead of a call is still a note
+            note = content
+        if content:
+            reply["content"] = content
+        if len(note.strip()) < _NOTE_MIN_USABLE_CHARS:
+            log.warning(
+                "note compaction reply unusable (%d chars of note, finish_reason=%s); "
+                "history left to the trimmer",
+                len(note.strip()), result.finish_reason or "?",
+            )
+            append_transcript(
+                "ANALYZER STATUS",
+                f"note_compaction_rejected: {len(note.strip())} chars of note",
+            )
+            return
+        reasoning_details = _history_reasoning_details(message)
+        if reasoning_details:
+            reply["reasoning_details"] = reasoning_details
+        note_messages = [request, _mark_control_message(reply, _NOTE_CONTROL_KIND)]
+        if tool_result is not None:
+            note_messages.append(_mark_control_message(tool_result, _NOTE_CONTROL_KIND))
+        # an earlier note is superseded: the new one was asked to carry it forward
+        kept = [m for m in history[cut:] if m.get(_CONTROL_MESSAGE_KEY) != _NOTE_CONTROL_KIND]
+        self._history_messages = [*kept, *note_messages]
+        self._note_history_evicted()
+        after = self._estimate_request_input_tokens(
+            [system_message, *self._history_messages, opening_message], tools=tools
+        )
+        append_transcript(
+            "ANALYZER STATUS",
+            f"note_compaction: prompt ~{used} -> ~{after} tokens; kept the last "
+            f"{keep_turns} turns ({len(kept)} of {len(history)} messages) and a "
+            f"{len(note)}-char note",
+        )
+        append_transcript("COMPACTION NOTE", note)
+
     def _estimate_request_input_tokens(
         self,
         messages: list[dict[str, Any]],
@@ -6792,6 +7182,15 @@ class ToolAgent:
             # turn and is pure duplication afterwards, which is precisely what
             # ARC3_PRUNE_CONTROL_CONTEXT exists to drop.
             _mark_control_message(opening_message, "resume")
+        self._maybe_compact_with_note(
+            opening_message,
+            self._tools(state_path),
+            append_transcript,
+            state_path=state_path,
+            analysis_step=analysis_step,
+            display_action_num=display_action_num,
+            request_timeout_seconds=request_timeout_seconds,
+        )
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self._system_prompt}, *self._history_messages,
         ]

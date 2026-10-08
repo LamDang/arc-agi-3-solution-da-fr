@@ -44,6 +44,9 @@ The descriptions clarify that action semantics depend on the game. MOUSE uses in
 |---|---|---|
 | `ARC3_LEVEL_TRANSFER_GUIDANCE` | Off | Revises system and level-up user guidance: carry forward useful mechanics from the preceding level; inspect new elements and test their role; expect new mechanics; reconsider how the goal must be reached. The level-up message identifies the returned frame/image as the next level’s starting state. |
 | `ARC3_FRAME_DIFF_HINT` | Off | Explains how to call `frame_diff`, its defaults and returned fields. Describes same-color four-connected components and warns that matching is heuristic, so a reported movement does not establish persistent object identity. It is informational rather than a requirement to use the helper. |
+| `ARC3_PYTHON_RATIONALE` | Off | The `python` tool takes `reasoning` (the step-by-step reasoning behind the call, written first so the model thinks before deciding) and `description` (what the code does) before `code`, all required, and the prompt's tool line asks for them. The schema is sent with `strict: true`, so the OpenAI Responses adapter enforces it; without it, replayed requests whose history held code-only calls left the fields out 26 times in 30. The fields are logged with the call and shown on the transcript page; the harness does not run or check them. |
+| `ARC3_NO_BUDGET_BURN` | Off | Tells the model not to spend actions on purpose to run out the step budget or lose the attempt to get the level reset, even when it thinks it needs a fresh start, and to spend them exploring new ideas or testing its understanding of the mechanics. Only added while `EXPOSE_RESET` is off, when losing is the only way to restart a level. |
+| `ARC3_REPEAT_HINT` | Off | Appends a step-back message to the turn prompt when 3 board positions of the current level have each been reached 3 times, comparing boards without their 2-pixel border. It asks the model, if stuck, to list tested facts, look at every visual element, work backward from what must be true to pass the level, and prioritize the likeliest strategy, and to ignore the message if the repetition is part of the mechanics. `ARC3_REPEAT_HINT_POSITIONS` (3), `ARC3_REPEAT_HINT_VISITS` (3) and `ARC3_REPEAT_HINT_COOLDOWN` (10 analyzer turns between two messages, even while the repetition continues) tune it. See `exp/stuck-detection.md`. |
 | `ARC3_STEP_VERIFICATION_HINT` | Off | Replaces the player-specific verification hint with general guidance to compare observations with expected effects during multi-step code. If search fails, the game is still solvable; reconsider mechanics, goal, search implementation, search limits, and interactions with new elements. |
 | `ARC3_NEW_CHANGED_PROMPTS` | Off | Uses more precise language about no change in the board’s gameplay area, rather than equating every HUD-only change with useful progress. Also changes related guard feedback. |
 | `ARC3_REPORT_GAMEPLAY_CHANGED` | Off | Exposes `gameplay_changed` and `no_op` in model-facing action results. The harness can calculate these internally even when reporting is off. |
@@ -249,6 +252,19 @@ Added periodic model-written summaries as a separate memory mechanism from the s
 - Summary wording retains useful current facts and uncertainty/alternative hypotheses rather than demanding a complicated new memory taxonomy.
 
 Summary output length is a separate request limit; it does not change the normal gameplay generation reservation. Normal context-overflow recovery trims and retries ordinary requests. A failed summary request can instead be skipped until its next interval.
+
+### Note compaction
+
+A cut with a handover note in place of the trimmer's blind cut ([exp/note-compaction.md](exp/note-compaction.md)).
+
+| Setting | Default | Behavior |
+|---|---|---|
+| `ARC3_NOTE_COMPACTION_TOKENS` | `0`: disabled | At a turn start whose estimated prompt reaches this, sends the history with `NOTE_COMPACTION_PROMPT` instead of the opener. The reply, a `python` call whose code is comments only, is kept unexecuted as the note; history becomes the last turns plus the note exchange, and the turn goes on with its opener. Set it below the trimmer's budget. |
+| `ARC3_NOTE_COMPACTION_KEEP_TURNS` | `10` | Turns kept verbatim, counted by their openers (resumptions and nudges are not turns). Fewer are kept (at least one) while the prompt would stay above 3/4 of the threshold, so that a note does not come every turn. |
+
+- The note exchange is tagged `note`: no pruning setting removes it, and the next compaction replaces it (the prompt asks to carry the earlier note forward).
+- A failed request or a note under 300 characters leaves history alone; the trimmer still cuts at the budget.
+- The note request is logged in the request log with `request_index_within_turn: 0` and `kind: "note_compaction"`. Its output tokens count toward the game's total, not the turn's yield budget.
 
 ## 10. Structured memory / world-model options
 

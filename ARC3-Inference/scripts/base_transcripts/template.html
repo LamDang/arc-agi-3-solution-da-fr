@@ -1,0 +1,419 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reading console, as on the engine_re transcript pages. Header with the run's settings and a comparison table, game tabs, a per-level actions chart against the human baseline, a step strip, then a level index beside the step log. */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --sunk: #eef1f5;
+  --fg: #19202b;
+  --muted: #5a6475;
+  --line: #d9dee6;
+  --accent: #1e6fd9;
+  --note-bg: #fff4e6;
+  --note-fg: #7a3b00;
+  --harness-bg: #eef6ff;
+  --harness-fg: #10345f;
+  --human: #b7bfcc;
+  --arc-grey: #8a93a3;
+  --arc-blue: #1e93ff;
+  --arc-green: #3fae2a;
+  --arc-red: #e5372d;
+  --arc-yellow: #e0b400;
+  --arc-purple: #a356d6;
+  --font-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 0.9375rem;
+  --step-1: 1.125rem;
+  --step-2: 1.5rem;
+  --step-3: 2.1rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+    --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+    --human: #48505e; --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c;
+    --arc-yellow: #ffdc00; --arc-purple: #b77ae6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1116; --surface: #161a21; --sunk: #1c212a; --fg: #e5e9f0; --muted: #9aa4b5; --line: #2a313c;
+  --accent: #5aa2ff; --note-bg: #3a2610; --note-fg: #ffd2a1; --harness-bg: #13253d; --harness-fg: #cfe3ff;
+  --human: #48505e; --arc-grey: #6b7486; --arc-blue: #3aa0ff; --arc-green: #4fcc30; --arc-red: #f2554c;
+  --arc-yellow: #ffdc00; --arc-purple: #b77ae6;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--step-0); line-height: 1.55; }
+.wrap { max-width: 1280px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 64px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.stack > * { min-width: 0; }
+.wrap > *, .log > *, .step > *, .req > *, .cols > *, .top > * { min-width: 0; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: var(--step-3); font-weight: 800; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 600; }
+.lede { color: var(--muted); max-width: 78ch; margin: 6px 0 0; }
+.built { color: var(--muted); font-size: var(--step--1); margin: 4px 0 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { font-size: 0.75rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--sunk); color: var(--fg); letter-spacing: 0.02em; font-family: var(--font-mono); }
+.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .top { grid-template-columns: minmax(0, 1fr); } }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.box h3 { font-size: 0.72rem; font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+.scroll { overflow-x: auto; }
+table.cmp { border-collapse: collapse; font-size: var(--step--1); font-variant-numeric: tabular-nums; width: 100%; }
+table.cmp th, table.cmp td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.cmp th:first-child, table.cmp td:first-child { text-align: left; }
+table.cmp thead th { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.7rem; }
+table.cmp tr.this td { font-weight: 700; }
+table.cmp td.win { color: var(--arc-green); }
+.tabs { display: grid; gap: 10px; }
+.tabgroup { display: grid; gap: 6px; }
+.tabgroup h3 { font-size: 0.72rem; font-family: var(--font-body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.tabrow { display: flex; flex-wrap: wrap; gap: 8px; }
+.tab .st { font-weight: 700; }
+.tab .st.won { color: var(--arc-green); }
+.tab .st.playing { color: var(--accent); }
+.tab { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 8px; padding: 8px 14px; display: grid; gap: 2px; text-align: left; }
+.tab b { font-family: var(--font-display); font-size: var(--step-1); }
+.tab span { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tab[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+button:focus-visible, summary:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-size: var(--step-0); }
+.levels { display: grid; gap: 5px; font-size: var(--step--1); font-variant-numeric: tabular-nums; }
+.lv { display: grid; grid-template-columns: 4.2em minmax(0, 1fr) 6.5em; gap: 8px; align-items: center; }
+.lv .name { color: var(--muted); }
+.lv .bars { display: grid; gap: 2px; }
+.lv .bar { height: 8px; border-radius: 2px; min-width: 2px; }
+.lv .bar.model { background: var(--arc-blue); }
+.lv .bar.model.over { background: var(--arc-red); }
+.lv .bar.human { background: var(--human); }
+.lv .num { text-align: right; color: var(--muted); }
+.lv .num b { color: var(--fg); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--step--1); color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.strip { display: flex; align-items: flex-end; height: 54px; gap: 2px; background: var(--sunk); border-radius: 6px; padding: 4px; overflow: hidden; }
+.strip button { flex: 1 1 0; min-width: 0; border: 0; padding: 0; cursor: pointer; border-radius: 1px; background: var(--arc-blue); opacity: 0.7; }
+.strip button.solved { background: var(--arc-yellow); opacity: 1; }
+.strip button:hover { opacity: 1; }
+.axis { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.cols { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .cols { grid-template-columns: minmax(0, 1fr); } .index { position: static !important; max-height: none !important; } }
+.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: auto; display: grid; gap: 2px; align-content: start; }
+.index h3 { font-size: 0.72rem; font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 6px 0 4px; }
+.moment { font: inherit; text-align: left; border: 0; background: none; color: var(--fg); cursor: pointer; padding: 5px 8px; border-radius: 6px; display: grid; grid-template-columns: 3.6em minmax(0, 1fr); gap: 6px; font-size: var(--step--1); line-height: 1.4; }
+.moment:hover { background: var(--sunk); }
+.moment .tn { font-family: var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.log { display: grid; gap: 14px; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; }
+.controls input[type="search"] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+.controls label { display: inline-flex; gap: 6px; align-items: center; font-size: var(--step--1); color: var(--muted); cursor: pointer; }
+.count { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 10px; scroll-margin-top: 80px; }
+.step.solved { border-left: 4px solid var(--arc-yellow); }
+.step.flash { box-shadow: 0 0 0 2px var(--accent); }
+.shead { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.shead h3 { font-size: var(--step-1); }
+.meta { font-size: var(--step--1); color: var(--muted); font-variant-numeric: tabular-nums; }
+.badge { font-size: 0.72rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--arc-yellow); color: #1b1600; }
+.sbody { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; }
+@media (max-width: 640px) { .sbody { grid-template-columns: minmax(0, 1fr); } }
+.reqs { display: grid; gap: 10px; min-width: 0; }
+.req { display: grid; gap: 6px; min-width: 0; border-top: 1px dashed var(--line); padding-top: 8px; }
+.req:first-child { border-top: 0; padding-top: 0; }
+.req .rmeta { font-size: 0.75rem; color: var(--muted); font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+.think { background: var(--note-bg); color: var(--note-fg); border-radius: 6px; padding: 8px 10px; font-size: var(--step--1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.think::before { content: "Reasoning summary"; display: block; font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+.say { white-space: pre-wrap; overflow-wrap: anywhere; }
+.why { display: grid; gap: 2px; font-size: var(--step--1); border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; }
+.why b { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.why p { margin: 0 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+details { min-width: 0; }
+details > summary { cursor: pointer; font-size: var(--step--1); color: var(--muted); font-weight: 700; }
+pre { margin: 4px 0 0; padding: 8px 10px; background: var(--sunk); border-radius: 6px; font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.45; overflow-x: auto; white-space: pre; max-height: 460px; overflow-y: auto; }
+.harness { background: var(--harness-bg); color: var(--harness-fg); }
+.acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.act { font-family: var(--font-mono); font-size: 0.72rem; padding: 1px 6px; border-radius: 4px; background: var(--sunk); color: var(--fg); }
+.act.done { background: var(--arc-yellow); color: #1b1600; font-weight: 600; }
+.act.over { background: var(--arc-red); color: #fff; }
+.boardbox { display: grid; gap: 4px; justify-items: center; }
+.boardbox canvas { width: 160px; height: 160px; image-rendering: pixelated; border-radius: 4px; border: 1px solid var(--line); max-width: 100%; }
+.boardbox span { font-size: 0.72rem; color: var(--muted); }
+.given summary { font-weight: 700; cursor: pointer; }
+.loading { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 id="title"></h1>
+    <p class="lede" id="lede"></p>
+    <div class="chips" id="settings"></div>
+    <p class="built" id="built"></p>
+  </header>
+  <section class="top">
+    <div class="box"><h3>Runs on this page</h3><div class="scroll" id="runs"></div></div>
+    <div class="box"><h3>Against the qwen runs, same settings</h3><div class="scroll" id="cmp"></div></div>
+  </section>
+  <section>
+    <details class="box given"><summary>System prompt the model was given</summary><pre id="system"></pre></details>
+  </section>
+  <nav class="tabs" id="tabs" aria-label="Games"></nav>
+  <main id="game"><p class="loading">Unpacking the transcripts...</p></main>
+</div>
+
+<script type="application/octet-stream" id="data">__DATA__</script>
+<script>
+"use strict";
+const ARC = ["#FFFFFF","#CCCCCC","#999999","#666666","#333333","#000000","#E53AA3","#FF7BCC","#F93C31","#1E93FF","#88D8F1","#FFDC00","#FF851B","#921231","#4FCC30","#A356D6"];
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+const kfmt = (n) => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n));
+const usd = (n) => "$" + n.toFixed(n < 1 ? 3 : 2);
+function el(tag, attrs = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "text") node.textContent = v;
+    else if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) node.append(kid);
+  return node;
+}
+function drawBoard(canvas, board) {
+  const n = Math.round(Math.sqrt(board.length));
+  canvas.width = n; canvas.height = n;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.createImageData(n, n);
+  for (let i = 0; i < board.length; i++) {
+    const hex = ARC[parseInt(board[i], 16)] || "#000000";
+    img.data[i * 4] = parseInt(hex.slice(1, 3), 16);
+    img.data[i * 4 + 1] = parseInt(hex.slice(3, 5), 16);
+    img.data[i * 4 + 2] = parseInt(hex.slice(5, 7), 16);
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+let DATA = null;
+let current = null;
+const prefs = { reasoning: true, code: false, output: false, prompt: false };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem("base-transcripts-prefs") || "{}")); } catch (e) {}
+const savePrefs = () => { try { localStorage.setItem("base-transcripts-prefs", JSON.stringify(prefs)); } catch (e) {} };
+
+function header() {
+  document.getElementById("title").textContent = DATA.title;
+  document.getElementById("lede").textContent = DATA.lede;
+  document.getElementById("built").textContent = `Run ${DATA.run}. Page built ${DATA.built}.`;
+  const make = DATA.settings.make || {}, env = DATA.settings.env || {};
+  const chips = [
+    make.MODEL && `model ${make.MODEL}`,
+    env.OPENAI_REASONING_EFFORT && `effort ${env.OPENAI_REASONING_EFFORT}`,
+    env.ARC3_SEND_REASONING_DETAILS && "reasoning sent back",
+    env.LOCAL_ANALYZER_MAX_OUTPUT === "0" ? "no output cap" : env.LOCAL_ANALYZER_MAX_OUTPUT && `max output ${env.LOCAL_ANALYZER_MAX_OUTPUT}`,
+    env.LOCAL_ANALYZER_CONTEXT_WINDOW && `context ${fmt(env.LOCAL_ANALYZER_CONTEXT_WINDOW)}`,
+    env.MULTIMODAL_UPSCALE && `images ${env.MULTIMODAL_UPSCALE}x`,
+    env.EXPOSE_UNDO === "on" && "UNDO",
+    make.MAX_GENERATED_TOKENS_PER_GAME && `${kfmt(+make.MAX_GENERATED_TOKENS_PER_GAME)} tokens / game`,
+    make.MAX_RUNTIME_MINUTES && `${make.MAX_RUNTIME_MINUTES} min / game`,
+  ].filter(Boolean);
+  document.getElementById("settings").replaceChildren(...chips.map((c) => el("span", { class: "chip", text: c })));
+  document.getElementById("system").textContent = DATA.system;
+
+  const all = Object.keys(DATA.games);
+  const groups = [...new Set(all.map((g) => DATA.games[g].group))];
+  const runRows = groups.map((label) => {
+    const gs = all.filter((g) => DATA.games[g].group === label).map((g) => DATA.games[g]);
+    const finished = gs.filter((d) => d.score != null);
+    return el("tr", {},
+      el("td", { text: label }),
+      el("td", { text: String(gs.length) }),
+      el("td", { class: "win", text: String(gs.filter((d) => d.state === "won").length) }),
+      el("td", { text: String(gs.filter((d) => d.state === "playing").length) }),
+      el("td", { text: `${gs.reduce((t, d) => t + (d.levels || 0), 0)}/${gs.reduce((t, d) => t + (d.total_levels || 0), 0)}` }),
+      el("td", { text: finished.length ? (finished.reduce((t, d) => t + d.score, 0) / finished.length).toFixed(1) : "-" }),
+      el("td", { text: kfmt(gs.reduce((t, d) => t + (d.total.out || 0), 0)) }),
+      el("td", { text: usd(gs.reduce((t, d) => t + (d.total.cost || 0), 0)) }));
+  });
+  document.getElementById("runs").replaceChildren(el("table", { class: "cmp" },
+    el("thead", {}, el("tr", {}, ["run", "games", "won", "playing", "levels", "mean score", "output", "cost"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, runRows)));
+  const compared = new Set(DATA.compare.flatMap((r) => Object.keys(r.scores)));
+  const games = compared.size ? all.filter((g) => compared.has(g)) : all;
+  const thisRow = { label: "gpt-6.1-sol", this: true, scores: {}, cost: 0, output_tokens: 0 };
+  for (const g of games) {
+    const d = DATA.games[g];
+    thisRow.scores[g] = d.score;
+    thisRow.cost += d.total.cost || 0;
+    thisRow.output_tokens += d.total.out || 0;
+  }
+  const rows = [thisRow, ...DATA.compare];
+  const mean = (r) => games.reduce((s, g) => s + (r.scores[g] ?? 0), 0) / games.length;
+  const table = el("table", { class: "cmp" },
+    el("thead", {}, el("tr", {}, el("th", { text: "run" }), games.map((g) => el("th", { text: g })), el("th", { text: "mean" }), el("th", { text: "cost" }), el("th", { text: "output" }))),
+    el("tbody", {}, rows.map((r) => el("tr", { class: r.this ? "this" : null },
+      el("td", { text: r.label }),
+      games.map((g) => el("td", { class: (r.scores[g] ?? 0) >= 100 ? "win" : null, text: r.scores[g] == null ? "-" : r.scores[g].toFixed(1) })),
+      el("td", { text: (r.mean ?? mean(r)).toFixed(1) }),
+      el("td", { text: r.cost == null ? "-" : usd(r.cost) }),
+      el("td", { text: r.output_tokens == null ? "-" : kfmt(r.output_tokens) }),
+    ))),
+  );
+  document.getElementById("cmp").replaceChildren(table);
+
+  document.getElementById("tabs").replaceChildren(...groups.map((label) => el("div", { class: "tabgroup" },
+    el("h3", { text: label }),
+    el("div", { class: "tabrow" }, all.filter((g) => DATA.games[g].group === label).map((g) => {
+      const d = DATA.games[g];
+      const head = d.score != null ? d.score.toFixed(1) : d.state;
+      return el("button", { class: "tab", role: "tab", "data-game": g, onclick: () => show(g) },
+        el("b", { text: g }),
+        el("span", {}, el("span", { class: "st " + (d.state === "won" ? "won" : d.state === "playing" ? "playing" : ""), text: head }),
+          ` · ${d.levels}/${d.total_levels} levels · ${usd(d.total.cost || 0)}`));
+    })))));
+}
+
+function levelChart(d) {
+  const max = Math.max(1, ...d.apl, ...d.baseline);
+  const rows = d.baseline.map((human, i) => {
+    const used = d.apl[i];
+    const over = used != null && used > human;
+    return el("div", { class: "lv" },
+      el("span", { class: "name", text: `level ${i + 1}` }),
+      el("div", { class: "bars" },
+        el("div", { class: "bar model" + (over ? " over" : ""), style: `width:${((used || 0) / max) * 100}%` }),
+        el("div", { class: "bar human", style: `width:${(human / max) * 100}%` })),
+      el("span", { class: "num" }, el("b", { text: used == null ? "-" : String(used) }), ` / ${human}`));
+  });
+  return el("div", { class: "box" },
+    el("h3", { text: "Actions per level, against the human baseline" }),
+    el("div", { class: "levels" }, rows),
+    el("div", { class: "legend", style: "margin-top:8px" },
+      el("span", {}, el("i", { style: "background:var(--arc-blue)" }), "this run"),
+      el("span", {}, el("i", { style: "background:var(--arc-red)" }), "more actions than the human baseline"),
+      el("span", {}, el("i", { style: "background:var(--human)" }), "human baseline")));
+}
+
+function stepTokens(s) { return s.reqs.reduce((t, r) => t + r.tok.out, 0); }
+function stepSolved(s) { return s.actions.some((a) => a.done); }
+
+function stepCard(g, s) {
+  const out = stepTokens(s), cost = s.reqs.reduce((t, r) => t + r.tok.cost, 0);
+  const solved = s.actions.filter((a) => a.done).map((a) => a.lvl);
+  const reqs = s.reqs.map((r) => {
+    const parts = [el("div", { class: "rmeta", text: `request ${r.i ?? "?"} · out ${fmt(r.tok.out)} (reasoning ${fmt(r.tok.rs)}) · in ${fmt(r.tok.in)}, ${r.tok.in ? Math.round((r.tok.cached / r.tok.in) * 100) : 0}% cached · ${usd(r.tok.cost)}${r.finish && r.finish !== "tool_calls" ? " · " + r.finish : ""}` })];
+    if (r.reasoning && prefs.reasoning) parts.push(el("div", { class: "think", text: r.reasoning }));
+    if (r.content) parts.push(el("div", { class: "say", text: r.content }));
+    for (const c of r.calls) {
+      if (c.description || c.reasoning) parts.push(el("div", { class: "why" },
+        c.description ? [el("b", { text: "What the code does" }), el("p", { text: c.description })] : null,
+        c.reasoning ? [el("b", { text: "Why it helps" }), el("p", { text: c.reasoning })] : null));
+      const code = el("details", { open: prefs.code }, el("summary", { text: `${c.name} · ${c.code.split("\n").length} lines` }), el("pre", { text: c.code }));
+      parts.push(code);
+      if (c.out != null) parts.push(el("details", { open: prefs.output }, el("summary", { text: "what came back" }), el("pre", { text: c.out })));
+    }
+    return el("div", { class: "req" }, parts);
+  });
+  let boardBox = null;
+  if (s.board) {
+    const canvas = el("canvas", { "aria-label": `Board after step ${s.s}` });
+    drawBoard(canvas, s.board);
+    boardBox = el("div", { class: "boardbox" }, canvas, el("span", { text: "board after the step" }));
+  }
+  return el("article", { class: "step" + (solved.length ? " solved" : ""), id: `${g}-s${s.s}`, "data-search": [s.prompt, ...s.reqs.flatMap((r) => [r.reasoning, r.content, ...r.calls.map((c) => [c.description, c.reasoning, c.code, c.out].filter(Boolean).join("\n"))])].join("\n").toLowerCase() },
+    el("div", { class: "shead" },
+      el("h3", { text: `Step ${s.s}` }),
+      el("span", { class: "meta", text: `level ${s.level ?? "-"} · ${s.reqs.length} request${s.reqs.length === 1 ? "" : "s"} · ${s.actions.length} action${s.actions.length === 1 ? "" : "s"} · ${fmt(out)} output tokens · ${usd(cost)}` }),
+      solved.map((lvl) => el("span", { class: "badge", text: `level ${lvl} solved` }))),
+    s.prompt ? el("details", { open: prefs.prompt }, el("summary", { text: "harness prompt" }), el("pre", { class: "harness", text: s.prompt })) : null,
+    el("div", { class: "sbody" },
+      el("div", { class: "reqs" }, reqs,
+        s.actions.length ? el("div", { class: "acts" }, s.actions.map((a) => el("span", { class: "act" + (a.done ? " done" : "") + (a.over ? " over" : ""), title: `action ${a.n}, level ${a.lvl}`, text: a.a }))) : null),
+      boardBox));
+}
+
+function jump(g, s) {
+  const node = document.getElementById(`${g}-s${s}`);
+  if (!node) return;
+  node.scrollIntoView({ block: "start" });
+  node.classList.add("flash");
+  setTimeout(() => node.classList.remove("flash"), 1400);
+}
+
+function show(g) {
+  current = g;
+  for (const t of document.querySelectorAll(".tab")) t.setAttribute("aria-selected", String(t.dataset.game === g));
+  const d = DATA.games[g];
+  const steps = d.steps;
+  const maxOut = Math.max(1, ...steps.map(stepTokens));
+  const actions = d.apl.reduce((a, b) => a + b, 0);
+  const stats = el("div", { class: "stats" },
+    el("span", {}, el("b", { text: d.score != null ? d.score.toFixed(1) : "-" }), " score"),
+    el("span", {}, el("b", { text: `${d.levels}/${d.total_levels}` }), " levels, ", d.state),
+    el("span", {}, el("b", { text: fmt(actions) }), " actions"),
+    el("span", {}, el("b", { text: String(steps.length) }), " steps, ", el("b", { text: String(d.requests) }), " requests"),
+    el("span", {}, el("b", { text: kfmt(d.total.out || 0) }), ` output (${kfmt(d.total.rs || 0)} reasoning)`),
+    el("span", {}, el("b", { text: kfmt(d.total.in || 0) }), ` prompt, ${d.total.in ? Math.round((d.total.cached / d.total.in) * 100) : 0}% cached`),
+    el("span", {}, el("b", { text: usd(d.total.cost || 0) })),
+    d.minutes ? el("span", {}, el("b", { text: String(d.minutes) }), " min") : null);
+  const strip = el("div", { class: "strip", role: "list" }, steps.map((s) => el("button", {
+    class: stepSolved(s) ? "solved" : null, style: `height:${Math.max(6, (stepTokens(s) / maxOut) * 100)}%`,
+    title: `Step ${s.s}: ${fmt(stepTokens(s))} output tokens${stepSolved(s) ? ", level solved" : ""}`, "aria-label": `Step ${s.s}`,
+    onclick: () => jump(g, s.s) })));
+  const index = el("nav", { class: "index", "aria-label": "Steps" },
+    el("h3", { text: "Level solves" }),
+    steps.filter(stepSolved).map((s) => el("button", { class: "moment", onclick: () => jump(g, s.s) },
+      el("span", { class: "tn", text: `S${s.s}` }),
+      el("span", { text: `level ${s.actions.filter((a) => a.done).map((a) => a.lvl).join(", ")} solved, action ${s.actions.find((a) => a.done).n}` }))),
+    el("h3", { text: "Steps" }),
+    steps.map((s) => el("button", { class: "moment", onclick: () => jump(g, s.s) },
+      el("span", { class: "tn", text: `S${s.s}` }),
+      el("span", { text: `level ${s.level ?? "-"}, ${s.actions.length} actions, ${kfmt(stepTokens(s))} tok` }))));
+  const search = el("input", { type: "search", id: "search", placeholder: "Search reasoning, code and output", "aria-label": "Search the steps" });
+  const count = el("span", { class: "count" });
+  const log = el("div", { class: "log" });
+  const toggle = (key, label) => el("label", {}, el("input", { type: "checkbox", id: `pref-${key}`, checked: prefs[key], onchange: (e) => { prefs[key] = e.target.checked; savePrefs(); render(); } }), label);
+  function render() {
+    const q = search.value.trim().toLowerCase();
+    const cards = steps.map((s) => stepCard(g, s)).filter((c) => !q || c.dataset.search.includes(q));
+    count.textContent = q ? `${cards.length} of ${steps.length} steps` : `${steps.length} steps`;
+    log.replaceChildren(el("div", { class: "controls" }, search, toggle("reasoning", "reasoning"), toggle("code", "code open"), toggle("output", "output open"), toggle("prompt", "prompts open"), count), ...cards);
+    search.focus({ preventScroll: true });
+  }
+  search.addEventListener("input", render);
+  document.getElementById("game").replaceChildren(el("div", { class: "stack" },
+    stats, levelChart(d),
+    el("div", { class: "stack", style: "gap:6px" }, el("div", { class: "box", style: "padding:8px" }, strip),
+      el("div", { class: "axis" }, el("span", { text: "step 1" }), el("span", { text: "bar height: output tokens of the step; yellow: a level was solved" }), el("span", { text: `step ${steps.length ? steps[steps.length - 1].s : 0}` }))),
+    el("div", { class: "cols" }, index, log)));
+  render();
+  search.blur();
+  try { localStorage.setItem("base-transcripts-game", g); } catch (e) {}
+}
+
+(async () => {
+  try {
+    const b64 = document.getElementById("data").textContent.trim();
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
+    DATA = JSON.parse(await new Response(stream).text());
+  } catch (e) {
+    document.getElementById("game").replaceChildren(el("p", { class: "loading", text: "This browser could not unpack the transcripts (it needs gzip DecompressionStream support)." }));
+    return;
+  }
+  header();
+  const games = Object.keys(DATA.games);
+  let first = games[0];
+  const hash = location.hash.replace("#", "");
+  if (games.includes(hash)) first = hash;
+  else { try { const saved = localStorage.getItem("base-transcripts-game"); if (games.includes(saved)) first = saved; } catch (e) {} }
+  show(first);
+})();
+</script>

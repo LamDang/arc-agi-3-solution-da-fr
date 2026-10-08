@@ -1,0 +1,6 @@
+outs:
+- md5: b0c8dab599f75320a4825ee87f40168f.dir
+  size: 3436186
+  nfiles: 40
+  hash: md5
+  path: note-compaction-3games

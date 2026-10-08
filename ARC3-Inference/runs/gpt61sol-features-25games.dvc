@@ -1,0 +1,6 @@
+outs:
+- md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+  size: 17458121
+  nfiles: 192
+  hash: md5
+  path: gpt61sol-features-25games

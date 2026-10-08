@@ -1,0 +1,510 @@
+[
+{
+"run": "base-gpt61sol-20games",
+"gid": "sk48-d8078629",
+"level": 4,
+"level_actions": [
+117,
+146
+],
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sk48-d8078629",
+"level": 5,
+"level_actions": [
+147,
+583
+],
+"verdict": "partly",
+"intervals": [
+{
+"start": 193,
+"end": 223,
+"kind": "probe_repeat"
+},
+{
+"start": 224,
+"end": 353,
+"kind": "action_loop"
+},
+{
+"start": 354,
+"end": 511,
+"kind": "probe_repeat"
+}
+]
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sk48-d8078629",
+"level": 6,
+"level_actions": [
+584,
+708
+],
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sk48-d8078629",
+"level": 7,
+"level_actions": [
+709,
+761
+],
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sk48-d8078629",
+"level": 8,
+"level_actions": [
+762,
+800
+],
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-default",
+"gid": "ls20-9607627b",
+"level": 2,
+"verdict": "partly",
+"intervals": [
+{
+"start": 280,
+"end": 410,
+"kind": "other"
+},
+{
+"start": 430,
+"end": 1060,
+"kind": "reset_loop"
+},
+{
+"start": 1060,
+"end": 1546,
+"kind": "reset_loop"
+}
+]
+},
+{
+"run": "base-max-default",
+"gid": "vc33-5430563c",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-default",
+"gid": "vc33-5430563c",
+"level": 4,
+"verdict": "partly",
+"intervals": [
+{
+"start": 113,
+"end": 216,
+"kind": "probe_repeat"
+},
+{
+"start": 217,
+"end": 626,
+"kind": "reset_loop"
+}
+]
+},
+{
+"run": "base-max-default",
+"gid": "vc33-5430563c",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-default",
+"gid": "sp80-589a99af",
+"level": 1,
+"verdict": "partly",
+"intervals": [
+{
+"start": 50,
+"end": 160,
+"kind": "probe_repeat"
+}
+]
+},
+{
+"run": "base-max-default",
+"gid": "sp80-589a99af",
+"level": 2,
+"verdict": "partly",
+"intervals": [
+{
+"start": 250,
+"end": 955,
+"kind": "probe_repeat"
+},
+{
+"start": 955,
+"end": 1101,
+"kind": "reset_loop"
+}
+]
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 7,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 8,
+"verdict": "partly",
+"intervals": [
+{
+"start": 336,
+"end": 359,
+"kind": "other"
+}
+]
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 9,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "wa30-ee6fef47",
+"level": 8,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "dc22-fdcac232",
+"level": 5,
+"verdict": "partly",
+"intervals": [
+{
+"start": 200,
+"end": 275,
+"kind": "action_loop"
+}
+]
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "dc22-fdcac232",
+"level": 6,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "lf52-271a04aa",
+"level": 7,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "lf52-271a04aa",
+"level": 9,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-dfranzen",
+"gid": "lp85-305b61c3",
+"level": 5,
+"verdict": "partly",
+"intervals": [
+{
+"start": 96,
+"end": 150,
+"kind": "other"
+}
+]
+},
+{
+"run": "base-max-dfranzen",
+"gid": "lp85-305b61c3",
+"level": 6,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-dfranzen",
+"gid": "ls20-9607627b",
+"level": 2,
+"verdict": "partly",
+"intervals": [
+{
+"start": 110,
+"end": 205,
+"kind": "reset_loop"
+},
+{
+"start": 206,
+"end": 242,
+"kind": "probe_repeat"
+}
+]
+},
+{
+"run": "base-max-dfranzen",
+"gid": "ls20-9607627b",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-dfranzen",
+"gid": "ls20-9607627b",
+"level": 4,
+"verdict": "partly",
+"intervals": [
+{
+"start": 676,
+"end": 1027,
+"kind": "other"
+},
+{
+"start": 1029,
+"end": 1048,
+"kind": "probe_repeat"
+},
+{
+"start": 1066,
+"end": 1075,
+"kind": "probe_repeat"
+},
+{
+"start": 1116,
+"end": 1156,
+"kind": "probe_repeat"
+}
+]
+},
+{
+"run": "base-max-dfranzen",
+"gid": "sp80-589a99af",
+"level": 2,
+"verdict": "stuck",
+"intervals": [
+{
+"start": 56,
+"end": 498,
+"kind": "reset_loop"
+},
+{
+"start": 499,
+"end": 670,
+"kind": "think_stall"
+}
+]
+},
+{
+"run": "20261004_135539",
+"gid": "ls20-9607627b",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "20261004_135539",
+"gid": "ls20-9607627b",
+"level": 6,
+"verdict": "partly",
+"intervals": [
+{
+"start": 741,
+"end": 866,
+"kind": "other"
+}
+]
+},
+{
+"run": "20261004_135539",
+"gid": "sp80-589a99af",
+"level": 2,
+"verdict": "partly",
+"intervals": [
+{
+"start": 74,
+"end": 78,
+"kind": "think_stall"
+},
+{
+"start": 103,
+"end": 111,
+"kind": "think_stall"
+}
+]
+},
+{
+"run": "20261004_135539",
+"gid": "vc33-5430563c",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "20261004_135539",
+"gid": "ls20-9607627b",
+"level": 2,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "20261004_135539",
+"gid": "ls20-9607627b",
+"level": 4,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "20261004_135539",
+"gid": "ls20-9607627b",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 2,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "bp35-0a0ad940",
+"level": 6,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 1,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 2,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 4,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 6,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 7,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "sb26-7fbdac44",
+"level": 8,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "su15-1944f8ab",
+"level": 8,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "m0r0-492f87ba",
+"level": 3,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "m0r0-492f87ba",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "re86-8af5384d",
+"level": 7,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-20games",
+"gid": "re86-8af5384d",
+"level": 8,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-gpt61sol-dfranzen",
+"gid": "ls20-9607627b",
+"level": 2,
+"verdict": "not_stuck",
+"intervals": []
+},
+{
+"run": "base-max-dfranzen",
+"gid": "vc33-5430563c",
+"level": 5,
+"verdict": "not_stuck",
+"intervals": []
+}
+]
