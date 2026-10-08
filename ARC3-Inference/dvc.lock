@@ -43,3 +43,203 @@ stages:
       md5: 882c6a9109844590f358632a4410abdb.dir
       size: 4059399
       nfiles: 33
+  tg_generate:
+    cmd: uv run --no-sync python -m think_gen.generate --run 
+      runs/gpt61sol-features-25games --out runs/think-sol-nll30/draft --manifest
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --prompt b4 --summary none --history native --model qwen/qwen3.8-flash 
+      --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/draft
+      hash: md5
+      md5: cb0485007fbe5f2797cb08f13865c99a.dir
+      size: 408363
+      nfiles: 11
+  tg_judge1:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run 
+      runs/gpt61sol-features-25games --gen runs/think-sol-nll30/draft --out 
+      runs/think-sol-nll30/judge1 --manifest 
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --checks words code fact --sol-model gpt-6.1-sol --judge-effort high 
+      --sol-effort xhigh --model qwen/qwen3.8-flash --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: runs/think-sol-nll30/draft
+      hash: md5
+      md5: cb0485007fbe5f2797cb08f13865c99a.dir
+      size: 408363
+      nfiles: 11
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/judge1
+      hash: md5
+      md5: dca5d87556ab5c478587c64d6a8635a8.dir
+      size: 461152
+      nfiles: 11
+  tg_refine1:
+    cmd: uv run --no-sync python -m think_gen.refine --run 
+      runs/gpt61sol-features-25games --gen runs/think-sol-nll30/draft --judge 
+      runs/think-sol-nll30/judge1 --out runs/think-sol-nll30/refine1 --manifest 
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --model qwen/qwen3.8-flash --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: runs/think-sol-nll30/draft
+      hash: md5
+      md5: cb0485007fbe5f2797cb08f13865c99a.dir
+      size: 408363
+      nfiles: 11
+    - path: runs/think-sol-nll30/judge1
+      hash: md5
+      md5: dca5d87556ab5c478587c64d6a8635a8.dir
+      size: 461152
+      nfiles: 11
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/refine1
+      hash: md5
+      md5: 398558a201e1d702f31ba3eee424d55d.dir
+      size: 374357
+      nfiles: 10
+  tg_judge2:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run 
+      runs/gpt61sol-features-25games --gen runs/think-sol-nll30/refine1 --out 
+      runs/think-sol-nll30/judge2 --manifest 
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --checks words code fact --sol-model gpt-6.1-sol --judge-effort high 
+      --sol-effort xhigh --model qwen/qwen3.8-flash --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: runs/think-sol-nll30/refine1
+      hash: md5
+      md5: 398558a201e1d702f31ba3eee424d55d.dir
+      size: 374357
+      nfiles: 10
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/judge2
+      hash: md5
+      md5: 6ae6686b94d6d6d1a79a4d55dc7e4c7c.dir
+      size: 459565
+      nfiles: 11
+  tg_refine2:
+    cmd: uv run --no-sync python -m think_gen.refine --run 
+      runs/gpt61sol-features-25games --gen runs/think-sol-nll30/refine1 --judge 
+      runs/think-sol-nll30/judge2 --out runs/think-sol-nll30/refine2 --manifest 
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --model qwen/qwen3.8-flash --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: runs/think-sol-nll30/judge2
+      hash: md5
+      md5: 6ae6686b94d6d6d1a79a4d55dc7e4c7c.dir
+      size: 459565
+      nfiles: 11
+    - path: runs/think-sol-nll30/refine1
+      hash: md5
+      md5: 398558a201e1d702f31ba3eee424d55d.dir
+      size: 374357
+      nfiles: 10
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/refine2
+      hash: md5
+      md5: 3418643cea38b5a5cae825e7feb31d41.dir
+      size: 270779
+      nfiles: 10
+  tg_final:
+    cmd: uv run --no-sync python -m think_gen.judge_sol --run 
+      runs/gpt61sol-features-25games --gen runs/think-sol-nll30/refine2 --out 
+      runs/think-sol-nll30/final --manifest 
+      experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json --split eval 
+      --sol-model gpt-6.1-sol --judge-effort high --sol-effort xhigh --model 
+      qwen/qwen3.8-flash --provider Alibaba
+    deps:
+    - path: experiments/teacher-reasoning/evalset/sol-nll-fold0-30.json
+      hash: md5
+      md5: 9c8f20de9c565cd2643835dbcf678a7c
+      size: 12851
+    - path: runs/gpt61sol-features-25games
+      hash: md5
+      md5: f677e9c8b2f2ade56ace3b21e5072c75.dir
+      size: 17458121
+      nfiles: 192
+    - path: runs/think-sol-nll30/refine2
+      hash: md5
+      md5: 3418643cea38b5a5cae825e7feb31d41.dir
+      size: 270779
+      nfiles: 10
+    - path: think_gen
+      hash: md5
+      md5: 2215369c1c181dcd6749937cf8dd7998.dir
+      size: 115983
+      nfiles: 15
+    outs:
+    - path: runs/think-sol-nll30/final
+      hash: md5
+      md5: 7580eb2fed9330cff410204a278d5595.dir
+      size: 670745
+      nfiles: 11
