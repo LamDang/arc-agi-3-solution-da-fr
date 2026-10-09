@@ -1,6 +1,8 @@
 """Strict, per-tensor comparison; never silently ignore adapters or zero gradients."""
 import hashlib
 import math
+import json
+from pathlib import Path
 import torch
 
 
@@ -42,3 +44,21 @@ def compare(actual, reference, *, rtol=1e-5, atol=1e-8):
         rtol=rtol, atol=atol, relative_l2=math.sqrt(total_error/max(total_ref,1e-300)),
         failed_tensors=sum(not x['within_tolerance'] for x in rows.values()),
         total_tensors=len(rows), per_parameter=rows)
+
+
+def qualified_flags(directory,adapter):
+    def sha256(path):
+        with open(path,"rb") as stream:return hashlib.file_digest(stream,"sha256").hexdigest()
+    q=Path(directory)
+    flags=json.loads((q/'accepted-flags.json').read_text())
+    results=json.loads((q/'results.json').read_text())
+    identity=json.loads((q/'identity.json').read_text())
+    assert identity['arguments']['deterministic'], 'Use the stable deterministic baseline'
+    assert identity['adapter_sha256']==sha256(adapter), 'Different adapter initialization'
+    assert any(r['name']=='reference_repeat' and r['passed'] and r['bitwise_equal'] for r in results)
+    assert flags, 'No optimization recipe was accepted'
+    assert any(r['passed'] and {k:v for k,v in r['flags'].items() if k!='name'}==flags for r in results)
+    for name in ['native_optimization_flags.py','native_checkpoint_blocks.py','native_mask_storage.py',
+                 'backend.py','offload.py','gdn_blocks.py']:
+        assert identity['source_sha256'][name]==sha256(Path(__file__).parent/name), 'Changed operator source: '+name
+    return flags,identity
