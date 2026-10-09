@@ -3,3 +3,5 @@
 !/capacity-results/README.md
 !/capacity-results/conftest.py
 !/artifacts/
+
+/overfit-reference.zip

@@ -17,8 +17,19 @@ numerical checks are in [LONG_CONTEXT.md](LONG_CONTEXT.md). Earlier OOMs remain
 in [CAPACITY.md](CAPACITY.md) and the private DVC evidence archive. **No actual
 A100 was tested.**
 
+**Capacity is not gradient equivalence.** The earlier 512-token diagnostic
+checks the attention backward against the same optimized forward, and does not
+validate every optimization against the native model. See the separate
+[gradient ablation audit](GRADIENT_AUDIT.md) for the real-request comparison.
+The current prerequisite is a separate [native HF overfit qualification](OVERFIT_REFERENCE.md)
+on a fixed real 16K window. It passed after 5 updates: loss
+0.624715 → 0.010218 (98.36% reduction). This qualifies learning
+in the independent reference; custom-optimization gradient equivalence remains open.
+
 The training dataset PR is a separate dependency: capacity probes discard all
-updates and never turn the fold-0 panel into training data.
+updates and never turn the fold-0 panel into production training data. The
+separate overfit diagnostic deliberately learns one fold-0 window; its saved
+adapters are excluded from production checkpoints and unbiased validation.
 
 ## Why this framework
 

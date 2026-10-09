@@ -300,11 +300,15 @@ keys at the model's 24 query / 2 KV heads and head dimension 256.
 A naive whole-model gradient comparison initially differed by about 36–40%.
 It changed the forward implementation as well as backward, allowing different
 expert choices. Fixing the masked-tile bug and increasing attention precision
-did not by themselves remove that difference. The appropriate VJP check uses
+did not by themselves remove that difference. A narrower attention VJP check uses
 **identical optimized forward outputs and expert choices**, with an independent
-FP32 SDPA autograd attention backward. The corrected pre-window model passed
+FP32 SDPA autograd attention backward. It does not validate the other custom
+backward implementations or establish native-versus-optimized equivalence. The corrected pre-window model passed
 with **0.88% aggregate adapter-gradient relative error**. Separate forward
-checks remain; this is not a claim that routing is bitwise unchanged.
+checks remain; this is not a claim that routing is bitwise unchanged. The
+[real-request ablation audit](GRADIENT_AUDIT.md) records the stopped custom-reference
+experiments and the remaining comparison of each flag and the combined recipe
+without fixing expert choices. Native gradient-equivalence results remain outstanding.
 
 On that 512-token diagnostic, optimized loss was 12.4763403 versus 12.4696703
 for the native-pointwise/FP32-SDPA forward. About 44.65% of layer/token expert
