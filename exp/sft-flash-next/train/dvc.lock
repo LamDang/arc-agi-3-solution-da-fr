@@ -94,3 +94,56 @@ stages:
       hash: md5
       md5: 8996678c9531be44a1c9f2769e3f5044
       size: 6358
+  liger_flce_v2:
+    cmd: node kaggle_reference_run.mjs --config configs/liger-flce-v2.json
+    deps:
+    - path: configs/liger-flce-v2.json
+      hash: md5
+      md5: 9425ac6fe252c65ffa07c32c55a19727
+      size: 2671
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      hash: md5
+      md5: 20370b16cedbe79d02ae905d86980f94
+      size: 134192587
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/result.json
+      hash: md5
+      md5: de43732b505637a5ba69385effa7110f
+      size: 669
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: 91cf2c9e1da33ed021f4ba539d865659
+      size: 24904
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: 396f9cab742edc8a5f324f82724d1797
+      size: 18611
+    - path: liger_operator_check.py
+      hash: md5
+      md5: bac7a9a96c00c2e836e86d52bcf48fe9
+      size: 5605
+    - path: liger_target_loss.py
+      hash: md5
+      md5: 5265a3c86acb71f9f7b03748b7c80d29
+      size: 8712
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    - path: target_only_head.py
+      hash: md5
+      md5: a7d5f75bc5d055d558be64d0e1c07dc6
+      size: 8936
+    outs:
+    - path: gradient-results/liger-flce-v2
+      hash: md5
+      md5: 80c493ffb3c581c80fb485962d12cb42.dir
+      size: 1366392163
+      nfiles: 54
+    - path: metrics/liger-flce-v2.json
+      hash: md5
+      md5: 0848ba0c6b80336177273694e24248ef
+      size: 6792

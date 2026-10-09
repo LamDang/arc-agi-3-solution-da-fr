@@ -1,0 +1,22 @@
+{
+  "reviewer": "root",
+  "method": "Independent restricted tensor metadata decoding and NumPy raw FP32 storage comparison",
+  "raw_adapter_tensors_verified": 744,
+  "all_finite": true,
+  "nonzero_tensors": {
+    "A": 372,
+    "B": 372
+  },
+  "bitwise_exact_tensors": 0,
+  "global_relative_l2_error": 0.016097297502698102,
+  "cosine_similarity": 0.9998704996893791,
+  "per_tensor_comparison_verified": true,
+  "all_download_hashes_verified": true,
+  "four_raw_operator_gradients_verified": true,
+  "interleaved_fixture_and_labels_verified": true,
+  "private_server_url_absent": true,
+  "execution_commit": "ee639cdd9bf4b3594e57907b9f8489a4e5d6050a",
+  "dvc_checkout_all_files_byte_equal": true,
+  "dvc_restored_files": 54,
+  "dvc_artifact_tree_md5": "80c493ffb3c581c80fb485962d12cb42.dir"
+}

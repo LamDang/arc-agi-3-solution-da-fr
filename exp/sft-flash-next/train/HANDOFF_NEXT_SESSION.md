@@ -1,3 +1,28 @@
+# Latest experiment update — 2026-10-09
+
+* User authorized target-only Liger FLCE as the next optimization. Primary agent
+  executed one configured capture through Kaggle Jupyter; no subagents.
+* `liger-flce-v2` is a **diagnostic candidate, not promoted**. Execution commit
+  `ee639cd`, attempt `20261009162024-bcec6367`, frozen head, same nonzero test
+  fixture/sample/native identity, no clipping or optimizer update.
+* Loss `0.6256953477859497` differs from native by 2 FP32 ULPs. All 744 adapter
+  tensors are finite/nonzero, but 0/744 match byte for byte. Global relative L2
+  error 1.609730%, worst tensor 4.545067%, cosine 0.9998704996893791.
+* Forward/backward 114.392 / 215.512 s; GPU allocated peaks 49.775 / 58.523 GiB;
+  sampled process RSS peaks 131.596 / 129.275 GiB. No whole-model GPU/RAM peak
+  improvement over v1. Removing loss/head allocations leaves a peak elsewhere;
+  this run did not identify that operator.
+* Liger uses 8-row BF16 logits chunks and saves selected hidden gradients.
+  Zero vocabulary-shaped CPU saved tensors; no full T-by-V backward scratch.
+  FP32 CE statistics/scalar remain; only dense FP32 matrices are bypassed.
+* Interleaved synthetic mean/sum operator losses match, but hidden gradients
+  differ by 5.03–5.06% L2. Operator GPU peak 1.712 GiB. Raw operator and adapter
+  gradients, wheel, source snapshots, timing/RAM telemetry are DVC outputs.
+* `v2.md`, master `v0.md`, metrics and independent review record results. The
+  successful DVC stage means finite recorded execution, not numerical acceptance.
+  Validated production trajectory implementation remains v1. Its accepted DVC
+  stage is frozen while the shared runner evolves. No follow-up GPU job started.
+
 # Latest resume state — 2026-10-09
 
 This section supersedes the original immediate-action instructions below.

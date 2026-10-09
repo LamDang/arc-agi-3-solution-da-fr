@@ -1,3 +1,21 @@
+# Latest Liger FLCE evidence — 2026-10-09
+
+The user-selected target-only frozen-head Liger experiment is logged as
+`liger-flce-v2`; see `v2.md`. It removes dense vocabulary saved tensors and v1's
+full-context head backward scratch, with synthetic operator GPU peak 1.712 GiB.
+However, full-model 16K allocated GPU peak remains **58.523 GiB**, and sampled
+backward RSS remains **129.275 GiB**: no additional whole-model peak saving was
+measured. Other model operations dominate this anchor's peak; their exact
+identity was not profiled in this experiment.
+
+Exact qualification failed: loss +2 FP32 ULPs; all 744 gradients finite/nonzero,
+0 byte-identical, **1.610% global relative L2 error**, maximum tensor 4.545%.
+Synthetic interleaved gradients differ 5.03–5.06%. The candidate is diagnostic,
+with no optimizer update and no production promotion or accepted tolerance.
+For 43,806 targets, calculated BF16 chunk size is 512 rows (0.237 GiB), and
+saved selected hidden gradients 0.209 GiB. This avoids the former 59.745 GiB
+context-shaped head scratch, but is not a measured 130K capacity result.
+
 # Gradient evidence and memory implications (2026-10-09)
 
 ## Latest measured target-mask result
