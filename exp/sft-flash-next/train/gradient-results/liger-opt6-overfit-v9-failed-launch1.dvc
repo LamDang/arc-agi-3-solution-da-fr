@@ -1,6 +1,6 @@
 outs:
-- md5: f5f4d909a69bc67559a94e6eb277355d.dir
-  size: 1109023392
-  nfiles: 106
+- md5: 0a96a8cab697b41d673fe43c559b5fae.dir
+  size: 443458446
+  nfiles: 103
   hash: md5
   path: liger-opt6-overfit-v9-failed-launch1

@@ -18,6 +18,11 @@ def write(path, value):
     Path(path).write_text(json.dumps(value,indent=2,default=str)+'\n')
 
 
+def retain_raw_gradients(config, mode):
+    """Only the reference qualification owns a persistent raw gradient archive."""
+    return mode == 'test' and config.architecture == 'reference'
+
+
 def snapshot(output, config, mode):
     root = Path(__file__).resolve().parents[1]
     destination = Path(output)/'sources'

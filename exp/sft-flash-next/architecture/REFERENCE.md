@@ -31,8 +31,10 @@ uses CPU FP32 `torch.randn * 0.002`, with its generator seed derived from the
 first8 little-endian bytes of SHA256(`run_seed + ':' + full_parameter_name`),
 modulo2^63-1. Exact initial values are saved; they are the replay authority.
 Production `train.py` rejects this option and uses PEFT random-A/zero-B.
-Unselected experts can have absent gradients; their mathematical zero gradients
-are exported explicitly and their names recorded, rather than claimed nonzero.
+Unselected experts can have zero gradients. Any absent routed-expert gradients
+are exported as explicit zeros and their names recorded. The packed differentiable
+copy normally gives unused expert leaves explicit zero gradients through cat
+backward. Zero tensors are not claimed as positive gradient-equivalence evidence.
 
 ## Evidence and execution
 
@@ -49,5 +51,8 @@ are saved in bounded Torch shards with SHA256 manifests. Large output uses
 20GB working volume need not hold multi-GB archives. Collection caches locally
 with DVC. **No Git or DVC push.**
 
-Measurement pending. Neither the old744-adapter result nor a short operator
-fixture gives the new full-model loss or full16K memory peaks.
+Measured16K capture passed with loss0.6244627833366394 and all74,472 raw FP32
+gradients finite. Forward/backward GPU allocated peaks48.260/55.636GiB; sampled
+tree PSS138.452/138.490GiB. See [reports/reference.md](reports/reference.md) for
+full counters, initialization scope, hashes and evidence. No optimizer state
+or130K capacity measurement is included.

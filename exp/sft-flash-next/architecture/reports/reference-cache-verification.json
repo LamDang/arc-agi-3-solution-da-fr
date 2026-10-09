@@ -1,0 +1,8 @@
+{
+  "reference_dvc_tree": "c1ec9a7b08db7949ee2f5de73bc89341.dir",
+  "files": 226,
+  "sha256_verified": 225,
+  "all_current_reference_objects_intact": true,
+  "scope": "Every file in the original SHA256 inventory verified directly from local DVC cache after cleanup; inventory file also present.",
+  "remote_push": false
+}

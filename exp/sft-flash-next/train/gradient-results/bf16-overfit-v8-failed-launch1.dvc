@@ -1,6 +1,6 @@
 outs:
-- md5: 279fc01c8f8b92e79713dee58dac3521.dir
-  size: 1146660798
-  nfiles: 83
+- md5: 8d1d6396ebd71e4dca481d07dbfffdd2.dir
+  size: 481095828
+  nfiles: 80
   hash: md5
   path: bf16-overfit-v8-failed-launch1

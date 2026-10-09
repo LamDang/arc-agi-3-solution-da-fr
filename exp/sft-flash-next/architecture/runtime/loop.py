@@ -8,7 +8,7 @@ import torch
 from peft import get_peft_model_state_dict
 
 from model import build
-from .evidence import compare, sha, snapshot, snapshot_imports, write
+from .evidence import compare, retain_raw_gradients, sha, snapshot, snapshot_imports, write
 from .resources import Resources
 from .events import event_row
 
@@ -119,7 +119,7 @@ def run(config, mode):
             with resources.phase('gradient_export'):
                 absent=[name for name,p in model.named_parameters() if p.requires_grad and p.grad is None]
                 raw = gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
-                archive=save_tensors(raw,output,'gradients')
+                archive=save_tensors(raw,output,'gradients') if retain_raw_gradients(config,mode) else None
             summary = {name:dict(shape=list(g.shape),dtype=str(g.dtype),norm=float(g.double().norm()),
                 nonzero=int(torch.count_nonzero(g)),finite=bool(torch.isfinite(g).all())) for name,g in raw.items()}
             write(output/'gradient-summary.json',summary)
@@ -128,7 +128,9 @@ def run(config, mode):
             result = dict(mode=mode,loss=value,raw_gradient_tensors=len(raw),targets=targets,tokens=labels.shape[1],
                 all_finite=True,optimizer_updates=0,clipping_applied=False,
                 iso_verified=comparison['passed'] if comparison else None,
-                gradients_sha256=archive.get('sha256'),gradient_archive=archive,
+                gradients_sha256=archive.get('sha256') if archive else None,gradient_archive=archive,
+                raw_gradients_retained=archive is not None,
+                gradient_retention='reference-only; candidates compared in memory and discarded',
                 absent_unrouted_gradients=absent,elapsed_seconds=time.monotonic()-started)
             from collections import Counter
             result['parameter_dtypes']=dict(Counter(str(p.dtype) for p in model.parameters() if p.requires_grad))
@@ -136,8 +138,9 @@ def run(config, mode):
             result['trainable_parameter_bytes']=sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
             result['trainable_parameter_devices']=dict(Counter(p.device.type for p in model.parameters() if p.requires_grad))
             write(output/'result.json',result);event('finished',**result)
+            del raw
             if comparison is not None and config.comparison_mode == 'exact' and not comparison['passed']:
-                raise RuntimeError('Refactor equality gate failed; preserved comparison and raw evidence')
+                raise RuntimeError('Refactor equality gate failed; preserved comparison metrics')
             return result
         return train_samples(architecture,config,output,resources,event,iterator)
     finally:
@@ -176,8 +179,7 @@ def train_samples(architecture,config,output,resources,event,iterator):
                 for p in parameters:
                     if p.grad is None:continue  # A sample may select no tokens for an expert.
                     p.grad.div_(pending)
-                raw = gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
-                save_tensors(raw,output,f'gradients-step-{updates:03d}');del raw
+                # Training keeps resumable optimizer state, not per-update raw gradients.
                 with resources.phase(f'optimizer-{updates}'):
                     norm = torch.nn.utils.clip_grad_norm_(parameters,1.,error_if_nonfinite=True)
                     optimizer.step()

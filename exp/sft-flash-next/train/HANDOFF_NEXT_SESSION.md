@@ -1,3 +1,17 @@
+# Gradient retention — latest user instruction (2026-10-10)
+
+* Keep raw full-sample gradients only for current all-expert reference
+  `20261009221135477-25bf58fe`. Future optimized/native captures compare in memory
+  and retain match/difference statistics, loss, timing and GPU/RAM counters.
+* Older raw full-sample/large hidden gradients were intentionally removed locally,
+  from their local DVC blob copies, and from Kaggle task artifact directories.
+  Compact historical reports, original hashes, sources and inputs remain.
+* Updated DVC outputs include a retention inventory. Historical lock dependency
+  hashes still describe their actual old execution; some raw dependencies are
+  deliberately unavailable. Do not run those frozen historical stages.
+* See `../architecture/reports/gradient-retention*.json`; no remote DVC deletion
+  or Git/DVC push. This supersedes older "preserve every raw gradient" instructions.
+
 # Current reference change — 2026-10-10
 
 * Active architecture: `../architecture/`; read `REFERENCE.md`.
@@ -9,14 +23,17 @@
   test-only; production remains PEFT random-A/zero-B. No optimizer/overfit or pushes.
 * Legacy clean-exit full16K replay `20261009215622723-239830ad`, codee727f4b,
   loss0.6256952285766602 and all744 raw gradients bitwise identical; DVC local.
-* New reference attempt `20261009221135477-25bf58fe`, code3461d6a, running via
+* New reference attempt `20261009221135477-25bf58fe`, code3461d6a, completed via
   Kaggle Jupyter. Quantized expert prefetch fixture passed exact loss/output/input
   gradient and12 CPU FP32 adapter gradients through checkpoint recomputation.
 * First new-reference preflight `20261009220911673-86106449` failed in the synthetic
   PEFT device fixture before full model loading; source/logs cached in local DVC.
 * Large all-expert state uses bounded Torch shards and /tmp scratch via Jupyter
-  output link; do not delete historical evidence to free the20GB working volume.
-* Full new-reference loss/forward-backward GPU/RAM peaks are pending.
+  output link; keep compact historical evidence and the current reference raw state.
+* New reference loss0.6244627833366394; all74,472 raw FP32 gradients finite.
+  Forward/backward GPU allocated48.260/55.636GiB, sampled treePSS138.452/138.490GiB.
+  Source/input/shard review and local DVC complete; see `../architecture/reports/reference.md`.
+  No optimizer state/update,130K capacity claim, successor experiment or pushes.
 
 # Active work: clean architecture refactor
 

@@ -72,18 +72,23 @@ bias changes remain disabled there. Optimized configurations declare their flags
 On the pinned GPU runtime:
 
 ```bash
-python test.py --config configs/reference-iso.json
-python test.py --config configs/optimized-off-iso.json
+python test.py --config configs/reference.json
+python test.py --config configs/optimized.json
 python test.py --config /path/to/run.json --architecture optimized --head cce_exact --bf16-lora --bf16-activations
 python train.py --config /path/to/complete-labeled-samples.json
 ```
 
 Both entry points accept the same architecture/optimization overrides, including
 `--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
-`test.py` always performs exactly one anchor forward/backward, saves every raw
-adapter gradient before clipping (744 legacy or74,472 all-expert tensors), and performs zero optimizer updates. It compares with
-a saved reference when configured. `comparison_mode="exact"` enforces bitwise
-loss and all744 gradients for refactor isolation; `comparison_mode="report"`
+`test.py` performs exactly one anchor forward/backward and zero optimizer
+updates. Only `architecture="reference"` retains raw gradients. Optimized/native
+candidates compare all raw named gradients in memory against the configured
+reference, save `comparison.json` (bitwise matches, relative L2, cosine and
+per-tensor differences), then discard the candidate tensors. Training does not
+archive per-update gradients. Use `configs/optimized.json` as the next experiment
+base: it pins the current all-expert reference loss and gradient manifest.
+Changes to its optimization flags do not change this retention policy. `comparison_mode="exact"` enforces bitwise
+loss and every gradient for refactor isolation; `comparison_mode="report"`
 records numerical differences without inventing an acceptance tolerance.
 
 Training requires explicit labels in each complete encoded PT sample. Ignored
@@ -103,7 +108,7 @@ separate migration is verified. No production training is claimed here.
 From this folder on the desktop:
 
 ```bash
-node jupyter.mjs --config configs/optimized-off-iso.json --mode test
+node jupyter.mjs --config configs/optimized.json --mode test --timeout-seconds 5400
 node jupyter.mjs --action status --attempt <attempt-id>
 node jupyter.mjs --action collect --attempt <attempt-id>
 ```
@@ -115,7 +120,7 @@ process through Jupyter. Mutable status reads bypass HTTP caching. It refuses a
 busy GPU, defaults to a1200second timeout (`--timeout-seconds` overrides it), and preserves failures. Collection excludes
 only derived model-view symlinks, never copying the full model accidentally.
 
-Each capture records loss/raw gradients, initialization, input/source/package
+Each capture records loss/gradient statistics and comparison, initialization, input/source/package
 identities, phase timings, exact CUDA allocated/reserved peaks and sampled parent
 RSS/treePSS/childRSS/host-used RAM. Raw attempts are automatically cached locally with DVC after collection;
 small comparison reports are kept in Git. No Git or DVC pushes are authorized.
@@ -124,7 +129,14 @@ small comparison reports are kept in Git. No Git or DVC pushes are authorized.
 
 The full16K legacy isolation replay passed with a clean exit: loss
 0.6256952285766602 and all744 raw gradients are bitwise identical to native v0.
-See `reports/refactor-iso.json`. The new all-expert reference is being measured
-separately; this legacy proof does not qualify it.
+See `reports/refactor-iso.json`. The new all-expert reference completed separately with loss0.6244627833366394;
+see `reports/reference.md`. This legacy proof does not qualify its numerical changes.
 Small component checks do not replace that full-model isolation gate. Earlier
 v8/Opt6 results and their identities are preserved under `../train/`.
+
+Historical full-sample and large hidden-state gradient archives were pruned at
+user request. Their compact comparisons, execution sources and original hashes
+remain; per-output retention records explain intentionally missing files.
+Frozen legacy pipeline dependency hashes are historical pins, so those retired
+stages should not be rerun. The current reference and `configs/optimized.json`
+are the active comparison path. See `reports/gradient-retention*.json`.

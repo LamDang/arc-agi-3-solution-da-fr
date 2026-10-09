@@ -1,6 +1,6 @@
 outs:
-- md5: 0d01a8678e8bc1e15b2f2c932614fa58.dir
-  size: 1555228035
-  nfiles: 120
+- md5: 1c8e3d006d794f815dbd047595347648.dir
+  size: 822421317
+  nfiles: 116
   hash: md5
   path: liger-opt6-overfit-v9-stopped

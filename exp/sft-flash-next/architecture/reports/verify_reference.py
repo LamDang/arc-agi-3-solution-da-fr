@@ -26,11 +26,19 @@ def main():
     assert result['trainable_parameter_devices']=={'cuda':744,'cpu':73728}
     for name,digest in read(job/'source-hashes.json').items():assert sha(job/'source'/name)==digest,name
     provenance=read(output/'provenance.json')
+    assert provenance['model_config_sha256']==config['expected_sha256']['model_config']
+    assert provenance['script_commit']==config['dispatch_commit']
     for original,row in provenance['archived_inputs'].items():
-        assert sha(output/row['path'])==row['sha256']==provenance['sample_hashes'][original]
+        assert sha(output/row['path'])==row['sha256']==provenance['sample_hashes'][original]==config['expected_sha256']['sample']
     for name,digest in provenance['source_hashes'].items():
         assert sha(output/'sources'/name)==sha(job/'source'/name)==digest,name
     fixture=read(job/'expert-offload-check.json');assert fixture['passed'] and fixture['loss_bitwise_equal']
+    inventory=Counter(row['implementation'] for row in read(output/'components.json'))
+    assert inventory['CPUBF16Experts']==48 and inventory['BF16Decoder']==48
+    assert not any('Liger' in name or 'DirectBias' in name for name in inventory)
+    loading=read(output/'loading.json')
+    # Runtime checked native empty sets before JSON's default=str serialization.
+    assert all(loading.get(key) in (None,[],'set()') for key in ['missing_keys','unexpected_keys','mismatched_keys','error_msgs'])
     staged=read(output/'expert-prefetch.json')
     assert staged['canonical_device']=='cpu' and staged['max_staged_layers']<=2
     executes=[r for r in staged['records'] if r['event']=='execute']

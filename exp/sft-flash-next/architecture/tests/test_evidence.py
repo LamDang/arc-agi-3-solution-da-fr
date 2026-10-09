@@ -3,6 +3,16 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
+from runtime.evidence import retain_raw_gradients
+
+
+class RetentionTests(unittest.TestCase):
+    def test_only_reference_test_retains_raw_gradients(self):
+        for architecture in ('reference','optimized','native'):
+            for mode in ('test','train'):
+                self.assertEqual(retain_raw_gradients(SimpleNamespace(architecture=architecture),mode),
+                                 architecture == 'reference' and mode == 'test')
 
 
 @unittest.skipUnless(importlib.util.find_spec('torch'),'Torch available in pinned runtime')

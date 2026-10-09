@@ -34,8 +34,8 @@ stages:
     outs:
     - path: gradient-results/reference-runner-v0
       hash: md5
-      md5: 3f60d30615ad5321dd2e85ebd80266c9.dir
-      size: 532915101
+      md5: d441350496ee2939111dfb10e3b4d456.dir
+      size: 398723079
       nfiles: 38
     - path: metrics/reference-v0.json
       hash: md5
@@ -87,9 +87,9 @@ stages:
     outs:
     - path: gradient-results/target-mask-v1
       hash: md5
-      md5: 14648081d64df7c4c454936cb1cc3a29.dir
-      size: 1365074831
-      nfiles: 52
+      md5: 7e2d8e8bcc3d9b9a8cf9df14511f46d5.dir
+      size: 565317468
+      nfiles: 48
     - path: metrics/target-mask-v1.json
       hash: md5
       md5: 8996678c9531be44a1c9f2769e3f5044
@@ -140,9 +140,9 @@ stages:
     outs:
     - path: gradient-results/liger-flce-v2
       hash: md5
-      md5: 80c493ffb3c581c80fb485962d12cb42.dir
-      size: 1366392163
-      nfiles: 54
+      md5: 71e95a95176a1a6e051f884b809e4cbc.dir
+      size: 566634795
+      nfiles: 50
     - path: metrics/liger-flce-v2.json
       hash: md5
       md5: 0848ba0c6b80336177273694e24248ef
@@ -193,9 +193,9 @@ stages:
     outs:
     - path: gradient-results/cce-exact-v3
       hash: md5
-      md5: 07c61ac3ad93923488c7a17fa18a5729.dir
-      size: 1365913509
-      nfiles: 54
+      md5: 3016c30b3d1a002e9a95d7ca51b80d45.dir
+      size: 566156136
+      nfiles: 50
     - path: metrics/cce-exact-v3.json
       hash: md5
       md5: 37e991cd91b739123a36e68795c5d295
@@ -258,9 +258,9 @@ stages:
     outs:
     - path: gradient-results/cce-opt3-mask-v4
       hash: md5
-      md5: cc93515b1b120fc1bccd14ea1625f459.dir
-      size: 1366163450
-      nfiles: 70
+      md5: e03ba2cd18a2b4d0164769e482e504ba.dir
+      size: 566406097
+      nfiles: 66
     - path: metrics/cce-opt3-mask-v4.json
       hash: md5
       md5: 7b7812ca1e8bc9332d8454a13194da6f
@@ -335,9 +335,9 @@ stages:
     outs:
     - path: gradient-results/cce-opt4-ple-v5
       hash: md5
-      md5: ebb3229748d601a248020122433ede0e.dir
-      size: 1551100183
-      nfiles: 86
+      md5: 50dbbfa64892b9f98d740bc959c6444b.dir
+      size: 751342825
+      nfiles: 82
     - path: metrics/cce-opt4-ple-v5.json
       hash: md5
       md5: b9ac01ced818e3c9b7af6532c378ee00
@@ -466,9 +466,9 @@ stages:
     outs:
     - path: gradient-results/cce-opt5-bf16-v6
       hash: md5
-      md5: e0fbd2542bdb5b4920ba92657c924e19.dir
-      size: 1417654269
-      nfiles: 92
+      md5: 825e0614cfcc58cd42885076f6b35cbd.dir
+      size: 684854227
+      nfiles: 88
     - path: metrics/cce-opt5-bf16-v6.json
       hash: md5
       md5: d6c9ea7ad850e3e8b12a041c07f5ab5f
@@ -552,9 +552,9 @@ stages:
     outs:
     - path: gradient-results/cce-opt5-activations-v7
       hash: md5
-      md5: a917fd64b3cca17aac2ab44c947f91fc.dir
-      size: 1418086867
-      nfiles: 94
+      md5: d336f83dc107cee2a635a6e7d10a1b1c.dir
+      size: 685286860
+      nfiles: 90
     - path: metrics/cce-opt5-activations-v7.json
       hash: md5
       md5: 3387954089ab504410fbebcc0e0f861a
@@ -637,9 +637,9 @@ stages:
     outs:
     - path: gradient-results/bf16-overfit-v8
       hash: md5
-      md5: ee149b8605581c64e1b7f693467f5aaa.dir
-      size: 2024173866
-      nfiles: 110
+      md5: ff936a9d0ed71e929b21cbdfdb93ff0f.dir
+      size: 1022400046
+      nfiles: 102
     - path: metrics/bf16-overfit-v8.json
       hash: md5
       md5: 1d67ff309c5b3edfd67eda4f067b8937

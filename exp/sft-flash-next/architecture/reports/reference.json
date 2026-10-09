@@ -1,0 +1,84 @@
+{
+  "passed": true,
+  "attempt": "20261009221135477-25bf58fe",
+  "execution_commit": "3461d6abe9aa2834b0c8006798e6c8895b23750b",
+  "loss": 0.6244627833366394,
+  "tokens": 16249,
+  "targets": 651,
+  "raw_gradient_tensors": 74472,
+  "raw_gradient_dtype": "FP32",
+  "routed_expert_adapter_tensors": 73728,
+  "nonzero_tensors": {
+    "initial-adapter": 74472,
+    "gradients": 74394
+  },
+  "archives": {
+    "initial-adapter": {
+      "tensors": 74472,
+      "elements": 1920915456,
+      "bytes": 7683661824,
+      "shards": 73
+    },
+    "gradients": {
+      "tensors": 74472,
+      "elements": 1920915456,
+      "bytes": 7683661824,
+      "shards": 73
+    }
+  },
+  "absent_unselected_gradient_tensors": 0,
+  "cpu_expert_prefetch_max_layers": 2,
+  "bf16_expert_inputs_verified": true,
+  "source_input_and_archive_hashes_verified": true,
+  "optimizer_updates": 0,
+  "clipping_applied": false,
+  "initialization": "Test-only reproducible nonzero A/B; all exact values archived. Production uses PEFT random-A/zero-B.",
+  "scope": "Measured 16K user-defined reference; not a 130K capacity or optimizer-memory result.",
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 322.4369794929953,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94258606080,
+      "tree_pss_bytes": 94809939968,
+      "children_rss_bytes": 1199927296,
+      "host_used_bytes": 45966819328,
+      "samples": 450
+    },
+    {
+      "phase": "forward",
+      "seconds": 155.38419815599627,
+      "cuda_peak_allocated_bytes": 51818630656,
+      "cuda_peak_reserved_bytes": 55104765952,
+      "rss_bytes": 148110581760,
+      "tree_pss_bytes": 148661549056,
+      "children_rss_bytes": 999292928,
+      "host_used_bytes": 99423719424,
+      "samples": 180
+    },
+    {
+      "phase": "backward",
+      "seconds": 222.43740877499658,
+      "cuda_peak_allocated_bytes": 59738251776,
+      "cuda_peak_reserved_bytes": 62448992256,
+      "rss_bytes": 148151050240,
+      "tree_pss_bytes": 148702021632,
+      "children_rss_bytes": 998080512,
+      "host_used_bytes": 99465805824,
+      "samples": 283
+    },
+    {
+      "phase": "gradient_export",
+      "seconds": 13.234738004000974,
+      "cuda_peak_allocated_bytes": 11102735872,
+      "cuda_peak_reserved_bytes": 62448992256,
+      "rss_bytes": 103453265920,
+      "tree_pss_bytes": 104004183040,
+      "children_rss_bytes": 998080512,
+      "host_used_bytes": 54865125376,
+      "samples": 18
+    }
+  ],
+  "pushed_to_remote": false
+}
