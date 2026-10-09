@@ -4,6 +4,7 @@ import importlib.metadata
 import json
 from pathlib import Path
 import struct
+import shutil
 import subprocess
 import sys
 
@@ -31,7 +32,13 @@ def snapshot(output, config, mode):
         target.write_bytes(path.read_bytes())
         hashes[str(relative)] = sha(path)
     commit = subprocess.run(['git','rev-parse','HEAD'],cwd=root,capture_output=True,text=True)
-    provenance = dict(mode=mode,config=config.as_dict(),source_hashes=hashes,
+    inputs = Path(output)/'inputs';inputs.mkdir()
+    archived = {}
+    for label,original in [(f'sample-{i:04d}.pt',name) for i,name in enumerate(config.samples)]+([('adapter.pt',config.adapter)] if config.adapter else []):
+        target = inputs/label
+        shutil.copyfile(original,target)
+        archived[original] = dict(path=str(target.relative_to(output)),sha256=sha(target))
+    provenance = dict(mode=mode,config=config.as_dict(),source_hashes=hashes,archived_inputs=archived,
         script_commit=config.dispatch_commit or (commit.stdout.strip() if commit.returncode == 0 else None),
         source_identity='Actual source SHA256s are authoritative; commit is dispatch provenance.',
         versions={name:importlib.metadata.version(name) for name in ('torch','transformers','peft','auto-round')},
