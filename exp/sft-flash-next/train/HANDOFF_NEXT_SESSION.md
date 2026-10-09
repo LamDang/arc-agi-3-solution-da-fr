@@ -1,3 +1,43 @@
+# Rejected Opt5 implementation — 2026-10-09
+
+* User corrected scope: BF16 model activations, not numerical statistics.
+  v6 blanket saved-tensor rounding was an implementation mistake. Preserve
+  this evidence; corrected policy must not cast CCE LSE or other statistics.
+* Primary executed via Kaggle Jupyter, no new subagent. Code `c7c0380`, attempt
+  `20261009190135-166a0dc3`; stage/config `cce_opt5_bf16_v6` /
+  `configs/cce-opt5-bf16-v6.json`. One forward/backward, no update/clipping.
+* All 744 LoRA parameters/raw gradients BF16. All 48 decoder outputs and
+  floating saved CPU payloads BF16; internal FP32 computation/scalar loss
+  allowed. Saved FP32 statistics are also compressed lossily, then restored
+  to original dtype for backward; CCE kernel flags remain exact/filters off,
+  but the composed storage policy is not numerically exact.
+* Immutable FP32 diagnostic adapter is deterministically rounded to BF16;
+  independent nearest-even conversion/digest matches the rounded archive and
+  native initial export. Rounding L2 0.0442425%; fixture remains test-only.
+* Loss `0.6278998851776123` (`3f20be0c`), +0.365605% vs v5.
+  All 744 gradients finite/nonzero; **57.783191% global L2 error**, cosine
+  0.8313708066557313, worst tensor 123.398691%. Zero exact tensors.
+  **Strict numerical gate FAILED**, no tolerance or production promotion.
+  Parameter, boundary and saved-statistic rounding changed together; do not
+  attribute full-model drift to one component without an isolated experiment.
+* Forward/backward 122.977/169.978 s; sum 292.955 s, 12.332% shorter vs v5.
+  GPU allocated 44.830/52.911 GiB (save 4.699/5.366); parent RSS
+  19.321/20.981 GiB (save 14.557/13.025), tree PSS 19.832/21.182 GiB.
+  Reserved 68.877/69.127 GiB; child RSS 0.951 GiB; file cache 112.780/112.906 GiB.
+  Total 428.959 s includes 101.046 s loading and warm prechecks; avoid attributing
+  total savings solely to precision, or claiming measured 130K capacity.
+* Independent raw BF16 review verifies all tensors, sources, initialization,
+  loss and float64 L2/cosine. Eight native mask cases and full PLE anchor/hash/
+  row/output/gradient/queue/recomputation checks pass. Isolated unchanged CCE
+  probe drift 0.015358%/0.013792% does not explain full-model drift on its own.
+* Raw gradients SHA256:
+  `df47d4a7cff25461c15e957e301b7046e2fb4a2d6f62856a9cfc2f37112a5373`.
+* `v6.md`, master `v0.md`, metrics/review preserve the failed diagnostic.
+  DVC manual commit retains the failed diagnostic; all 92 files restore with
+  identical SHA256s, tree `e0fbd2542bdb5b4920ba92657c924e19.dir`.
+  User requested correction; prepare a separate activation-only capture.
+  Do not push Git or DVC: user explicitly asked to hold all further pushes.
+
 # Latest short layer dtype trace — 2026-10-09
 
 * User explicitly requested one subagent framework review and a primary-run
@@ -21,7 +61,7 @@
 * Source/operation traces, inputs and raw layer outputs are DVC artifacts;
   metrics/review in Git. Supplemental fused-MoE source matches prior v5 hash
   `2df52654daddd827cf7501ad862caf8e588be3430e5e2ce658a10ba493af161c`.
-* No adapter-precision or expert-return cast optimization has been run.
+* Superseded by Opt5 above, which also changes saved-statistic precision.
 
 # Latest Opt4 capture — 2026-10-09
 

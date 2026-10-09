@@ -1,0 +1,96 @@
+{
+  "run_id": "cce-opt5-bf16-v6",
+  "attempt_id": "20261009190135-166a0dc3",
+  "independent_raw_gradient_review": true,
+  "comparison_baseline": "cce-opt4-ple-v5",
+  "raw_tensors": 744,
+  "bitwise_exact_tensors": 0,
+  "nonzero_tensors": {
+    "A": 372,
+    "B": 372
+  },
+  "global_relative_l2_error": 0.577831911185936,
+  "cosine_similarity": 0.8313708066557313,
+  "all_file_hashes_verified": true,
+  "mask_operator_cases_independently_verified": 8,
+  "mask_operator_raw_outputs_and_qkv_gradients_exact": true,
+  "selection_indices_causal_and_allowed_sets_verified": true,
+  "mask_guards_verified": [
+    "padding",
+    "batch",
+    "cache",
+    "use_cache"
+  ],
+  "actual_bias_dtypes": [
+    "torch.bfloat16"
+  ],
+  "bias_calls": 24,
+  "cce_effective_options_unchanged": true,
+  "unchanged_interleaved_native_fixture_and_gradients_match_baseline": true,
+  "unchanged_cce_operator_replay_comparison": [
+    {
+      "reduction": "mean",
+      "hidden_fixture_and_native_gradient_unchanged": true,
+      "cce_hidden_gradient_bytes_exact": false,
+      "relative_l2_error": 0.0001535842595280258,
+      "max_abs_error": 9.5367431640625e-07
+    },
+    {
+      "reduction": "sum",
+      "hidden_fixture_and_native_gradient_unchanged": true,
+      "cce_hidden_gradient_bytes_exact": false,
+      "relative_l2_error": 0.00013792279808509908,
+      "max_abs_error": 6.103515625e-05
+    }
+  ],
+  "imported_cce_sources_verified_against_archive": 15,
+  "frozen_candidate_and_native_source_hashes_verified": true,
+  "private_server_url_absent": true,
+  "loss": 0.6278998851776123,
+  "loss_float32_bits": "3f20be0c",
+  "bitwise_qualified": false,
+  "gradients_sha256": "df47d4a7cff25461c15e957e301b7046e2fb4a2d6f62856a9cfc2f37112a5373",
+  "no_clipping": true,
+  "optimizer_updates": 0,
+  "ple_complete_anchor_payload_bytes_exact": true,
+  "ple_complete_anchor_row_ids_exact": true,
+  "ple_unique_rows": 69280,
+  "ple_payload_bytes": 83194880,
+  "ple_native_output_and_input_gradient_bytes_exact": true,
+  "ple_cpu_payload_retained_through_backward": true,
+  "ple_table_bytes": 102400491520,
+  "ple_table_parameters": 0,
+  "ple_full_table_shards": 128,
+  "ple_worker_preparations": 3,
+  "ple_queued_preparations_completed_before_forward": 2,
+  "ple_training_and_recomputation_disk_reads": 0,
+  "raw_gradient_dtype": "torch.bfloat16",
+  "comparison_dtype": "torch.float64",
+  "values_exact_after_promotion": 0,
+  "bf16_parameter_tensors": 744,
+  "module_boundary_outputs_only_bf16": true,
+  "all_48_layer_outputs_bf16": true,
+  "saved_floating_payloads_only_bf16": true,
+  "saved_fp32_statistics_compressed": true,
+  "unpack_original_dtype_restored": true,
+  "bf16_adapter_rounding_independently_verified": true,
+  "bf16_rounded_adapter_matches_native_initial_export": true,
+  "bf16_adapter_state_digest": "dd4a069e1f5cd0c85a87a6f371be0eaab44c76c267fc53936172962516456644",
+  "adapter_rounding_relative_l2": 0.0004424253535026096,
+  "saved_original_bytes": {
+    "torch.float32": 1331681616,
+    "torch.bfloat16": 18966723200,
+    "torch.bool": 16249,
+    "torch.int64": 10416
+  },
+  "saved_storage_bytes": {
+    "torch.bfloat16": 19632564008,
+    "torch.bool": 16249,
+    "torch.int64": 10416
+  },
+  "scalar_loss_dtype": "torch.float32",
+  "tolerance_accepted": false,
+  "dvc_restored_files_sha256_identical": 92,
+  "dvc_artifact_tree": "e0fbd2542bdb5b4920ba92657c924e19.dir",
+  "dvc_cached_restore_not_numerical_replay": true
+}
