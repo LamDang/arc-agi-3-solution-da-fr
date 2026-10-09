@@ -1,3 +1,23 @@
+# Current reference change — 2026-10-10
+
+* Active architecture: `../architecture/`; read `REFERENCE.md`.
+* User defines new reference: BF16 declared activations/native FP32 work and statistics;
+  FP32 LoRA masters/gradients; all256 routed experts ×48 layers receive gate/up/down
+  LoRA; quantized routed experts and adapters in CPU RAM with bounded layer prefetch;
+  frozen PLE on disk with DataLoader lookahead. Native head/masks/norms retained.
+* Inventory expands744 ->74,472 adapter tensors. New seeded nonzero A/B capture is
+  test-only; production remains PEFT random-A/zero-B. No optimizer/overfit or pushes.
+* Legacy clean-exit full16K replay `20261009215622723-239830ad`, codee727f4b,
+  loss0.6256952285766602 and all744 raw gradients bitwise identical; DVC local.
+* New reference attempt `20261009221135477-25bf58fe`, code3461d6a, running via
+  Kaggle Jupyter. Quantized expert prefetch fixture passed exact loss/output/input
+  gradient and12 CPU FP32 adapter gradients through checkpoint recomputation.
+* First new-reference preflight `20261009220911673-86106449` failed in the synthetic
+  PEFT device fixture before full model loading; source/logs cached in local DVC.
+* Large all-expert state uses bounded Torch shards and /tmp scratch via Jupyter
+  output link; do not delete historical evidence to free the20GB working volume.
+* Full new-reference loss/forward-backward GPU/RAM peaks are pending.
+
 # Active work: clean architecture refactor
 
 * User requests a clean component architecture and train.py/test.py accepting

@@ -19,6 +19,8 @@ architecture/
     mlp.py                 optional shared/routed Liger SwiGLU
     ple.py                 frozen disk lookup and bounded CPU preparation
     precision.py           BF16 activation ports; native statistics preserved
+    expert_offload.py      CPU expert masters and bounded layer prefetch
+    adapters.py            per-config PEFT support for packed expert projections
     common.py              component adoption with unchanged parameter names
   runtime/
     loop.py                shared data/forward/backward path
@@ -34,9 +36,12 @@ architecture/
 
 ## Architecture selection
 
-`reference` calls the installed native HF/AutoRound/PEFT implementation directly
-and rejects every optimization flag. `optimized` starts from the same loader
-and selects component subclasses. With all flags disabled, no component is
+`reference` is the user-defined FP32 all-expert LoRA reference with BF16
+activation ports, CPU expert prefetch and DataLoader-prepared disk PLE. See
+[REFERENCE.md](REFERENCE.md) for its exact contract and test initialization.
+`native` preserves the earlier untouched HF/AutoRound/PEFT path and rejects
+optimization flags. `optimized` starts from the same loader and selects
+independent components. With all flags disabled, no component is
 replaced. Each enabled component retains existing parameter objects and state
 keys; the builder refuses unexpected instance forwards/offload hooks.
 
@@ -54,11 +59,13 @@ components is source-pinned and reviewed separately.
 | `bf16_activations` | Opt5 declared model activation ports; statistics stay native |
 | `liger_rmsnorm` | Opt6 normalization kernels, independently selectable |
 | `liger_swiglu` | Opt6 shared/routed activation kernels, independently selectable |
+| `offload_routed_experts` | CPU canonical expert state; at most two GPU layers |
+| `lora_routed_experts` | LoRA on every routed expert gate/up/down projection |
 
 Flags are independent unless a component has an explicit restriction. Opt6
 remains unqualified: its earlier full-model gradient drift is unresolved.
-Migration of a flag does not qualify its numerical behavior. No optimization is
-enabled by default.
+Migration of a flag does not qualify its numerical behavior. The reference preset fixes its four required settings; optional Liger/CCE/direct
+bias changes remain disabled there. Optimized configurations declare their flags.
 
 ## Commands
 
@@ -73,8 +80,8 @@ python train.py --config /path/to/complete-labeled-samples.json
 
 Both entry points accept the same architecture/optimization overrides, including
 `--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
-`test.py` always performs exactly one forward/backward, saves all744 raw adapter
-gradients before clipping, and performs zero optimizer updates. It compares with
+`test.py` always performs exactly one anchor forward/backward, saves every raw
+adapter gradient before clipping (744 legacy or74,472 all-expert tensors), and performs zero optimizer updates. It compares with
 a saved reference when configured. `comparison_mode="exact"` enforces bitwise
 loss and all744 gradients for refactor isolation; `comparison_mode="report"`
 records numerical differences without inventing an acceptance tolerance.
@@ -105,7 +112,7 @@ The bearer URL stays in `/tmp/kaggle_probe_url`. Each attempt uploads an isolate
 source snapshot with SHA256s, dispatch Git commit and verified pinned dependency
 archives from `configs/dependencies.json`, then executes in a detached
 process through Jupyter. Mutable status reads bypass HTTP caching. It refuses a
-busy GPU, times out after1200seconds and preserves failures. Collection excludes
+busy GPU, defaults to a1200second timeout (`--timeout-seconds` overrides it), and preserves failures. Collection excludes
 only derived model-view symlinks, never copying the full model accidentally.
 
 Each capture records loss/raw gradients, initialization, input/source/package
@@ -115,6 +122,9 @@ small comparison reports are kept in Git. No Git or DVC pushes are authorized.
 
 ## Refactor qualification
 
-Status: implementation prepared; native16K loss/all744-gradient replay pending.
+The full16K legacy isolation replay passed with a clean exit: loss
+0.6256952285766602 and all744 raw gradients are bitwise identical to native v0.
+See `reports/refactor-iso.json`. The new all-expert reference is being measured
+separately; this legacy proof does not qualify it.
 Small component checks do not replace that full-model isolation gate. Earlier
 v8/Opt6 results and their identities are preserved under `../train/`.

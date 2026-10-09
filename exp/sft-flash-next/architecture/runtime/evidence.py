@@ -52,8 +52,19 @@ def snapshot(output, config, mode):
 
 def compare(gradients, loss, baseline):
     import torch
-    reference = torch.load(baseline['gradients'],map_location='cpu',weights_only=True)
-    if set(reference) != set(gradients) or len(reference) != 744:
+    path=Path(baseline['gradients'])
+    if path.suffix=='.json':
+        manifest=json.loads(path.read_text());reference={}
+        for row in manifest['shards']:
+            shard=path.parent/row['path']
+            if sha(shard)!=row['sha256']:raise ValueError('Baseline gradient shard hash differs')
+            state=torch.load(shard,map_location='cpu',weights_only=True)
+            if reference.keys() & state.keys():raise ValueError('Duplicate gradient shard keys')
+            reference.update(state)
+        if len(reference)!=manifest['tensors']:raise ValueError('Baseline gradient count differs')
+    else:
+        reference = torch.load(path,map_location='cpu',weights_only=True)
+    if set(reference) != set(gradients) or not reference:
         raise ValueError('Raw gradient keys/count differ')
     rows = {};error = norm = other = dot = 0.
     for name,a in reference.items():
@@ -73,7 +84,7 @@ def compare(gradients, loss, baseline):
     return dict(loss=loss,baseline_loss=expected,loss_bitwise_equal=loss_exact,
         loss_relative_change=(loss-expected)/expected,raw_tensors=len(rows),bitwise_equal_tensors=exact,
         global_relative_l2=(error/norm)**.5,cosine=dot/(norm*other)**.5,
-        passed=loss_exact and exact==744,criterion='Refactor isolation: bitwise loss and all 744 raw gradients',
+        passed=loss_exact and exact==len(reference),criterion=f'Bitwise loss and all {len(reference)} raw gradients',
         baseline_gradients_sha256=sha(baseline['gradients']),tensors=rows)
 
 
