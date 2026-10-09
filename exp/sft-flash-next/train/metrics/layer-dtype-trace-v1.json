@@ -1,0 +1,133 @@
+{
+  "attempt_id": "20261009184603-203da5fa",
+  "commit": "3a5a58fb853d58acc9bce132302feddbde000b7f",
+  "tokens": 32,
+  "layers": [
+    {
+      "layer": 0,
+      "layer_type": "linear_attention",
+      "input": [
+        {
+          "dtype": "torch.bfloat16",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "output": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "traced_seconds": 7.01399813199896
+    },
+    {
+      "layer": 1,
+      "layer_type": "linear_attention",
+      "input": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "output": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "traced_seconds": 1.5378285400001914
+    },
+    {
+      "layer": 2,
+      "layer_type": "linear_attention",
+      "input": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "output": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "traced_seconds": 0.701866818999406
+    },
+    {
+      "layer": 3,
+      "layer_type": "indexed_attention",
+      "input": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "output": [
+        {
+          "dtype": "torch.float32",
+          "shape": [
+            1,
+            32,
+            10240
+          ],
+          "device": "cuda:0",
+          "requires_grad": false
+        }
+      ],
+      "traced_seconds": 0.7955400259997987
+    }
+  ],
+  "operation_count": 37176,
+  "introduces_fp32_count": 2216,
+  "embedding_dtype": "torch.bfloat16",
+  "adapter_storage_dtype_counts": {
+    "torch.float32": 744
+  },
+  "traced_forward_seconds": 10.109410425000533,
+  "gpu_peak_allocated_gib": 39.6568078994751,
+  "backward": false,
+  "optimizer_updates": 0
+}

@@ -1,3 +1,28 @@
+# Latest short layer dtype trace — 2026-10-09
+
+* User explicitly requested one subagent framework review and a primary-run
+  small forward trace; this supersedes the earlier no-subagents instruction
+  for that review only. Kaggle Jupyter API; no computer use.
+* `layer-dtype-trace-v1`, code `3a5a58f`, attempt
+  `20261009184603-203da5fa`: only 32 anchor-prefix token IDs and first four
+  language layers, no multimodal image injection, loss, backward or update.
+* Embedding/initial residual BF16. All 62 observed LoRA A/B linear outputs
+  BF16 despite 744 FP32 adapter parameters. RMSNorm temporarily uses FP32 but
+  returns BF16 before the persistent promotion.
+* AutoRound `linear_loop_experts_forward`, `moe_experts_interface.py:286`,
+  selected-expert `.sum(dim=1)`: op 18957 BF16 [32,10,2560] -> FP32 [32,2560].
+  PyTorch CUDA autocast uses FP32 for sum; the returned expert result is not
+  cast back. Native decoder residual add op 18968 becomes FP32. Layers 1–3
+  enter/leave FP32, including PLE/indexed attention. No blanket Qwen FP32
+  residual requirement established; this is the actual observed promotion.
+* Original QLoRA and current TRL explicitly support BF16 adapter storage;
+  current reference FP32 adapter policy comes from PEFT default. See
+  `QLORA_DTYPE_REVIEW.md` and `LAYER_DTYPE_TRACE.md`.
+* Source/operation traces, inputs and raw layer outputs are DVC artifacts;
+  metrics/review in Git. Supplemental fused-MoE source matches prior v5 hash
+  `2df52654daddd827cf7501ad862caf8e588be3430e5e2ce658a10ba493af161c`.
+* No adapter-precision or expert-return cast optimization has been run.
+
 # Latest Opt4 capture — 2026-10-09
 
 * CCE exact and Opt3 retained; primary directly executes, no subagents, Kaggle
