@@ -43,9 +43,9 @@
     "bf16_activation_policy.py": "aa081f6dbf802bbfec3e61c5495014b680d8299badf3c6f8780ddc3bcb6f28ff",
     "bf16_model_activations.py": "4b6547375b09b71dcc7b49cd7b7ee060375954f4582eee2f38669a57879191f2",
     "kaggle_reference_worker.py": "fe5df5dc5d41268345d219be20f92119cd36a43556af7c2cded1b00d3aa62c20",
-    "bf16_overfit_instrumentation.py": "b76bd3cc05a95e105ab59079a2116473fdb77fa14e27de711bd842f0dbdabe96",
-    "liger_norm_swiglu.py": "47d0a9f9fbf83fbeaa3f5b608c01ef02e19e73afdec413531a8f022e2c478ac9",
-    "liger_norm_swiglu_check.py": "fb12481d5f5176aeb9bc3a515e5fe9004e1ef30acf55dd6b9c3bb350b27e3ec4"
+    "bf16_overfit_instrumentation.py": "42576b677ddc46bec7f8a7a755cc4c4b0bdcfb081ac14041b2d4cab20afb30ef",
+    "liger_norm_swiglu.py": "ddaf4cbb1037951354526cf566f6c687a66daac682d3bbb0732ff7d1cf84770c",
+    "liger_norm_swiglu_check.py": "62c4aa7f6aaf8a67e17a49430923ec3b7beba6b265c4767bc726679037b9663d"
   },
   "interleaved_operator_check": true,
   "native_gradients": "/kaggle/working/gradient-audit-20261009/cce-opt4-ple-v5-attempt-20261009173647-1a7e7242/gradients.pt",

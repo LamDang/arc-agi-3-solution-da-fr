@@ -12,13 +12,17 @@ from liger_norm_swiglu import rms_forward, gated_rms_forward, fused_swiglu, repl
 
 
 def relative(a, b):
-    a, b = a.double(), b.double()
+    a, b = a.detach().double(), b.detach().double()
     return float(torch.linalg.vector_norm(a-b)/torch.linalg.vector_norm(a).clamp_min(1e-30))
 
 
 def qualify(output_dir):
     import transformers.models.qwen4_exp.modeling_qwen4_exp as native
     import auto_round.modeling.fused_moe.moe_experts_interface as moe
+    from transformers import AutoConfig
+    from transformers.activations import ACT2FN
+    cfg=AutoConfig.from_pretrained('/tmp/reference-256-hf',local_files_only=True).text_config
+    assert cfg.output_gate_type=='sigmoid' and cfg.hidden_act=='silu'
     torch.manual_seed(606)
     rows = []
     def compare(label, reference, candidate, values, dtype):
@@ -55,13 +59,14 @@ def qualify(output_dir):
             compare('grouped' if group else 'rms',reference,candidate,[x,module.weight.detach()],dtype)
         x=torch.randn(2,3,128,device='cuda',dtype=dtype);gate=torch.randn_like(x)
         w=torch.empty(128,device='cuda',dtype=dtype).uniform_(.85,1.15)
+        activation=cfg.output_gate_type or cfg.hidden_act
         def gated_reference(x,g,w):
             z=x.float();z=z*torch.rsqrt(z.square().mean(-1,keepdim=True)+1e-6)
-            return ((w*z.to(x.dtype))*torch.nn.functional.silu(g.float())).to(x.dtype)
+            return ((w*z.to(x.dtype))*ACT2FN[activation](g.float())).to(x.dtype)
         def gated_candidate(x,g,w):
-            return gated_rms_forward(SimpleNamespace(weight=w,variance_epsilon=1e-6,activation='silu'),x,g)
-        compare('gated',gated_reference,gated_candidate,[x,gate,w],dtype)
-        for width in (1024,2048):
+            return gated_rms_forward(SimpleNamespace(weight=w,variance_epsilon=1e-6,activation=activation),x,g)
+        compare('gated_'+activation,gated_reference,gated_candidate,[x,gate,w],dtype)
+        for width in (cfg.moe_intermediate_size,2048):
             a=torch.randn(7,width,device='cuda',dtype=dtype);b=torch.randn_like(a)
             compare('swiglu'+str(width),lambda a,b:torch.nn.functional.silu(a)*b,fused_swiglu,[a,b],dtype)
     # Execute actual native routing twice with the same tiny expert projections.
@@ -116,7 +121,7 @@ def qualify(output_dir):
             forward_peak_allocated_bytes=fpeak,backward_peak_allocated_bytes=bpeak,
             saved_tensor_bytes=sum(t['bytes'] for t in saved),saved_tensors=saved))
         del x,dy,y,module;gc.collect();torch.cuda.empty_cache()
-    report=dict(passed=True,cases=rows,benchmarks=benchmarks,
+    report=dict(passed=True,cases=rows,benchmarks=benchmarks,configured_gate=cfg.output_gate_type,
         tolerance_scope='isolated operators only; full-model acceptance is finite one-sample learning',
         no_model_optimizer_updates=True)
     (Path(output_dir)/'opt6-operator-check.json').write_text(json.dumps(report,indent=2)+'\n')

@@ -108,6 +108,10 @@ def install(config):
             adapter_initialization='seeded PEFT random A / zero B, deterministically rounded to BF16',
             model_operators='pinned HF/AutoRound with documented Opt3/Opt4/BF16 activation overrides',
             gradient_equivalence_required=False,qualification='one-sample learning only',learning_config=config['learning'])
+        if config.get('opt6'):
+            provenance['objective']+='; Opt6 Liger RMSNorm and expert SwiGLU'
+            provenance['model_operators']+='; explicit Liger RMSNorm and expert/shared-MLP SwiGLU overrides'
+            provenance['opt6']=config['opt6']
         (out/'provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
         return state['completed_updates']
     return finalize

@@ -1,0 +1,11 @@
+{
+  "run_id": "liger-opt6-overfit-v9-failed-launch2",
+  "attempt_id": "20261009204354-d235da29",
+  "execution_commit": "6e5e2d5",
+  "model_loaded": true,
+  "first_forward_completed": false,
+  "optimizer_updates": 0,
+  "operator_checks_passed": true,
+  "failure": "GDN configured sigmoid gate rejected by the initial SiLU-only guard; stopped on first forward before loss/backward/update",
+  "corrective_action": "Preserve ACT2FN[module.activation] at FP32; test actual configured sigmoid and actual640-wide expert activation before loading; count all36sigmoid modules"
+}

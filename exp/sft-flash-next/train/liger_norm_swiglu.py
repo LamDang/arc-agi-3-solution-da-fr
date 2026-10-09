@@ -2,7 +2,7 @@
 
 Grouped RMSNorm uses one call per group because each group has distinct affine
 weights. Native FP32 reductions remain FP32 inside Liger; its saved inverse RMS
-also remains FP32. Gated RMSNorm retains the native FP32 SiLU/gate multiply.
+also remains FP32. Gated RMSNorm retains the configured native FP32 gate.
 """
 import ast
 from collections import Counter
@@ -33,11 +33,10 @@ def rms_forward(module, x):
 
 def gated_rms_forward(module, hidden_states, gate):
     """Keep native norm-before-gate ordering and the FP32 gate calculation."""
-    if module.activation != 'silu':
-        raise ValueError('Opt6 gated norm requires native SiLU activation')
+    from transformers.activations import ACT2FN
     normed = LigerRMSNormFunction.apply(hidden_states, module.weight,
         module.variance_epsilon, 0.0, 'llama', False)
-    return (normed * torch.nn.functional.silu(gate.float())).to(hidden_states.dtype)
+    return (normed * ACT2FN[module.activation](gate.float())).to(hidden_states.dtype)
 
 
 def fused_swiglu(gate, up):
@@ -79,7 +78,7 @@ def install(launch_dir, report_path):
     report = dict(implementation='opt6_liger_rmsnorm_swiglu', finalized=False,
         rms_casting_mode='gemma', rms_offset=1.0, rms_in_place_backward=False,
         grouped_norm='separate group calls with distinct original affine slices',
-        gated_norm='llama offset0; native FP32 SiLU and gate multiply retained',
+        gated_norm='llama offset0; configured native FP32 activation and gate multiply retained',
         expert_change='default SiLU(gate)*up block replaced; redundant gate/up cat removed',
         routing_and_projections_unchanged=True, statistics_blanket_cast=False,
         module_counts={}, calls={}, kernel_sources={}, native_sources={})
@@ -133,6 +132,10 @@ def install(launch_dir, report_path):
         report['module_counts'] = {key:kinds[key] for key in expected}
         if report['module_counts'] != expected:
             raise RuntimeError('Unexpected Opt6 module inventory')
+        gates=Counter(m.activation for _,m in modules if type(m).__name__=='Qwen4ExpTextRMSNormGated')
+        report['gated_activation_counts']=dict(gates)
+        if gates!={'sigmoid':36}:
+            raise RuntimeError('Unexpected configured GDN output gate')
         for name, module in modules:
             if type(module).__name__ == 'Qwen4ExpTextExperts':
                 if type(module)._apply_gate is not _default_apply_gate or getattr(module.config, '_experts_implementation', None) != moe.LINEAR_LOOP_IMPL:

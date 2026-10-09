@@ -1,15 +1,24 @@
-# Opt6 Liger RMSNorm + SwiGLU — implementation prepared
+# Opt6 Liger RMSNorm + SwiGLU — overfit running
 
 * User requests memory-efficient normalization and expert activation kernels;
   provided official RMSNorm/SwiGLU implementation and documentation URLs.
 * Primary executes through Kaggle Jupyter only; no subagent/computer use.
   Config/stage `liger-opt6-overfit-v9` / `liger_opt6_overfit_v9`.
 * Retains passing v8 arithmetic/settings except targeted Liger kernels.
-  Plain/grouped norm offset1+gemma; gated norm offset0+llama, native FP32 gate;
+  Plain/grouped norm offset1+gemma; gated norm offset0+llama, native FP32 configured sigmoid gate;
   expert/default gate and shared MLP SwiGLU fused, native routing/projections.
 * Fresh same-seed one-sample overfit, max20 updates, >=95% reduction acceptance;
   isolated operator checks before patching/model loading. Full raw per-step
   gradients, timing, GPU/RAM and source pins. See `v9.md` for exact contract.
+* Attempt1: disk full before loading, saved as failed-launch1; all11operator cases
+  passed. Attempt2: loaded model then stopped on first forward before any loss/
+  backward/update, because the initial guard incorrectly assumed a SiLU GDN gate.
+  Actual configured GDN gate is sigmoid. Corrected and included in prechecks;
+  expert SwiGLU remains SiLU. Attempt2 preserved as failed-launch2.
+* Next: retry with corrected source commit and config; never duplicate a GPU job.
+* v7/v8 server snapshots moved to `/tmp/opt6-preserved-v8-evidence` with raw
+  hashes verified before/after; original paths remain symlinks. Copy preserves
+  model-view symlinks. Working free space3,468,619,776 bytes before retry.
 * v8 DVC stage frozen before shared launcher changes; its result stays intact.
 * **DO NOT PUSH Git or DVC.** Keep all results/cache/commits local.
 
