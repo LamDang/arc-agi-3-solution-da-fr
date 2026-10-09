@@ -82,3 +82,13 @@ test('Opt4 pins Opt3 baseline and disk/preparation implementation sources', () =
   assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /pinned Opt4/);
   assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
 });
+
+test('BF16 precision change pins Opt4 comparison and requires the precision policy', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/cce-opt5-bf16-v6.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  const sources = { ...candidate.candidate_sources_sha256 };
+  delete sources['bf16_activation_policy.py'];
+  assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /BF16 policy/);
+  assert.throws(() => validateConfig({ ...candidate, expected_loss_float32_bits: '3f202827' }), /BF16 policy/);
+  assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
+});

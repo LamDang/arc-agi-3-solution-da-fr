@@ -13,6 +13,19 @@ CONFIG = json.loads((Path(__file__).resolve().parents[1] / 'configs/reference-v0
 
 
 class WorkerTests(unittest.TestCase):
+    def test_bf16_policy_preserves_spawn_guard_and_uses_dtype_aware_comparison(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt5-bf16-v6.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<bf16-bootstrap>', 'exec')
+        namespace = {'__name__': '__mp_main__'}
+        exec(source, namespace)
+        self.assertNotIn('torch', namespace)
+        self.assertIn('from bf16_activation_policy import compare_gradients', source)
+        self.assertIn('finalize_bf16()', source)
+        self.assertLess(source.index('install_ple('), source.index('install_bf16('))
+        self.assertLess(source.index('qualify_cpu('), source.index('runpy.run_path('))
+        self.assertNotIn('optimizer.step', source)
+
     def test_opt4_spawn_import_cannot_restart_capture(self):
         config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt4-ple-v5.json').read_text())
         source = bootstrap_source(config)
