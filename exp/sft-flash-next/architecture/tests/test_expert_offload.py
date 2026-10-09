@@ -19,6 +19,7 @@ class ExpertOffloadTests(unittest.TestCase):
         class Tiny(nn.Module):
             def __init__(self):
                 super().__init__();self.num_experts=2;self.act_fn=nn.SiLU()
+                self.register_parameter('_device_anchor',nn.Parameter(torch.zeros(1),requires_grad=False))
                 for index in range(2):
                     expert=nn.Module()
                     for name,ins,outs in [('gate_proj',128,64),('up_proj',128,64),('down_proj',64,128)]:
