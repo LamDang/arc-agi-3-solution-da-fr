@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "optimizer_updates": 0,
+  "baseline_loss": 0.6247151494026184,
+  "measured_loss": 0.6247151494026184,
+  "best_loss": 0.6247151494026184,
+  "ratio": 1.0,
+  "target_ratio": 0.05,
+  "tokens": 16249,
+  "supervised_tokens": 651,
+  "checkpointing": true,
+  "save_on_cpu": true,
+  "gradient_equivalence_proven": false,
+  "elapsed_seconds": 929.8367657850031,
+  "criterion": "complete_finite_raw_gradients",
+  "gradient_capture_complete": true,
+  "gradients_sha256": "7d9ad627462df4dcbbee7e2c01b2bf4e6f5353a12abf5da748048f2b37ee5ab5",
+  "gradient_tensors": 744,
+  "gradient_repetition": 1,
+  "gradient_file": "gradients-repeat-1.pt",
+  "clipping_applied": false
+}

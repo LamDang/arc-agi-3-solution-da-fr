@@ -33,6 +33,7 @@ def default_cases():
     return [dict(name='reference_repeat'),
             dict(name='selected_logits', loss='selected'),
             dict(name='chunked_loss_128', loss='chunked', loss_block=128),
+            dict(name='native_mask_storage', native_mask_storage=True),
             dict(name='selective_cpu_offload', offload='cpu'),
             dict(name='disk_offload', offload='disk'),
             dict(name='native_rms_blocks', native_norm_block=1024),

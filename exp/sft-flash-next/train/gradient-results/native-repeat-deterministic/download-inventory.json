@@ -1,0 +1,42 @@
+{
+  "events.jsonl": {
+    "bytes": 7372,
+    "sha256": "fde240b9e822fe5c7120b7e0dfed07ba82ac4421b8837cef0bcf7bccd38829b8"
+  },
+  "provenance.json": {
+    "bytes": 1309,
+    "sha256": "eb899967a85aea6c53294b7e7ec36d306e122c49b3ba2f4831672adc5694a354"
+  },
+  "reference.py": {
+    "bytes": 14678,
+    "sha256": "f95893baa503ec446d4610878b7d5feb7ee975e9313e282349cac2d8952573a0"
+  },
+  "result.json": {
+    "bytes": 678,
+    "sha256": "b054b07758790f20be75ba5702a46e5366ae2fb4d814f5a2d8937c334d03c536"
+  },
+  "gradient-pass-results.jsonl": {
+    "bytes": 1263,
+    "sha256": "406e2e6f1ea1b8a78023528e4f9c2b5f1fdec317d2d8461518f9ff62eca7e714"
+  },
+  "gradients.pt": {
+    "bytes": 134192587,
+    "sha256": "29d3003debd568776372049edeb4b009b824d40e3dda50a66d3cb18a1688f632"
+  },
+  "gradients-repeat-1.pt": {
+    "bytes": 134199337,
+    "sha256": "7d9ad627462df4dcbbee7e2c01b2bf4e6f5353a12abf5da748048f2b37ee5ab5"
+  },
+  "gradient-summary.json": {
+    "bytes": 204192,
+    "sha256": "dec21a40637f8d0c4cec8bc10e00d0a1db8be60f5494187c55ab20bde37fd7d6"
+  },
+  "gradient-summary-repeat-1.json": {
+    "bytes": 204192,
+    "sha256": "dec21a40637f8d0c4cec8bc10e00d0a1db8be60f5494187c55ab20bde37fd7d6"
+  },
+  "initial-adapter.pt": {
+    "bytes": 134191135,
+    "sha256": "9d93ddb8676d5490d55fa9969d99352189883a4e53f8d189cc2b9d3bc4574a56"
+  }
+}

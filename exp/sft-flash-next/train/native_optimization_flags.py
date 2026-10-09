@@ -15,7 +15,7 @@ def apply_flags(base, flags):
     allowed={'name','loss','loss_block','offload','norm_block','hyper_block','gated_norm_block',
              'native_norm_block','native_hyper_block','native_gated_block','ple_block',
              'gdn_block_tokens','attention','index_block','query_block','attention_projection_block',
-             'checkpoint_group'}
+             'checkpoint_group','native_mask_storage'}
     if flags.keys()-allowed:
         raise ValueError(f'Unknown optimization flags: {sorted(flags.keys()-allowed)}')
     if flags.get('loss') not in (None,'selected','chunked') or flags.get('offload') not in (None,'cpu','disk'):
@@ -37,6 +37,9 @@ def apply_flags(base, flags):
     try:
         for m in base.model.language_model.modules():
             cls = type(m).__name__
+            if cls=='Qwen4ExpTextQSAIndexer' and flags.get('native_mask_storage'):
+                from native_mask_storage import indexer_with_direct_bias
+                bind(m,indexer_with_direct_bias(m.forward))
             native_choice = {
                 'Qwen4ExpTextRMSNorm': ('native_norm_block', 'rms_rows'),
                 'Qwen4ExpTextRMSNormGated': ('native_gated_block', 'gated_rows'),
@@ -65,6 +68,13 @@ def apply_flags(base, flags):
                 set_attr(m, 'key_block',32)
                 set_attr(m, 'train_projection_block',flags.get('attention_projection_block',0))
                 set_attr(m, 'train_attention_backend',flags['attention']); bind(m,b.training_attention)
+        if flags.get('native_mask_storage'):
+            from native_mask_storage import language_with_lazy_mask
+            lm=base.model.language_model
+            if lm.config._attn_implementation!='sdpa' or flags.get('attention'):
+                raise ValueError('Native mask storage requires unchanged native SDPA attention')
+            set_attr(lm,'native_mask_forward',lm.forward)
+            bind(lm,language_with_lazy_mask)
         if flags.get('checkpoint_group',1)>1:
             from native_checkpoint_blocks import NativeLayerGroup
             lm=base.model.language_model

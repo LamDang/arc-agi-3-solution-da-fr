@@ -75,3 +75,19 @@ def test_unknown_or_conflicting_flags_cannot_silently_pass():
                   {'native_norm_block':7,'norm_block':7}):
         with pytest.raises(ValueError):
             with apply_flags(base,flags):pass
+
+
+def test_native_mask_storage_keeps_attention_and_gradients():
+    base,model,param,batch,labels=setup()
+    original=base.model.language_model.layers[-1].self_attn.forward
+    expected=None
+    for flags in ({},{'native_mask_storage':True},{'native_mask_storage':True,'checkpoint_group':3},{}):
+        model.zero_grad(set_to_none=True)
+        with apply_flags(base,flags):
+            loss=objective(model,batch,labels,17,{})
+            loss.backward()
+        got=(loss.detach(),param.grad.clone())
+        if expected is None:expected=got
+        else:
+            for a,b in zip(got,expected):torch.testing.assert_close(a,b,rtol=0,atol=0)
+        assert base.model.language_model.layers[-1].self_attn.forward==original

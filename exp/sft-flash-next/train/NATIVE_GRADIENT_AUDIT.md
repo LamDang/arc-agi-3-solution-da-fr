@@ -71,9 +71,15 @@ The raw `routes_equal: true` field is the replay's self-baseline for subsequent
 flags, **not** a comparison against the original capture, which saved no routes.
 The runner now reports this unavailable comparison as null.
 
-No optimization was certified or run after the failed native replay. A separate
-unchanged-model deterministic two-pass diagnostic is running. Its results will
-establish whether deterministic settings remove the baseline variation.
+No optimization was certified or run after the failed native replay. The unchanged-model deterministic two-pass diagnostic **passed bitwise**:
+all 744 tensors are identical, relative L2 error is exactly zero, and both
+losses are `0.6247151494026184`. It used
+`torch.use_deterministic_algorithms(True)` with
+`CUBLAS_WORKSPACE_CONFIG=:4096:8`, without replacing model operators.
+Results are in [`gradient-results/native-repeat-deterministic`](gradient-results/native-repeat-deterministic).
+The flag sweep uses this deterministic baseline and settings, and first checks
+another native replay across processes. Default and deterministic gradients
+are not mixed in a comparison.
 Neither this implementation nor the prior capacity runs certify full-context
 gradient equivalence. A 16K comparison cannot directly prove equality at 130K;
 full-context execution is a subsequent capacity and boundary-behavior check.
@@ -97,3 +103,19 @@ The first audit attempt stopped after loading because HF loading diagnostics
 contained Python sets. No forward or comparison ran. The report serializer
 now handles these sets, and uncaught errors produce terminal failure artifacts.
 The corrected run is `native-flag-audit-v2`.
+
+## Additional native memory candidates
+
+`native_mask_storage` keeps the HF query-by-query QSA selection arithmetic and
+native attention module/SDPA call. For an unpadded cache-free request it supplies
+causal rows lazily to the indexer and writes its final additive attention bias
+directly. It removes redundant dense boolean mask allocations; it does not
+change the selected keys, detach context, or substitute a custom attention
+backward. The storage-only source transformation is version-guarded and fails
+if the expected native code structure changes. Small native-model loss and
+gradients are bitwise identical; real-model qualification remains necessary.
+
+`checkpoint_group=3` wraps groups of unchanged HF layers in an outer standard
+non-reentrant checkpoint. Original inner layer checkpoints remain enabled.
+This reduces persistent activation boundaries in host RAM, and preserves the
+original layer modules and adapter names after each case.
