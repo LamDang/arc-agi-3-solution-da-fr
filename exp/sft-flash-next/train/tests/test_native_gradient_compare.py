@@ -39,8 +39,7 @@ def test_capacity_requires_a_passed_recipe_and_unchanged_sources(tmp_path):
     adapter=tmp_path/'adapter.pt';adapter.write_bytes(b'fixture')
     digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
     source=Path(m.__file__).parent
-    names=['native_optimization_flags.py','native_checkpoint_blocks.py','native_mask_storage.py',
-           'backend.py','offload.py','gdn_blocks.py']
+    names=m.OPERATOR_SOURCES
     identity=dict(arguments=dict(deterministic=True),adapter_sha256=digest(adapter),
                   source_sha256={n:digest(source/n) for n in names})
     flags=dict(loss='selected')

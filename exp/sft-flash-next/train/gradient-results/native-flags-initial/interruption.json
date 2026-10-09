@@ -1,0 +1,86 @@
+{
+  "pid": 14882,
+  "proc_starttime": "4048956",
+  "cmdline": "/usr/bin/python3 -u /kaggle/working/gradient-audit-20261009/run-native-audit.py --model /tmp/reference-256-hf --sample /kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt --prompt-tokens 15598 --adapter-state /kaggle/working/gradient-audit-20261009/overfit-hf-v3/initial-adapter.pt --reference /kaggle/working/gradient-audit-20261009/native-deterministic-repeats --out /kaggle/working/gradient-audit-20261009/native-flag-audit-deterministic-v3 --deterministic --verified-replay /kaggle/working/gradient-audit-20261009/native-flag-audit-deterministic-v2 ",
+  "reason": "Prioritize reviewed native head/VJP diagnostic after saved cumulative CPU checkpoint",
+  "utc": "2026-10-09T07:54:35.979335+00:00",
+  "completed_case_names": [
+    "reference_repeat",
+    "selected_logits",
+    "chunked_loss_128",
+    "native_mask_storage",
+    "selective_cpu_offload",
+    "cumulative_selective_cpu_offload"
+  ],
+  "last_events": [
+    {
+      "event": "layer",
+      "seconds": 1613.2600526960014,
+      "layer": 11,
+      "name": "cumulative_selective_cpu_offload",
+      "pass": "forward"
+    },
+    {
+      "event": "layer",
+      "seconds": 1641.1624914529966,
+      "layer": 23,
+      "name": "cumulative_selective_cpu_offload",
+      "pass": "forward"
+    },
+    {
+      "event": "layer",
+      "seconds": 1667.7954777819978,
+      "layer": 35,
+      "name": "cumulative_selective_cpu_offload",
+      "pass": "forward"
+    },
+    {
+      "event": "layer",
+      "seconds": 1695.1193222770016,
+      "layer": 47,
+      "name": "cumulative_selective_cpu_offload",
+      "pass": "forward"
+    },
+    {
+      "event": "forward_complete",
+      "seconds": 1696.368721066996,
+      "name": "cumulative_selective_cpu_offload",
+      "loss": 0.6247151494026184
+    },
+    {
+      "event": "case_complete",
+      "seconds": 1915.6530655179959,
+      "name": "cumulative_selective_cpu_offload",
+      "flags": {
+        "name": "cumulative_selective_cpu_offload",
+        "native_mask_storage": true,
+        "offload": "cpu"
+      },
+      "completed": true,
+      "loss": 0.6247151494026184,
+      "passed": true,
+      "bitwise_equal": true,
+      "relative_l2": 0.0,
+      "failed_tensors": 0,
+      "routes_equal": true,
+      "loss_matches": true,
+      "elapsed_seconds": 329.90839655900345,
+      "peak_allocated_gib": 84.88619565963745,
+      "peak_reserved_gib": 85.294921875,
+      "offload_stats": {
+        "cpu_bytes": 50457667200,
+        "disk_bytes": 0,
+        "deduplicated_bytes": 16805365760,
+        "prefetch_hits": 0,
+        "synchronous_reads": 0,
+        "read_wait_seconds": 0.0,
+        "write_seconds": 0.0,
+        "read_seconds": 0.0
+      }
+    }
+  ],
+  "interrupted_case": null,
+  "interrupted_case_outcome": "unmeasured; no pass or failure claim",
+  "accepted_flags_file_fabricated": false,
+  "process_terminated": true
+}

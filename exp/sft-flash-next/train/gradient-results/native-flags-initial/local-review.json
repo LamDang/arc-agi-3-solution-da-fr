@@ -30,6 +30,12 @@
       "bitwise_equal": true,
       "relative_l2": 0.0,
       "failed_tensors": 0
+    },
+    {
+      "name": "cumulative_selective_cpu_offload",
+      "bitwise_equal": true,
+      "relative_l2": 0.0,
+      "failed_tensors": 0
     }
   ]
 }

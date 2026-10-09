@@ -29,7 +29,9 @@ def setup():
 def test_selected_and_chunked_native_objectives_keep_causal_alignment():
     base,model,param,batch,labels=setup()
     expected=None
-    for flags in ({},{'loss':'selected'},{'loss':'chunked','loss_block':3}):
+    for flags in ({},{'loss':'selected'},{'loss':'chunked','loss_block':3},
+                  {'loss':'selected_native_backward'},
+                  {'loss':'selected_native_backward','head_backward_rows':32}):
         model.zero_grad(set_to_none=True)
         loss=objective(model,batch,labels,17,flags);loss.backward()
         assert param.grad is not None and torch.count_nonzero(param.grad)
@@ -72,6 +74,7 @@ def test_outer_checkpoint_groups_keep_native_gradients_and_module_names():
 def test_unknown_or_conflicting_flags_cannot_silently_pass():
     base,_,_,_,_=setup()
     for flags in ({'norm_blok':1024},{'loss':'unknown'},
+                  {'head_backward_rows':1024},
                   {'native_norm_block':7,'norm_block':7}):
         with pytest.raises(ValueError):
             with apply_flags(base,flags):pass

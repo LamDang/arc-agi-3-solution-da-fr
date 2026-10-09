@@ -15,11 +15,13 @@ def apply_flags(base, flags):
     allowed={'name','loss','loss_block','offload','norm_block','hyper_block','gated_norm_block',
              'native_norm_block','native_hyper_block','native_gated_block','ple_block',
              'gdn_block_tokens','attention','index_block','query_block','attention_projection_block',
-             'checkpoint_group','native_mask_storage'}
+             'checkpoint_group','native_mask_storage','head_backward_rows'}
     if flags.keys()-allowed:
         raise ValueError(f'Unknown optimization flags: {sorted(flags.keys()-allowed)}')
-    if flags.get('loss') not in (None,'selected','chunked') or flags.get('offload') not in (None,'cpu','disk'):
+    if flags.get('loss') not in (None,'selected','chunked','selected_native_backward') or flags.get('offload') not in (None,'cpu','disk'):
         raise ValueError('Unsupported loss or activation-storage mode')
+    if 'head_backward_rows' in flags and flags.get('loss') != 'selected_native_backward':
+        raise ValueError('Head backward rows require the selected native-backward loss')
     for native,custom in [('native_norm_block','norm_block'),('native_hyper_block','hyper_block'),
                           ('native_gated_block','gated_norm_block')]:
         if flags.get(native) and flags.get(custom):
@@ -91,6 +93,12 @@ def apply_flags(base, flags):
 
 def objective(model, batch, labels, prompt, flags):
     """Native loss, native selected logits, or checkpointed native CE blocks."""
+    if flags.get('loss') == 'selected_native_backward':
+        from native_head_loss import selected_native_backward_loss
+        base = model.get_base_model()
+        hidden = base.model(**batch, use_cache=False).last_hidden_state
+        return selected_native_backward_loss(hidden, base.lm_head.weight, labels,
+                                              prompt, flags.get('head_backward_rows'))
     if flags.get('loss') == 'selected':
         positions = torch.arange(prompt-1, labels.shape[1]-1, device=labels.device)
         return model(**batch, labels=labels, use_cache=False, logits_to_keep=positions,

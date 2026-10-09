@@ -131,7 +131,7 @@ settings, model path and operator-source hashes. Reused measurements are
 explicitly labeled with their source; they are not represented as new runs.
 The resumed sweep is `native-flag-audit-deterministic-v3`.
 
-### Measured isolated flags in the resumed sweep
+### Measured flags in the resumed sweep
 
 These measurements use the 16,249-token real sample (15,598 prompt tokens,
 651 supervised tokens), the unchanged initial adapter, and the deterministic
@@ -143,6 +143,7 @@ native reference. They are not full-context capacity results.
 | Chunked loss, 128 tokens | 0.01195724 | 372 / 744 | 58.52 GiB | 323.05 s | Rejected |
 | Native mask storage | 0 | 0 / 744 | 84.89 GiB | 330.75 s | Bitwise pass |
 | Selective CPU offload | 0 | 0 / 744 | 85.13 GiB | 325.94 s | Bitwise pass |
+| Native mask storage + selective CPU offload | 0 | 0 / 744 | 84.89 GiB | 329.91 s | Bitwise pass |
 
 Target-only logits retains the complete decoder context, but computes the
 vocabulary projection only at positions with supervised next-token labels.
@@ -154,14 +155,80 @@ not qualify the optimization: all 372 nonzero B gradients fail the strict
 gate. The 372 A gradients are exactly zero at initialization. The source of
 the numerical discrepancy is still under investigation.
 
-The mask-storage and selective CPU-offload cases preserve every adapter gradient
-bit for bit. All four
+The mask-storage and selective CPU-offload cases, individually and combined,
+preserve every adapter gradient bit for bit. All five
 cases match the native replay's **MoE routing hashes**; these hashes do not
 independently compare QSA-selected attention indices. Before a recipe is
 qualified for continued training, it also needs a native-reference comparison
-using a saved trained adapter with nonzero A and B matrices. Combined flags,
-disk offload and checkpoint candidates remain under test. Compact measurement
+using a saved trained adapter with nonzero A and B matrices. Disk offload and
+checkpoint candidates remain unmeasured in this sweep. Compact measurement
 reports are saved in [`gradient-results/native-flags-initial`](gradient-results/native-flags-initial).
+
+The sweep was deliberately stopped after saving the combined mask/CPU result,
+before the next case started, to prioritize a standalone native LM-head/loss
+gradient diagnostic. All six completed reports (including the native replay)
+and their raw gradients were preserved. The interrupted sweep has no final
+`accepted-flags.json`; no completed qualification artifact was fabricated.
+
+## Isolated diagnosis of the selected-logit gradient mismatch
+
+The standalone native head diagnostic uses the actual frozen BF16 head, the
+real sample's labels, and saved **synthetic** hidden states with RMS near one.
+It uses the same deterministic settings and library versions as the reference.
+Full and selected target logits match bitwise, as do their native CE gradients.
+Only the multiplication taking vocabulary-logit gradients back to hidden-state
+gradients differs: changing its row count from 16,249 to 651 gives relative L2
+error **0.00445865**. With identical input gradients, restoring the original
+matrix shape reproduces the native autograd result bit for bit. Parent review
+also independently compared the downloaded raw tensors.
+
+Padding is **not** a monotonic rule: 1,024, 4,096 and 8,192 rows match the native
+16K head result in this test, while 2,048 rows fail. The same native row count
+also matches with targets placed at row zero, so their original row offset is
+not necessary for the observed equality. These are measured kernel behaviors,
+not guarantees for arbitrary inputs, shapes, hardware or library versions.
+An additional 16,384-row test also matches the original 16K/651-target result
+bitwise, both at row zero and with the original row alignment modulo 128.
+
+A second synthetic operator test tiles and scales the captured target-gradient
+rows to 10,000 targets. Both full 90K and 130K backward shapes produce identical
+target hidden gradients. Explicit 16,384-row padding matches both bitwise, with
+measured peak allocation **13.42 GiB**, versus **65.97 GiB** for the 130K native
+shape. These numbers cover the isolated head test, not the loaded whole model.
+They do not establish full-length model gradient parity or training capacity.
+
+Exact diagnostic sources and reports:
+
+- [`native-head-vjp-diagnostic-v1`](gradient-results/native-head-vjp-diagnostic-v1)
+- [`native-head-padding-diagnostic-v1`](gradient-results/native-head-padding-diagnostic-v1)
+- [`native-head-long-shape-diagnostic-v1`](gradient-results/native-head-long-shape-diagnostic-v1)
+- [`native-head-padding16384-diagnostic-v1`](gradient-results/native-head-padding16384-diagnostic-v1)
+
+`loss=selected_native_backward` is a new, **unqualified** candidate in
+`native_head_loss.py`. It uses native CE autograd to compute target dLogits,
+including upstream loss scaling, and then an ordinary `torch.mm`. Its default
+restores the original full row count. `head_backward_rows` requests a separate
+explicit padded shape and must be at least the number of target positions.
+There is no guessed padding heuristic or altered BF16 precision setting.
+It requires a frozen vocabulary head and ignores only the declared prompt.
+The new helper is included in the operator-source qualification hashes.
+The candidate must pass actual all-adapter comparisons, including a trained
+adapter, before promotion.
+
+The implemented custom autograd function also passed an isolated GPU test with
+stock `save_on_cpu` and BF16 autocast: native loss and hidden gradients match
+bitwise both with the original row count and with 16,384 rows. The latter peaks
+at 10.39 GiB in that bounded operator test. The tested source hashes match the
+checked-in candidate; the report and exact harness are in
+[`native-head-candidate-test-v1`](gradient-results/native-head-candidate-test-v1).
+Eighteen local checks passed, covering loss scaling, ignored response labels,
+frozen-head enforcement, native decoder gradients, and qualification guards.
+
+The real-model audit `native-head-gradient-audit-initial-v1` is running with
+[`native_head_cases.json`](native_head_cases.json): fresh native replay, the
+16,384-row loss candidate alone, and that candidate with mask storage plus CPU
+offload. It compares all 744 tensors to the original deterministic reference,
+with no optimizer updates. **Whole-model results are still pending.**
 
 ## Full-context capacity gate
 

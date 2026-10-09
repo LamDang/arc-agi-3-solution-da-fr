@@ -1,0 +1,52 @@
+{
+  "operator_only": true,
+  "script_sha256": "9fdd17c278ee5fc0a531af180808b383b97fa14441f8dc7b198e1d037ce0359e",
+  "native_report_sha256": "68fa2001ded9b5163b294131244f62e09fc05169876cf5080ad505e90e21ff26",
+  "settings": {
+    "deterministic": true,
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "transformers": "5.18.0",
+    "torch": "2.11.0+cu128",
+    "cuda": "12.8",
+    "device": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "allow_bf16_reduced_precision_reduction": true,
+    "allow_fp16_reduced_precision_reduction": true,
+    "allow_tf32": false,
+    "autocast": "bfloat16"
+  },
+  "weight_tensor_sha256": "40bddd25d0d94a128ab08280faad39cfc3ee3064252761269115f544722607c9",
+  "shapes": {
+    "T": 16249,
+    "prompt": 15598,
+    "targets": 651,
+    "V": 248320,
+    "H": 2560
+  },
+  "cases": [
+    {
+      "rows": 16384,
+      "offset": 0,
+      "same_start_mod128": false,
+      "bitwise_equal": true,
+      "mismatched_values": 0,
+      "failed_values": 0,
+      "relative_l2": 0.0,
+      "max_abs": 0.0,
+      "peak_gib": 9.063315391540527,
+      "seconds": 0.16940829399391077
+    },
+    {
+      "rows": 16384,
+      "offset": 15725,
+      "same_start_mod128": true,
+      "bitwise_equal": true,
+      "mismatched_values": 0,
+      "failed_values": 0,
+      "relative_l2": 0.0,
+      "max_abs": 0.0,
+      "peak_gib": 9.094565391540527,
+      "seconds": 0.09957095400022808
+    }
+  ],
+  "finished": true
+}

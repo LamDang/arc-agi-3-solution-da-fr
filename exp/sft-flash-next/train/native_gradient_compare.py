@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 import torch
 
+OPERATOR_SOURCES = ('native_optimization_flags.py', 'native_checkpoint_blocks.py',
+                    'native_mask_storage.py', 'native_head_loss.py',
+                    'backend.py', 'offload.py', 'gdn_blocks.py')
+
 
 def tensor_digest(tensor):
     t = tensor.detach().cpu().contiguous()
@@ -65,7 +69,6 @@ def qualified_flags(directory,adapter):
     assert any(r['name']=='reference_repeat' and r['passed'] and r['bitwise_equal'] for r in results)
     assert flags, 'No optimization recipe was accepted'
     assert any(r['passed'] and {k:v for k,v in r['flags'].items() if k!='name'}==flags for r in results)
-    for name in ['native_optimization_flags.py','native_checkpoint_blocks.py','native_mask_storage.py',
-                 'backend.py','offload.py','gdn_blocks.py']:
+    for name in OPERATOR_SOURCES:
         assert identity['source_sha256'][name]==sha256(Path(__file__).parent/name), 'Changed operator source: '+name
     return flags,identity

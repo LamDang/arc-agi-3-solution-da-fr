@@ -18,7 +18,7 @@ import torch
 from transformers import AutoModelForImageTextToText, AutoRoundConfig
 from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 from overfit_hf_reference import TARGETS, resident_device_map, sha256
-from native_gradient_compare import compare, tensor_digest, assert_adapter_unchanged
+from native_gradient_compare import compare, tensor_digest, assert_adapter_unchanged, OPERATOR_SOURCES
 from native_optimization_flags import apply_flags, objective
 
 _failure_out = None
@@ -89,8 +89,7 @@ def main():
         assert old['reference_gradients_sha256']==sha256(reference_gradient_file)
         assert old['arguments']['deterministic']==args.deterministic
         assert old['arguments']['model']==args.model
-        for name in ['native_optimization_flags.py','native_checkpoint_blocks.py','native_mask_storage.py',
-                     'backend.py','offload.py','gdn_blocks.py']:
+        for name in OPERATOR_SOURCES:
             assert old['source_sha256'][name]==sha256(Path(__file__).parent/name),name
         replay=previous/'reference_repeat'
         measured=torch.load(replay/'gradients.pt',map_location='cpu',weights_only=True)

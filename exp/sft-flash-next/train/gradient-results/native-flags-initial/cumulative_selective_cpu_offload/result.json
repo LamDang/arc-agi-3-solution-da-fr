@@ -1,0 +1,29 @@
+{
+  "name": "cumulative_selective_cpu_offload",
+  "flags": {
+    "name": "cumulative_selective_cpu_offload",
+    "native_mask_storage": true,
+    "offload": "cpu"
+  },
+  "completed": true,
+  "loss": 0.6247151494026184,
+  "passed": true,
+  "bitwise_equal": true,
+  "relative_l2": 0.0,
+  "failed_tensors": 0,
+  "routes_equal": true,
+  "loss_matches": true,
+  "elapsed_seconds": 329.90839655900345,
+  "peak_allocated_gib": 84.88619565963745,
+  "peak_reserved_gib": 85.294921875,
+  "offload_stats": {
+    "cpu_bytes": 50457667200,
+    "disk_bytes": 0,
+    "deduplicated_bytes": 16805365760,
+    "prefetch_hits": 0,
+    "synchronous_reads": 0,
+    "read_wait_seconds": 0.0,
+    "write_seconds": 0.0,
+    "read_seconds": 0.0
+  }
+}
