@@ -143,7 +143,11 @@ def build(config, output):
                 module._buffers[name] = value.to('cuda')
     inventory = compose(base,config.optimizations) if config.architecture != 'native' else []
     base.requires_grad_(False)
-    model = get_peft_model(base,LoraConfig(r=16,lora_alpha=32,lora_dropout=0.,
+    factory=LoraConfig
+    if config.optimizations.lora_routed_experts:
+        from components.adapters import configuration
+        factory=configuration
+    model = get_peft_model(base,factory(r=16,lora_alpha=32,lora_dropout=0.,
         target_modules=targets(config.optimizations.lora_routed_experts),bias='none',task_type='CAUSAL_LM'))
     parameters = {name:value for name,value in model.named_parameters() if value.requires_grad}
     if len(parameters) != config.adapter_tensors or any('.lora_' not in name for name in parameters):

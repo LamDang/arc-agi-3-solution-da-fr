@@ -11,7 +11,8 @@ class ExpertOffloadTests(unittest.TestCase):
         import torch
         from torch import nn
         from torch.utils.checkpoint import checkpoint
-        from peft import LoraConfig,get_peft_model
+        from peft import get_peft_model
+        from components.adapters import configuration
         from auto_round_extension.triton.qlinear_tritonv2_zp import QuantLinear
         from auto_round.modeling.fused_moe.moe_experts_interface import linear_loop_experts_forward
         from components.common import adopt
@@ -31,7 +32,7 @@ class ExpertOffloadTests(unittest.TestCase):
                 return linear_loop_experts_forward(self,x,indices,weights).bfloat16()
         class Staged(ExpertStage,Tiny):pass
         torch.manual_seed(8643)
-        canonical=get_peft_model(Tiny(),LoraConfig(r=4,lora_alpha=8,lora_dropout=0.,target_modules=['gate_proj','up_proj','down_proj'])).get_base_model()
+        canonical=get_peft_model(Tiny(),configuration(r=4,lora_alpha=8,lora_dropout=0.,target_modules=['gate_proj','up_proj','down_proj'])).get_base_model()
         for p in canonical.parameters():
             if p.requires_grad:
                 self.assertEqual(p.dtype,torch.float32)

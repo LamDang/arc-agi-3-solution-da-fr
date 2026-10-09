@@ -77,6 +77,7 @@ def main():
             timeout = True;os.killpg(child.pid,signal.SIGTERM)
             try:code = child.wait(timeout=10)
             except subprocess.TimeoutExpired:os.killpg(child.pid,signal.SIGKILL);code=child.wait()
+    if (job/'output').is_symlink() and not (job/'output').exists():(job/'output').unlink()
     (job/'monitor.json').write_text(json.dumps(dict(returncode=code,timed_out=timeout,seconds=time.monotonic()-started,pid=child.pid),indent=2)+'\n')
 
 
