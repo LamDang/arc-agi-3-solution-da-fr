@@ -1,0 +1,65 @@
+{
+  "format_version": 1,
+  "base_recovery_commit": "9804ad9b87ab1e0f9da748e01fcb284725da8338",
+  "base_archive_sha256": "84421cf8d1ca0beea3e7fcc8ac6fedfe887d6e8162d68f14948090549c861cd6",
+  "generation_manifest_sha256": "356aa3ece3068b14619603f424da0794df3ece655d8da13f42b8980cef127747",
+  "archive": "sol25-delta-1039.tar.zst",
+  "archive_bytes": 227990,
+  "archive_sha256": "056354592e8453466ab7c4d67b31899b3b610159acafbd569596ac2891c26445",
+  "parts": [
+    {
+      "name": "part-0000.b64",
+      "bytes": 32768,
+      "sha256": "58955036f01f4231d775e620c1ad2eb25a0d9a3a22f5c1d1310a1ba308df8c79",
+      "git_blob_sha": "bc81de466a98f9252049cafcca61af566a9eadea"
+    },
+    {
+      "name": "part-0001.b64",
+      "bytes": 32768,
+      "sha256": "ced361cf51cfbe21a9b757fd723a677fd93c894daf2b850898456a83e60871bf",
+      "git_blob_sha": "d25e266e87ed0283efa97b0da0237840f9b3e7c6"
+    },
+    {
+      "name": "part-0002.b64",
+      "bytes": 32768,
+      "sha256": "2745f263397c216b5f9350ef946d5ab07aca38696a01e1c801adf1e3c009617f",
+      "git_blob_sha": "e0ebae5145d91061aa3df97fd47876c8fc27bc99"
+    },
+    {
+      "name": "part-0003.b64",
+      "bytes": 32768,
+      "sha256": "629b6e4d631d0a734d4ad640eae59696ec89838053fc7ffb8f233578aa860abc",
+      "git_blob_sha": "f84d01d4beb9254e872b5bec4779c87e384a7a84"
+    },
+    {
+      "name": "part-0004.b64",
+      "bytes": 32768,
+      "sha256": "5a98f87dcc464f579074e291fc7327d9cd8e103fcf0930b8fc199b00e280e183",
+      "git_blob_sha": "9b65e7766ad6739364edbe23a4f5f1ac8710127f"
+    },
+    {
+      "name": "part-0005.b64",
+      "bytes": 32768,
+      "sha256": "b654f7bba974726d9fc262219adb80472050fc98c1b51ecd281aedb3f5c0cfb9",
+      "git_blob_sha": "c2e48daa454c82bb65d6b305d23493de7948b7ee"
+    },
+    {
+      "name": "part-0006.b64",
+      "bytes": 31382,
+      "sha256": "3b1f003f50784368670a8eb93d1891d7770755297b6e130217c129e9925bb659",
+      "git_blob_sha": "5f128ef4d3704cf8731cfa9a3d4784db33cb1d02"
+    }
+  ],
+  "overlay_files": 498,
+  "new_attempts": 310,
+  "new_stages": 150,
+  "new_finals": 35,
+  "full_counts": {
+    "attempts": 4901,
+    "stages": 4492,
+    "finals": 1039
+  },
+  "effective_successful_estimated_usd": 71.89093128,
+  "outstanding_reservations_usd": 0.0,
+  "note": "Apply after the verified 1004-turn base archive. Includes only 495 new authoritative turn files plus updated summary, driver and release status. No credentials."
+}
