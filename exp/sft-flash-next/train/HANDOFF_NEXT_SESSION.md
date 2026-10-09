@@ -1,3 +1,19 @@
+# BF16 one-sample overfit — user acceptance policy changed 2026-10-09
+
+* User explicitly accepts a numerical change: if the corrected BF16 version
+  still overfits one sample, exact gradient matching is not required.
+  Supersedes earlier strict-equality gate as acceptance for BF16 Opt5 only.
+* Primary executes directly through Kaggle Jupyter; no subagent or computer use.
+  New stage/config `bf16_overfit_v8` / `configs/bf16-overfit-v8.json`.
+* Fresh seeded random-A/zero-B (20261009), not the nonzero diagnostic fixture.
+  BF16 parameters/activation boundaries; native FP32 statistics preserved.
+  Native AdamW LR2e-4/decay0/clip1; up to20 updates, stop at >=95% loss reduction.
+* This test authorizes optimizer updates. All744 pre-clipping raw gradients,
+  trained adapters/optimizer state, loss curve and per-step GPU/RAM/time recorded.
+  Original native source stays pinned. v7 DVC snapshot frozen for provenance.
+* Runner/worker tests pass12 Node+12 Python. Overfit capture is next.
+* **DO NOT PUSH Git or DVC.** Keep sources, results and DVC cache local.
+
 # Corrected Opt5 completed locally — 2026-10-09
 
 * User corrected v6 scope. `bf16_model_activations.py` casts declared model

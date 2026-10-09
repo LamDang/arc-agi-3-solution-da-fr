@@ -171,6 +171,7 @@ stages:
       - metrics/cce-opt5-bf16-v6.json:
           cache: false
   cce_opt5_activations_v7:
+    frozen: true
     desc: Corrected BF16 model activations and LoRA; native numerical statistics unchanged.
     cmd: node kaggle_reference_run.mjs --config configs/cce-opt5-activations-v7.json
     deps:
@@ -196,4 +197,32 @@ stages:
       - gradient-results/cce-opt5-activations-v7
     metrics:
       - metrics/cce-opt5-activations-v7.json:
+          cache: false
+
+  bf16_overfit_v8:
+    desc: BF16 activation/LoRA one-sample learning, fresh random-A zero-B, 95 percent loss reduction.
+    cmd: node kaggle_overfit_run.mjs --config configs/bf16-overfit-v8.json
+    deps:
+      - kaggle_overfit_run.mjs
+      - kaggle_overfit_worker.py
+      - bf16_overfit_instrumentation.py
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/bf16-overfit-v8.json
+      - bf16_model_activations.py
+      - bf16_activation_policy.py
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - native_mask_storage.py
+      - opt3_mask_capture.py
+      - opt3_mask_operator_check.py
+      - ple_preparation.py
+      - opt4_ple_capture.py
+      - opt4_ple_operator_check.py
+      - overfit_hf_reference.py
+    outs:
+      - gradient-results/bf16-overfit-v8
+    metrics:
+      - metrics/bf16-overfit-v8.json:
           cache: false

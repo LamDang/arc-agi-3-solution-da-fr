@@ -113,7 +113,7 @@ def qualify_cpu(output_dir):
     return report
 
 
-def install_for_capture(adapter_path, launch_dir, report_path):
+def install_for_capture(adapter_path, launch_dir, report_path, training=False):
     import peft
     import auto_round.modeling.fused_moe.moe_experts_interface as moe
     source_path=Path(inspect.getfile(moe));source=source_path.read_bytes()
@@ -127,7 +127,7 @@ def install_for_capture(adapter_path, launch_dir, report_path):
         scalar_loss_dtype='torch.float32',fp32_intermediate_computation_allowed=True,
         saved_fp32_statistics_compressed=False,saved_tensor_conversion=False,
         fp32_saved_tensors=[],cce_fp32_lse=[],activation_roles={},
-        autocast_dtype='torch.bfloat16',optimizer_updates=0,moe_source_sha256=MOE_SOURCE_SHA256,
+        autocast_dtype='torch.bfloat16',optimizer_updates=0,training=training,moe_source_sha256=MOE_SOURCE_SHA256,
         boundary_input_casts={},boundary_output_casts={},boundary_output_dtype_counts={},
         saved_original_dtype_counts={},saved_storage_dtype_counts={},saved_original_bytes={},
         saved_storage_bytes={},layer_calls=[],finalized=False)
@@ -166,6 +166,22 @@ def install_for_capture(adapter_path, launch_dir, report_path):
         trainable={name:p for name,p in model.named_parameters() if p.requires_grad}
         if len(trainable)!=744 or any('.lora_' not in name for name in trainable):
             raise ValueError('Unexpected trainable parameter set')
+        if training:
+            assert adapter_path is None
+            source={name:value.detach().cpu().clone() for name,value in peft.get_peft_model_state_dict(model).items()}
+            assert len(source)==744
+            assert all(torch.count_nonzero(value)==0 for name,value in source.items() if 'lora_B' in name)
+            assert all(torch.count_nonzero(value)>0 for name,value in source.items() if 'lora_A' in name)
+            rounded={name:value.to(torch.bfloat16) for name,value in source.items()}
+            repeated={name:value.to(torch.bfloat16) for name,value in source.items()}
+            assert state_digest(rounded)==state_digest(repeated)
+            torch.save(source,launch/'bf16-policy-clean-fp32-source-adapter.pt')
+            torch.save(rounded,launch/'bf16-policy-rounded-adapter.pt')
+            report['adapter_rounding']=dict(source_state_digest=state_digest(source),
+                bf16_state_digest=state_digest(rounded),repeated_conversion_digest_exact=True,
+                source_dtype_counts=dict(Counter(str(v.dtype) for v in source.values())),
+                rounded_dtype_counts=dict(Counter(str(v.dtype) for v in rounded.values())),
+                initialization='seeded PEFT random A / zero B; no supplied trained adapter')
         for parameter in trainable.values():parameter.data=parameter.data.to(torch.bfloat16)
         report['adapter_parameter_dtype_counts']=dict(Counter(str(p.dtype) for p in trainable.values()))
         report['adapter_parameter_bytes']=sum(p.numel()*p.element_size() for p in trainable.values())
@@ -224,7 +240,8 @@ def install_for_capture(adapter_path, launch_dir, report_path):
         torch.autograd.graph.save_on_cpu.__init__=init
         save();return model
     peft.get_peft_model=factory
-    def finalize():
+    def finalize(optimizer_updates=0):
+        report['optimizer_updates']=optimizer_updates
         assert counts['saved_original_dtype_counts']==counts['saved_storage_dtype_counts']
         assert counts['saved_original_bytes']==counts['saved_storage_bytes']
         assert report['cce_fp32_lse'] and all(row['roundtrip_values_exact'] for row in report['cce_fp32_lse'])
