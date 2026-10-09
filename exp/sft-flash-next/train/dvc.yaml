@@ -1,5 +1,6 @@
 stages:
   reference_v0:
+    frozen: true
     desc: One native diagnostic forward/backward through the Kaggle Jupyter API.
     cmd: node kaggle_reference_run.mjs --config configs/reference-v0.json
     deps:
@@ -14,4 +15,23 @@ stages:
       - gradient-results/reference-runner-v0
     metrics:
       - metrics/reference-v0.json:
+          cache: false
+  target_mask_v1:
+    desc: Target-only vocabulary rows with native head backward, no optimizer update.
+    cmd: node kaggle_reference_run.mjs --config configs/target-mask-v1.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/target-mask-v1.json
+      - target_only_head.py
+      - target_mask_operator_check.py
+      - trajectory_head_loss.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/result.json
+    outs:
+      - gradient-results/target-mask-v1
+    metrics:
+      - metrics/target-mask-v1.json:
           cache: false

@@ -77,6 +77,13 @@ def trajectory_loss(hidden, weight, labels, backward_rows=None, reduction='sum')
     """
     if reduction not in ('sum', 'mean'):
         raise ValueError('Expected sum or mean reduction')
+    if backward_rows is None:
+        # Target-mask projection preserves native backward rows and lets stock
+        # CE save only target-sized log-probabilities under save_on_cpu.
+        from target_only_head import target_logits, target_positions, target_cross_entropy
+        logits, targets = target_logits(hidden, weight, labels)
+        return target_cross_entropy(logits, labels, target_positions(labels)[0], targets,
+                                    num_items_in_batch=1 if reduction == 'sum' else None)
     denominator = 1 if reduction == 'sum' else supervised_positions(labels)[0].numel()
     return _TrajectoryNativeBackward.apply(hidden, weight, labels, backward_rows, denominator)
 

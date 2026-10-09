@@ -53,6 +53,13 @@ def validate(config):
     for key, path in paths.items():
         if sha256(path) != config['expected_sha256'][key]:
             raise ValueError(f'Pinned input SHA256 mismatch: {key}')
+    objective = config.get('objective', 'native')
+    if objective not in ('native', 'target_only_mask_native_backward'):
+        raise ValueError('Unsupported objective')
+    for name, checksum in config.get('candidate_sources_sha256', {}).items():
+        source = Path(config['reference_script']).parent / name
+        if Path(name).name != name or sha256(source) != checksum:
+            raise ValueError('Pinned candidate source mismatch: ' + name)
     return paths
 
 
@@ -74,6 +81,7 @@ sys.path[:0] = ['/tmp/peft-autoround-compat/package',
                 '/tmp/peft-autoround-compat/site-without-torchao',
                 '/kaggle/working/training-gradient-audit/exp/sft-flash-next/train']
 import torch
+%(candidate_setup)s
 timing_path = Path(%(timing_path)r)
 allocator_path = Path(%(allocator_path)r)
 native_events = {'load_start', 'load_complete', 'forward_start', 'loss',
@@ -139,6 +147,13 @@ finally:
     return source % {'timing_path': str(Path(config['remote_launch']) / 'timing-events.jsonl'),
                      'allocator_path': str(Path(config['remote_launch']) / 'allocator-phase-peaks.jsonl'),
                      'bootstrap': config['bootstrap'],
+                     'candidate_setup': ("from target_only_head import install_for_capture\n"
+                         + "install_for_capture(" + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")"
+                         + ("\nfrom target_mask_operator_check import qualify\nqualify("
+                            + repr(config['model']) + "," + repr(config['sample']) + ","
+                            + repr(config['remote_launch']) + ")"
+                            if config.get('interleaved_operator_check') else '')
+                         if config.get('objective') == 'target_only_mask_native_backward' else ''),
                      'source_hash_path': str(Path(config['remote_launch']) / 'imported-source-hashes.json')}
 
 
@@ -221,6 +236,9 @@ def launch(config_path):
     (launch_dir / 'launch.json').write_text(json.dumps(launch_record, indent=2) + '\n')
     (launch_dir / 'reference.py').write_bytes(Path(config['reference_script']).read_bytes())
     (launch_dir / 'worker.py').write_bytes(Path(__file__).read_bytes())
+    for name in config.get('candidate_sources_sha256', {}):
+        (launch_dir / ('candidate-' + name)).write_bytes(
+            (Path(config['reference_script']).parent / name).read_bytes())
     for label, source in [('sample.pt', config['sample']), ('bootstrap.py', config['bootstrap']),
                           ('model-config.json', Path(config['model']) / 'config.json')]:
         (launch_dir / label).write_bytes(Path(source).read_bytes())

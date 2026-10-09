@@ -39,3 +39,10 @@ test('Kaggle Jupytext Python sources are collected as raw files', () => {
   ]), ['reference.py', 'gradients.pt']);
   assert.throws(() => artifactNames([{ name: '../escape', type: 'file' }]), /Unsafe artifact/);
 });
+
+test('target-mask config pins candidate sources and retains native numerical gate', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/target-mask-v1.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  assert.equal(candidate.expected_gradients_sha256, config.expected_gradients_sha256);
+  assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: {} }), /Missing target-mask/);
+});

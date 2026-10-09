@@ -43,6 +43,11 @@ export function validateConfig(config) {
       config.local_metrics.includes('..')) throw new Error('Unsafe local metrics path');
   if (!/^[0-9a-f]{8}$/.test(config.expected_loss_float32_bits) ||
       !/^[0-9a-f]{64}$/.test(config.expected_gradients_sha256)) throw new Error('Missing exact reference gate');
+  if (!['native', 'target_only_mask_native_backward'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
+  }
+  if (config.objective === 'target_only_mask_native_backward' && !config.candidate_sources_sha256?.['target_only_head.py']) throw new Error('Missing target-mask source');
   return config;
 }
 
@@ -109,6 +114,11 @@ export function preflightCode(config, workerHash) {
 }
 
 async function preflight(base, config, workerBytes) {
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    const bytes = fs.readFileSync(path.join(here, name));
+    if (sha256(bytes) !== hash) throw new Error(`Local candidate source hash differs: ${name}`);
+    await upload(base, `${path.posix.dirname(remoteWorker)}/${name}`, bytes);
+  }
   await upload(base, remoteWorker, workerBytes);
   await upload(base, config.remote_config, Buffer.from(JSON.stringify(config, null, 2) + '\n'));
   const result = await execute(base, preflightCode(config, sha256(workerBytes)));
@@ -178,6 +188,9 @@ async function collect(base, config) {
   const local = path.join(repoRoot, config.local_output);
   fs.mkdirSync(local, { recursive: true });
   const frozen = JSON.parse(fs.readFileSync(path.join(local, 'frozen-identities.json')));
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    if (sha256(fs.readFileSync(path.join(local, `frozen-candidate-${name}`))) !== hash) throw new Error('Frozen candidate source changed');
+  }
   if (sha256(fs.readFileSync(path.join(local, 'frozen-runner.mjs'))) !== frozen.runner_sha256 ||
       sha256(fs.readFileSync(path.join(local, 'frozen-worker.py'))) !== frozen.worker_sha256 ||
       sha256(fs.readFileSync(path.join(local, 'frozen-config-template.json'))) !== frozen.config_template_sha256 ||
@@ -199,7 +212,19 @@ async function collect(base, config) {
   const gradients = { a_tensors: a.length, b_tensors: b.length,
     a_nonzero_tensors: a.filter(([, row]) => row.nonzero > 0).length,
     b_nonzero_tensors: b.filter(([, row]) => row.nonzero > 0).length };
-  const sourceValid = files['reference.py'].sha256 === config.expected_sha256.reference_script &&
+  const targetHead = config.objective === 'target_only_mask_native_backward'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'target-head.json'))) : null;
+  const targetHeadValid = !targetHead || (targetHead.head_calls.length === 1 &&
+    targetHead.head_calls[0].context_tokens === result.tokens &&
+    targetHead.head_calls[0].target_tokens === result.supervised_tokens &&
+    targetHead.vocabulary_saved_tensor_calls.length > 0 &&
+    targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
+      row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens));
+  const operatorCheck = config.interleaved_operator_check
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-operator-check-report.json'))) : null;
+  const sourceValid = Object.entries(config.candidate_sources_sha256 ?? {}).every(([name, hash]) =>
+      files[`launch-candidate-${name}`]?.sha256 === hash) &&
+    files['reference.py'].sha256 === config.expected_sha256.reference_script &&
     files['launch-reference.py'].sha256 === config.expected_sha256.reference_script &&
     files['launch-worker.py'].sha256 === launchRecord.worker_sha256 &&
     files['launch-instrumented-bootstrap.py'].sha256 === launchRecord.instrumented_bootstrap_sha256 &&
@@ -214,7 +239,8 @@ async function collect(base, config) {
   const structuralValid = files['gradients.pt'].sha256 === result.gradients_sha256 &&
       result.gradient_tensors === 744 && Object.keys(summary).length === 744 &&
       Object.values(summary).every(row => row.finite) &&
-      a.length === 372 && b.length === 372 && sourceValid &&
+      a.length === 372 && b.length === 372 && sourceValid && targetHeadValid &&
+      (!operatorCheck || operatorCheck.passed === true) &&
       result.optimizer_updates === 0 && result.clipping_applied === false &&
       monitor.returncode === 0 && monitor.timed_out === false;
   const lossBits = Buffer.alloc(4); lossBits.writeFloatBE(result.measured_loss);
@@ -224,9 +250,11 @@ async function collect(base, config) {
     observed_gradients_sha256: files['gradients.pt'].sha256 };
   equality.loss_exact = equality.expected_loss_float32_bits === equality.observed_loss_float32_bits;
   equality.gradients_file_exact = equality.expected_gradients_sha256 === equality.observed_gradients_sha256;
-  const record = { run_id: config.run_id, loss: result.measured_loss,
+  const record = { run_id: config.run_id, objective: config.objective ?? 'native', loss: result.measured_loss,
     raw_gradient_tensors: result.gradient_tensors, gradients_sha256: result.gradients_sha256,
     gradient_counts: gradients,
+    target_head: targetHead,
+    interleaved_operator_check: operatorCheck,
     no_clipping: true, optimizer_updates: 0, timings: timing,
     monitor, expected_sha256: config.expected_sha256, equality,
     structural_valid: structuralValid,
@@ -239,15 +267,19 @@ async function collect(base, config) {
       collector_repository_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
       reference_script_commit: config.reference_script_commit },
     files,
-    dvc_stage: 'exp/sft-flash-next/train/dvc.yaml:reference_v0' };
+    dvc_stage: config.dvc_stage ?? 'exp/sft-flash-next/train/dvc.yaml:reference_v0' };
   fs.writeFileSync(path.join(local, 'collector-runner.mjs'), fs.readFileSync(fileURLToPath(import.meta.url)));
   fs.writeFileSync(path.join(local, 'runner-result.json'), JSON.stringify(record, null, 2) + '\n');
   fs.writeFileSync(path.join(local, 'file-hashes.json'), JSON.stringify(files, null, 2) + '\n');
   const metricsPath = path.join(repoRoot, config.local_metrics);
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
   fs.writeFileSync(metricsPath, JSON.stringify({ run_id: config.run_id,
+    objective: record.objective,
+    interleaved_operator_check: operatorCheck,
     attempt_id: config.attempt_id, loss: record.loss, gradients_sha256: record.gradients_sha256,
     raw_gradient_tensors: record.raw_gradient_tensors, gradient_counts: gradients,
+    target_head: targetHead && { head_calls: targetHead.head_calls.map(({ prediction_positions, ...row }) => row),
+      vocabulary_saved_tensor_calls: targetHead.vocabulary_saved_tensor_calls },
     equality, timings: timing,
     structural_valid: record.structural_valid }, null, 2) + '\n');
   if (!record.structural_valid || !equality.loss_exact || !equality.gradients_file_exact)
@@ -284,6 +316,11 @@ export async function main(argv) {
       fs.writeFileSync(path.join(local, 'resolved-config.json'), JSON.stringify(config, null, 2) + '\n');
       fs.writeFileSync(path.join(local, 'frozen-config-template.json'), templateBytes);
       fs.writeFileSync(path.join(local, 'frozen-worker.py'), workerBytes);
+      for (const [name, checksum] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+        const bytes = fs.readFileSync(path.join(here, name));
+        if (sha256(bytes) !== checksum) throw new Error(`Candidate source hash differs: ${name}`);
+        fs.writeFileSync(path.join(local, `frozen-candidate-${name}`), bytes);
+      }
       const runnerBytes = fs.readFileSync(fileURLToPath(import.meta.url));
       fs.writeFileSync(path.join(local, 'frozen-runner.mjs'), runnerBytes);
       const nativeBytes = fs.readFileSync(path.join(here, 'overfit_hf_reference.py'));
