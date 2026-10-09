@@ -119,3 +119,34 @@ gradients are bitwise identical; real-model qualification remains necessary.
 non-reentrant checkpoint. Original inner layer checkpoints remain enabled.
 This reduces persistent activation boundaries in host RAM, and preserves the
 original layer modules and adapter names after each case.
+
+The fresh-process deterministic replay also produced **bitwise-identical 744
+adapter gradients**, saved before reporting. Its result writer then failed:
+a loop checking unchanged adapter weights shadowed the scalar loss with a
+tensor. The loop is now in its own helper, and reporting asserts a scalar
+loss. The failed attempt and its saved comparison remain intact.
+`--verified-replay` can reuse that measurement only after checking its raw
+tensors against the reference, its loss, sample/adapter identity, deterministic
+settings, model path and operator-source hashes. Reused measurements are
+explicitly labeled with their source; they are not represented as new runs.
+The resumed sweep is `native-flag-audit-deterministic-v3`.
+
+## Full-context capacity gate
+
+`native_full_context_probe.py` refuses an unaccepted recipe, changed operator
+sources or a different adapter checkpoint. It loads the native HF/AutoRound
+model with PEFT, applies only the accepted flags, and executes the complete
+input without truncation. `--optimizer-step` adds one disposable AdamW update.
+Its capacity result explicitly does not claim full-length gradient equivalence.
+
+```bash
+CUBLAS_WORKSPACE_CONFIG=:4096:8 python native_full_context_probe.py \
+  --model /tmp/reference-256-hf --sample /path/to/real-capacity.pt \
+  --prompt-tokens 120000 --adapter-state /path/to/initial-adapter.pt \
+  --qualification /path/to/completed-gradient-audit \
+  --optimizer-step --out /path/to/new-130k-result
+```
+
+The corresponding 90K comparison uses the existing 80K-context plus 10K-target
+composite and `--prompt-tokens 80000`. These are capacity composites assembled
+from real requests, not coherent teacher trajectories or production examples.

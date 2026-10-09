@@ -54,3 +54,12 @@ def test_capacity_requires_a_passed_recipe_and_unchanged_sources(tmp_path):
     results[1]['passed']=True;(tmp_path/'results.json').write_text(json.dumps(results))
     identity['source_sha256']['backend.py']='changed';(tmp_path/'identity.json').write_text(json.dumps(identity))
     with pytest.raises(AssertionError,match='Changed operator source'):m.qualified_flags(tmp_path,adapter)
+
+
+def test_adapter_state_check_rejects_updates_and_keeps_loss_scalar():
+    loss=0.6247151494026184
+    state={'a':torch.tensor([1.,2.])}
+    m.assert_adapter_unchanged({'a':state['a'].clone()},state)
+    assert isinstance(loss,float)
+    with pytest.raises(AssertionError):m.assert_adapter_unchanged({'a':torch.tensor([1.,3.])},state)
+    with pytest.raises(ValueError):m.assert_adapter_unchanged({},state)

@@ -11,6 +11,13 @@ def tensor_digest(tensor):
     return hashlib.sha256(t.view(torch.uint8).numpy().tobytes()).hexdigest()
 
 
+def assert_adapter_unchanged(current,state):
+    if current.keys()!=state.keys():
+        raise ValueError('Adapter state keys changed during comparison')
+    for name,tensor in current.items():
+        torch.testing.assert_close(tensor.cpu(),state[name],rtol=0,atol=0)
+
+
 def compare(actual, reference, *, rtol=1e-5, atol=1e-8):
     if actual.keys() != reference.keys():
         raise ValueError('Adapter gradient keys differ')

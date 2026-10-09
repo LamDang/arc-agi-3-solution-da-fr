@@ -9,6 +9,7 @@ import argparse
 from contextlib import nullcontext
 import gc
 import json
+import shutil
 from pathlib import Path
 import time
 import traceback
@@ -17,7 +18,7 @@ import torch
 from transformers import AutoModelForImageTextToText, AutoRoundConfig
 from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 from overfit_hf_reference import TARGETS, resident_device_map, sha256
-from native_gradient_compare import compare, tensor_digest
+from native_gradient_compare import compare, tensor_digest, assert_adapter_unchanged
 from native_optimization_flags import apply_flags, objective
 
 _failure_out = None
@@ -57,6 +58,7 @@ def main():
     p.add_argument('--out',required=True);p.add_argument('--cases')
     p.add_argument('--rtol',type=float,default=1e-5);p.add_argument('--atol',type=float,default=1e-8)
     p.add_argument('--deterministic',action='store_true')
+    p.add_argument('--verified-replay',help='Reuse a completed bitwise native replay after validating its tensors, identity and operator sources')
     args=p.parse_args();out=Path(args.out);out.mkdir(parents=True,exist_ok=False)
     _failure_out = out
     start=time.monotonic()
@@ -77,6 +79,36 @@ def main():
     assert reference_provenance['arguments']['prompt_tokens']==args.prompt_tokens
     assert reference_provenance['arguments'].get('deterministic',False)==args.deterministic
     cases=json.loads(Path(args.cases).read_text()) if args.cases else default_cases()
+    reused_routes=None
+    reused_result=None
+    if args.verified_replay:
+        previous=Path(args.verified_replay)
+        old=json.loads((previous/'identity.json').read_text())
+        assert old['sample_sha256']==sha256(args.sample)
+        assert old['adapter_sha256']==sha256(args.adapter_state)
+        assert old['reference_gradients_sha256']==sha256(reference_gradient_file)
+        assert old['arguments']['deterministic']==args.deterministic
+        assert old['arguments']['model']==args.model
+        for name in ['native_optimization_flags.py','native_checkpoint_blocks.py','native_mask_storage.py',
+                     'backend.py','offload.py','gdn_blocks.py']:
+            assert old['source_sha256'][name]==sha256(Path(__file__).parent/name),name
+        replay=previous/'reference_repeat'
+        measured=torch.load(replay/'gradients.pt',map_location='cpu',weights_only=True)
+        assert compare(measured,reference)['bitwise_equal'], 'Reused native gradients do not match'
+        del measured
+        events=[json.loads(line) for line in (previous/'events.jsonl').read_text().splitlines()]
+        forward=next(row for row in events if row['event']=='forward_complete' and row['name']=='reference_repeat')
+        assert forward['loss']==reference_result['measured_loss']
+        reused_routes={int(k):v for k,v in json.loads((replay/'routes.json').read_text()).items()}
+        target=out/'reference_repeat';target.mkdir()
+        for name in ['gradients.pt','comparison.json','routes.json']:
+            shutil.copyfile(replay/name,target/name)
+        reused_result=dict(name='reference_repeat',flags={'name':'reference_repeat'},completed=True,
+            passed=True,bitwise_equal=True,relative_l2=0.,failed_tensors=0,
+            loss=forward['loss'],loss_matches=True,routes_equal=None,
+            reused_from=str(replay),gradients_sha256=sha256(target/'gradients.pt'))
+        write(target/'result.json',reused_result)
+        cases=[case for case in cases if case['name']!='reference_repeat']
     write(out/'cases.json',cases)
     write(out/'identity.json',dict(arguments=vars(args),sample_sha256=sha256(args.sample),
         adapter_sha256=sha256(args.adapter_state),reference_gradients_sha256=sha256(reference_gradient_file),
@@ -119,7 +151,11 @@ def main():
             if index%12==11:event('layer',layer=index,**phase)
         handles.append(layer.register_forward_hook(progress))
     event('load_complete',adapter_tensors=len(parameters))
-    reports=[];baseline_routes=None
+    reports=[reused_result] if reused_result else []
+    baseline_routes=reused_routes
+    if reused_result:
+        write(out/'results.json',reports)
+        event('native_replay_reused',**reused_result)
     def run(flags):
         nonlocal baseline_routes
         name=flags['name'];case=out/name;case.mkdir()
@@ -139,8 +175,8 @@ def main():
                 value=loss.item();event('forward_complete',name=name,loss=value)
                 phase['pass']='backward';loss.backward();del loss
             torch.cuda.synchronize()
-            for key,value in get_peft_model_state_dict(model).items():
-                torch.testing.assert_close(value.cpu(),state[key],rtol=0,atol=0)
+            assert_adapter_unchanged(get_peft_model_state_dict(model),state)
+            assert isinstance(value,float), 'Loss reporting requires a scalar float'
             gradients={n:v.grad.detach().cpu().clone() for n,v in parameters.items() if v.grad is not None}
             metric=compare(gradients,reference,rtol=args.rtol,atol=args.atol)
             torch.save(gradients,case/'gradients.pt');write(case/'comparison.json',metric)
