@@ -43,7 +43,17 @@ export function validateConfig(config) {
       config.local_metrics.includes('..')) throw new Error('Unsafe local metrics path');
   if (!/^[0-9a-f]{8}$/.test(config.expected_loss_float32_bits) ||
       !/^[0-9a-f]{64}$/.test(config.expected_gradients_sha256)) throw new Error('Missing exact reference gate');
-  if (!['native', 'target_only_mask_native_backward'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  if (config.objective === 'liger_target_flce') {
+    const dep = config.liger_dependency;
+    if (dep?.version !== '0.8.4' || dep.sha256 !== '9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111' ||
+        dep.remote_wheel !== `${remoteRoot}/liger_kernel-0.8.4-py3-none-any.whl` ||
+        !dep.url.startsWith('https://files.pythonhosted.org/packages/') ||
+        !config.candidate_sources_sha256?.['liger_target_loss.py'] ||
+        !config.candidate_sources_sha256?.['liger_operator_check.py'] ||
+        config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
+      throw new Error('Missing pinned Liger dependency/comparison identity');
+  }
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
   }
@@ -114,6 +124,14 @@ export function preflightCode(config, workerHash) {
 }
 
 async function preflight(base, config, workerBytes) {
+  if (config.objective === 'liger_target_flce') {
+    const dep = config.liger_dependency;
+    const response = await fetch(dep.url, { signal: AbortSignal.timeout(90000) });
+    if (!response.ok) throw new Error('Pinned Liger wheel download failed');
+    const wheel = Buffer.from(await response.arrayBuffer());
+    if (sha256(wheel) !== dep.sha256) throw new Error('Liger wheel checksum differs');
+    await upload(base, dep.remote_wheel, wheel);
+  }
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     const bytes = fs.readFileSync(path.join(here, name));
     if (sha256(bytes) !== hash) throw new Error(`Local candidate source hash differs: ${name}`);
@@ -212,14 +230,20 @@ async function collect(base, config) {
   const gradients = { a_tensors: a.length, b_tensors: b.length,
     a_nonzero_tensors: a.filter(([, row]) => row.nonzero > 0).length,
     b_nonzero_tensors: b.filter(([, row]) => row.nonzero > 0).length };
-  const targetHead = config.objective === 'target_only_mask_native_backward'
+  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce'].includes(config.objective)
     ? JSON.parse(fs.readFileSync(path.join(local, 'target-head.json'))) : null;
   const targetHeadValid = !targetHead || (targetHead.head_calls.length === 1 &&
     targetHead.head_calls[0].context_tokens === result.tokens &&
     targetHead.head_calls[0].target_tokens === result.supervised_tokens &&
-    targetHead.vocabulary_saved_tensor_calls.length > 0 &&
-    targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
-      row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens));
+    (config.objective === 'liger_target_flce'
+      ? targetHead.frozen_head === true && targetHead.liger_version === '0.8.4' &&
+        targetHead.head_calls[0].dense_logits_materialized === false &&
+        targetHead.vocabulary_saved_tensor_calls.length === 0
+      : targetHead.vocabulary_saved_tensor_calls.length > 0 &&
+        targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
+          row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens)));
+  const gradientComparison = config.objective === 'liger_target_flce'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'gradient-comparison.json'))) : null;
   const operatorCheck = config.interleaved_operator_check
     ? JSON.parse(fs.readFileSync(path.join(local, 'launch-operator-check-report.json'))) : null;
   const sourceValid = Object.entries(config.candidate_sources_sha256 ?? {}).every(([name, hash]) =>
@@ -241,6 +265,9 @@ async function collect(base, config) {
       Object.values(summary).every(row => row.finite) &&
       a.length === 372 && b.length === 372 && sourceValid && targetHeadValid &&
       (!operatorCheck || operatorCheck.passed === true) &&
+      (!gradientComparison || (gradientComparison.all_finite && gradientComparison.raw_tensors === 744 &&
+        gradientComparison.reference_sha256 === config.expected_gradients_sha256 &&
+        files[`launch-${path.posix.basename(config.liger_dependency.remote_wheel)}`]?.sha256 === config.liger_dependency.sha256)) &&
       result.optimizer_updates === 0 && result.clipping_applied === false &&
       monitor.returncode === 0 && monitor.timed_out === false;
   const lossBits = Buffer.alloc(4); lossBits.writeFloatBE(result.measured_loss);
@@ -255,6 +282,7 @@ async function collect(base, config) {
     gradient_counts: gradients,
     target_head: targetHead,
     interleaved_operator_check: operatorCheck,
+    gradient_comparison: gradientComparison,
     no_clipping: true, optimizer_updates: 0, timings: timing,
     monitor, expected_sha256: config.expected_sha256, equality,
     structural_valid: structuralValid,
@@ -276,13 +304,14 @@ async function collect(base, config) {
   fs.writeFileSync(metricsPath, JSON.stringify({ run_id: config.run_id,
     objective: record.objective,
     interleaved_operator_check: operatorCheck,
+    gradient_comparison: gradientComparison && Object.fromEntries(Object.entries(gradientComparison).filter(([key]) => key !== 'tensors')),
     attempt_id: config.attempt_id, loss: record.loss, gradients_sha256: record.gradients_sha256,
     raw_gradient_tensors: record.raw_gradient_tensors, gradient_counts: gradients,
     target_head: targetHead && { head_calls: targetHead.head_calls.map(({ prediction_positions, ...row }) => row),
       vocabulary_saved_tensor_calls: targetHead.vocabulary_saved_tensor_calls },
     equality, timings: timing,
     structural_valid: record.structural_valid }, null, 2) + '\n');
-  if (!record.structural_valid || !equality.loss_exact || !equality.gradients_file_exact)
+  if (!record.structural_valid || (config.objective !== 'liger_target_flce' && (!equality.loss_exact || !equality.gradients_file_exact)))
     throw new Error(`Native reference equality gate failed; evidence retained at ${local}`);
   return { local, loss: record.loss, equality, structural_valid: record.structural_valid,
     gradients_sha256: record.gradients_sha256, attempt_id: config.attempt_id };

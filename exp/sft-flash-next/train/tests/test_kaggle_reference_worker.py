@@ -13,6 +13,15 @@ CONFIG = json.loads((Path(__file__).resolve().parents[1] / 'configs/reference-v0
 
 
 class WorkerTests(unittest.TestCase):
+    def test_liger_bootstrap_records_differences_without_an_optimizer(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/liger-flce-v2.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<liger-bootstrap>', 'exec')
+        self.assertIn('from liger_operator_check import qualify', source)
+        self.assertIn('from liger_target_loss import compare_gradients', source)
+        self.assertIn('liger-runtime', source)
+        self.assertNotIn('optimizer.step', source)
+
     def test_generated_bootstrap_preserves_native_script_and_compiles(self):
         source = bootstrap_source(CONFIG)
         compile(source, '<instrumented-bootstrap>', 'exec')

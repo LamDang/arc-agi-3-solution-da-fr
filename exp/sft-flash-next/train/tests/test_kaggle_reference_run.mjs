@@ -46,3 +46,11 @@ test('target-mask config pins candidate sources and retains native numerical gat
   assert.equal(candidate.expected_gradients_sha256, config.expected_gradients_sha256);
   assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: {} }), /Missing target-mask/);
 });
+
+test('Liger diagnostic pins wheel and comparison while preserving exact reference identity', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/liger-flce-v2.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  assert.equal(candidate.expected_gradients_sha256, config.expected_gradients_sha256);
+  assert.throws(() => validateConfig({ ...candidate, liger_dependency: {} }), /pinned Liger/);
+  assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned Liger/);
+});

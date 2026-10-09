@@ -54,8 +54,14 @@ def validate(config):
         if sha256(path) != config['expected_sha256'][key]:
             raise ValueError(f'Pinned input SHA256 mismatch: {key}')
     objective = config.get('objective', 'native')
-    if objective not in ('native', 'target_only_mask_native_backward'):
+    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce'):
         raise ValueError('Unsupported objective')
+    if objective == 'liger_target_flce':
+        dep = config['liger_dependency']
+        if sha256(dep['remote_wheel']) != dep['sha256']:
+            raise ValueError('Pinned Liger wheel differs')
+        if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
+            raise ValueError('Native comparison gradients differ')
     for name, checksum in config.get('candidate_sources_sha256', {}).items():
         source = Path(config['reference_script']).parent / name
         if Path(name).name != name or sha256(source) != checksum:
@@ -73,6 +79,26 @@ def native_command(config, instrumented_bootstrap):
 
 def bootstrap_source(config):
     """Apply the original bootstrap's package view, then time backward only."""
+    candidate_setup = ''
+    candidate_compare = ''
+    if config.get('objective') == 'target_only_mask_native_backward':
+        candidate_setup = ("from target_only_head import install_for_capture\ninstall_for_capture("
+            + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")")
+        if config.get('interleaved_operator_check'):
+            candidate_setup += ("\nfrom target_mask_operator_check import qualify\nqualify("
+                + repr(config['model']) + "," + repr(config['sample']) + ","
+                + repr(config['remote_launch']) + ")")
+    elif config.get('objective') == 'liger_target_flce':
+        candidate_setup = ("sys.path.insert(0," + repr(str(Path(config['remote_launch']) / 'liger-runtime')) + ")\n"
+            + "from liger_target_loss import install_for_capture\ninstall_for_capture("
+            + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")\n"
+            + "from liger_operator_check import qualify\nqualify("
+            + repr(config['model']) + "," + repr(config['sample']) + ","
+            + repr(config['remote_launch']) + ")")
+        candidate_compare = ("\n    from liger_target_loss import compare_gradients\n    compare_gradients("
+            + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
+            + repr(config['native_gradients']) + ","
+            + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
     source = '''import builtins, hashlib, json, os, runpy, sys, time
 from pathlib import Path
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
@@ -128,7 +154,7 @@ def observed_backward(self, *args, **kwargs):
                                      'monotonic_ns':time.monotonic_ns()})+'\\n')
 torch.Tensor.backward = observed_backward
 try:
-    runpy.run_path(%(bootstrap)r, run_name='__main__')
+    runpy.run_path(%(bootstrap)r, run_name='__main__')%(candidate_compare)s
 finally:
     imported = {}
     for module in tuple(sys.modules.values()):
@@ -136,7 +162,8 @@ finally:
         if not value or not value.endswith('.py'):
             continue
         if not (value.startswith('/kaggle/working/training-gradient-audit/') or
-                value.startswith('/tmp/peft-autoround-compat/')):
+                value.startswith('/tmp/peft-autoround-compat/') or
+                value.startswith(%(runtime_prefix)r)):
             continue
         p = Path(value)
         if p.is_file():
@@ -147,13 +174,9 @@ finally:
     return source % {'timing_path': str(Path(config['remote_launch']) / 'timing-events.jsonl'),
                      'allocator_path': str(Path(config['remote_launch']) / 'allocator-phase-peaks.jsonl'),
                      'bootstrap': config['bootstrap'],
-                     'candidate_setup': ("from target_only_head import install_for_capture\n"
-                         + "install_for_capture(" + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")"
-                         + ("\nfrom target_mask_operator_check import qualify\nqualify("
-                            + repr(config['model']) + "," + repr(config['sample']) + ","
-                            + repr(config['remote_launch']) + ")"
-                            if config.get('interleaved_operator_check') else '')
-                         if config.get('objective') == 'target_only_mask_native_backward' else ''),
+                     'candidate_setup': candidate_setup,
+                     'candidate_compare': candidate_compare,
+                     'runtime_prefix': str(Path(config['remote_launch']) / 'liger-runtime') + '/',
                      'source_hash_path': str(Path(config['remote_launch']) / 'imported-source-hashes.json')}
 
 
@@ -222,6 +245,12 @@ def launch(config_path):
     if gpu_processes:
         raise RuntimeError('GPU compute processes already running; refusing concurrent capture')
     launch_dir.mkdir(parents=True)
+    if config.get('objective') == 'liger_target_flce':
+        import zipfile
+        wheel = Path(config['liger_dependency']['remote_wheel'])
+        (launch_dir / wheel.name).write_bytes(wheel.read_bytes())
+        with zipfile.ZipFile(wheel) as archive:
+            archive.extractall(launch_dir / 'liger-runtime')
     instrumented = launch_dir / 'instrumented-bootstrap.py'
     instrumented.write_text(bootstrap_source(config))
     command = native_command(config, instrumented)

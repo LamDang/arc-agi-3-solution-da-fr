@@ -17,6 +17,7 @@ stages:
       - metrics/reference-v0.json:
           cache: false
   target_mask_v1:
+    frozen: true
     desc: Target-only vocabulary rows with native head backward, no optimizer update.
     cmd: node kaggle_reference_run.mjs --config configs/target-mask-v1.json
     deps:
@@ -34,4 +35,23 @@ stages:
       - gradient-results/target-mask-v1
     metrics:
       - metrics/target-mask-v1.json:
+          cache: false
+  liger_flce_v2:
+    desc: Diagnostic target-only frozen-head Liger FLCE comparison, no optimizer update.
+    cmd: node kaggle_reference_run.mjs --config configs/liger-flce-v2.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/liger-flce-v2.json
+      - target_only_head.py
+      - liger_target_loss.py
+      - liger_operator_check.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/result.json
+    outs:
+      - gradient-results/liger-flce-v2
+    metrics:
+      - metrics/liger-flce-v2.json:
           cache: false
