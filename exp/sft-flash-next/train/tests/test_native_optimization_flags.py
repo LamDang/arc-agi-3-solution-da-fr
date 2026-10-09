@@ -48,3 +48,22 @@ def test_flags_restore_native_methods_after_exception():
     for module,owned,method in before.values():
         assert ('forward' in module.__dict__)==owned
         assert module.forward==method
+
+
+def test_outer_checkpoint_groups_keep_native_gradients_and_module_names():
+    base,model,param,batch,labels=setup()
+    base.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant':False})
+    original_layers=base.model.language_model.layers
+    names=list(base.state_dict())
+    expected=None
+    for flags in ({},{'checkpoint_group':3},{}):
+        model.zero_grad(set_to_none=True)
+        with apply_flags(base,flags):
+            loss=objective(model,batch,labels,17,{})
+            loss.backward()
+        got=(loss.detach(),param.grad.clone())
+        if expected is None:expected=got
+        else:
+            for a,b in zip(got,expected):torch.testing.assert_close(a,b,rtol=0,atol=0)
+        assert base.model.language_model.layers is original_layers
+        assert list(base.state_dict())==names

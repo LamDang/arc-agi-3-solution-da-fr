@@ -7,6 +7,22 @@ import torch
 from torch.utils.checkpoint import checkpoint
 
 
+class NativeLayerGroup(torch.nn.Module):
+    """Outer checkpoint around unchanged HF layers, including inner checkpoints."""
+    def __init__(self,layers):
+        super().__init__()
+        self.layers=torch.nn.ModuleList(layers)
+
+    def forward(self,hidden_states,**kwargs):
+        if kwargs.get('past_key_values') is not None:
+            raise ValueError('Checkpoint groups are for cache-free training')
+        def run(hidden):
+            for layer in self.layers:
+                hidden=layer(hidden,**kwargs)
+            return hidden
+        return checkpoint(run,hidden_states,use_reentrant=False)
+
+
 def rms_rows(self, x):
     shape=x.shape
     flat=x.reshape(-1,shape[-1])

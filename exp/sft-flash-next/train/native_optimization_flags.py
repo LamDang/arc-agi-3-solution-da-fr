@@ -15,8 +15,9 @@ def apply_flags(base, flags):
     import backend as b
     undo = []
     def set_attr(obj, name, value):
-        existed = name in obj.__dict__
-        old = obj.__dict__.get(name)
+        existed = name in obj.__dict__ or any(name in getattr(obj, field, {})
+                    for field in ('_modules','_parameters','_buffers'))
+        old = getattr(obj,name) if existed else None
         undo.append((obj, name, existed, old))
         setattr(obj, name, value)
     def bind(obj, fn):
@@ -52,6 +53,13 @@ def apply_flags(base, flags):
                 set_attr(m, 'key_block',32)
                 set_attr(m, 'train_projection_block',flags.get('attention_projection_block',0))
                 set_attr(m, 'train_attention_backend',flags['attention']); bind(m,b.training_attention)
+        if flags.get('checkpoint_group',1)>1:
+            from native_checkpoint_blocks import NativeLayerGroup
+            lm=base.model.language_model
+            size=flags['checkpoint_group']
+            groups=[NativeLayerGroup(list(lm.layers[start:start+size]))
+                    for start in range(0,len(lm.layers),size)]
+            set_attr(lm,'layers',torch.nn.ModuleList(groups))
         yield
     finally:
         for obj,name,existed,old in reversed(undo):
