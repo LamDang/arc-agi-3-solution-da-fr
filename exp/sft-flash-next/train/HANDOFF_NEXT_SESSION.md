@@ -2,6 +2,25 @@
 
 This section supersedes the original immediate-action instructions below.
 
+* **Latest user instruction:** the primary agent now executes all work directly;
+  do not use or restart subagents. Use the Kaggle Jupyter API, without computer
+  use.
+* Each new experiment must have a config, DVC stage and recorded artifacts.
+  `kaggle_reference_run.mjs`, `kaggle_reference_worker.py`,
+  `configs/reference-v0.json` and `dvc.yaml:reference_v0` implement the first
+  version. `v0.md` is the experiment table and includes phase measurements,
+  numerical identities, prerequisites and restore/recovery commands.
+* The single config-driven `reference-runner-v0` capture completed with loss
+  `0.6256952285766602` and the same raw gradient SHA256 as both previous
+  nonzero references. Forward: 118.260 s, 77.802 GiB CUDA allocated peak,
+  139.093 GiB sampled process RSS peak. Pure backward: 218.232 s,
+  85.100 GiB CUDA allocated peak, 147.794 GiB sampled RSS peak.
+  CPU/device use is sampled every 2 s; allocator peaks are exact. Loading,
+  pre-backward adapter export and gradient export are separate phases.
+  The Jupytext collector fix resumed the existing run, without another GPU
+  pass. Complete evidence and frozen source/config bytes are DVC outputs;
+  Git metrics are `metrics/reference-v0.json`. No candidate run is authorized.
+
 * Branch: `codex/flash-next-full-context-training`, PR #24.
 * The requested zero-B native capture completed and is preserved in
   `gradient-results/reference-new-server-one-run-v1`: loss

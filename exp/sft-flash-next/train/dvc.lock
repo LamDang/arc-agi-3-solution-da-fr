@@ -1,0 +1,43 @@
+schema: '2.0'
+stages:
+  reference_v0:
+    cmd: node kaggle_reference_run.mjs --config configs/reference-v0.json
+    deps:
+    - path: configs/reference-v0.json
+      hash: md5
+      md5: 5257cca92fe9b7905d223d2b9faccc99
+      size: 1729
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      hash: md5
+      md5: 20370b16cedbe79d02ae905d86980f94
+      size: 134192587
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/result.json
+      hash: md5
+      md5: de43732b505637a5ba69385effa7110f
+      size: 669
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: 8899688cc3cc6270b63b19d13dbbc852
+      size: 19878
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: 078ac4ed96580bd131282f0556ab7a66
+      size: 15509
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    outs:
+    - path: gradient-results/reference-runner-v0
+      hash: md5
+      md5: 3f60d30615ad5321dd2e85ebd80266c9.dir
+      size: 532915101
+      nfiles: 38
+    - path: metrics/reference-v0.json
+      hash: md5
+      md5: a823b8a599d257f7036863ad93a425e6
+      size: 3424
