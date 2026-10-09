@@ -16,7 +16,7 @@ import traceback
 
 import torch
 from transformers import AutoConfig, AutoModelForImageTextToText, AutoRoundConfig
-from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 
 TARGETS = (r'^model\.language_model\.layers\.\d+\.(?:'
            r'self_attn\.(?:q_proj|k_proj|v_proj|o_proj)|'
@@ -62,6 +62,9 @@ def main():
     p.add_argument('--target-ratio', type=float, default=.05)
     p.add_argument('--checkpointing', action='store_true')
     p.add_argument('--save-on-cpu', action='store_true')
+    p.add_argument('--first-pass-only', action='store_true',
+                   help='Save every raw adapter gradient after one backward; no clipping or update')
+    p.add_argument('--adapter-state', help='Exact PEFT adapter state to replay for gradient comparisons')
     args = p.parse_args()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=False)
@@ -128,6 +131,15 @@ def main():
         trainable = {n:v for n,v in model.named_parameters() if v.requires_grad}
         assert trainable and all('.lora_A.' in n or '.lora_B.' in n for n in trainable)
         assert all(torch.count_nonzero(v).item() == 0 for n,v in trainable.items() if '.lora_B.' in n)
+        if args.adapter_state:
+            state = torch.load(args.adapter_state, map_location='cpu', weights_only=True)
+            assert set(state) == set(get_peft_model_state_dict(model))
+            set_peft_model_state_dict(model, state)
+            for name, value in get_peft_model_state_dict(model).items():
+                torch.testing.assert_close(value.cpu(), state[name], rtol=0, atol=0)
+            provenance['adapter_initialization'] = 'exact supplied checkpoint'
+            provenance['adapter_sha256'] = sha256(args.adapter_state)
+            (out/'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n')
         save_adapter('initial-adapter', model)
         (out/'trainable.json').write_text(json.dumps({n:dict(shape=list(v.shape),dtype=str(v.dtype)) for n,v in trainable.items()},indent=2)+'\n')
         event('load_complete', trainable_parameters=sum(v.numel() for v in trainable.values()),
@@ -182,7 +194,7 @@ def main():
                     checkpointing=args.checkpointing, save_on_cpu=args.save_on_cpu,
                     gradient_equivalence_proven=False, elapsed_seconds=time.monotonic()-start)
                 (out/'result.json').write_text(json.dumps(status,indent=2)+'\n')
-                if status['passed'] or step == args.max_steps:
+                if not args.first_pass_only and (status['passed'] or step == args.max_steps):
                     save_adapter('final-adapter',model)
                     event('finished', **status)
                     return
@@ -194,6 +206,21 @@ def main():
             for name, parameter in trainable.items():
                 if parameter.grad is None or not torch.isfinite(parameter.grad).all():
                     raise RuntimeError(f'Missing/nonfinite gradient: {name}')
+            if args.first_pass_only:
+                gradients = {name: parameter.grad.detach().cpu().clone()
+                             for name, parameter in trainable.items()}
+                torch.save(gradients, out/'gradients.pt')
+                summary = {name: dict(shape=list(g.shape), dtype=str(g.dtype),
+                    norm=g.double().norm().item(), max_absolute=g.abs().max().item(),
+                    nonzero=int(torch.count_nonzero(g)), finite=bool(torch.isfinite(g).all()))
+                    for name, g in gradients.items()}
+                (out/'gradient-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
+                status.update(gradient_capture_complete=True, optimizer_updates=0,
+                    gradients_sha256=sha256(out/'gradients.pt'), gradient_tensors=len(gradients),
+                    clipping_applied=False, elapsed_seconds=time.monotonic()-start)
+                (out/'result.json').write_text(json.dumps(status, indent=2)+'\n')
+                event('gradients_saved', **status)
+                return
             norm = torch.nn.utils.clip_grad_norm_(list(trainable.values()),1.0,error_if_nonfinite=True)
             optimizer.step()
             event('update',step=step+1, gradient_norm=norm.item(),
