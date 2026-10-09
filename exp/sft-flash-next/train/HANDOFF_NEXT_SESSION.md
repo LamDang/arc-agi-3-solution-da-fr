@@ -1,3 +1,28 @@
+# Opt6 numerical comparison — small variation permitted, no overfit
+
+* Latest user steering: "just compare the loss and gradient, some small variant
+  is acceptable". This supersedes the bitwise acceptance requirement below.
+  Do not launch overfit or any optimizer updates. No new GPU run is needed.
+* Compared existing v8 and interrupted Opt6 step000 raw pre-clipping archives
+  on CPU in float64, after verifying all744 initial adapter tensors bitwise
+  equal and matching sample/model/reference-script pins.
+* Loss0.6250749230384827 ->0.6215509176254272: -0.00352400541305542,
+  -0.563773%. All744 gradients finite; global relativeL2 **59.841904%**,
+  cosine **0.8168147371**, norm ratio0.9758482504.
+* 372exact tensors are the zero A gradients from fresh zero-B initialization.
+  All372nonzero B-gradient tensors differ. Their median relativeL2 is45.3787%,
+  maximum142.9327%. Do not cite the zero A matches as evidence of equivalence.
+* Full-model gradient difference is substantial. No numerical tolerance was
+  invented and no performance/production promotion granted. Cause not isolated;
+  do not attribute the whole difference to isolated Liger rounding or CCE.
+* Reproducible CPU comparison: `reviews/compare_opt6_v9_v8.py`; full744-tensor
+  report `reviews/opt6-v9-vs-v8.json`. Existing raw sources/gradients in DVC.
+* Historical bitwise report below remains valid evidence, but bitwise failure
+  alone is no longer the acceptance rule. Frozen overfit stage stays frozen.
+  `liger_norm_swiglu_check.py` still has the historical exact gate: adapt its
+  criterion before any future authorized launch. No further run started.
+* **DO NOT PUSH Git or DVC.** Local only; accepted Opt5/v8 remains intact.
+
 # Opt6 stopped and rejected — exact equality required
 
 * User: "dont do overfit test, this should be identical". No further overfit,

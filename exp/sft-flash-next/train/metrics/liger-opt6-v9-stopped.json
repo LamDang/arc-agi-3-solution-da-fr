@@ -106,5 +106,15 @@
     "optimizer_seconds": 0.035756957,
     "clip_seconds": 0.024164181
   },
-  "measurements_scope": "interrupted, numerically rejected attempt; no performance or learning qualification"
+  "measurements_scope": "interrupted, numerically rejected attempt; no performance or learning qualification",
+  "latest_acceptance_policy": "Small variation permitted; compare loss and gradients; no overfit.",
+  "comparison_with_v8": {
+    "global_gradient_relative_l2_percent": 59.84190367829313,
+    "global_gradient_cosine": 0.8168147371139117,
+    "gradient_norm_ratio": 0.9758482504080557,
+    "loss_relative_difference_percent": -0.5637732827170968,
+    "exact_tensors": 372,
+    "zero_reference_and_candidate_tensors": 372,
+    "all_gradients_finite": true
+  }
 }
