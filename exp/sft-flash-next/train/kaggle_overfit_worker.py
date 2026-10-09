@@ -50,10 +50,20 @@ finalize_ple=install_ple(c['model'],c['sample'],c['remote_launch'],%(ple)r,looka
 from bf16_model_activations import qualify_cpu,install_for_capture as install_bf16
 qualify_cpu(c['remote_launch'])
 finalize_bf16=install_bf16(None,c['remote_launch'],%(precision)r,training=True)
+# Exercise fresh-mode loading before the expensive native model load.
+import torch
+probe=Path(c['remote_launch'])/'fresh-load-check.pt'
+value=torch.tensor([1.0007,-0.31317],dtype=torch.float32)
+torch.save(value,probe)
+loaded=torch.load(probe,weights_only=True)
+assert loaded.dtype==torch.float32 and torch.equal(loaded,value)
+(Path(c['remote_launch'])/'fresh-initialization-precheck.json').write_text(json.dumps(dict(passed=True,no_adapter_load=True,fp32_input_preserved=True)))
 from bf16_overfit_instrumentation import install
 finalize_learning=install(c)
+succeeded=False
 try:
     runpy.run_path(c['bootstrap'],run_name='__main__')
+    succeeded=True
 finally:
     updates=finalize_learning()
     finalize_ple()
@@ -62,7 +72,7 @@ finally:
     pr['diagnostic_source']='one pre-encoded anchor reused for all overfit steps; two duplicate lookahead preparations'
     pr['current_retained_through_backward']=len({row['prepared_cpu_storage_pointer'] for row in pr['calls']})==1 and len(pr['calls'])==2*updates+1
     pp.write_text(json.dumps(pr,indent=2)+'\\n')
-    finalize_bf16(optimizer_updates=updates)
+    if succeeded:finalize_bf16(optimizer_updates=updates)
     imported={}
     for module in tuple(sys.modules.values()):
         name=getattr(module,'__file__',None)

@@ -1,0 +1,12 @@
+{
+  "run_id": "bf16-overfit-v8-failed-launch1",
+  "attempt": "20261009193903-f7928f14",
+  "execution_commit": "fd9d67c",
+  "passed": false,
+  "optimizer_updates": 0,
+  "native_model_loading_started": false,
+  "failure": "fresh adapter_path=None passed to Path in intercepted torch.load",
+  "monitor_initial_failure": "archived monitor helper import; recovered without changing frozen worker",
+  "preserved_local": true,
+  "pushed_to_remote": false
+}

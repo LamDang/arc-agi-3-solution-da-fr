@@ -41,7 +41,7 @@
     "opt4_ple_capture.py": "9ae0817bf9f121193122c91895a05cc4ca1306f3100d040e62254aa32b6e0142",
     "opt4_ple_operator_check.py": "0de172962537b8a2ca364102b86c4cf0e6be33d48b4531540ba0a399a08de9cf",
     "bf16_activation_policy.py": "aa081f6dbf802bbfec3e61c5495014b680d8299badf3c6f8780ddc3bcb6f28ff",
-    "bf16_model_activations.py": "f1abef1d77a9d3abfb85dccb4782f1c3650605bd636a15628bb1678ba1aa9a51",
+    "bf16_model_activations.py": "4b6547375b09b71dcc7b49cd7b7ee060375954f4582eee2f38669a57879191f2",
     "kaggle_reference_worker.py": "fe5df5dc5d41268345d219be20f92119cd36a43556af7c2cded1b00d3aa62c20",
     "bf16_overfit_instrumentation.py": "b76bd3cc05a95e105ab59079a2116473fdb77fa14e27de711bd842f0dbdabe96"
   },

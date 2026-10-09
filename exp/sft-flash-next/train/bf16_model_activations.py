@@ -141,7 +141,7 @@ def install_for_capture(adapter_path, launch_dir, report_path, training=False):
     original_load=torch.load
     def load(file,*args,**kwargs):
         value=original_load(file,*args,**kwargs)
-        if isinstance(file,(str,Path)) and Path(file)==Path(adapter_path):
+        if adapter_path is not None and isinstance(file,(str,Path)) and Path(file)==Path(adapter_path):
             if not isinstance(value,dict) or len(value)!=744:raise ValueError('Unexpected adapter state')
             rounded={name:t.to(torch.bfloat16) for name,t in value.items()}
             repeated={name:t.to(torch.bfloat16) for name,t in value.items()}
