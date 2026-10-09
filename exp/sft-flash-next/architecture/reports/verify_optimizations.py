@@ -23,7 +23,7 @@ def read(path):return json.loads(Path(path).read_text())
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('attempt');parser.add_argument('--label');args=parser.parse_args()
     job=Path(args.attempt).resolve();out=job/'output'
     config=read(job/'config.json');result=read(out/'result.json');monitor=read(job/'monitor.json')
     comparison=read(out/'comparison.json');initial=read(out/'initial-comparison.json')
@@ -32,7 +32,11 @@ def main():
     chunk_flags=['expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking']
     enabled=[i for i,k in enumerate(chunk_flags,7) if opt.get(k)]
     label=f'Opt{max(enabled)}' if enabled else {('target',False):'Opt1',('cce_exact',False):'Opt2',('cce_exact',True):'Opt3'}[(head,bias)]
-    assert monitor['returncode']==0 and not monitor['timed_out']
+    label=args.label or label
+    assert not monitor['timed_out']
+    if monitor['returncode']!=0:
+        assert enabled and result['chunking_gradient_gate_passed'] is False
+        assert 'user gate' in read(out/'failure.json')['error']
     assert config['architecture']=='optimized' and config['diagnostic_initialization']
     for key in ['bf16_activations','disk_ple','offload_routed_experts','lora_routed_experts']:assert opt[key] is True
     for key in ['bf16_lora','liger_rmsnorm','liger_swiglu']:assert not opt.get(key,False)

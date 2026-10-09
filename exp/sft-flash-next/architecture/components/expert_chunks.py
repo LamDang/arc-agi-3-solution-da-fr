@@ -41,6 +41,7 @@ class _ExpertChunks(torch.autograd.Function):
                 weighted=value*weights[rows,slots,None].to(x.dtype)
                 output.index_add_(0,rows,weighted.float())
             module.chunk_stats=dict(max_dispatched_tokens=min(max(counts),size),
+                max_assigned_tokens=max(counts),experts_split=sum(c>size for c in counts),
                 expert_slices=sum((c+size-1)//size for c in counts),global_native_sort=True,
                 fp32_output_accumulator_bytes=output.numel()*output.element_size())
             return output.to(x.dtype)
