@@ -1,17 +1,35 @@
-# Corrected Opt5 activation-only policy — prepared 2026-10-09
+# Corrected Opt5 completed locally — 2026-10-09
 
-* User explicitly corrected v6: activations BF16, numerical statistics native.
-  `bf16_model_activations.py` uses declared hidden-state ports; CPU saved-tensor
-  observer performs no conversion. CCE LSE stays FP32 with exact roundtrip checks.
-* Separate config/stage `cce-opt5-activations-v7` / `cce_opt5_activations_v7`;
-  baseline v5. v6 is frozen evidence of the incorrect blanket cast.
-* Small CPU check via Kaggle Jupyter passes exact FP32 saved backward/LSE and
-  untouched auxiliary tensors. Runner tests 11 Node + 9 Python passed.
-* No optimizer update/clipping. Keep the original test-only nonzero fixture;
-  deterministic BF16 rounding unchanged. One corrected capture is next.
-* **DO NOT PUSH Git or DVC.** User said "Dont push yet"; this remains in force.
-  Earlier DVC upload already completed before that instruction could stop it;
-  no Git push has occurred for v6/Opt5 work.
+* User corrected v6 scope. `bf16_model_activations.py` casts declared model
+  hidden activations/LoRA BF16; no generic argument/auxiliary/saved-tensor cast.
+  Internal native FP32 work/statistics retained. All 48 decoder outputs/head
+  hidden/biases BF16; CCE LSE `[651]` FP32 with exact CPU roundtrip.
+* Execution commit `2d595fd5091a5f086dbe37802566aa70f50e3b92`, attempt
+  `20261009192015-40a07a14`, config/stage `cce-opt5-activations-v7` /
+  `cce_opt5_activations_v7`. One native anchor forward/backward, no update/clipping.
+* Loss 0.6237540245056152 (`3f1fae58`), -0.297084% vs v5. All 744 BF16
+  gradients finite/nonzero; global L2 difference 55.581159%, cosine 0.843171.
+  **Precision contract passes; strict numerical equality FAILED.** No tolerance
+  or production qualification. Do not attribute the remaining drift to the
+  prior statistic compression, CCE variability or one precision component.
+* Forward/backward 118.594/164.809 s; sum 283.403 s, 15.190% shorter vs v5.
+  GPU allocated 44.830/52.911 GiB; parent RSS 19.267/19.394 GiB;
+  tree PSS 19.776/19.904 GiB; substantial file cache 115.450/115.575 GiB remains.
+  Full metrics log all allocator/RAM counters. Not a 130K capacity result.
+* All 82 original FP32 saved events retain dtype/bytes: 75 empty checkpoint
+  placeholders, 2 final RMSNorm full-work tensors, 2 reduction intermediates,
+  1 norm-weight operand,1 CCE LSE,1 finite-check scalar. Shapes/stacks archived.
+  FP32 native RMSNorm work is permitted; its output is BF16.
+* Independent raw review verifies all744 BF16 gradients/float64 comparison,
+  all source hashes, exact fixture rounding/initial state, native mask/PLE checks.
+  Runner tests 11 Node + 9 Python; CPU precision/operator check passes through Jupyter.
+* Raw gradient SHA256:
+  `4527d3cd8889e5a9f77d692bb96e314dd04169b3fe5539d6aee7a7a44185568b`.
+* `v7.md`, master `v0.md`, metrics/review record the corrected result.
+  Locally cached after failed gate; all 94 files restore SHA256-identically,
+  tree `a917fd64b3cca17aac2ab44c947f91fc.dir`. No further GPU job.
+* **DO NOT PUSH Git or DVC.** User's "Dont push yet" remains in force.
+  v6 DVC upload had already completed; no Opt5 Git push or v7 DVC push issued.
 
 # Rejected Opt5 implementation — 2026-10-09
 
