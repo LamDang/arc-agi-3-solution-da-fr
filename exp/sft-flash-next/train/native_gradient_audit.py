@@ -20,6 +20,14 @@ from overfit_hf_reference import TARGETS, resident_device_map, sha256
 from native_gradient_compare import compare, tensor_digest
 from native_optimization_flags import apply_flags, objective
 
+_failure_out = None
+
+
+def json_default(value):
+    if isinstance(value, set):
+        return sorted(value)
+    raise TypeError(f'Unsupported report value: {type(value).__name__}')
+
 
 def default_cases():
     return [dict(name='reference_repeat'),
@@ -27,6 +35,9 @@ def default_cases():
             dict(name='chunked_loss_128', loss='chunked', loss_block=128),
             dict(name='selective_cpu_offload', offload='cpu'),
             dict(name='disk_offload', offload='disk'),
+            dict(name='native_rms_blocks', native_norm_block=1024),
+            dict(name='native_gated_blocks', native_gated_block=262144),
+            dict(name='native_hyper_blocks', native_hyper_block=1024),
             dict(name='rms_blocks', norm_block=1024),
             dict(name='hyper_blocks', hyper_block=1024),
             dict(name='gated_norm_blocks', gated_norm_block=262144),
@@ -36,6 +47,7 @@ def default_cases():
 
 
 def main():
+    global _failure_out
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--model',required=True);p.add_argument('--sample',required=True)
     p.add_argument('--prompt-tokens',required=True,type=int)
@@ -43,12 +55,13 @@ def main():
     p.add_argument('--out',required=True);p.add_argument('--cases')
     p.add_argument('--rtol',type=float,default=1e-5);p.add_argument('--atol',type=float,default=1e-8)
     args=p.parse_args();out=Path(args.out);out.mkdir(parents=True,exist_ok=False)
+    _failure_out = out
     start=time.monotonic()
     def event(kind,**data):
         row=dict(event=kind,seconds=time.monotonic()-start,**data)
         with (out/'events.jsonl').open('a') as f:f.write(json.dumps(row)+'\n')
         print(json.dumps(row),flush=True)
-    def write(path,data):path.write_text(json.dumps(data,indent=2,allow_nan=False)+'\n')
+    def write(path,data):path.write_text(json.dumps(data,indent=2,allow_nan=False,default=json_default)+'\n')
     torch.manual_seed(20261009);torch.set_num_threads(8)
     reference_path=Path(args.reference)
     reference=torch.load(reference_path/'gradients.pt',map_location='cpu',weights_only=True)
@@ -61,7 +74,7 @@ def main():
     write(out/'cases.json',cases)
     write(out/'identity.json',dict(arguments=vars(args),sample_sha256=sha256(args.sample),
         adapter_sha256=sha256(args.adapter_state),reference_gradients_sha256=sha256(reference_path/'gradients.pt'),
-        source_sha256={f.name:sha256(f) for f in Path(__file__).parent.glob('native_*.py')},
+        source_sha256={f.name:sha256(f) for f in Path(__file__).parent.glob('*.py')},
         optimizer_updates=0,clipping=False,baseline_memory_controls=['HF checkpointing','torch save_on_cpu']))
     batch=torch.load(args.sample,map_location='cpu',weights_only=True)
     event('load_start')
@@ -154,4 +167,13 @@ def main():
     event('finished',accepted_flags=passed_flags,full_context_validated=False)
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:
+        main()
+    except BaseException as exc:
+        if _failure_out is not None:
+            failure=dict(error_type=type(exc).__name__,error=str(exc),traceback=traceback.format_exc())
+            (_failure_out/'failure.json').write_text(json.dumps(failure,indent=2)+'\n')
+            with (_failure_out/'events.jsonl').open('a') as stream:
+                stream.write(json.dumps(dict(event='failed',**failure))+'\n')
+        raise

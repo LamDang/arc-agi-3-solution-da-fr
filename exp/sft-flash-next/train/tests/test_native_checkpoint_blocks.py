@@ -6,7 +6,8 @@ from native_checkpoint_blocks import rms_rows,gated_rows,hyper_rows
 
 
 @pytest.mark.parametrize('kind',['rms','gated','hyper'])
-def test_native_blocks_outputs_and_input_gradients(kind):
+@pytest.mark.parametrize('dtype',[torch.float32,torch.bfloat16])
+def test_native_blocks_outputs_and_input_gradients(kind,dtype):
     torch.manual_seed(141);torch.set_num_threads(2)
     mq=tiny.mq
     if kind=='rms':
@@ -16,8 +17,8 @@ def test_native_blocks_outputs_and_input_gradients(kind):
     else:
         cfg=tiny.tiny_config().text_config
         m=mq.Qwen4ExpTextGatedResidual(cfg);fn=hyper_rows;width=cfg.hidden_size*cfg.hc_count
-    m.requires_grad_(False);m.native_forward=m.forward;m.native_block=7
-    args=[torch.randn(1,19,width)]
+    m.to(dtype=dtype);m.requires_grad_(False);m.native_forward=m.forward;m.native_block=7
+    args=[torch.randn(1,19,width,dtype=dtype)]
     if kind=='gated':args.append(torch.randn_like(args[0]))
     def run(blocked):
         values=[v.clone().requires_grad_(True) for v in args]
