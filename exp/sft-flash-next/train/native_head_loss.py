@@ -21,8 +21,8 @@ class _SelectedNativeBackward(torch.autograd.Function):
             raise ValueError('Invalid labels or prompt boundary')
         if weight.requires_grad:
             raise ValueError('The vocabulary head must be frozen')
-        if weight.dtype != hidden.dtype or weight.shape[1] != hidden.shape[2]:
-            raise ValueError('Head and hidden states must have matching dtype and width')
+        if weight.ndim != 2 or weight.shape[1] != hidden.shape[2]:
+            raise ValueError(f'Head/hidden width mismatch: {tuple(weight.shape)}, {tuple(hidden.shape)}')
         if not bool((labels[:, :prompt] == -100).all()):
             raise ValueError('All omitted prompt labels must be ignored')
         targets = labels[:, prompt:].contiguous()
@@ -30,12 +30,14 @@ class _SelectedNativeBackward(torch.autograd.Function):
                                          or backward_rows < targets.numel()):
             raise ValueError('Explicit backward rows must cover every target')
         logits = F.linear(hidden[:, prompt-1:-1], weight)
-        if logits.dtype != hidden.dtype:
-            raise ValueError('Autocast must preserve the native hidden/head dtype')
         loss = ForCausalLMLoss(logits, labels, vocab_size=weight.shape[0],
                                shift_labels=targets)
-        ctx.save_for_backward(logits, weight, targets)
+        # F.linear performs native autocast above. Its ordinary backward uses
+        # the cast weight, then casts the hidden gradient back to input dtype.
+        # PEFT may supply FP32 decoder states to a frozen BF16 vocabulary head.
+        ctx.save_for_backward(logits, weight.to(dtype=logits.dtype), targets)
         ctx.tokens, ctx.prompt = hidden.shape[1], prompt
+        ctx.hidden_dtype = hidden.dtype
         ctx.backward_rows = backward_rows
         return loss
 
@@ -68,7 +70,7 @@ class _SelectedNativeBackward(torch.autograd.Function):
             dhidden = torch.zeros((1, ctx.tokens, weight.shape[1]),
                                   dtype=padded_gradient.dtype, device=weight.device)
             dhidden[:, ctx.prompt-1:-1].copy_(padded_gradient[:count])
-        return dhidden, None, None, None, None
+        return dhidden.to(dtype=ctx.hidden_dtype), None, None, None, None
 
 
 def selected_native_backward_loss(hidden, weight, labels, prompt, backward_rows=None):

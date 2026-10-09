@@ -1,0 +1,67 @@
+{
+  "review": "Local reloaded raw native/candidate tensors; torch.equal all eight pairs.",
+  "all_8_bitwise": true,
+  "script_sha_matches": true,
+  "files": {
+    "raw_fp32-0.125-native-dhidden.pt": {
+      "bytes": 166391619,
+      "sha256": "8747b62ba5a39b98e116a3c0c49353eba577b5f1f90c7f1c66d29fce573d5eff"
+    },
+    "bf16_rounded_to_fp32-0.125-None-dhidden.pt": {
+      "bytes": 166391689,
+      "sha256": "2051e688a29a0e285af60219d20468d8ef907c45d4e6afcae70b7c8a12858d7c"
+    },
+    "bf16_rounded_to_fp32-1.0-None-dhidden.pt": {
+      "bytes": 166391675,
+      "sha256": "c13b2367e10396417015f5df3742e07cd5d74a00e4465ef61aea5370c1fbb619"
+    },
+    "raw_fp32-1.0-native-dhidden.pt": {
+      "bytes": 166391605,
+      "sha256": "542ebd4a4faf9fb4ca4b929e011a5d0f0397952b210e5f5c443fc41cd6f8a447"
+    },
+    "bf16_rounded_to_fp32-hidden.pt": {
+      "bytes": 166391605,
+      "sha256": "89570ffb230285852900b3779292960c1f0317010ea51603161d3a3508ca2588"
+    },
+    "raw_fp32-1.0-None-dhidden.pt": {
+      "bytes": 166391591,
+      "sha256": "c1792c12c8e34be90ba0a26b90fbeb93a1cfe4f15e6888ad4836e29c41d73d3e"
+    },
+    "bf16_rounded_to_fp32-0.125-native-dhidden.pt": {
+      "bytes": 166391703,
+      "sha256": "84a28c3a0c5438069d897cce2f6ddf914cb2fb8208c6383a8ead3e7892d60507"
+    },
+    "bf16_rounded_to_fp32-0.125-16384-dhidden.pt": {
+      "bytes": 166391696,
+      "sha256": "441eb1156ae9190b6fd66f047e84c6a77a80c68b717ed6c2919ca3952e207b9a"
+    },
+    "report.json": {
+      "bytes": 7116,
+      "sha256": "081b228097c5020d6ae0fba613f64e15e8ee101f8ee02501136c69a7c3303082"
+    },
+    "bf16_rounded_to_fp32-1.0-16384-dhidden.pt": {
+      "bytes": 166391682,
+      "sha256": "59084d76db3b3eeb483b1d9ad36f252489de960ea1a09a629676957bb3d8470b"
+    },
+    "raw_fp32-0.125-16384-dhidden.pt": {
+      "bytes": 166391612,
+      "sha256": "116c90183d4077dffd63f364206bc9c44eceec58a771dbb5a66b731204ce8835"
+    },
+    "raw_fp32-0.125-None-dhidden.pt": {
+      "bytes": 166391605,
+      "sha256": "a830a7d20ff1a14fbc7b25df546041570011199c6880432081e4517405f17d5a"
+    },
+    "raw_fp32-hidden.pt": {
+      "bytes": 166391393,
+      "sha256": "50eeffafc32d63cdf259d666bdcc1f53c7b8b8d55c86fd06a82738d3d1e10e82"
+    },
+    "raw_fp32-1.0-16384-dhidden.pt": {
+      "bytes": 166391598,
+      "sha256": "955cf4c4dc4183889a4d1fa07d01b0663062a13c01e40c97e8c0bbc76a8831d5"
+    },
+    "bf16_rounded_to_fp32-1.0-native-dhidden.pt": {
+      "bytes": 166391689,
+      "sha256": "3db4e427d34b1851c2570e70d8d185c8f4b4a75308ef20b6b006ae4491fbed8b"
+    }
+  }
+}

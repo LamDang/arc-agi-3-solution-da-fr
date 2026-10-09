@@ -224,11 +224,62 @@ checked-in candidate; the report and exact harness are in
 Eighteen local checks passed, covering loss scaling, ignored response labels,
 frozen-head enforcement, native decoder gradients, and qualification guards.
 
-The real-model audit `native-head-gradient-audit-initial-v1` is running with
+The real-model audit `native-head-gradient-audit-initial-v1` completed with
 [`native_head_cases.json`](native_head_cases.json): fresh native replay, the
 16,384-row loss candidate alone, and that candidate with mask storage plus CPU
 offload. It compares all 744 tensors to the original deterministic reference,
-with no optimizer updates. **Whole-model results are still pending.**
+with no optimizer updates. The native replay **passed bitwise across all 744
+tensors**, independently verified from the downloaded raw gradients. Both
+candidate recipes stopped **before backward** at the implementation guard
+`Head and hidden states must have matching dtype and width`. No candidate
+gradients were produced, and `accepted-flags.json` is empty. The conditional
+trained-adapter reference correctly refused to launch. Failure reports are in
+[`native-head-gradient-audit-initial-v1`](gradient-results/native-head-gradient-audit-initial-v1).
+
+The candidate had incorrectly assumed that hidden states, head weights and
+logits share one dtype. Native autocast can accept FP32 hidden states and BF16
+weights, produce BF16 logits, and cast the hidden gradient back to FP32. The
+original failure did not log the operands' dtypes, so the actual boundary still
+needs observation. A read-only native-head pre-hook now records shapes, dtypes
+and autocast settings on the next replay.
+
+The revised helper lets native `F.linear` perform autocast, saves the head
+weight in the actual logits dtype for backward, and casts the resulting hidden
+gradient back to the original hidden dtype. New CPU tests verify bitwise hidden
+gradients for FP32 inputs with either FP32 or BF16 head weights under BF16
+autocast. CPU scalar CE can differ by one FP32 ULP when ignored rows are omitted;
+this local scalar check does not relax the real-model gradient gate.
+The dtype fix **passed an isolated mixed-dtype GPU gate** on the restored
+RTX PRO 6000 server. Fresh native full-head loss and input gradients were
+computed separately for raw FP32 hidden values and saved BF16-rounded values
+cast to FP32, with upstream scales 1 and 0.125. Both native-length and explicit
+16,384-row candidate backwards match loss and every FP32 gradient value
+bitwise in all eight comparisons. Actual frozen-head tensor and runtime/math
+settings match the prior diagnostic. Peak allocation was 46.50 GiB for the
+native head and 10.40–10.47 GiB for the candidates. All raw gradients were
+downloaded and independently rechecked locally; the exact harness, report and
+artifact hashes are in
+[`native-head-mixed-dtype-v1`](gradient-results/native-head-mixed-dtype-v1).
+This synthetic head test does not qualify the complete model or establish its
+actual hidden dtype.
+
+The original server expired with HTTP 404. On the replacement server, 50
+restoration files were SHA-verified, the exact Transformers 5.18/FLA 0.5.2/
+AutoRound 0.15/causal-conv1d 1.7 dependencies restored, and the successful mixed
+head test completed. A byte-preserving 256-expert export was launched, followed
+by a sequential watcher for the fresh native replay and two candidate cases.
+Subsequent `/api/kernels` and saved-report route checks returned HTTP 503,
+then recovered after bounded retries. The export completed (14 rewritten
+shards, 24 linked files) and the watcher verified its configuration hash and
+native runtime. The queued `native-head-gradient-audit-initial-v2` then stopped
+before forward because the restored training backend was missing its unchanged
+`exp/reap-flash-next/reap_model.py` import dependency. No gradient comparison
+occurred. The last observed GPU state was idle. This environment failure is
+separate from numerical qualification; candidate all-adapter gates remain
+pending after dependency restoration.
+
+The user-approved all-assistant trajectory objective is a separate,
+GPU-unqualified pipeline. It leaves this fixed final-reply reference unchanged.
 
 ## Full-context capacity gate
 

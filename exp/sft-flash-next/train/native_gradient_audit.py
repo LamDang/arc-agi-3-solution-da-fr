@@ -142,6 +142,16 @@ def main():
     labels=batch['input_ids'].clone();labels[:,:args.prompt_tokens]=-100
     cpu_rng,cuda_rng=torch.get_rng_state(),torch.cuda.get_rng_state_all()
     phase={'name':None,'pass':'forward'};routes={};handles=[]
+    def observe_native_head_boundary(module, inputs):
+        if phase['pass'] != 'forward':
+            return
+        hidden = inputs[0]
+        event('native_head_boundary', name=phase['name'],
+            hidden_shape=list(hidden.shape), hidden_dtype=str(hidden.dtype),
+            head_shape=list(module.weight.shape), head_dtype=str(module.weight.dtype),
+            autocast_enabled=torch.is_autocast_enabled('cuda'),
+            autocast_dtype=str(torch.get_autocast_dtype('cuda')))
+    handles.append(base.lm_head.register_forward_pre_hook(observe_native_head_boundary))
     for index,layer in enumerate(base.model.language_model.layers):
         def route_hook(module,inputs,output,index=index):
             if phase['pass']=='forward':routes[index]=tensor_digest(output[2])

@@ -36,3 +36,26 @@ def test_rejects_trainable_head_or_supervised_omitted_labels():
     labels[:, :4] = -100
     with pytest.raises(ValueError, match='head must be frozen'):
         selected_native_backward_loss(hidden, weight.requires_grad_(), labels, 4)
+
+
+@pytest.mark.parametrize('weight_dtype', [torch.float32, torch.bfloat16])
+def test_autocast_fp32_hidden_returns_native_fp32_gradient(weight_dtype):
+    torch.manual_seed(91)
+    weight = torch.randn(113, 17).to(weight_dtype)
+    # FP32 values have information beyond BF16, exercising the native cast.
+    original = torch.randn(1, 29, 17)
+    labels = torch.randint(0, 113, (1, 29))
+    labels[:, :23] = -100
+    native = original.clone().requires_grad_()
+    candidate = original.clone().requires_grad_()
+    with torch.autocast('cpu', dtype=torch.bfloat16):
+        expected = ForCausalLMLoss(torch.nn.functional.linear(native, weight),
+                                  labels, vocab_size=113)
+        actual = selected_native_backward_loss(candidate, weight, labels, 23)
+    expected.backward()
+    actual.backward()
+    assert candidate.grad.dtype == native.grad.dtype == torch.float32
+    # CPU CE changes the scalar summation order when ignored rows are omitted;
+    # the cast-back and per-element hidden gradient must still be exact.
+    torch.testing.assert_close(actual, expected, rtol=1e-7, atol=0)
+    torch.testing.assert_close(candidate.grad, native.grad, rtol=0, atol=0)
