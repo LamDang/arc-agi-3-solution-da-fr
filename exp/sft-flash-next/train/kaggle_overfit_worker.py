@@ -126,6 +126,10 @@ def launch(config_path):
     if gpu_processes:
         raise RuntimeError('GPU compute processes already running; refusing concurrent capture')
     launch_dir.mkdir(parents=True)
+    # The archived worker is executed from this directory by the detached monitor.
+    # Freeze its shared supervision helper beside it so imports stay self-contained.
+    helper=Path(config['reference_script']).parent/'kaggle_reference_worker.py'
+    (launch_dir/'kaggle_reference_worker.py').write_bytes(helper.read_bytes())
     if config.get('objective') == 'liger_target_flce':
         import zipfile
         wheel = Path(config['liger_dependency']['remote_wheel'])

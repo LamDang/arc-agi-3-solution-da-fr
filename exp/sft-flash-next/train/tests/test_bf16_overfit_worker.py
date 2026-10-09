@@ -23,6 +23,10 @@ class LearningTests(unittest.TestCase):
         self.assertNotIn('compare_gradients(',source)
         self.assertIn('finalize_bf16(optimizer_updates=updates)',source)
 
+    def test_detached_worker_has_its_shared_helper_in_launch_directory(self):
+        source=(Path(__file__).resolve().parents[1]/'kaggle_overfit_worker.py').read_text()
+        self.assertIn("(launch_dir/'kaggle_reference_worker.py').write_bytes(helper.read_bytes())",source)
+
     def test_repeated_events_keep_each_step_duration_and_resource_peak(self):
         marks=[];telemetry=[];allocator=[]
         for step,start in [(0,10),(1,100)]:
