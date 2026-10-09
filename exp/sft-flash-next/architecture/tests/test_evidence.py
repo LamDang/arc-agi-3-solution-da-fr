@@ -19,7 +19,7 @@ class RetentionTests(unittest.TestCase):
 class EvidenceTests(unittest.TestCase):
     def test_sharded_baseline_and_changed_inventory(self):
         import torch
-        from runtime.evidence import compare,sha
+        from runtime.evidence import compare,compare_initial,sha
         state={str(i):torch.tensor([1.125,.123456789]) for i in range(3)}
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);rows=[]
@@ -30,6 +30,10 @@ class EvidenceTests(unittest.TestCase):
             baseline=dict(loss=.5,gradients=str(path))
             result=compare(state,.5,baseline)
             self.assertTrue(result['passed']);self.assertEqual(result['bitwise_equal_tensors'],3)
+            baseline['initial_adapter']=str(path)
+            self.assertTrue(compare_initial(state,baseline)['passed'])
+            altered={k:v.clone() for k,v in state.items()};altered['0'][0]+=1
+            self.assertFalse(compare_initial(altered,baseline)['passed'])
             changed=compare({k:v.bfloat16() for k,v in state.items()},.5,baseline)
             self.assertFalse(changed['passed']);self.assertGreater(changed['global_relative_l2'],0)
             rows[0]['sha256']='0'*64;path.write_text(json.dumps(dict(tensors=3,shards=rows)))

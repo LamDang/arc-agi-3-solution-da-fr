@@ -55,24 +55,44 @@ def snapshot(output, config, mode):
     return provenance
 
 
-def compare(gradients, loss, baseline):
+def reference_tensors(path):
+    """Verify and stream saved reference shards without retaining a second full state."""
     import torch
-    path=Path(baseline['gradients'])
+    path=Path(path)
+    seen=set()
     if path.suffix=='.json':
-        manifest=json.loads(path.read_text());reference={}
+        manifest=json.loads(path.read_text())
         for row in manifest['shards']:
             shard=path.parent/row['path']
-            if sha(shard)!=row['sha256']:raise ValueError('Baseline gradient shard hash differs')
+            if sha(shard)!=row['sha256']:raise ValueError('Baseline gradient shard hash differs: '+str(shard))
             state=torch.load(shard,map_location='cpu',weights_only=True)
-            if reference.keys() & state.keys():raise ValueError('Duplicate gradient shard keys')
-            reference.update(state)
-        if len(reference)!=manifest['tensors']:raise ValueError('Baseline gradient count differs')
+            if seen & state.keys():raise ValueError('Duplicate gradient shard keys')
+            seen.update(state)
+            yield from state.items()
+            del state
+        if len(seen)!=manifest['tensors']:raise ValueError('Baseline gradient count differs')
     else:
-        reference = torch.load(path,map_location='cpu',weights_only=True)
-    if set(reference) != set(gradients) or not reference:
-        raise ValueError('Raw gradient keys/count differ')
+        yield from torch.load(path,map_location='cpu',weights_only=True).items()
+
+
+def compare_initial(state, baseline):
+    """Exact initialization gate; retain only identity and mismatch statistics."""
+    import torch
+    path=baseline['initial_adapter'];seen=set();different=[]
+    for name,a in reference_tensors(path):
+        seen.add(name)
+        b=state.get(name)
+        if b is None or a.shape!=b.shape or a.dtype!=b.dtype or not torch.equal(a.contiguous().view(torch.uint8),b.contiguous().view(torch.uint8)):different.append(name)
+    if seen != set(state) or not seen:raise ValueError('Initial adapter keys/count differ')
+    return dict(passed=not different,raw_tensors=len(seen),bitwise_equal_tensors=len(seen)-len(different),
+        different_tensors=different,baseline_initial_sha256=sha(path),raw_initial_state_retained=False)
+
+
+def compare(gradients, loss, baseline):
+    import torch
     rows = {};error = norm = other = dot = 0.
-    for name,a in reference.items():
+    for name,a in reference_tensors(baseline['gradients']):
+        if name not in gradients:raise ValueError('Raw gradient keys/count differ')
         b = gradients[name]
         if a.shape != b.shape:
             raise ValueError('Gradient shape differs: '+name)
@@ -83,13 +103,16 @@ def compare(gradients, loss, baseline):
             reference_dtype=str(a.dtype),candidate_dtype=str(b.dtype),
             relative_l2=(ee/aa)**.5 if aa else None,max_absolute_difference=float((x-y).abs().max()),
             reference_zero=aa==0,candidate_zero=bb==0,finite=bool(torch.isfinite(b).all()))
+    if set(rows) != set(gradients) or not rows:raise ValueError('Raw gradient keys/count differ')
     expected = float(baseline['loss'])
     loss_exact = struct.pack('<f',loss) == struct.pack('<f',expected)
     exact = sum(row['bitwise_equal'] for row in rows.values())
     return dict(loss=loss,baseline_loss=expected,loss_bitwise_equal=loss_exact,
         loss_relative_change=(loss-expected)/expected,raw_tensors=len(rows),bitwise_equal_tensors=exact,
-        global_relative_l2=(error/norm)**.5,cosine=dot/(norm*other)**.5,
-        passed=loss_exact and exact==len(reference),criterion=f'Bitwise loss and all {len(reference)} raw gradients',
+        global_relative_l2=(error/norm)**.5 if norm else None,cosine=dot/(norm*other)**.5 if norm and other else None,
+        nonzero_reference_tensors=sum(not row['reference_zero'] for row in rows.values()),
+        bitwise_equal_nonzero_reference_tensors=sum(row['bitwise_equal'] and not row['reference_zero'] for row in rows.values()),
+        passed=loss_exact and exact==len(rows),criterion=f'Bitwise loss and all {len(rows)} raw gradients',
         baseline_gradients_sha256=sha(baseline['gradients']),tensors=rows)
 
 

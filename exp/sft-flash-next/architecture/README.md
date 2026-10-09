@@ -140,3 +140,15 @@ remain; per-output retention records explain intentionally missing files.
 Frozen legacy pipeline dependency hashes are historical pins, so those retired
 stages should not be rerun. The current reference and `configs/optimized.json`
 are the active comparison path. See `reports/gradient-retention*.json`.
+
+## Active optimization reruns (2026-10-10)
+
+Only Opt1–3 remain in the experiment plan: target-only logits, CCE exact with
+both gradient filters disabled, then CCE exact plus direct dense attention bias.
+Opt4–6 are dropped as separate experiments. Disk PLE, BF16 activation ports,
+FP32 adapter masters/gradients and CPU expert prefetch remain the fixed reference
+contract. Liger RMSNorm/SwiGLU and BF16 LoRA masters are disabled in all three.
+Each config pins the current reference's gradient and initial-state manifests;
+every initial tensor must match before forward/backward. Candidate initial
+states are compared rather than duplicated on disk. Reference shards are
+verified and streamed one at a time. Raw candidate gradients are never saved.

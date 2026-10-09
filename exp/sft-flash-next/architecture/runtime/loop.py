@@ -8,7 +8,7 @@ import torch
 from peft import get_peft_model_state_dict
 
 from model import build
-from .evidence import compare, retain_raw_gradients, sha, snapshot, snapshot_imports, write
+from .evidence import compare, compare_initial, retain_raw_gradients, sha, snapshot, snapshot_imports, write
 from .resources import Resources
 from .events import event_row
 
@@ -98,7 +98,14 @@ def run(config, mode):
         write(output/'loading.json',architecture.loading)
         if architecture.ple_manifest:write(output/'ple-manifest.json',architecture.ple_manifest)
         initial = {name:value.detach().cpu().clone() for name,value in get_peft_model_state_dict(model).items()}
-        save_tensors(initial,output,'initial-adapter');del initial
+        if mode == 'test' and config.baseline and config.baseline.get('initial_adapter'):
+            with resources.phase('initialization_verification'):
+                initial_comparison=compare_initial(initial,config.baseline)
+            write(output/'initial-comparison.json',initial_comparison)
+            if not initial_comparison['passed']:raise RuntimeError('Reference initialization differs; no forward/backward run')
+        else:
+            save_tensors(initial,output,'initial-adapter')
+        del initial
         event('load_complete',trainable_tensors=config.adapter_tensors)
         if mode == 'test':
             current = next(iterator) if iterator else {'batch':torch.load(config.samples[0],map_location='cpu',weights_only=True)}
@@ -123,7 +130,8 @@ def run(config, mode):
             summary = {name:dict(shape=list(g.shape),dtype=str(g.dtype),norm=float(g.double().norm()),
                 nonzero=int(torch.count_nonzero(g)),finite=bool(torch.isfinite(g).all())) for name,g in raw.items()}
             write(output/'gradient-summary.json',summary)
-            comparison = compare(raw,value,config.baseline) if config.baseline else None
+            with resources.phase('gradient_comparison'):
+                comparison = compare(raw,value,config.baseline) if config.baseline else None
             if comparison:write(output/'comparison.json',comparison)
             result = dict(mode=mode,loss=value,raw_gradient_tensors=len(raw),targets=targets,tokens=labels.shape[1],
                 all_finite=True,optimizer_updates=0,clipping_applied=False,
