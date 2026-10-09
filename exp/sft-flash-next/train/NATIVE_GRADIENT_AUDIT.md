@@ -65,3 +65,23 @@ Optimization comparisons are running; results remain pending.
 Neither this implementation nor the prior capacity runs certify full-context
 gradient equivalence. A 16K comparison cannot directly prove equality at 130K;
 full-context execution is a subsequent capacity and boundary-behavior check.
+
+## Reference reproducibility diagnostics
+
+The original learning run recorded first-step gradient norm `0.8303273916`;
+the new saved capture measures `0.8302070836` in FP64. Loss and initial adapters
+match, but a norm alone cannot locate or quantify per-element differences.
+The unchanged replay must establish reproducibility before accepting flags.
+
+The capture runner also supports `--gradient-repeats 2` to run multiple native
+forward/backward passes without any update, retaining every gradient snapshot.
+`--deterministic` explicitly requests deterministic PyTorch operators (launch
+with `CUBLAS_WORKSPACE_CONFIG=:4096:8`). This is a diagnostic option, not a
+promise that third-party CUDA kernels honor PyTorch's determinism setting.
+It does not silently replace any native model operator. Deterministic and
+default runs cannot be mixed as a baseline/candidate pair.
+
+The first audit attempt stopped after loading because HF loading diagnostics
+contained Python sets. No forward or comparison ran. The report serializer
+now handles these sets, and uncaught errors produce terminal failure artifacts.
+The corrected run is `native-flag-audit-v2`.

@@ -54,6 +54,7 @@ def main():
     p.add_argument('--adapter-state',required=True);p.add_argument('--reference',required=True)
     p.add_argument('--out',required=True);p.add_argument('--cases')
     p.add_argument('--rtol',type=float,default=1e-5);p.add_argument('--atol',type=float,default=1e-8)
+    p.add_argument('--deterministic',action='store_true')
     args=p.parse_args();out=Path(args.out);out.mkdir(parents=True,exist_ok=False)
     _failure_out = out
     start=time.monotonic()
@@ -63,17 +64,20 @@ def main():
         print(json.dumps(row),flush=True)
     def write(path,data):path.write_text(json.dumps(data,indent=2,allow_nan=False,default=json_default)+'\n')
     torch.manual_seed(20261009);torch.set_num_threads(8)
+    if args.deterministic:torch.use_deterministic_algorithms(True)
     reference_path=Path(args.reference)
-    reference=torch.load(reference_path/'gradients.pt',map_location='cpu',weights_only=True)
     reference_result=json.loads((reference_path/'result.json').read_text())
+    reference_gradient_file=reference_path/reference_result.get('gradient_file','gradients.pt')
+    reference=torch.load(reference_gradient_file,map_location='cpu',weights_only=True)
     reference_provenance=json.loads((reference_path/'provenance.json').read_text())
     assert reference_provenance['sample_sha256']==sha256(args.sample)
     assert reference_provenance['config_sha256']==sha256(Path(args.model)/'config.json')
     assert reference_provenance['arguments']['prompt_tokens']==args.prompt_tokens
+    assert reference_provenance['arguments'].get('deterministic',False)==args.deterministic
     cases=json.loads(Path(args.cases).read_text()) if args.cases else default_cases()
     write(out/'cases.json',cases)
     write(out/'identity.json',dict(arguments=vars(args),sample_sha256=sha256(args.sample),
-        adapter_sha256=sha256(args.adapter_state),reference_gradients_sha256=sha256(reference_path/'gradients.pt'),
+        adapter_sha256=sha256(args.adapter_state),reference_gradients_sha256=sha256(reference_gradient_file),
         source_sha256={f.name:sha256(f) for f in Path(__file__).parent.glob('*.py')},
         optimizer_updates=0,clipping=False,baseline_memory_controls=['HF checkpointing','torch save_on_cpu']))
     batch=torch.load(args.sample,map_location='cpu',weights_only=True)

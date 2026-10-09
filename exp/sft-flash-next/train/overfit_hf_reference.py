@@ -65,7 +65,13 @@ def main():
     p.add_argument('--first-pass-only', action='store_true',
                    help='Save every raw adapter gradient after one backward; no clipping or update')
     p.add_argument('--adapter-state', help='Exact PEFT adapter state to replay for gradient comparisons')
+    p.add_argument('--deterministic', action='store_true',
+                   help='Require deterministic PyTorch operators; set CUBLAS_WORKSPACE_CONFIG before launch')
+    p.add_argument('--gradient-repeats', type=int, default=1,
+                   help='Repeat unchanged native backward without updates in first-pass-only mode')
     args = p.parse_args()
+    if args.gradient_repeats < 1 or (args.gradient_repeats != 1 and not args.first_pass_only):
+        p.error('--gradient-repeats requires first-pass-only mode and a positive count')
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=False)
     (out/'reference.py').write_bytes(Path(__file__).read_bytes())
@@ -84,6 +90,8 @@ def main():
     try:
         torch.manual_seed(20261009)
         torch.set_num_threads(8)
+        if args.deterministic:
+            torch.use_deterministic_algorithms(True)
         batch = torch.load(args.sample, map_location='cpu', weights_only=True)
         assert isinstance(batch, dict) and all(isinstance(v, torch.Tensor) for v in batch.values())
         tokens = batch['input_ids'].shape[1]
@@ -160,7 +168,8 @@ def main():
         best = float('inf')
         # Measurement N is taken after exactly N optimizer updates. The baseline
         # forward is also the first training forward, with zero LoRA contribution.
-        for step in range(args.max_steps+1):
+        measurements = args.gradient_repeats if args.first_pass_only else args.max_steps+1
+        for step in range(measurements):
             phase.update(step=step,name='forward')
             optimizer.zero_grad(set_to_none=True)
             torch.cuda.reset_peak_memory_stats()
@@ -209,16 +218,25 @@ def main():
             if args.first_pass_only:
                 gradients = {name: parameter.grad.detach().cpu().clone()
                              for name, parameter in trainable.items()}
-                torch.save(gradients, out/'gradients.pt')
+                gradient_name = 'gradients' if step == 0 else f'gradients-repeat-{step}'
+                torch.save(gradients, out/(gradient_name+'.pt'))
                 summary = {name: dict(shape=list(g.shape), dtype=str(g.dtype),
                     norm=g.double().norm().item(), max_absolute=g.abs().max().item(),
                     nonzero=int(torch.count_nonzero(g)), finite=bool(torch.isfinite(g).all()))
                     for name, g in gradients.items()}
-                (out/'gradient-summary.json').write_text(json.dumps(summary, indent=2)+'\n')
-                status.update(gradient_capture_complete=True, optimizer_updates=0,
-                    gradients_sha256=sha256(out/'gradients.pt'), gradient_tensors=len(gradients),
+                summary_name = 'gradient-summary' if step == 0 else f'gradient-summary-repeat-{step}'
+                (out/(summary_name+'.json')).write_text(json.dumps(summary, indent=2)+'\n')
+                status.update(passed=True, criterion='complete_finite_raw_gradients',
+                    gradient_capture_complete=True, optimizer_updates=0,
+                    gradients_sha256=sha256(out/(gradient_name+'.pt')), gradient_tensors=len(gradients),
+                    gradient_repetition=step, gradient_file=gradient_name+'.pt',
                     clipping_applied=False, elapsed_seconds=time.monotonic()-start)
                 (out/'result.json').write_text(json.dumps(status, indent=2)+'\n')
+                with (out/'gradient-pass-results.jsonl').open('a') as stream:
+                    stream.write(json.dumps(status)+'\n')
+                if step+1 < args.gradient_repeats:
+                    event('gradient_repetition_saved', **status)
+                    continue
                 event('gradients_saved', **status)
                 return
             norm = torch.nn.utils.clip_grad_norm_(list(trainable.values()),1.0,error_if_nonfinite=True)
