@@ -1,0 +1,179 @@
+{
+  "as_of": "2026-10-08",
+  "full_run_started": false,
+  "offline_tests_passed": 18,
+  "pilot_runs": [
+    {
+      "run": "think-progressive-pilot",
+      "summary": {
+        "completed": 2,
+        "eligible": 2,
+        "excluded": [],
+        "refinement1": 1,
+        "refinement2": 0,
+        "estimated_cost_including_uncertain": 0.26336207,
+        "new_calls": 3,
+        "invocation_seconds": 79.23591804504395,
+        "failures": [
+          {
+            "game": "ar25-0c556536_p0_requests.jsonl.xz",
+            "error": "draft failed after 9 attempts: gave up after 1 attempts: HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Alibaba\",\"is_byok\":false,\"limit"
+          }
+        ]
+      },
+      "attempts": 25,
+      "successful_response_estimated_cost": 0.07886127,
+      "uncertain_reservations": 0.1845008,
+      "finalized": [
+        {
+          "key": "ar25-0c556536_p0#0",
+          "refinements": 0,
+          "student_input_tokens": 5539,
+          "history_refs": {},
+          "final_judge": {
+            "words": {
+              "points": [
+                "No actions have been executed yet.",
+                "The separated shapes suggest a shape-based puzzle rather than navigation.",
+                "Inspect segmentation for colors, sizes, bounding boxes, and orientations.",
+                "Check history and available controls.",
+                "Gather structural evidence before choosing a discriminating action."
+              ],
+              "covered": [
+                true,
+                true,
+                true,
+                true,
+                true
+              ],
+              "contradictions": [],
+              "notes": "The reconstructed thinking covers the account and matches the teacher's inspection-first approach."
+            },
+            "code": {
+              "leads_to_call": true,
+              "disagreements": [],
+              "notes": "Both snippets inspect object metadata and runtime state without choosing or executing a gameplay action."
+            },
+            "fact": {
+              "grounded": true,
+              "errors": [],
+              "notes": "The visual descriptions are supported by the frame, and the proposed puzzle mechanics are explicitly tentative."
+            },
+            "call": {
+              "functionally_same": true,
+              "differences": [],
+              "notes": "Neither snippet changes the game; differences in printed metadata and formatting have no gameplay effect."
+            }
+          }
+        },
+        {
+          "key": "ar25-0c556536_p0#1",
+          "refinements": 1,
+          "student_input_tokens": 7084,
+          "history_refs": {
+            "call_r1VeOPnapjwFmVSERQOrBwMt": "934c47a35cf2664e98a8cabac80e8a4055d179217765efc173470dfd279f9f46"
+          },
+          "final_judge": {
+            "words": {
+              "points": [
+                "The charcoal and yellow pieces share the same five-cell L shape.",
+                "The dotted black shape mirrors the right-side L across the divider.",
+                "The yellow piece may need to be aligned with the charcoal template or dotted pattern.",
+                "Directional controls may move the yellow piece.",
+                "SPACE may rotate the piece, but this remains untested.",
+                "A single UP is the chosen low-cost probe.",
+                "Comparing the resulting frame should reveal which entity moves and its movement distance."
+              ],
+              "covered": [
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                true
+              ],
+              "contradictions": [],
+              "notes": "The reconstructed thinking preserves the account\u2019s shape interpretation, tentative objective, and single-UP probe."
+            },
+            "code": {
+              "leads_to_call": true,
+              "disagreements": [],
+              "notes": "The thinking explicitly selects UP followed by diff inspection, matching the teacher\u2019s recorded action."
+            },
+            "fact": {
+              "grounded": true,
+              "errors": [],
+              "notes": "The structural claims match the visible frame and segmentation output, while untested mechanics and the objective are appropriately framed as hypotheses."
+            },
+            "call": {
+              "functionally_same": true,
+              "differences": [],
+              "notes": "Both snippets execute exactly one UP action; their subsequent differences are inspection and printing only."
+            }
+          }
+        }
+      ],
+      "usage": {
+        "flash": {
+          "responses": 5,
+          "input_tokens": 33858,
+          "cached_tokens": 20480,
+          "output_tokens": 1287,
+          "service_seconds": 41.4
+        },
+        "sol": {
+          "responses": 5,
+          "input_tokens": 33490,
+          "cached_tokens": 16320,
+          "output_tokens": 3995,
+          "service_seconds": 126.39999999999999
+        }
+      }
+    },
+    {
+      "run": "think-progressive-sampled-pilot",
+      "summary": {
+        "completed": 0,
+        "eligible": 0,
+        "excluded": [],
+        "refinement1": 0,
+        "refinement2": 0,
+        "monitored": 0,
+        "estimated_cost_including_uncertain": 0.02919672,
+        "new_calls": 3,
+        "invocation_seconds": 21.59813952445984,
+        "failures": [
+          {
+            "game": "sk48-d8078629_p0_requests.jsonl.xz",
+            "error": "draft failed after 3 attempts: gave up after 1 attempts: HTTP 429: {\"error\":{\"message\":\"Provider returned error\",\"code\":429,\"metadata\":{\"raw\":\"qwen/qwen3.8-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations\",\"provider_name\":\"Alibaba\",\"is_byok\":false,\"limit"
+          }
+        ]
+      },
+      "attempts": 3,
+      "successful_response_estimated_cost": 0,
+      "uncertain_reservations": 0.02919672,
+      "finalized": [],
+      "usage": {
+        "flash": {
+          "responses": 0,
+          "input_tokens": 0,
+          "cached_tokens": 0,
+          "output_tokens": 0,
+          "service_seconds": 0
+        }
+      }
+    }
+  ],
+  "zero_call_resume": {
+    "completed": 2,
+    "eligible": 2,
+    "excluded": [],
+    "refinement1": 1,
+    "refinement2": 0,
+    "estimated_cost_including_uncertain": 0.22250614999999999,
+    "new_calls": 0,
+    "invocation_seconds": 0.0451812744140625,
+    "failures": []
+  }
+}

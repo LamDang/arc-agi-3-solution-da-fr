@@ -1,0 +1,57 @@
+{
+  "updated": 1791482760.7892377,
+  "passed": true,
+  "requests": [
+    {
+      "label": "warm",
+      "game": "ar25-0c556536_p0",
+      "turn": 17,
+      "input_tokens": 60696,
+      "output_tokens": 763,
+      "cached_tokens": 0,
+      "cache_write_tokens": 59697,
+      "ordinary_input_tokens": 999,
+      "cache_fraction": 0.0,
+      "cost_usd": 0.1588705,
+      "seconds": 20.4,
+      "semantic_request_hash": "3a4f87b5d730eecd050f90c5f88722f1117371ecbf504abceb2356bb2526be44",
+      "transport_hash": "218fcd6cee11eb77d560f0afec0d34a9e114e8e6374e5169571a471285bdffc0",
+      "cache_key": "think-cache-validation-v1-ar25-0c556536_p0"
+    },
+    {
+      "label": "changed_suffix",
+      "game": "ar25-0c556536_p0",
+      "turn": 17,
+      "input_tokens": 60921,
+      "output_tokens": 774,
+      "cached_tokens": 59697,
+      "cache_write_tokens": 0,
+      "ordinary_input_tokens": 1224,
+      "cache_fraction": 0.9799084059683852,
+      "cost_usd": 0.0161577,
+      "seconds": 17.6,
+      "semantic_request_hash": "7627e4deece3f046cf0fb4fc7fa435957de2b6116f16380d9f47c7b69ac804fe",
+      "transport_hash": "76aa863fe12c2fe3fe008d0244afe98180dc6ff685b5df18b05b1c1b768bd4c4",
+      "cache_key": "think-cache-validation-v1-ar25-0c556536_p0"
+    },
+    {
+      "label": "next_turn",
+      "game": "ar25-0c556536_p0",
+      "turn": 18,
+      "input_tokens": 66239,
+      "output_tokens": 1497,
+      "cached_tokens": 59697,
+      "cache_write_tokens": 5216,
+      "ordinary_input_tokens": 1326,
+      "cache_fraction": 0.9012364317094159,
+      "cost_usd": 0.036631699999999996,
+      "seconds": 34.1,
+      "semantic_request_hash": "3fcbcf1e35fff4e9ccc775bc997c2d5fbc3239e9475e615d86143651ab18b863",
+      "transport_hash": "95014d95c1d6d4720e96ef102c8fc1d0dacf5a27a01987c5a19203a112aa85cd",
+      "cache_key": "think-cache-validation-v1-ar25-0c556536_p0"
+    }
+  ],
+  "cost_usd": 0.21165989999999998,
+  "new_calls": 0,
+  "criteria": ">=50K input; changed suffix >=90% reads and <1024 writes; growing history >=80% reads and <25% writes"
+}

@@ -28,6 +28,20 @@ class CallError(RuntimeError):
     pass
 
 
+class HTTPFailure(CallError):
+    """A definite non-success HTTP response, with no billable model output."""
+    def __init__(self, status_code: int, message: str):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class RateLimited(CallError):
+    """A definite HTTP 429 rejection, for the durable caller to retry in place."""
+    def __init__(self, message, retry_after=None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 def _slim(messages: list) -> list:
     """Messages with image data URIs replaced by a short sha ref + byte count."""
     out = []
@@ -83,7 +97,7 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
          tools: list | None = None, reasoning: bool = False, max_tokens: int = 8192,
          temperature: float = 0.7, retries: int = 6, timeout: int = 900,
          json_mode: bool = False, tool_choice: str | dict = "none",
-         log_path=None, log_tag: dict | None = None) -> dict:
+         log_path=None, log_tag: dict | None = None, preserve_empty_response: bool = False) -> dict:
     """One completion. Returns {"content", "reasoning", "usage", "provider",
     "finish_reason", "secs"}. Retries 429s, 5xx, network errors and empty
     answers with exponential backoff."""
@@ -102,8 +116,12 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         body["tool_choice"] = tool_choice
     if provider:
         body["provider"] = {"order": [provider], "allow_fallbacks": False}
-    headers = {"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"}
+    key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OR_API_KEY")
+    if not key:
+        raise CallError("OPENROUTER_API_KEY or OR_API_KEY is required")
+    headers = {"Authorization": f"Bearer {key}"}
     last = None
+    last_http_status = None
     for attempt in range(retries + 1):
         if attempt:
             time.sleep(min(120, 2 ** attempt) * (0.5 + random.random()))
@@ -112,21 +130,27 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
             r = requests.post(URL, json=body, headers=headers, timeout=timeout)
         except requests.RequestException as e:
             last = repr(e)
+            last_http_status = None
             continue
+        if r.status_code == 429 and retries == 0:
+            raise RateLimited(f"HTTP 429: {r.text[:1000]}", r.headers.get("Retry-After"))
         if r.status_code == 429 or r.status_code >= 500:
             last = f"HTTP {r.status_code}: {r.text[:300]}"
+            last_http_status = r.status_code
             continue
         if r.status_code != 200:
-            raise CallError(f"HTTP {r.status_code}: {r.text[:500]}")
+            raise HTTPFailure(r.status_code, f"HTTP {r.status_code}: {r.text[:500]}")
         j = r.json()
         if j.get("error") or not j.get("choices"):
             last = f"error in body: {str(j.get('error') or j)[:300]}"
+            last_http_status = None
             continue
         ch = j["choices"][0]
         msg = ch.get("message") or {}
         content = msg.get("content") or ""
-        if not content.strip() and not msg.get("tool_calls") and ch.get("finish_reason") != "length":
+        if not preserve_empty_response and not content.strip() and not msg.get("tool_calls") and ch.get("finish_reason") != "length":
             last = f"empty answer (finish {ch.get('finish_reason')})"
+            last_http_status = None
             continue
         out = {
             "content": content,
@@ -145,22 +169,65 @@ def chat(messages: list, *, model: str = MODEL, provider: str | None = PROVIDER,
         return out
     log_call(log_path, {"api": "chat", "model": model, **_digest(messages)},
              {"error": last}, log_tag)
-    raise CallError(f"gave up after {retries + 1} attempts: {last}")
+    message = f"gave up after {retries + 1} attempts: {last}"
+    if last_http_status is not None:
+        raise HTTPFailure(last_http_status, message)
+    raise CallError(message)
 
 
 OPENAI_URL = "https://api.openai.com/v1/responses"
 
 
+def explicit_history_input(messages: list) -> list:
+    """Cache the reusable game history, excluding the last judge instruction.
+
+    Four recent text boundaries let a subsequent growing history look up the
+    previous endpoint as well as write its new one. Markers change cache
+    metadata only; content and message order stay intact, including images.
+    """
+    import copy
+    from inference.utils.openai_compat import responses_input_from_messages
+    history = copy.deepcopy(responses_input_from_messages(messages[:-1]))
+    boundaries = []
+    for item in history:
+        if item.get("role") in ("developer", "user") or item.get("type") == "function_call_output":
+            key = "output" if item.get("type") == "function_call_output" else "content"
+            blocks = item.get(key) or []
+            if isinstance(blocks, str):
+                item[key] = blocks = [{"type": "input_text", "text": blocks}]
+            supported = [b for b in blocks if isinstance(b, dict) and b.get("type") in ("input_text", "input_image")]
+            if supported:
+                boundaries.append(supported[-1])
+    if not boundaries:
+        raise ValueError("Explicit caching requires a text boundary before the judge payload")
+    for block in boundaries[-4:]:
+        block["prompt_cache_breakpoint"] = {"mode": "explicit"}
+    return history + responses_input_from_messages(messages[-1:])
+
+
 def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str = "high",
                      tools: list | None = None, json_mode: bool = False,
                      max_output_tokens: int = 32000, retries: int = 6, timeout: int = 900,
-                     log_path=None, log_tag: dict | None = None) -> dict:
+                     log_path=None, log_tag: dict | None = None,
+                     cache_retention: str | None = None, cache_key: str | None = None,
+                     cache_policy: str | None = None,
+                     preserve_empty_response: bool = False) -> dict:
     """One OpenAI Responses call from chat-completions messages (images kept),
     through the harness's converter. Returns {"content", "usage", "secs"};
     usage carries OpenAI's token counts."""
     from inference.utils.openai_compat import chat_response_from_responses, responses_input_from_messages
-    body = {"model": model, "input": responses_input_from_messages(messages), "store": False,
+    if cache_policy not in (None, "explicit-history-v1"):
+        raise ValueError(f"Unknown cache policy: {cache_policy}")
+    body = {"model": model, "input": explicit_history_input(messages) if cache_policy else responses_input_from_messages(messages), "store": False,
             "reasoning": {"effort": effort}, "max_output_tokens": max_output_tokens}
+    if cache_policy:
+        if cache_retention:
+            raise ValueError("Explicit Sol caching uses ttl=30m, not legacy prompt_cache_retention")
+        body["prompt_cache_options"] = {"mode": "explicit", "ttl": "30m"}
+    if cache_retention:
+        body["prompt_cache_retention"] = cache_retention
+    if cache_key:
+        body["prompt_cache_key"] = cache_key
     if tools:
         body["tools"] = [{"type": "function", "name": t["function"]["name"],
                           "description": t["function"].get("description") or "",
@@ -171,6 +238,7 @@ def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str 
         body["text"] = {"format": {"type": "json_object"}}
     headers = {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}
     last = None
+    last_http_status = None
     for attempt in range(retries + 1):
         if attempt:
             time.sleep(min(120, 2 ** attempt) * (0.5 + random.random()))
@@ -179,26 +247,37 @@ def openai_responses(messages: list, *, model: str = "gpt-6.1-sol", effort: str 
             r = requests.post(OPENAI_URL, json=body, headers=headers, timeout=timeout)
         except requests.RequestException as e:
             last = repr(e)
+            last_http_status = None
             continue
+        if r.status_code == 429 and retries == 0:
+            raise RateLimited(f"HTTP 429: {r.text[:1000]}", r.headers.get("Retry-After"))
         if r.status_code == 429 or r.status_code >= 500:
             last = f"HTTP {r.status_code}: {r.text[:300]}"
+            last_http_status = r.status_code
             continue
         if r.status_code != 200:
-            raise CallError(f"HTTP {r.status_code}: {r.text[:500]}")
+            raise HTTPFailure(r.status_code, f"HTTP {r.status_code}: {r.text[:500]}")
         j = r.json()
         chat = chat_response_from_responses(j)
         if not chat.get("choices"):
             last = f"no output: {str(chat.get('error'))[:300]}"
+            last_http_status = None
             continue
         content = chat["choices"][0]["message"].get("content") or ""
-        if not content.strip():
+        if not preserve_empty_response and not content.strip():
             last = "empty answer"
+            last_http_status = None
             continue
-        out = {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1)}
+        out = {"content": content, "usage": j.get("usage") or {}, "secs": round(time.time() - t, 1),
+               "finish_reason": chat["choices"][0].get("finish_reason"), "status": j.get("status")}
         log_call(log_path, {"api": "responses", "model": model, "effort": effort,
-                            "max_output_tokens": max_output_tokens, **_digest(messages)},
+                            "max_output_tokens": max_output_tokens, "cache_retention": cache_retention,
+                            "cache_key": cache_key, "cache_policy": cache_policy, **_digest(messages)},
                  out, {**(log_tag or {}), "attempt": attempt + 1})
         return out
     log_call(log_path, {"api": "responses", "model": model, "effort": effort, **_digest(messages)},
              {"error": last}, log_tag)
-    raise CallError(f"gave up after {retries + 1} attempts: {last}")
+    message = f"gave up after {retries + 1} attempts: {last}"
+    if last_http_status is not None:
+        raise HTTPFailure(last_http_status, message)
+    raise CallError(message)
