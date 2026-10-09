@@ -1,26 +1,30 @@
-# Opt6 Liger RMSNorm + SwiGLU — overfit running
+# Opt6 stopped and rejected — exact equality required
 
-* User requests memory-efficient normalization and expert activation kernels;
-  provided official RMSNorm/SwiGLU implementation and documentation URLs.
-* Primary executes through Kaggle Jupyter only; no subagent/computer use.
-  Config/stage `liger-opt6-overfit-v9` / `liger_opt6_overfit_v9`.
-* Retains passing v8 arithmetic/settings except targeted Liger kernels.
-  Plain/grouped norm offset1+gemma; gated norm offset0+llama, native FP32 configured sigmoid gate;
-  expert/default gate and shared MLP SwiGLU fused, native routing/projections.
-* Fresh same-seed one-sample overfit, max20 updates, >=95% reduction acceptance;
-  isolated operator checks before patching/model loading. Full raw per-step
-  gradients, timing, GPU/RAM and source pins. See `v9.md` for exact contract.
-* Attempt1: disk full before loading, saved as failed-launch1; all11operator cases
-  passed. Attempt2: loaded model then stopped on first forward before any loss/
-  backward/update, because the initial guard incorrectly assumed a SiLU GDN gate.
-  Actual configured GDN gate is sigmoid. Corrected and included in prechecks;
-  expert SwiGLU remains SiLU. Attempt2 preserved as failed-launch2.
-* Next: retry with corrected source commit and config; never duplicate a GPU job.
-* v7/v8 server snapshots moved to `/tmp/opt6-preserved-v8-evidence` with raw
-  hashes verified before/after; original paths remain symlinks. Copy preserves
-  model-view symlinks. Working free space3,468,619,776 bytes before retry.
-* v8 DVC stage frozen before shared launcher changes; its result stays intact.
-* **DO NOT PUSH Git or DVC.** Keep all results/cache/commits local.
+* User: "dont do overfit test, this should be identical". No further overfit,
+  optimizer updates or successor GPU experiment. Opt5/v8 acceptance stays intact.
+* Corrected attempt `20261009204949-5b997b5f`, source `d8c0028`, stopped via
+  Kaggle Jupyter after command verification. Child17051 SIGTERM; GPU idle.
+  One completed update, two loss measurements, second backward interrupted.
+* Raw evidence preserved locally in `gradient-results/liger-opt6-overfit-v9-stopped`
+  with744 raw pre-clipping first-step gradients, sources, phase GPU/RAM/timing,
+  stop record and SHA256 manifest. Result is incomplete and not accepted.
+* The overfit stage is frozen. Its missing original output is intentional:
+  interrupted evidence is tracked by its separate stopped-run DVC pointer.
+* Independent CPU review of archived operator pairs: **1/11 bitwise passes**.
+  BF16 SwiGLU outputs equal in tested cases; gradients differ ~0.28–0.30% L2.
+  Native tiny-expert worst gradient difference0.488448%. FP32 operators differ
+  too. Previous `passed:true` labels meant tolerance only; they do not qualify
+  Opt6. Original artifacts remain unchanged. See `reviews/opt6-exact-v9.json`.
+* `liger_norm_swiglu_check.py` now requires bitwise output and every gradient,
+  saves failure evidence and aborts before benchmarks/model loading.
+* Stock Liger SwiGLU backward omits native BF16 intermediate rounding points;
+  RMSNorm changes reduction/backward arithmetic. Same mathematical operation
+  and casting mode do not establish bitwise equality.
+* Initial full-model forward0.6215509176254272 vs v8's0.6250749230384827 also
+  differs. Its cause is not isolated; backward rounding cannot explain it.
+* Next implementation must pass exact isolated operators before a one-pass
+  loss/all744-gradient capture with no optimizer. No new GPU run started.
+* **DO NOT PUSH Git or DVC.** Local commits/cache only. See `v9.md`.
 
 # BF16 one-sample overfit PASSED — 2026-10-09
 

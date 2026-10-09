@@ -1,4 +1,7 @@
-"""Independently verify Opt6 v9 raw Torch archives without importing Torch. Run from repo root.
+"""Historical overfit-only reviewer; superseded by check_opt6_exact_v9.py.
+
+The Opt6 attempt was interrupted and rejected. This success-only checker does
+not qualify Opt6 under the current bitwise equality requirement.
 
 Requires NumPy; does not launch a GPU job, download artifacts or push anything.
 """

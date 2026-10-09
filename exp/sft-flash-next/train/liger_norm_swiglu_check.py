@@ -16,6 +16,12 @@ def relative(a, b):
     return float(torch.linalg.vector_norm(a-b)/torch.linalg.vector_norm(a).clamp_min(1e-30))
 
 
+def bitwise_equal(a, b):
+    return (a.dtype == b.dtype and a.shape == b.shape and
+            torch.equal(a.detach().contiguous().view(torch.uint8),
+                        b.detach().contiguous().view(torch.uint8)))
+
+
 def qualify(output_dir):
     import transformers.models.qwen4_exp.modeling_qwen4_exp as native
     import auto_round.modeling.fused_moe.moe_experts_interface as moe
@@ -32,17 +38,18 @@ def qualify(output_dir):
         grads = [torch.autograd.grad(y,x,upstream.clone()) for y,x in zip(outputs,copies)]
         errors = [relative(outputs[0],outputs[1])] + [relative(a,b) for a,b in zip(*grads)]
         finite = all(torch.isfinite(x).all().item() for x in outputs+list(grads[0])+list(grads[1]))
-        tolerance = .02 if dtype == torch.bfloat16 else .00005
+        output_exact = bitwise_equal(*outputs)
+        gradients_exact = [bitwise_equal(a,b) for a,b in zip(*grads)]
         row = dict(label=label,dtype=str(dtype),output_relative_l2=errors[0],
-                   gradient_relative_l2=errors[1:],tolerance_relative_l2=tolerance,
-                   finite=finite,passed=finite and max(errors)<=tolerance)
+                   gradient_relative_l2=errors[1:],output_bitwise_equal=output_exact,
+                   gradients_bitwise_equal=gradients_exact,
+                   finite=finite,passed=finite and output_exact and all(gradients_exact))
         rows.append(row)
         # Save before mutation by any later operation; operator artifacts are small.
         torch.save(dict(inputs=[x.detach().cpu() for x in values],
             reference_output=outputs[0].detach().cpu(),candidate_output=outputs[1].detach().cpu(),
             reference_gradients=[x.cpu() for x in grads[0]],candidate_gradients=[x.cpu() for x in grads[1]]),
             Path(output_dir)/('opt6-check-'+label+'-'+str(dtype).split('.')[-1]+'.pt'))
-        assert row['passed'], row
     for dtype in (torch.float32, torch.bfloat16):
         for group in (None,2560):
             width = 2560 if group is None else 10240
@@ -93,14 +100,27 @@ def qualify(output_dir):
     ga=torch.autograd.grad(a,[x,*ref.parameters()],dy.clone())
     gb=torch.autograd.grad(b,[other,*cand.parameters()],dy.clone())
     errors=[relative(a,b),*[relative(u,v) for u,v in zip(ga,gb)]]
+    finite=all(torch.isfinite(t).all().item() for t in [a,b,*ga,*gb])
+    output_exact=bitwise_equal(a,b)
+    gradients_exact=[bitwise_equal(u,v) for u,v in zip(ga,gb)]
     row=dict(label='native_expert_routing',output_relative_l2=errors[0],
-             gradient_relative_l2=errors[1:],tolerance_relative_l2=.02,passed=max(errors)<=.02)
-    rows.append(row);assert row['passed'],row
+             gradient_relative_l2=errors[1:],output_bitwise_equal=output_exact,
+             gradients_bitwise_equal=gradients_exact,finite=finite,
+             passed=finite and output_exact and all(gradients_exact))
+    rows.append(row)
     torch.save(dict(reference_output=a.detach().cpu(),candidate_output=b.detach().cpu(),
         reference_gradients=[t.cpu() for t in ga],candidate_gradients=[t.cpu() for t in gb]),
         Path(output_dir)/'opt6-check-native-experts.pt')
     del a,b,ga,gb,ref,cand,x,other
     gc.collect();torch.cuda.empty_cache()
+    # Persist failures before rejecting the candidate. Never start a full-model
+    # capture, benchmark or optimizer run after an operator equality failure.
+    report=dict(passed=all(row['passed'] for row in rows),cases=rows,benchmarks=[],
+        configured_gate=cfg.output_gate_type,acceptance='bitwise outputs and every gradient',
+        no_model_optimizer_updates=True)
+    report_path=Path(output_dir)/'opt6-operator-check.json'
+    report_path.write_text(json.dumps(report,indent=2)+'\n')
+    assert report['passed'], 'Opt6 operator bitwise equality failed; see opt6-operator-check.json'
     # Full-anchor final/grouped norm: actual per-phase allocator peaks, native CPU offload.
     benchmarks=[]
     for label,fn in [('native',lambda m,x:native.Qwen4ExpTextRMSNorm.forward(m,x)),('liger',rms_forward)]:
@@ -121,8 +141,6 @@ def qualify(output_dir):
             forward_peak_allocated_bytes=fpeak,backward_peak_allocated_bytes=bpeak,
             saved_tensor_bytes=sum(t['bytes'] for t in saved),saved_tensors=saved))
         del x,dy,y,module;gc.collect();torch.cuda.empty_cache()
-    report=dict(passed=True,cases=rows,benchmarks=benchmarks,configured_gate=cfg.output_gate_type,
-        tolerance_scope='isolated operators only; full-model acceptance is finite one-sample learning',
-        no_model_optimizer_updates=True)
-    (Path(output_dir)/'opt6-operator-check.json').write_text(json.dumps(report,indent=2)+'\n')
+    report['benchmarks']=benchmarks
+    report_path.write_text(json.dumps(report,indent=2)+'\n')
     return report

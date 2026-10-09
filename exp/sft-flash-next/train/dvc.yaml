@@ -229,7 +229,8 @@ stages:
           cache: false
 
   liger_opt6_overfit_v9:
-    desc: Opt6 Liger RMSNorm and SwiGLU with BF16 adapters; native one-sample learning acceptance.
+    desc: Historical interrupted Opt6 overfit attempt. Rejected; do not rerun.
+    frozen: true
     cmd: node kaggle_overfit_run.mjs --config configs/liger-opt6-overfit-v9.json
     deps:
       - kaggle_overfit_run.mjs
