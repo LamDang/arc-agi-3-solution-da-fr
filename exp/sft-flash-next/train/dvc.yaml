@@ -57,6 +57,7 @@ stages:
       - metrics/liger-flce-v2.json:
           cache: false
   cce_exact_v3:
+    frozen: true
     desc: Diagnostic frozen-head CCE exact with both gradient filters disabled, no update.
     cmd: node kaggle_reference_run.mjs --config configs/cce-exact-v3.json
     deps:
@@ -74,4 +75,26 @@ stages:
       - gradient-results/cce-exact-v3
     metrics:
       - metrics/cce-exact-v3.json:
+          cache: false
+  cce_opt3_mask_v4:
+    desc: Opt3 direct dense attention bias with unchanged CCE exact, no update.
+    cmd: node kaggle_reference_run.mjs --config configs/cce-opt3-mask-v4.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/cce-opt3-mask-v4.json
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - native_mask_storage.py
+      - opt3_mask_capture.py
+      - opt3_mask_operator_check.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/cce-exact-v3/gradients.pt
+      - gradient-results/cce-exact-v3/result.json
+    outs:
+      - gradient-results/cce-opt3-mask-v4
+    metrics:
+      - metrics/cce-opt3-mask-v4.json:
           cache: false

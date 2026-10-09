@@ -54,7 +54,7 @@ def validate(config):
         if sha256(path) != config['expected_sha256'][key]:
             raise ValueError(f'Pinned input SHA256 mismatch: {key}')
     objective = config.get('objective', 'native')
-    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'):
+    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'):
         raise ValueError('Unsupported objective')
     if objective == 'liger_target_flce':
         dep = config['liger_dependency']
@@ -62,7 +62,7 @@ def validate(config):
             raise ValueError('Pinned Liger wheel differs')
         if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
             raise ValueError('Native comparison gradients differ')
-    if objective == 'cce_target_exact':
+    if objective in ('cce_target_exact', 'cce_opt3_mask'):
         if sha256(config['cce_dependency']['remote_archive']) != config['cce_dependency']['sha256']:
             raise ValueError('Pinned CCE source archive differs')
         if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
@@ -105,7 +105,7 @@ def bootstrap_source(config):
             + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
             + repr(config['native_gradients']) + ","
             + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
-    elif config.get('objective') == 'cce_target_exact':
+    elif config.get('objective') in ('cce_target_exact', 'cce_opt3_mask'):
         runtime_prefix = str(Path(config['remote_launch']) / 'cce-runtime') + '/'
         runtime = str(Path(runtime_prefix) / config['cce_dependency']['archive_prefix'])
         candidate_setup = ("sys.path.insert(0," + repr(runtime) + ")\n"
@@ -118,6 +118,11 @@ def bootstrap_source(config):
             + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
             + repr(config['native_gradients']) + ","
             + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
+    if config.get('objective') == 'cce_opt3_mask':
+        candidate_setup += ("\nfrom opt3_mask_operator_check import qualify as qualify_mask\nqualify_mask("
+            + repr(config['remote_launch']) + ")\n"
+            + "from opt3_mask_capture import install_for_capture as install_mask\ninstall_mask("
+            + repr(str(Path(config['remote_output']) / 'attention-mask.json')) + ")")
     source = '''import builtins, hashlib, json, os, runpy, sys, time
 from pathlib import Path
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
@@ -270,7 +275,7 @@ def launch(config_path):
         (launch_dir / wheel.name).write_bytes(wheel.read_bytes())
         with zipfile.ZipFile(wheel) as archive:
             archive.extractall(launch_dir / 'liger-runtime')
-    if config.get('objective') == 'cce_target_exact':
+    if config.get('objective') in ('cce_target_exact', 'cce_opt3_mask'):
         import tarfile
         source = Path(config['cce_dependency']['remote_archive'])
         (launch_dir / source.name).write_bytes(source.read_bytes())

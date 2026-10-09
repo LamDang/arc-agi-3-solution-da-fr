@@ -62,3 +62,13 @@ test('CCE exact diagnostic pins official source archive and native gradient comp
   assert.throws(() => validateConfig({ ...candidate, cce_dependency: {} }), /pinned CCE/);
   assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
 });
+
+test('Opt3 pins the saved CCE baseline and every attention patch source', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/cce-opt3-mask-v4.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  assert.throws(() => validateConfig({ ...candidate, expected_gradients_sha256: config.expected_gradients_sha256 }), /pinned Opt3/);
+  assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
+  const sources = { ...candidate.candidate_sources_sha256 };
+  delete sources['opt3_mask_capture.py'];
+  assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /pinned Opt3/);
+});

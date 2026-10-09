@@ -43,7 +43,7 @@ export function validateConfig(config) {
       config.local_metrics.includes('..')) throw new Error('Unsafe local metrics path');
   if (!/^[0-9a-f]{8}$/.test(config.expected_loss_float32_bits) ||
       !/^[0-9a-f]{64}$/.test(config.expected_gradients_sha256)) throw new Error('Missing exact reference gate');
-  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
   if (config.objective === 'liger_target_flce') {
     const dep = config.liger_dependency;
     if (dep?.version !== '0.8.4' || dep.sha256 !== '9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111' ||
@@ -54,7 +54,7 @@ export function validateConfig(config) {
         config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
       throw new Error('Missing pinned Liger dependency/comparison identity');
   }
-  if (config.objective === 'cce_target_exact') {
+  if (['cce_target_exact', 'cce_opt3_mask'].includes(config.objective)) {
     const dep = config.cce_dependency;
     if (dep?.commit !== '3de376c106a1916bc5e1b619f9c77c87a461ee1c' ||
         dep.sha256 !== '446d282d5b9f5bf2f8bc5a551a016498706f5066230ed682f7477c16c09cc553' ||
@@ -63,9 +63,16 @@ export function validateConfig(config) {
         dep.archive_prefix !== `ml-cross-entropy-${dep.commit}` ||
         !config.candidate_sources_sha256?.['cce_target_loss.py'] ||
         !config.candidate_sources_sha256?.['cce_operator_check.py'] ||
-        config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
+        config.native_gradients !== (config.objective === 'cce_opt3_mask'
+          ? `${remoteRoot}/cce-exact-v3-attempt-20261009164944-23fb1fb3/gradients.pt`
+          : `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`))
       throw new Error('Missing pinned CCE dependency/comparison identity');
   }
+  if (config.objective === 'cce_opt3_mask' &&
+      (config.expected_loss_float32_bits !== '3f20282a' ||
+       config.expected_gradients_sha256 !== 'e8f555e2745cc21b466c281474a50442a19a8ba4819c00e73ac03e97c58319a3' ||
+       !['native_mask_storage.py', 'opt3_mask_capture.py', 'opt3_mask_operator_check.py'].every(name => config.candidate_sources_sha256?.[name])))
+    throw new Error('Missing pinned Opt3 source/CCE baseline');
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
   }
@@ -136,7 +143,7 @@ export function preflightCode(config, workerHash) {
 }
 
 async function preflight(base, config, workerBytes) {
-  if (['liger_target_flce', 'cce_target_exact'].includes(config.objective)) {
+  if (['liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'].includes(config.objective)) {
     const dep = config.liger_dependency ?? config.cce_dependency;
     const response = await fetch(dep.url, { signal: AbortSignal.timeout(90000) });
     if (!response.ok) throw new Error('Pinned Liger wheel download failed');
@@ -242,12 +249,12 @@ async function collect(base, config) {
   const gradients = { a_tensors: a.length, b_tensors: b.length,
     a_nonzero_tensors: a.filter(([, row]) => row.nonzero > 0).length,
     b_nonzero_tensors: b.filter(([, row]) => row.nonzero > 0).length };
-  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'].includes(config.objective)
+  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'].includes(config.objective)
     ? JSON.parse(fs.readFileSync(path.join(local, 'target-head.json'))) : null;
   const targetHeadValid = !targetHead || (targetHead.head_calls.length === 1 &&
     targetHead.head_calls[0].context_tokens === result.tokens &&
     targetHead.head_calls[0].target_tokens === result.supervised_tokens &&
-    (config.objective === 'cce_target_exact'
+    (['cce_target_exact', 'cce_opt3_mask'].includes(config.objective)
       ? targetHead.frozen_head === true && targetHead.implementation === 'cce_exact' &&
         targetHead.effective_options.filter_eps === null &&
         targetHead.effective_options.filter_e_grad === false &&
@@ -263,10 +270,21 @@ async function collect(base, config) {
       : targetHead.vocabulary_saved_tensor_calls.length > 0 &&
         targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
           row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens)));
-  const gradientComparison = ['liger_target_flce', 'cce_target_exact'].includes(config.objective)
+  const gradientComparison = ['liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'].includes(config.objective)
     ? JSON.parse(fs.readFileSync(path.join(local, 'gradient-comparison.json'))) : null;
   const operatorCheck = config.interleaved_operator_check
     ? JSON.parse(fs.readFileSync(path.join(local, 'launch-operator-check-report.json'))) : null;
+  const attentionMask = config.objective === 'cce_opt3_mask'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'attention-mask.json'))) : null;
+  const maskOperator = config.objective === 'cce_opt3_mask'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-mask-operator-check-report.json'))) : null;
+  const maskValid = !attentionMask || (maskOperator?.passed === true &&
+    attentionMask.indexed_layers === 12 && attentionMask.bias_calls.length >= 12 &&
+    attentionMask.selection_arithmetic_unchanged === true &&
+    attentionMask.dense_causal_mask === false && attentionMask.dense_selected_boolean_mask === false &&
+    attentionMask.dense_combined_boolean_mask === false &&
+    attentionMask.bias_calls.every(row => row.shape.join(',') === `1,1,${result.tokens},${result.tokens}` &&
+      ['torch.float32', 'torch.bfloat16'].includes(row.dtype) && row.requires_grad === false));
   const sourceValid = Object.entries(config.candidate_sources_sha256 ?? {}).every(([name, hash]) =>
       files[`launch-candidate-${name}`]?.sha256 === hash) &&
     files['reference.py'].sha256 === config.expected_sha256.reference_script &&
@@ -284,7 +302,7 @@ async function collect(base, config) {
   const structuralValid = files['gradients.pt'].sha256 === result.gradients_sha256 &&
       result.gradient_tensors === 744 && Object.keys(summary).length === 744 &&
       Object.values(summary).every(row => row.finite) &&
-      a.length === 372 && b.length === 372 && sourceValid && targetHeadValid &&
+      a.length === 372 && b.length === 372 && sourceValid && targetHeadValid && maskValid &&
       (!operatorCheck || operatorCheck.passed === true) &&
       (!gradientComparison || (gradientComparison.all_finite && gradientComparison.raw_tensors === 744 &&
         gradientComparison.reference_sha256 === config.expected_gradients_sha256 &&
@@ -302,6 +320,8 @@ async function collect(base, config) {
     raw_gradient_tensors: result.gradient_tensors, gradients_sha256: result.gradients_sha256,
     gradient_counts: gradients,
     target_head: targetHead,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
     interleaved_operator_check: operatorCheck,
     gradient_comparison: gradientComparison,
     no_clipping: true, optimizer_updates: 0, timings: timing,
@@ -324,6 +344,7 @@ async function collect(base, config) {
   fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
   fs.writeFileSync(metricsPath, JSON.stringify({ run_id: config.run_id,
     objective: record.objective,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
     interleaved_operator_check: operatorCheck,
     gradient_comparison: gradientComparison && Object.fromEntries(Object.entries(gradientComparison).filter(([key]) => key !== 'tensors')),
     attempt_id: config.attempt_id, loss: record.loss, gradients_sha256: record.gradients_sha256,

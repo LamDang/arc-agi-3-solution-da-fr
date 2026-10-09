@@ -13,6 +13,17 @@ CONFIG = json.loads((Path(__file__).resolve().parents[1] / 'configs/reference-v0
 
 
 class WorkerTests(unittest.TestCase):
+    def test_opt3_keeps_cce_and_adds_mask_checks_before_capture(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt3-mask-v4.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<opt3-bootstrap>', 'exec')
+        self.assertIn('from cce_target_loss import install_for_capture', source)
+        self.assertIn('from opt3_mask_capture import install_for_capture as install_mask', source)
+        self.assertIn('from opt3_mask_operator_check import qualify as qualify_mask', source)
+        self.assertIn(config['native_gradients'], source)
+        self.assertLess(source.index('qualify_mask('), source.index('runpy.run_path('))
+        self.assertNotIn('optimizer.step', source)
+
     def test_cce_bootstrap_uses_isolated_source_and_saves_gradient_comparison(self):
         config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-exact-v3.json').read_text())
         source = bootstrap_source(config)
