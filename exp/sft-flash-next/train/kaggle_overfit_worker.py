@@ -16,6 +16,10 @@ def validate(config):
         optimizer='torch.optim.AdamW',learning_rate=.0002,weight_decay=0,clip_grad_norm=1,
         max_updates=20,target_loss_ratio=.05,
         acceptance='finite-learning-and-loss-reduction; gradient equality not required')
+    if config.get('opt6'):
+        assert config['opt6']=='liger-rmsnorm-swiglu'
+        assert config['liger_dependency']['sha256']=='9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111'
+        assert sha256(config['liger_dependency']['remote_wheel'])==config['liger_dependency']['sha256']
     return {k:config[k] for k in ('model','sample','bootstrap','reference_script')}
 
 
@@ -35,6 +39,10 @@ sys.path=[p for p in sys.path if p!='/usr/local/lib/python3.13/dist-packages']
 sys.path[:0]=['/tmp/peft-autoround-compat/package','/tmp/peft-autoround-compat/site-without-torchao',
 '/kaggle/working/training-gradient-audit/exp/sft-flash-next/train',%(runtime)r]
 c=json.loads(Path(%(config)r).read_text())
+if c.get('opt6'):
+    sys.path.insert(0,str(Path(c['remote_launch'])/'liger-runtime'))
+    from liger_norm_swiglu_check import qualify as qualify_opt6
+    qualify_opt6(c['remote_launch'])
 from cce_target_loss import install_for_capture
 install_for_capture(%(head)r)
 from cce_operator_check import qualify
@@ -47,6 +55,9 @@ from opt4_ple_operator_check import qualify as qualify_ple
 qualify_ple(c['model'],c['sample'],c['remote_launch'])
 from opt4_ple_capture import install_for_capture as install_ple
 finalize_ple=install_ple(c['model'],c['sample'],c['remote_launch'],%(ple)r,lookahead=2)
+if c.get('opt6'):
+    from liger_norm_swiglu import install as install_opt6
+    finalize_opt6=install_opt6(c['remote_launch'],str(Path(c['remote_output'])/'opt6-kernels.json'))
 from bf16_model_activations import qualify_cpu,install_for_capture as install_bf16
 qualify_cpu(c['remote_launch'])
 finalize_bf16=install_bf16(None,c['remote_launch'],%(precision)r,training=True)
@@ -73,10 +84,11 @@ finally:
     pr['current_retained_through_backward']=len({row['prepared_cpu_storage_pointer'] for row in pr['calls']})==1 and len(pr['calls'])==2*updates+1
     pp.write_text(json.dumps(pr,indent=2)+'\\n')
     if succeeded:finalize_bf16(optimizer_updates=updates)
+    if c.get('opt6') and succeeded:finalize_opt6()
     imported={}
     for module in tuple(sys.modules.values()):
         name=getattr(module,'__file__',None)
-        if name and name.endswith('.py') and (name.startswith('/kaggle/working/training-gradient-audit/') or name.startswith('/tmp/peft-autoround-compat/') or name.startswith(%(runtime_prefix)r)):
+        if name and name.endswith('.py') and (name.startswith('/kaggle/working/training-gradient-audit/') or name.startswith('/tmp/peft-autoround-compat/') or name.startswith(%(runtime_prefix)r) or name.startswith(str(Path(c['remote_launch'])/'liger-runtime')+'/')):
             file=Path(name)
             if file.is_file():
                 with file.open('rb') as stream:imported[name]=hashlib.file_digest(stream,'sha256').hexdigest()
@@ -140,7 +152,7 @@ def launch(config_path):
     # Freeze its shared supervision helper beside it so imports stay self-contained.
     helper=Path(config['reference_script']).parent/'kaggle_reference_worker.py'
     (launch_dir/'kaggle_reference_worker.py').write_bytes(helper.read_bytes())
-    if config.get('objective') == 'liger_target_flce':
+    if config.get('objective') == 'liger_target_flce' or config.get('opt6'):
         import zipfile
         wheel = Path(config['liger_dependency']['remote_wheel'])
         (launch_dir / wheel.name).write_bytes(wheel.read_bytes())

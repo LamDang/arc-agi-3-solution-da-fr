@@ -33,6 +33,13 @@ export function validateConfig(config) {
         optimizer:'torch.optim.AdamW',learning_rate:0.0002,weight_decay:0,clip_grad_norm:1,max_updates:20,
         target_loss_ratio:0.05,acceptance:'finite-learning-and-loss-reduction; gradient equality not required'}))
     throw new Error('Pinned BF16 one-sample learning contract differs');
+  if (config.opt6 && (config.opt6 !== 'liger-rmsnorm-swiglu' ||
+      config.liger_dependency?.version !== '0.8.4' ||
+      config.liger_dependency.sha256 !== '9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111' ||
+      config.liger_dependency.remote_wheel !== `${remoteRoot}/liger_kernel-0.8.4-py3-none-any.whl` ||
+      !config.liger_dependency.url.startsWith('https://files.pythonhosted.org/packages/') ||
+      !['liger_norm_swiglu.py','liger_norm_swiglu_check.py'].every(name=>config.candidate_sources_sha256?.[name])))
+    throw new Error('Pinned Opt6 kernel contract differs');
   return config;
 }
 
@@ -100,12 +107,14 @@ export function preflightCode(config, workerHash) {
 
 async function preflight(base, config, workerBytes) {
   if (['liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)) {
-    const dep = config.liger_dependency ?? config.cce_dependency;
+    const deps = config.opt6 ? [config.cce_dependency, config.liger_dependency] : [config.liger_dependency ?? config.cce_dependency];
+    for (const dep of deps) {
     const response = await fetch(dep.url, { signal: AbortSignal.timeout(90000) });
     if (!response.ok) throw new Error('Pinned Liger wheel download failed');
     const wheel = Buffer.from(await response.arrayBuffer());
     if (sha256(wheel) !== dep.sha256) throw new Error('Liger wheel checksum differs');
     await upload(base, dep.remote_wheel ?? dep.remote_archive, wheel);
+    }
   }
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     const bytes = fs.readFileSync(path.join(here, name));
@@ -212,10 +221,17 @@ async function collect(base, config) {
     JSON.stringify(precision.saved_original_bytes)===JSON.stringify(precision.saved_storage_bytes)&&
     head.head_calls.length===losses.length&&head.head_calls.every(x=>x.hidden_dtype==='torch.bfloat16'&&x.target_tokens===651)&&
     head.vocabulary_saved_tensor_calls.length===0&&ple.current_retained_through_backward&&ple.workers_shutdown;
-  const passed=structurallyValid&&result.passed===true&&result.ratio<=config.learning.target_loss_ratio;
+  const opt6=config.opt6 ? read('opt6-kernels.json') : null;
+  const opt6Operator=config.opt6 ? read('launch-opt6-operator-check.json') : null;
+  const opt6Valid=!config.opt6 || (opt6.finalized && opt6.routing_and_projections_unchanged &&
+    !opt6.statistics_blanket_cast && opt6.rms_in_place_backward===false &&
+    ['rms','grouped_rms','gated_rms','shared_mlp','expert_swiglu'].every(k=>opt6.calls[k]>0) &&
+    opt6Operator.passed && opt6Operator.cases.every(x=>x.passed) &&
+    files[`launch-${path.posix.basename(config.liger_dependency.remote_wheel)}`]?.sha256===config.liger_dependency.sha256);
+  const passed=structurallyValid&&opt6Valid&&result.passed===true&&result.ratio<=config.learning.target_loss_ratio;
   const record={run_id:config.run_id,attempt_id:config.attempt_id,passed,structurally_valid:structurallyValid,
     criterion:config.learning.acceptance,gradient_equality_required:false,loss_curve:losses.map(({step,loss,ratio})=>({step,loss,ratio})),
-    result,learning_audit:audit,timings:steps,execution_commit:frozen.repository_head,
+    result,learning_audit:audit,timings:steps,...(config.opt6 ? {opt6,opt6_operator:opt6Operator,opt6_valid:opt6Valid} : {}),execution_commit:frozen.repository_head,
     native_script_commit:config.reference_script_commit,native_source_sha256:config.expected_sha256.reference_script,files};
   fs.writeFileSync(path.join(local,'file-hashes.json'),JSON.stringify(files,null,2)+'\n');
   fs.writeFileSync(path.join(local,'runner-result.json'),JSON.stringify(record,null,2)+'\n');

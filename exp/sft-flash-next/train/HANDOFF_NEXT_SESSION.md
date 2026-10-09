@@ -1,3 +1,18 @@
+# Opt6 Liger RMSNorm + SwiGLU — implementation prepared
+
+* User requests memory-efficient normalization and expert activation kernels;
+  provided official RMSNorm/SwiGLU implementation and documentation URLs.
+* Primary executes through Kaggle Jupyter only; no subagent/computer use.
+  Config/stage `liger-opt6-overfit-v9` / `liger_opt6_overfit_v9`.
+* Retains passing v8 arithmetic/settings except targeted Liger kernels.
+  Plain/grouped norm offset1+gemma; gated norm offset0+llama, native FP32 gate;
+  expert/default gate and shared MLP SwiGLU fused, native routing/projections.
+* Fresh same-seed one-sample overfit, max20 updates, >=95% reduction acceptance;
+  isolated operator checks before patching/model loading. Full raw per-step
+  gradients, timing, GPU/RAM and source pins. See `v9.md` for exact contract.
+* v8 DVC stage frozen before shared launcher changes; its result stays intact.
+* **DO NOT PUSH Git or DVC.** Keep all results/cache/commits local.
+
 # BF16 one-sample overfit PASSED — 2026-10-09
 
 * User accepts BF16 numerical change through one-sample overfit; exact loss/

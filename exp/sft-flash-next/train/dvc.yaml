@@ -200,6 +200,7 @@ stages:
           cache: false
 
   bf16_overfit_v8:
+    frozen: true
     desc: BF16 activation/LoRA one-sample learning, fresh random-A zero-B, 95 percent loss reduction.
     cmd: node kaggle_overfit_run.mjs --config configs/bf16-overfit-v8.json
     deps:
@@ -225,4 +226,34 @@ stages:
       - gradient-results/bf16-overfit-v8
     metrics:
       - metrics/bf16-overfit-v8.json:
+          cache: false
+
+  liger_opt6_overfit_v9:
+    desc: Opt6 Liger RMSNorm and SwiGLU with BF16 adapters; native one-sample learning acceptance.
+    cmd: node kaggle_overfit_run.mjs --config configs/liger-opt6-overfit-v9.json
+    deps:
+      - kaggle_overfit_run.mjs
+      - kaggle_overfit_worker.py
+      - bf16_overfit_instrumentation.py
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/liger-opt6-overfit-v9.json
+      - liger_norm_swiglu.py
+      - liger_norm_swiglu_check.py
+      - bf16_model_activations.py
+      - bf16_activation_policy.py
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - native_mask_storage.py
+      - opt3_mask_capture.py
+      - opt3_mask_operator_check.py
+      - ple_preparation.py
+      - opt4_ple_capture.py
+      - opt4_ple_operator_check.py
+      - overfit_hf_reference.py
+    outs:
+      - gradient-results/liger-opt6-overfit-v9
+    metrics:
+      - metrics/liger-opt6-overfit-v9.json:
           cache: false

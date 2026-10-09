@@ -27,6 +27,17 @@ class LearningTests(unittest.TestCase):
         source=(Path(__file__).resolve().parents[1]/'kaggle_overfit_worker.py').read_text()
         self.assertIn("(launch_dir/'kaggle_reference_worker.py').write_bytes(helper.read_bytes())",source)
 
+    def test_opt6_prechecks_run_before_patch_and_native_model(self):
+        config=json.loads((Path(__file__).resolve().parents[1]/'configs/liger-opt6-overfit-v9.json').read_text())
+        source=bootstrap_source({**config,'remote_config':'/tmp/opt6-config.json'})
+        compile(source,'<opt6>','exec')
+        exec(source,{'__name__':'__mp_main__'})
+        self.assertLess(source.index('qualify_opt6(c'),source.index('install_opt6(c'))
+        self.assertLess(source.index('qualify_ple(c'),source.index('install_opt6(c'))
+        self.assertLess(source.index('install_opt6(c'),source.index('install_bf16(None'))
+        self.assertLess(source.index('install_bf16(None'),source.index('runpy.run_path'))
+        self.assertIn('finalize_opt6()',source)
+
     def test_repeated_events_keep_each_step_duration_and_resource_peak(self):
         marks=[];telemetry=[];allocator=[]
         for step,start in [(0,10),(1,100)]:
