@@ -1,0 +1,27 @@
+{
+  "architecture": "optimized",
+  "model": "/tmp/reference-256-hf",
+  "samples": [
+    "/kaggle/working/architecture-runs/component-smoke-sample.pt"
+  ],
+  "adapter": "/kaggle/working/gradient-audit-20261009/nonzero-diagnostic-adapter-v2/adapter.pt",
+  "prompt_tokens": null,
+  "output": "/kaggle/working/architecture-runs/component-smoke",
+  "optimizations": {
+    "head": "cce_exact",
+    "direct_attention_bias": true,
+    "disk_ple": true,
+    "bf16_lora": true,
+    "bf16_activations": true,
+    "liger_rmsnorm": true,
+    "liger_swiglu": true
+  },
+  "expected_sha256": {
+    "sample": "c46024a02cefcb39471ef2ae57ce90f1de522cb693130775b02681bee329a008",
+    "adapter": "49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "baseline": null,
+  "comparison_mode": "report",
+  "max_tokens": 32
+}

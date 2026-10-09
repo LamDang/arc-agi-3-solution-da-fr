@@ -1,5 +1,6 @@
 """Detached Jupyter job supervisor. This file never imports Torch or model code."""
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -16,6 +17,8 @@ def main():
     p.add_argument('--mode',choices=['test','train'],default='test')
     p.add_argument('--timeout',type=int,default=1200)
     args = p.parse_args()
+    lock = open('/tmp/flash-next-architecture.lock','w')
+    fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
     config_path = Path(args.config).resolve()
     root = config_path.parent/'source'
     job = config_path.parent
@@ -28,14 +31,30 @@ def main():
     gpu = subprocess.run(['nvidia-smi','--query-compute-apps=pid','--format=csv,noheader,nounits'],capture_output=True,text=True,check=True).stdout.strip()
     if gpu:raise RuntimeError('GPU process already running; no concurrent job allowed')
     packages = ['/tmp/peft-autoround-compat/package','/tmp/peft-autoround-compat/site-without-torchao',str(root)]
-    # Dependencies are the already verified wheels from the interrupted Opt6 job.
+    # Isolated, pinned dependency archives travel with each attempt.
     opt = config.get('optimizations',{})
-    if opt.get('head') in ['cce_exact','liger_flce'] or opt.get('liger_rmsnorm') or opt.get('liger_swiglu'):
-        old = Path('/kaggle/working/gradient-audit-20261009/liger-opt6-overfit-v9-launch-attempt-20261009204949-5b997b5f')
-        if opt.get('head') == 'cce_exact':
-            packages.insert(0,str(old/'cce-runtime/ml-cross-entropy-3de376c106a1916bc5e1b619f9c77c87a461ee1c'))
-        if opt.get('head') == 'liger_flce' or opt.get('liger_rmsnorm') or opt.get('liger_swiglu'):
-            packages.insert(0,str(old/'liger-runtime'))
+    registry = json.loads((root/'configs/dependencies.json').read_text())
+    needed = []
+    if opt.get('head') == 'cce_exact':needed.append('cce')
+    if opt.get('head') == 'liger_flce' or opt.get('liger_rmsnorm') or opt.get('liger_swiglu'):needed.append('liger')
+    for name in needed:
+        dependency = registry[name]
+        archive = job/'dependencies'/dependency['filename']
+        if hashlib.sha256(archive.read_bytes()).hexdigest() != dependency['sha256']:
+            raise RuntimeError('Dependency archive hash differs: '+name)
+        destination = job/'dependencies'/name
+        destination.mkdir()
+        if name == 'liger':
+            import zipfile
+            with zipfile.ZipFile(archive) as package:
+                if any(Path(member).is_absolute() or '..' in Path(member).parts for member in package.namelist()):
+                    raise ValueError('Unsafe dependency archive')
+                package.extractall(destination)
+            packages.insert(0,str(destination))
+        else:
+            import tarfile
+            with tarfile.open(archive) as package:package.extractall(destination,filter='data')
+            packages.insert(0,str(destination/dependency['archive_prefix']))
     bootstrap = job/'bootstrap.py'
     script = root/(args.mode+'.py')
     bootstrap.write_text('import sys,runpy\n'+
@@ -57,4 +76,14 @@ def main():
     (job/'monitor.json').write_text(json.dumps(dict(returncode=code,timed_out=timeout,seconds=time.monotonic()-started,pid=child.pid),indent=2)+'\n')
 
 
-if __name__ == '__main__':main()
+if __name__ == '__main__':
+    try:
+        main()
+    except BaseException as exc:
+        # Prelaunch failures must also finish the watch protocol.
+        if '--config' in sys.argv:
+            job = Path(sys.argv[sys.argv.index('--config')+1]).resolve().parent
+            if not (job/'monitor.json').exists():
+                (job/'monitor.json').write_text(json.dumps(dict(returncode=1,timed_out=False,
+                    prelaunch_failure=True,error_type=type(exc).__name__,error=str(exc)))+'\n')
+        raise

@@ -42,9 +42,12 @@ class Config:
     expected_sha256: dict | None = None
     baseline: dict | None = None
     dispatch_commit: str | None = None
+    comparison_mode: str = 'report'
 
     def validate(self, mode):
         self.optimizations.validate()
+        if self.comparison_mode not in {'report','exact'}:
+            raise ValueError('Comparison mode must be report or exact')
         if self.architecture not in {'reference', 'optimized'}:
             raise ValueError('Architecture must be reference or optimized')
         if self.architecture == 'reference' and self.optimizations != Optimizations():

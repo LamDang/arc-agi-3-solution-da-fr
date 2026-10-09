@@ -1,5 +1,4 @@
 """Explicit component conversion, preserving checkpoint names and parameter identity."""
-import torch
 
 
 def adopt(module, implementation):

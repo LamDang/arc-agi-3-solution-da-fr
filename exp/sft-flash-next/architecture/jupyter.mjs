@@ -78,11 +78,22 @@ async function main(){
     attempt=new Date().toISOString().replace(/[-:.TZ]/g,'')+'-'+crypto.randomBytes(4).toString('hex');
     job='/kaggle/working/architecture-runs/'+attempt;
     config.output=job+'/output';config.dispatch_commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
-    const sources=files(root),directories=new Set([job,job+'/source']);
+    const sources=files(root),directories=new Set([job,job+'/source',job+'/dependencies']);
     for(const name of sources)directories.add(path.posix.dirname(job+'/source/'+name));
     const code='from pathlib import Path\n'+[...directories].map(d=>'Path('+JSON.stringify(d)+').mkdir(parents=True,exist_ok=True)').join('\n');
     await execute(code);
     const hashes={};for(const name of sources){const bytes=fs.readFileSync(path.join(root,name));hashes[name]=sha(bytes);await upload(job+'/source/'+name,bytes);}
+    const opt=config.optimizations ?? {},registry=JSON.parse(fs.readFileSync(path.join(root,'configs/dependencies.json'),'utf8'));
+    const needed=[];
+    if(opt.head==='cce_exact')needed.push('cce');
+    if(opt.head==='liger_flce'||opt.liger_rmsnorm||opt.liger_swiglu)needed.push('liger');
+    for(const name of needed){
+      const dep=registry[name],response=await fetch(dep.url,{signal:AbortSignal.timeout(60000)});
+      if(!response.ok)throw new Error('Pinned dependency download failed: '+name);
+      const bytes=Buffer.from(await response.arrayBuffer());
+      if(sha(bytes)!==dep.sha256)throw new Error('Dependency hash mismatch: '+name);
+      await upload(job+'/dependencies/'+dep.filename,bytes);
+    }
     await upload(job+'/config.json',Buffer.from(JSON.stringify(config,null,2)+'\n'));
     await upload(job+'/source-hashes.json',Buffer.from(JSON.stringify(hashes,null,2)+'\n'));
     console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
@@ -95,12 +106,16 @@ async function main(){
     console.log(JSON.stringify({attempt,monitor,result}));return;
   }
   let monitor;
+  const deadline=Date.now()+1300*1000;let lastLog=0;
   while(!(monitor=await json(job+'/monitor.json'))){
-    console.log(JSON.stringify({attempt,status:'running'}));await new Promise(r=>setTimeout(r,10000));
+    if(Date.now()>deadline)throw new Error('Supervisor completion deadline exceeded; inspect the saved attempt before retrying');
+    if(Date.now()-lastLog>60000){console.log(JSON.stringify({attempt,status:'running'}));lastLog=Date.now();}
+    await new Promise(r=>setTimeout(r,10000));
   }
   const local=path.join(root,'results',attempt);
   await collect(job,local);
-  console.log(JSON.stringify({attempt,monitor,local}));
+  execFileSync('dvc',['add',path.relative(root,local)],{cwd:root,stdio:'inherit'});
+  console.log(JSON.stringify({attempt,monitor,local,dvc_cached:true}));
   if(monitor.returncode!==0)throw new Error('Architecture job failed; artifacts collected');
 }
 main().catch(error=>{console.error(error.message);process.exitCode=1;});

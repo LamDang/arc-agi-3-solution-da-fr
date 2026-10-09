@@ -1,15 +1,14 @@
 """One execution path for architecture qualification and supervised training."""
 from contextlib import nullcontext
-import gc
 import json
 from pathlib import Path
 import time
 
 import torch
-from peft import get_peft_model_state_dict, set_peft_model_state_dict
+from peft import get_peft_model_state_dict
 
 from model import build
-from .evidence import compare, sha, snapshot, write
+from .evidence import compare, sha, snapshot, snapshot_imports, write
 from .resources import Resources
 
 
@@ -111,12 +110,13 @@ def run(config, mode):
                 iso_verified=comparison['passed'] if comparison else None,
                 gradients_sha256=sha(output/'gradients.pt'),elapsed_seconds=time.monotonic()-started)
             write(output/'result.json',result);event('finished',**result)
-            if comparison is not None and not comparison['passed']:
+            if comparison is not None and config.comparison_mode == 'exact' and not comparison['passed']:
                 raise RuntimeError('Refactor equality gate failed; preserved comparison and raw evidence')
             return result
         return train_samples(architecture,config,output,resources,event,iterator)
     finally:
         write(output/'resources.json',resources.rows)
+        snapshot_imports(output)
         if iterator is not None and getattr(iterator,'_shutdown_workers',None):iterator._shutdown_workers()
 
 

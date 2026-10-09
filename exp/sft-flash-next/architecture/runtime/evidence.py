@@ -67,3 +67,14 @@ def compare(gradients, loss, baseline):
         global_relative_l2=(error/norm)**.5,cosine=dot/(norm*other)**.5,
         passed=loss_exact and exact==744,criterion='Refactor isolation: bitwise loss and all 744 raw gradients',
         baseline_gradients_sha256=sha(baseline['gradients']),tensors=rows)
+
+
+def snapshot_imports(output):
+    roots = ('/tmp/peft-autoround-compat/',str(Path(output).parent/'dependencies')+'/')
+    hashes = {}
+    for module in tuple(sys.modules.values()):
+        name = getattr(module,'__file__',None)
+        if name and name.endswith('.py') and name.startswith(roots):
+            path = Path(name)
+            if path.is_file():hashes[name] = sha(path)
+    write(Path(output)/'imported-source-hashes.json',hashes)

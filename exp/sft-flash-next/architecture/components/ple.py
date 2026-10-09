@@ -171,18 +171,6 @@ def prepared_loader(source, model_dir, lookahead=2, event_path=None):
                       multiprocessing_context='spawn',pin_memory=False)
 
 
-class PreparedEmbedding(nn.Module):
-    """One explicitly activated sample, retained until backward completes."""
-    def __init__(self, payload, input_ids):
-        super().__init__()
-        self.payload = payload
-        self.input_ids = input_ids
-    def forward(self, input_ids, past_key_values=None):
-        if past_key_values is not None or not torch.equal(input_ids.detach().cpu(), self.input_ids):
-            raise ValueError('Prepared PLE identity/cache mismatch')
-        return self.payload.to(input_ids.device)
-
-
 class DiskTablePlaceholder(nn.Module):
     def __init__(self):
         super().__init__()

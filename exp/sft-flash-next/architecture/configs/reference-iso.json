@@ -16,5 +16,6 @@
   "baseline": {
     "loss": 0.6256952285766602,
     "gradients": "/kaggle/working/gradient-audit-20261009/reference-runner-v0-attempt-20261009151955-6e8d6cf9/gradients.pt"
-  }
+  },
+  "comparison_mode": "exact"
 }

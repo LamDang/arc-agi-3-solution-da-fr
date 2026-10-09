@@ -75,8 +75,9 @@ Both entry points accept the same architecture/optimization overrides, including
 `--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
 `test.py` always performs exactly one forward/backward, saves all744 raw adapter
 gradients before clipping, and performs zero optimizer updates. It compares with
-a saved reference when configured; refactor isolation requires bitwise loss and
-all744 gradients. Numerical optimization comparisons should be reported separately.
+a saved reference when configured. `comparison_mode="exact"` enforces bitwise
+loss and all744 gradients for refactor isolation; `comparison_mode="report"`
+records numerical differences without inventing an acceptance tolerance.
 
 Training requires explicit labels in each complete encoded PT sample. Ignored
 user/tool/image tokens use -100; every supervised span remains interleaved with
@@ -101,14 +102,15 @@ node jupyter.mjs --action collect --attempt <attempt-id>
 ```
 
 The bearer URL stays in `/tmp/kaggle_probe_url`. Each attempt uploads an isolated
-source snapshot with SHA256s and dispatch Git commit, then executes in a detached
+source snapshot with SHA256s, dispatch Git commit and verified pinned dependency
+archives from `configs/dependencies.json`, then executes in a detached
 process through Jupyter. Mutable status reads bypass HTTP caching. It refuses a
 busy GPU, times out after1200seconds and preserves failures. Collection excludes
 only derived model-view symlinks, never copying the full model accidentally.
 
 Each capture records loss/raw gradients, initialization, input/source/package
 identities, phase timings, exact CUDA allocated/reserved peaks and sampled parent
-RSS/treePSS/childRSS/host-used RAM. Raw attempts are cached locally with DVC;
+RSS/treePSS/childRSS/host-used RAM. Raw attempts are automatically cached locally with DVC after collection;
 small comparison reports are kept in Git. No Git or DVC pushes are authorized.
 
 ## Refactor qualification
