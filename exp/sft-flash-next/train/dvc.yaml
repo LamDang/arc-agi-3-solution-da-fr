@@ -1,0 +1,17 @@
+stages:
+  reference_v0:
+    desc: One native diagnostic forward/backward through the Kaggle Jupyter API.
+    cmd: node kaggle_reference_run.mjs --config configs/reference-v0.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/reference-v0.json
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/result.json
+    outs:
+      - gradient-results/reference-runner-v0
+    metrics:
+      - metrics/reference-v0.json:
+          cache: false
