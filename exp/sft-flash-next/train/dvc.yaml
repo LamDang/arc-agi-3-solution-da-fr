@@ -144,6 +144,7 @@ stages:
       - metrics/cce-opt4-ple-v5.json:
           cache: false
   cce_opt5_bf16_v6:
+    frozen: true
     desc: BF16 LoRA and module/saved activation storage with FP32 intermediates.
     cmd: node kaggle_reference_run.mjs --config configs/cce-opt5-bf16-v6.json
     deps:
@@ -168,4 +169,31 @@ stages:
       - gradient-results/cce-opt5-bf16-v6
     metrics:
       - metrics/cce-opt5-bf16-v6.json:
+          cache: false
+  cce_opt5_activations_v7:
+    desc: Corrected BF16 model activations and LoRA; native numerical statistics unchanged.
+    cmd: node kaggle_reference_run.mjs --config configs/cce-opt5-activations-v7.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/cce-opt5-activations-v7.json
+      - bf16_activation_policy.py
+      - bf16_model_activations.py
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - native_mask_storage.py
+      - opt3_mask_capture.py
+      - opt3_mask_operator_check.py
+      - ple_preparation.py
+      - opt4_ple_capture.py
+      - opt4_ple_operator_check.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/cce-opt4-ple-v5/gradients.pt
+      - gradient-results/cce-opt4-ple-v5/result.json
+    outs:
+      - gradient-results/cce-opt5-activations-v7
+    metrics:
+      - metrics/cce-opt5-activations-v7.json:
           cache: false

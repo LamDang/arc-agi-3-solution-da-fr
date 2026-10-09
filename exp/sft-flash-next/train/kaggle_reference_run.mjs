@@ -90,6 +90,11 @@ export function validateConfig(config) {
          'opt4_ple_operator_check.py', 'native_mask_storage.py', 'opt3_mask_capture.py',
          'opt3_mask_operator_check.py'].every(name => config.candidate_sources_sha256?.[name])))
     throw new Error('Missing pinned BF16 policy/Opt4 baseline');
+  if (config.precision_policy?.implementation === 'model_activations_native_statistics' &&
+      (config.objective !== 'cce_opt5_bf16' ||
+       config.precision_policy.saved_fp32_statistics !== 'native float32 unchanged' ||
+       !config.candidate_sources_sha256?.['bf16_model_activations.py']))
+    throw new Error('Missing activation-only policy/native statistics contract');
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
   }
@@ -316,10 +321,20 @@ async function collect(base, config) {
     ? JSON.parse(fs.readFileSync(path.join(local, 'bf16-policy.json'))) : null;
   const bf16Operator = config.objective === 'cce_opt5_bf16'
     ? JSON.parse(fs.readFileSync(path.join(local, 'launch-bf16-policy-operator-check.json'))) : null;
+  const savedPrecisionValid = !bf16Policy ||
+    (config.precision_policy?.implementation === 'model_activations_native_statistics'
+      ? bf16Operator?.saved_tensors_original_dtype_and_values === true &&
+        bf16Operator?.fp32_lse_exact === true &&
+        bf16Policy.saved_fp32_statistics_compressed === false &&
+        bf16Policy.saved_tensor_conversion === false &&
+        JSON.stringify(bf16Policy.saved_original_dtype_counts) === JSON.stringify(bf16Policy.saved_storage_dtype_counts) &&
+        JSON.stringify(bf16Policy.saved_original_bytes) === JSON.stringify(bf16Policy.saved_storage_bytes) &&
+        bf16Policy.cce_fp32_lse?.length > 0 && bf16Policy.cce_fp32_lse.every(row => row.dtype === 'torch.float32' && row.roundtrip_values_exact === true)
+      : Object.keys(bf16Policy.saved_storage_dtype_counts).filter(key => key.includes('float')).join(',') === 'torch.bfloat16');
   const bf16Valid = !bf16Policy || (bf16Operator?.passed === true && bf16Policy.finalized === true &&
     bf16Policy.adapter_parameter_dtype_counts['torch.bfloat16'] === 744 &&
     Object.keys(bf16Policy.boundary_output_dtype_counts).join(',') === 'torch.bfloat16' &&
-    Object.keys(bf16Policy.saved_storage_dtype_counts).filter(key => key.includes('float')).join(',') === 'torch.bfloat16' &&
+    savedPrecisionValid &&
     bf16Policy.layer_calls.length >= 96 && bf16Policy.layer_calls.every(row => row.dtype === 'torch.bfloat16') &&
     Object.values(summary).every(row => row.dtype === 'torch.bfloat16') &&
     targetHead.head_calls[0].hidden_dtype === 'torch.bfloat16' &&

@@ -26,6 +26,14 @@ class WorkerTests(unittest.TestCase):
         self.assertLess(source.index('qualify_cpu('), source.index('runpy.run_path('))
         self.assertNotIn('optimizer.step', source)
 
+    def test_activation_only_policy_uses_corrected_module(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt5-activations-v7.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<activation-only-bootstrap>', 'exec')
+        self.assertIn('from bf16_model_activations import qualify_cpu', source)
+        self.assertNotIn('from bf16_activation_policy import qualify_cpu', source)
+        self.assertIn('finalize_bf16()', source)
+
     def test_opt4_spawn_import_cannot_restart_capture(self):
         config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt4-ple-v5.json').read_text())
         source = bootstrap_source(config)

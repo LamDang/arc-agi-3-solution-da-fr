@@ -92,3 +92,15 @@ test('BF16 precision change pins Opt4 comparison and requires the precision poli
   assert.throws(() => validateConfig({ ...candidate, expected_loss_float32_bits: '3f202827' }), /BF16 policy/);
   assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
 });
+
+
+test('corrected BF16 policy requires native statistics and pinned activation source', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/cce-opt5-activations-v7.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  const sources = { ...candidate.candidate_sources_sha256 };
+  delete sources['bf16_model_activations.py'];
+  assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /activation-only/);
+  assert.throws(() => validateConfig({ ...candidate, precision_policy: {
+    ...candidate.precision_policy, saved_fp32_statistics: 'bfloat16'
+  } }), /activation-only/);
+});

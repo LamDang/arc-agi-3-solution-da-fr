@@ -132,7 +132,9 @@ def bootstrap_source(config):
             + repr(str(Path(config['remote_output']) / 'ple-preparation.json')) + ",lookahead=2)")
         candidate_compare += "\n    finalize_ple()"
     if config.get('objective') == 'cce_opt5_bf16':
-        candidate_setup += ("\nfrom bf16_activation_policy import qualify_cpu, install_for_capture as install_bf16\nqualify_cpu("
+        policy_module = ('bf16_model_activations' if config.get('precision_policy', {}).get('implementation')
+                         == 'model_activations_native_statistics' else 'bf16_activation_policy')
+        candidate_setup += ("\nfrom " + policy_module + " import qualify_cpu, install_for_capture as install_bf16\nqualify_cpu("
             + repr(config['remote_launch']) + ")\nfinalize_bf16=install_bf16("
             + repr(config['adapter']) + "," + repr(config['remote_launch']) + ","
             + repr(str(Path(config['remote_output']) / 'bf16-policy.json')) + ")")

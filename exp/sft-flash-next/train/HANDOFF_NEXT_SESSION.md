@@ -1,3 +1,18 @@
+# Corrected Opt5 activation-only policy — prepared 2026-10-09
+
+* User explicitly corrected v6: activations BF16, numerical statistics native.
+  `bf16_model_activations.py` uses declared hidden-state ports; CPU saved-tensor
+  observer performs no conversion. CCE LSE stays FP32 with exact roundtrip checks.
+* Separate config/stage `cce-opt5-activations-v7` / `cce_opt5_activations_v7`;
+  baseline v5. v6 is frozen evidence of the incorrect blanket cast.
+* Small CPU check via Kaggle Jupyter passes exact FP32 saved backward/LSE and
+  untouched auxiliary tensors. Runner tests 11 Node + 9 Python passed.
+* No optimizer update/clipping. Keep the original test-only nonzero fixture;
+  deterministic BF16 rounding unchanged. One corrected capture is next.
+* **DO NOT PUSH Git or DVC.** User said "Dont push yet"; this remains in force.
+  Earlier DVC upload already completed before that instruction could stop it;
+  no Git push has occurred for v6/Opt5 work.
+
 # Rejected Opt5 implementation — 2026-10-09
 
 * User corrected scope: BF16 model activations, not numerical statistics.
