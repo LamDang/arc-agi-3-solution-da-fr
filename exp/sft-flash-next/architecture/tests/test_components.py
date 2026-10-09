@@ -71,4 +71,18 @@ class ComponentsTests(unittest.TestCase):
         self.assertEqual(result[2].dtype,torch.float32)
         self.assertTrue(torch.equal(result[2],Original()(torch.zeros(2,3))[2]))
 
+    def test_precision_comparison_reports_dtype_change_without_accepting_iso(self):
+        import torch,tempfile
+        from runtime.evidence import compare
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'gradients.pt'
+            reference = {str(i):torch.tensor([1.125, .123456789]) for i in range(744)}
+            torch.save(reference,path)
+            candidate = {name:value.bfloat16() for name,value in reference.items()}
+            report = compare(candidate,.5,{'loss':.5,'gradients':str(path)})
+        self.assertFalse(report['passed'])
+        self.assertEqual(report['bitwise_equal_tensors'],0)
+        self.assertGreater(report['global_relative_l2'],0)
+        self.assertEqual(report['tensors']['0']['candidate_dtype'],'torch.bfloat16')
+
 if __name__ == '__main__':unittest.main()

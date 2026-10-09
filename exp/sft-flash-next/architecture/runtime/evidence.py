@@ -51,12 +51,13 @@ def compare(gradients, loss, baseline):
     rows = {};error = norm = other = dot = 0.
     for name,a in reference.items():
         b = gradients[name]
-        if a.shape != b.shape or a.dtype != b.dtype:
-            raise ValueError('Gradient metadata differs: '+name)
+        if a.shape != b.shape:
+            raise ValueError('Gradient shape differs: '+name)
         x,y = a.double(),b.double()
         aa,bb,ee,ab = [float(t.sum()) for t in (x*x,y*y,(x-y)**2,x*y)]
         error += ee;norm += aa;other += bb;dot += ab
-        rows[name] = dict(bitwise_equal=torch.equal(a.contiguous().view(torch.uint8),b.contiguous().view(torch.uint8)),
+        rows[name] = dict(bitwise_equal=a.dtype==b.dtype and torch.equal(a.contiguous().view(torch.uint8),b.contiguous().view(torch.uint8)),
+            reference_dtype=str(a.dtype),candidate_dtype=str(b.dtype),
             relative_l2=(ee/aa)**.5 if aa else None,max_absolute_difference=float((x-y).abs().max()),
             reference_zero=aa==0,candidate_zero=bb==0,finite=bool(torch.isfinite(b).all()))
     expected = float(baseline['loss'])
