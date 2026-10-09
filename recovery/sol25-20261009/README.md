@@ -1,5 +1,7 @@
 # Sol25 emergency recovery checkpoint
 
+**New chat: read [HANDOFF.md](HANDOFF.md) first.** It contains the complete task context, approved decisions, restoration checks, and resume/publication instructions.
+
 This branch backs up 1,004 of 1,334 finalized thinking-generation turns. It is a
 recovery copy, not the final training dataset release. Generation was stopped
 with no pending requests. The original partial DVC publication failed because
