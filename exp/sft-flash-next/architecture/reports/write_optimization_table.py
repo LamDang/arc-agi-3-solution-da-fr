@@ -5,9 +5,9 @@ ROOT=Path(__file__).resolve().parents[1]
 read=lambda p:json.loads(Path(p).read_text())
 ref=read(ROOT/'reports/reference.json');g=2**30
 columns=['Run / total wall s','Loss (change vs ref)','Gradient relative L2 / cosine',
-    'Bitwise matches: all / nonzero','Phase','Seconds','GPU allocated / reserved GiB',
+    'Bitwise matches: all / nonzero','Chunking vs unchunked control: relative L2 / cosine / gate','Phase','Seconds','GPU allocated / reserved GiB',
     'RAM parent RSS / tree PSS GiB','RAM child RSS / host-used GiB','RAM samples']
-lines=['# v0 — current all-expert reference and Opt1–3','',
+lines=['# v0 — current all-expert reference and optimizations','',
 'Anchor: 16,249 tokens, 651 targets, 7 images; exact test-only nonzero A/B initialization.',
 'All 74,472 LoRA tensors remain FP32, including all routed experts. BF16 activation',
 'ports, CPU expert prefetch and disk PLE are fixed reference settings. Every',
@@ -20,25 +20,26 @@ lines=['# v0 — current all-expert reference and Opt1–3','',
 'Run-level loss/gradient results appear once on the first row of each experiment.',
 'Bitwise match denominators are 74,472 overall and 74,394 nonzero reference tensors.',
 'Each paired memory cell follows the order in its column heading.','',
-'| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*3+['---']+['---:']*5)+' |']
+'| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
  else:cases.append((label,None,None,False))
 for label,r,monitor,is_ref in cases:
  if r is None:
-  lines.append('| '+' | '.join([label]+['pending']*9)+' |');continue
+  lines.append('| '+' | '.join([label]+['pending']*10)+' |');continue
  wall=read(monitor)['seconds']
  for index,row in enumerate(r['resources']):
   phase=row['phase'];phase=f'**{phase}**' if phase in ('forward','backward') else phase
-  prefix=['','','','']
+  prefix=['','','','','']
   if index==0:
    prefix=[f'{label}<br>wall {wall:.2f}',f"{r['loss']:.10f}"+(' (reference)' if is_ref else f" ({r['loss_relative_change']:+.6%})"),
        '—' if is_ref else f"{r['gradient_relative_l2']:.6%} / {r['gradient_cosine']:.10f}",
-       '—' if is_ref else f"{r['bitwise_equal_gradients']:,} / {r['bitwise_equal_nonzero_reference_gradients']:,}"]
+       '—' if is_ref else f"{r['bitwise_equal_gradients']:,} / {r['bitwise_equal_nonzero_reference_gradients']:,}",
+       '—' if 'chunking_gradient_relative_l2' not in r else f"{r['chunking_gradient_relative_l2']:.6%} / {r['chunking_gradient_cosine']:.10f} / {'PASS' if r['chunking_gradient_gate_passed'] else 'FAIL'}"]
   values=prefix+[phase,f"{row['seconds']:.3f}",
        f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
        f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
@@ -59,7 +60,10 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'Only reference raw gradients are retained. Candidates keep comparisons and',
 'statistics, with exact initialization verified against reference shards. Raw',
 'candidate gradients and duplicate initial-state archives are never written.',
-'No acceptance tolerance is invented; numerical drift is reported explicitly.',
+'Opt7–10 use the user-specified gradient gate: bitwise equality or global relative L2 below 1%.',
+'The isolated comparison disables all chunking on the same model; Opt1–3 remain enabled.',
+'Its control F/B is separately timed and holds candidate raw gradients in RAM (never on disk).',
+'Candidate F/B precedes that extra RAM retention. Native-reference differences remain reported.',
 'All attempt files are SHA256 inventoried and cached in local DVC. No pushes.','',
 '## Run identities','',f"- Reference `{ref['attempt']}`, execution `{ref['execution_commit']}`."]
 for r in reports:

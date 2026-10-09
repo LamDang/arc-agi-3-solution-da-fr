@@ -160,3 +160,9 @@ Opt1 matches all 74,472 reference gradients bitwise. Opt2 and Opt3 complete with
 finite gradients but have 1.751894% and 1.784223% relative L2 differences against
 the reference. Direct-bias operator fixtures pass; the full Opt3 result includes
 CCE and does not separately prove full-model mask equivalence.
+
+## Chunked activation replay (Opt7–10)
+
+See [CHUNKING.md](CHUNKING.md) for component boundaries, the <1% gradient gate,
+paired in-memory control and cumulative configurations. Use `configs/opt7.json`
+through `configs/opt10.json`; `--chunk-tokens` controls window size.

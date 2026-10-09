@@ -35,6 +35,8 @@ class Optimizations:
             raise ValueError('QSA chunks require direct bias selection')
         if self.ple_chunking and not self.disk_ple:
             raise ValueError('PLE chunks require prepared full-context embeddings')
+        if any((self.expert_chunking,self.qsa_chunking,self.hyperconnection_chunking,self.ple_chunking)) and not self.bf16_activations:
+            raise ValueError('Chunk components currently require the BF16 activation reference')
 
 
 @dataclass(frozen=True)

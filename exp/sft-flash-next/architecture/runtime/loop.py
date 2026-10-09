@@ -185,6 +185,9 @@ def run(config, mode):
         if 'architecture' in locals() and architecture.expert_stager:
             architecture.expert_stager.close()
             write(output/'expert-prefetch.json',architecture.expert_stager.report())
+        if 'architecture' in locals():
+            write(output/'chunking.json',{name:dict(chunk_tokens=m.chunk_tokens,**getattr(m,'chunk_stats',{}))
+                for name,m in architecture.model.named_modules() if getattr(m,'chunk_tokens',0)})
         snapshot_imports(output)
         if iterator is not None and getattr(iterator,'_shutdown_workers',None):iterator._shutdown_workers()
 

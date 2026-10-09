@@ -1,0 +1,32 @@
+{
+  "architecture": "optimized",
+  "model": "/tmp/reference-256-hf",
+  "samples": [
+    "/kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt"
+  ],
+  "adapter": null,
+  "prompt_tokens": 15598,
+  "output": "/tmp/flash-next-architecture-artifacts/opt8/output",
+  "optimizations": {
+    "bf16_activations": true,
+    "disk_ple": true,
+    "offload_routed_experts": true,
+    "lora_routed_experts": true,
+    "head": "cce_exact",
+    "direct_attention_bias": true,
+    "expert_chunking": true,
+    "chunk_tokens": 8192,
+    "qsa_chunking": true
+  },
+  "expected_sha256": {
+    "sample": "48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "baseline": {
+    "loss": 0.6244627833366394,
+    "gradients": "/kaggle/working/architecture-runs/20261009221135477-25bf58fe/output/gradients-manifest.json",
+    "initial_adapter": "/kaggle/working/architecture-runs/20261009221135477-25bf58fe/output/initial-adapter-manifest.json"
+  },
+  "comparison_mode": "report",
+  "diagnostic_initialization": true
+}

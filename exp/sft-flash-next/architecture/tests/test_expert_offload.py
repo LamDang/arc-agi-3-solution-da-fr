@@ -64,12 +64,18 @@ class ExpertOffloadTests(unittest.TestCase):
             self.assertTrue(torch.equal(expected,actual));self.assertTrue(torch.equal(x.grad,y.grad))
             self.assertTrue(torch.equal(other_weights.grad,weights.grad))
         reference=dict(resident.named_parameters());count=0
+        grad_pairs=[(y.grad,x.grad),(other_weights.grad,weights.grad)]
         for name,p in staged.named_parameters():
             if not p.requires_grad:continue
             self.assertEqual(p.device.type,'cpu');self.assertEqual(p.grad.dtype,torch.float32)
             if chunk_tokens:torch.testing.assert_close(p.grad,reference[name].grad.cpu(),rtol=.05,atol=1e-5,msg=name)
             else:self.assertTrue(torch.equal(p.grad,reference[name].grad.cpu()),name)
+            grad_pairs.append((p.grad,reference[name].grad.cpu()))
             count+=1
+        if chunk_tokens:
+            error=sum(float((a.double().cpu()-b.double().cpu()).square().sum()) for a,b in grad_pairs)
+            norm=sum(float(b.double().cpu().square().sum()) for a,b in grad_pairs)
+            self.assertLess((error/norm)**.5,.01)
         manager.close()
         report=dict(passed=True,quantized_projection=True,loss_bitwise_equal=bool(torch.equal(loss,ref_loss)),
             output_and_input_gradient_bitwise_equal=True,fp32_cpu_adapter_gradient_tensors=count,

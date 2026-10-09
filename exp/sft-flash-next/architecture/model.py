@@ -54,6 +54,9 @@ def compose(base, options):
     from components.normalization import LigerRMSNorm, LigerGatedRMSNorm
     from components.mlp import LigerMLP, LigerExperts
     from components.attention import DirectBiasIndexer, DirectBiasTextModel
+    from components.qsa_chunks import ChunkedAttention,WindowIndexer
+    from components.hyperconnection_chunks import ChunkedResidual,ChunkedDecoder
+    from components.ple_chunks import ChunkedPLE
     inventory = []
     if options.liger_swiglu:
         from auto_round.modeling.fused_moe import moe_experts_interface as moe
@@ -79,8 +82,18 @@ def compose(base, options):
                 selected = p.LIGER_BOUNDARIES[selected]
             elif cls in p.NATIVE_BOUNDARIES:
                 selected = p.NATIVE_BOUNDARIES[cls]
+        if options.qsa_chunking:
+            selected={native.Qwen4ExpTextAttention:ChunkedAttention,
+                      native.Qwen4ExpTextQSAIndexer:WindowIndexer}.get(cls,selected)
+        if options.hyperconnection_chunking:
+            selected={native.Qwen4ExpTextGatedResidual:ChunkedResidual,
+                      native.Qwen4ExpTextDecoderLayer:ChunkedDecoder}.get(cls,selected)
+        if options.ple_chunking and cls is native.Qwen4ExpTextPLELayer:selected=ChunkedPLE
         return selected
     replace_components(base, choose, inventory)
+    for module in base.modules():
+        if isinstance(module,(ChunkedAttention,ChunkedResidual,ChunkedDecoder,ChunkedPLE)):
+            module.chunk_tokens=options.chunk_tokens
     if options.direct_attention_bias:
         lm = base.model.language_model
         if lm.config._attn_implementation != 'sdpa':
