@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateConfig, resolveAttempt, preflightCode } from '../kaggle_reference_run.mjs';
+import { validateConfig, resolveAttempt, preflightCode, artifactNames } from '../kaggle_reference_run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(fs.readFileSync(path.join(here, '../configs/reference-v0.json')));
@@ -29,4 +29,13 @@ test('unsafe edits fail before server access', () => {
   assert.throws(() => validateConfig({ ...config, timeout_seconds: 0 }), /time\/token/);
   assert.throws(() => validateConfig({ ...config, local_output: '../escape' }), /Unsafe local/);
   assert.throws(() => validateConfig({ ...config, expected_sha256: { ...config.expected_sha256, adapter: 'bad' } }), /adapter/);
+});
+
+test('Kaggle Jupytext Python sources are collected as raw files', () => {
+  assert.deepEqual(artifactNames([
+    { name: 'reference.py', type: 'notebook' },
+    { name: 'gradients.pt', type: 'file' },
+    { name: 'nested', type: 'directory' },
+  ]), ['reference.py', 'gradients.pt']);
+  assert.throws(() => artifactNames([{ name: '../escape', type: 'file' }]), /Unsafe artifact/);
 });

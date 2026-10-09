@@ -147,11 +147,19 @@ async function waitForMonitor(base, config) {
   }
 }
 
+export function artifactNames(entries) {
+  // Kaggle's Jupytext contents manager reports .py source files as notebooks.
+  return entries.filter(entry => ['file', 'notebook'].includes(entry.type)).map(entry => {
+    if (path.basename(entry.name) !== entry.name) throw new Error('Unsafe artifact name');
+    return entry.name;
+  });
+}
+
 async function listRemote(base, remoteDirectory) {
   const relative = remoteDirectory.replace(/^\/kaggle\/working\//, '');
   const item = await (await request(base, `/api/contents/${relative}?content=1`)).json();
   if (item.type !== 'directory') throw new Error('Expected remote artifact directory');
-  return item.content.filter(entry => entry.type === 'file').map(entry => entry.name);
+  return artifactNames(item.content);
 }
 
 async function downloadFile(base, remotePath, localPath) {
@@ -227,9 +235,12 @@ async function collect(base, config) {
       worker_sha256: frozen.worker_sha256,
       config_template_sha256: frozen.config_template_sha256,
       repository_head: frozen.repository_head,
+      collector_sha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))),
+      collector_repository_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
       reference_script_commit: config.reference_script_commit },
     files,
     dvc_stage: 'exp/sft-flash-next/train/dvc.yaml:reference_v0' };
+  fs.writeFileSync(path.join(local, 'collector-runner.mjs'), fs.readFileSync(fileURLToPath(import.meta.url)));
   fs.writeFileSync(path.join(local, 'runner-result.json'), JSON.stringify(record, null, 2) + '\n');
   fs.writeFileSync(path.join(local, 'file-hashes.json'), JSON.stringify(files, null, 2) + '\n');
   const metricsPath = path.join(repoRoot, config.local_metrics);
