@@ -1,5 +1,11 @@
 # Generating a teacher's hidden thinking with qwen3.8-flash
 
+For the full 25-game run with finalized generated history, durable resume,
+combined xhigh judges and the 120K student-input filter, use
+[`progressive.py`](progressive.py). Setup, validation and estimates:
+[progressive-sol25.md](../experiments/teacher-reasoning/progressive-sol25.md).
+The older DVC stages below remain the independent-request experiment pipeline.
+
 GPT-6.1 Sol plays the five public games far better than qwen3.8-flash
 ([exp/base-gpt61sol-5games.md](../exp/base-gpt61sol-5games.md), on branch
 `claude/game-reverse-eng-playing-b4a65f`), but its API returns only an

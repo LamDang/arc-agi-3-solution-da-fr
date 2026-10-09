@@ -1,0 +1,69 @@
+{
+  "checked_utc": "2026-10-08T18:14:12.189594+00:00",
+  "probe": "Reply with exactly OK.",
+  "models": [
+    {
+      "model": "qwen/qwen3.8-max-0902",
+      "available": true,
+      "provider": "Alibaba",
+      "response": "OK",
+      "seconds": 1.6,
+      "cost_usd": 0.000282,
+      "reasoning_required": true,
+      "reasoning_disabled_status": 400,
+      "context_length": 1000000,
+      "architecture": {
+        "modality": "text+image+video->text",
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Qwen",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000002",
+        "completion": "0.000006",
+        "input_cache_read": "0.00000025",
+        "input_cache_write": "0.0000025"
+      },
+      "http_429_retries": 0
+    },
+    {
+      "model": "qwen/qwen3.8-max-prime",
+      "available": true,
+      "provider": "Alibaba",
+      "response": "OK",
+      "seconds": 1.4,
+      "cost_usd": 0.000564,
+      "reasoning_required": true,
+      "reasoning_disabled_status": 400,
+      "context_length": 1000000,
+      "architecture": {
+        "modality": "text+image+video->text",
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Qwen",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000004",
+        "completion": "0.000012",
+        "input_cache_read": "0.0000005"
+      },
+      "http_429_retries": 0
+    }
+  ],
+  "total_cost_usd": 0.0008460000000000001,
+  "production_model_changed": false
+}
