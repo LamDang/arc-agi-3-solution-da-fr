@@ -1,0 +1,18 @@
+{
+  "name": "reference_repeat",
+  "flags": {
+    "name": "reference_repeat"
+  },
+  "completed": true,
+  "loss": 0.6247151494026184,
+  "passed": false,
+  "bitwise_equal": false,
+  "relative_l2": 0.011266620967619302,
+  "failed_tensors": 366,
+  "routes_equal": true,
+  "loss_matches": true,
+  "elapsed_seconds": 269.1821710600052,
+  "peak_allocated_gib": 85.0771107673645,
+  "peak_reserved_gib": 85.6484375,
+  "offload_stats": null
+}

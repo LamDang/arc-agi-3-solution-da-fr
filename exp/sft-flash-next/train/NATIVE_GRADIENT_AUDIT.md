@@ -61,7 +61,19 @@ Raw tensors are retained in the shared workspace at
 `/workspace/quant-compat-audit/native-gradient-audit/native-first-pass/gradients.pt`
 and on Kaggle at `gradient-audit-20261009/native-first-pass/gradients.pt`.
 
-Optimization comparisons are running; results remain pending.
+The unchanged native replay **failed** the strict numerical gate before any
+optimization ran: relative L2 error **0.01126662097 (1.1267%)**, with **366 of
+744 tensors** outside tolerance. Both losses are exactly `0.6247151494026184`.
+All zero A gradients agree; only six B gradients are bitwise equal, all in the
+last layer. Differences generally grow towards earlier layers. Full per-tensor
+reports are in [`gradient-results/native-repeat-default`](gradient-results/native-repeat-default).
+The raw `routes_equal: true` field is the replay's self-baseline for subsequent
+flags, **not** a comparison against the original capture, which saved no routes.
+The runner now reports this unavailable comparison as null.
+
+No optimization was certified or run after the failed native replay. A separate
+unchanged-model deterministic two-pass diagnostic is running. Its results will
+establish whether deterministic settings remove the baseline variation.
 Neither this implementation nor the prior capacity runs certify full-context
 gradient equivalence. A 16K comparison cannot directly prove equality at 130K;
 full-context execution is a subsequent capacity and boundary-behavior check.

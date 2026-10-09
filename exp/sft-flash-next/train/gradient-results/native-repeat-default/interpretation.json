@@ -1,0 +1,7 @@
+{
+  "optimization_flags_run": 0,
+  "native_replay_passed": false,
+  "routing_against_original_capture": "not measured; original capture has no routes",
+  "routes_equal_field": "self-baseline used for subsequent candidate comparisons; not independent routing evidence",
+  "next_diagnostic": "unchanged native repeated backwards with deterministic PyTorch algorithms and CUBLAS_WORKSPACE_CONFIG=:4096:8"
+}

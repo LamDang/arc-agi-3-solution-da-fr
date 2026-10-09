@@ -141,11 +141,13 @@ def main():
             metric=compare(gradients,reference,rtol=args.rtol,atol=args.atol)
             torch.save(gradients,case/'gradients.pt');write(case/'comparison.json',metric)
             write(case/'routes.json',routes)
+            # The original first-pass capture did not save routes. Do not
+            # report the first replay's self-baseline as independent agreement.
+            route_match=None if baseline_routes is None else routes==baseline_routes
             if name=='reference_repeat':baseline_routes=dict(routes)
-            route_match=baseline_routes is not None and routes==baseline_routes
             loss_match=abs(value-reference_result['measured_loss']) <= args.atol+args.rtol*abs(reference_result['measured_loss'])
             result=dict(name=name,flags=flags,completed=True,loss=value,
-                passed=metric['within_tolerance'] and route_match and loss_match,
+                passed=metric['within_tolerance'] and route_match is not False and loss_match,
                 bitwise_equal=metric['bitwise_equal'],relative_l2=metric['relative_l2'],
                 failed_tensors=metric['failed_tensors'],routes_equal=route_match,loss_matches=loss_match,
                 elapsed_seconds=time.monotonic()-started,
