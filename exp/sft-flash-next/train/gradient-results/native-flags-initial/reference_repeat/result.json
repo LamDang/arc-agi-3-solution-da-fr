@@ -1,0 +1,16 @@
+{
+  "name": "reference_repeat",
+  "flags": {
+    "name": "reference_repeat"
+  },
+  "completed": true,
+  "passed": true,
+  "bitwise_equal": true,
+  "relative_l2": 0.0,
+  "failed_tensors": 0,
+  "loss": 0.6247151494026184,
+  "loss_matches": true,
+  "routes_equal": null,
+  "reused_from": "/kaggle/working/gradient-audit-20261009/native-flag-audit-deterministic-v2/reference_repeat",
+  "gradients_sha256": "29d3003debd568776372049edeb4b009b824d40e3dda50a66d3cb18a1688f632"
+}

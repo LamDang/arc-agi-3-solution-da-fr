@@ -131,6 +131,38 @@ settings, model path and operator-source hashes. Reused measurements are
 explicitly labeled with their source; they are not represented as new runs.
 The resumed sweep is `native-flag-audit-deterministic-v3`.
 
+### Measured isolated flags in the resumed sweep
+
+These measurements use the 16,249-token real sample (15,598 prompt tokens,
+651 supervised tokens), the unchanged initial adapter, and the deterministic
+native reference. They are not full-context capacity results.
+
+| Flag | Gradient relative L2 | Failing tensors | Peak GPU allocation | Step time | Decision |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Target-only logits | 0.01216609 | 372 / 744 | 58.52 GiB | 331.35 s | Rejected |
+| Chunked loss, 128 tokens | 0.01195724 | 372 / 744 | 58.52 GiB | 323.05 s | Rejected |
+| Native mask storage | 0 | 0 / 744 | 84.89 GiB | 330.75 s | Bitwise pass |
+| Selective CPU offload | 0 | 0 / 744 | 85.13 GiB | 325.94 s | Bitwise pass |
+
+Target-only logits retains the complete decoder context, but computes the
+vocabulary projection only at positions with supervised next-token labels.
+The vocabulary has 248,320 entries: a full BF16 logits tensor occupies about
+7.52 GiB for this sample, versus 0.30 GiB for the supervised positions. Native
+cross-entropy also creates FP32 tensors, so avoiding ignored logits saves
+considerably more than the BF16 tensor alone. The measured memory saving does
+not qualify the optimization: all 372 nonzero B gradients fail the strict
+gate. The 372 A gradients are exactly zero at initialization. The source of
+the numerical discrepancy is still under investigation.
+
+The mask-storage and selective CPU-offload cases preserve every adapter gradient
+bit for bit. All four
+cases match the native replay's **MoE routing hashes**; these hashes do not
+independently compare QSA-selected attention indices. Before a recipe is
+qualified for continued training, it also needs a native-reference comparison
+using a saved trained adapter with nonzero A and B matrices. Combined flags,
+disk offload and checkpoint candidates remain under test. Compact measurement
+reports are saved in [`gradient-results/native-flags-initial`](gradient-results/native-flags-initial).
+
 ## Full-context capacity gate
 
 `native_full_context_probe.py` refuses an unaccepted recipe, changed operator
