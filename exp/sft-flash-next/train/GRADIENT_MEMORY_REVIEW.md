@@ -1,5 +1,31 @@
 # Gradient evidence and memory implications (2026-10-09)
 
+## Latest measured target-mask result
+
+`target-mask-v1` supersedes the earlier lack of a complete-model head pass
+below. With the pinned **nonzero A/B** fixture, the 16K native loss and every
+one of the 744 raw adapter gradients match bitwise. GPU allocated peaks:
+forward 49.775 GiB and backward 58.523 GiB, versus 77.802 / 85.100 GiB for v0.
+Backward sampled CPU RSS: 129.273 GiB versus 147.794 GiB. Training phase time:
+333.606 s versus 336.492 s (one comparison, no demonstrated slowdown).
+
+The mask supports arbitrary interleaved targets. Mean and summed CE with four
+separated spans passed exact CUDA loss/hidden-gradient checks using the actual
+head and full 16K hidden shape. Native NLL reduction positions are retained
+with a tiny T-by-1 buffer; only target rows have logits/log-probabilities.
+Two actual FP32 CPU saves have shape [651,248320], 0.602 GiB each. The head
+backward retains its native full-context BF16 scratch. Model loading is
+unchanged and still dominates overall host RSS. See `v1.md` and
+`metrics/target-mask-v1.json` for complete definitions and evidence.
+
+This qualifies the measured anchor and interleaved operator cases. The separate
+all-assistant production gate still requires its own real multi-span sample,
+native replay and complete-model candidate gradients. This first optimization
+alone cannot fit the largest 130K trajectory: the approximately 59.745 GiB
+backward scratch plus 39.35 GiB resident model already exceeds this GPU's
+capacity, before other allocations. Bounded CE and smaller backward storage
+remain separate unqualified next changes.
+
 ## Scope of the existing evidence
 
 The real-model reference sample contains 16,249 tokens, 651 final-reply

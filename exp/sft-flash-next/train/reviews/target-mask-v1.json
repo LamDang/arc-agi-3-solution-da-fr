@@ -1,0 +1,29 @@
+{
+  "reviewer": "root",
+  "method": "Independent restricted metadata decode and raw FP32 storage verification without PyTorch",
+  "raw_tensors_verified": 744,
+  "finite_tensors": 744,
+  "nonzero_tensor_counts": {
+    "A": 372,
+    "B": 372
+  },
+  "all_names_shapes_dtypes_match": true,
+  "all_nonzero_max_norm_statistics_match": true,
+  "global_gradient_norm_fp64": 0.8552427610965087,
+  "gradients_sha256": "91465990e81dd57bb29368510354674415c1f1d8bbbaba5225b62fdf4a8cced2",
+  "loss": 0.6256952285766602,
+  "loss_float32_bits": "3f202d90",
+  "full_gradient_archive_bytes_equal": true,
+  "all_download_hashes_verified": true,
+  "interleaved_operator_raw_gradients_verified": true,
+  "interleaved_operator_mean_sum_exact": true,
+  "private_server_url_absent": true,
+  "target_vocab_cpu_saved_calls": 2,
+  "target_vocab_cpu_saved_call_bytes": 1293250560,
+  "execution_commit": "fdc894afccebb7ef8e33f5e4a27233e9e6735cc1",
+  "dvc_checkout_all_files_byte_equal": true,
+  "dvc_restored_files": 52,
+  "dvc_artifact_tree_md5": "14648081d64df7c4c454936cb1cc3a29.dir",
+  "interleaved_fixture_hidden_hash_verified": true,
+  "interleaved_fixture_label_spans_verified": true
+}

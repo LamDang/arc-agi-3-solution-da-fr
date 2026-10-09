@@ -6,7 +6,7 @@ import torch
 from dataset import file_hash
 from native_gradient_compare import compare, OPERATOR_SOURCES
 
-TRAJECTORY_SOURCES = (*OPERATOR_SOURCES, 'trajectory_head_loss.py',
+TRAJECTORY_SOURCES = (*OPERATOR_SOURCES, 'trajectory_head_loss.py', 'target_only_head.py',
                       'trajectory_training.py', 'trajectory_checkpoints.py',
                       'trajectory_run.py', 'trajectory_encode.py', 'trajectory_data.py',
                       'trajectory_gradient_gate.py', 'trajectory_gradient_audit.py',

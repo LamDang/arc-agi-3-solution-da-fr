@@ -2,6 +2,25 @@
 
 This section supersedes the original immediate-action instructions below.
 
+* **Latest optimization:** `target-mask-v1` passed. Native loss
+  `0.6256952285766602` and all 744 gradient archive bytes match exactly,
+  including all nonzero A/B tensors. Forward/backward: 116.259 / 217.347 s;
+  GPU allocated peaks 49.775 / 58.523 GiB; sampled CPU RSS peaks
+  129.063 / 129.273 GiB. `v1.md` and the `v0.md` table record the result.
+  The target-mask module handles arbitrary interleaved labels, preserves the
+  native reduction positions using a tiny T-by-1 NLL buffer, and retains a
+  full-shaped native head backward scratch. Two CPU-packed FP32 vocabulary
+  matrices have 651 rows each, rather than 16,249 rows.
+* Interleaved synthetic CUDA operator checks passed bitwise mean/sum loss and
+  raw hidden gradients on four separated spans at 16K. Eight CPU target-mask
+  tests and eight runner/worker tests passed. This plus the complete-model
+  anchor pass does not bypass the independent all-assistant production gate.
+  Its source identity now includes `target_only_head.py`.
+* The `target_mask_v1` stage/config saves all raw operator and adapter gradients
+  through Kaggle Jupyter. `reference_v0` is frozen to retain its accepted
+  snapshot while shared runner code evolves. No additional optimization or
+  optimizer-update run has been started; discuss the next change with the user.
+
 * **Latest user instruction:** the primary agent now executes all work directly;
   do not use or restart subagents. Use the Kaggle Jupyter API, without computer
   use.

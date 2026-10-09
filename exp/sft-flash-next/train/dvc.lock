@@ -41,3 +41,56 @@ stages:
       hash: md5
       md5: a823b8a599d257f7036863ad93a425e6
       size: 3424
+  target_mask_v1:
+    cmd: node kaggle_reference_run.mjs --config configs/target-mask-v1.json
+    deps:
+    - path: configs/target-mask-v1.json
+      hash: md5
+      md5: c4b67c9ad46df7ba99514280057eef4e
+      size: 2202
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      hash: md5
+      md5: 20370b16cedbe79d02ae905d86980f94
+      size: 134192587
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/result.json
+      hash: md5
+      md5: de43732b505637a5ba69385effa7110f
+      size: 669
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: 9949b46c0e1d4472fcdd575942293fb5
+      size: 22719
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: b1f42273974af4da7b425015d000f9e2
+      size: 16815
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    - path: target_mask_operator_check.py
+      hash: md5
+      md5: 49150d75ee09b4522cb1ff80160325ec
+      size: 5003
+    - path: target_only_head.py
+      hash: md5
+      md5: a7d5f75bc5d055d558be64d0e1c07dc6
+      size: 8936
+    - path: trajectory_head_loss.py
+      hash: md5
+      md5: 4707008a4bf9f67402dd4b64de86164f
+      size: 5100
+    outs:
+    - path: gradient-results/target-mask-v1
+      hash: md5
+      md5: 14648081d64df7c4c454936cb1cc3a29.dir
+      size: 1365074831
+      nfiles: 52
+    - path: metrics/target-mask-v1.json
+      hash: md5
+      md5: 8996678c9531be44a1c9f2769e3f5044
+      size: 6358
