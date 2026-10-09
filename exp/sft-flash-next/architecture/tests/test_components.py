@@ -60,6 +60,40 @@ class ComponentsTests(unittest.TestCase):
         b = torch.autograd.grad(reference,hidden)[0]
         self.assertTrue(torch.equal(a,b))
 
+    def test_direct_bias_preserves_native_selection_and_sdpa(self):
+        import torch
+        from types import SimpleNamespace
+        from transformers.models.qwen4_exp import modeling_qwen4_exp as native
+        from components.attention import DirectBiasIndexer,LazyCausalMask
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+        cfg=SimpleNamespace(indexer_n_heads=2,indexer_kv_heads=1,indexer_head_dim=16,
+            indexer_budget=8,indexer_compress_ratio=4,hidden_size=32,rms_norm_eps=1e-6)
+        with torch.random.fork_rng(devices=[0] if device=='cuda' else []):
+            torch.manual_seed(20261012)
+            for dtype in (torch.bfloat16,torch.float32):
+                for tokens in (3,4,9,33):
+                    original=native.Qwen4ExpTextQSAIndexer(cfg,0).to(device=device,dtype=dtype)
+                    candidate=DirectBiasIndexer(cfg,0).to(device=device,dtype=dtype)
+                    candidate.load_state_dict(original.state_dict())
+                    hidden=torch.randn(1,tokens,32,device=device,dtype=dtype)
+                    angles=torch.randn(1,tokens,16,device=device,dtype=dtype)
+                    causal=torch.ones(1,1,tokens,tokens,device=device,dtype=torch.bool).tril()
+                    selected=original(hidden,(angles.cos(),angles.sin()),causal,None)
+                    bias=candidate(hidden,(angles.cos(),angles.sin()),LazyCausalMask(tokens,hidden.device),None)
+                    allowed=causal & selected
+                    self.assertTrue(torch.equal(bias==0,allowed))
+                    self.assertTrue(bool(torch.isneginf(bias[~allowed]).all()))
+                    self.assertFalse(bool((selected & ~causal).any()))
+                    qkv=[torch.randn(1,2,tokens,16,device=device,dtype=dtype) for _ in range(3)]
+                    outputs=[];gradients=[]
+                    for mask in (allowed,bias):
+                        q,k,v=[x.detach().clone().requires_grad_() for x in qkv]
+                        y=torch.nn.functional.scaled_dot_product_attention(q,k,v,attn_mask=mask)
+                        outputs.append(y.detach())
+                        gradients.append(torch.autograd.grad(y.float().square().sum(),(q,k,v)))
+                    self.assertTrue(torch.equal(outputs[0],outputs[1]))
+                    self.assertTrue(all(torch.equal(a,b) for a,b in zip(*gradients)))
+
     def test_bf16_residual_preserves_fp32_auxiliary_coefficient(self):
         import torch
         from components.precision import BF16Boundary

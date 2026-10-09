@@ -1,0 +1,97 @@
+"""Review preserved candidate metrics and identity; candidates retain no raw gradients.
+
+Checks source/input hashes and internally consistent all-tensor comparison reports.
+It cannot independently recompute candidate gradients after their requested deletion.
+"""
+import argparse
+from collections import Counter
+import hashlib
+import json
+import math
+from pathlib import Path
+
+ROOT=Path(__file__).resolve().parents[1]
+REFERENCE=ROOT/'results/20261009221135477-25bf58fe'
+
+
+def sha(path):
+    with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+
+
+def read(path):return json.loads(Path(path).read_text())
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
+    job=Path(args.attempt).resolve();out=job/'output'
+    config=read(job/'config.json');result=read(out/'result.json');monitor=read(job/'monitor.json')
+    comparison=read(out/'comparison.json');initial=read(out/'initial-comparison.json')
+    summary=read(out/'gradient-summary.json');reference=read(REFERENCE/'output/gradient-summary.json')
+    opt=config['optimizations'];head=opt['head'];bias=opt['direct_attention_bias']
+    label={('target',False):'Opt1',('cce_exact',False):'Opt2',('cce_exact',True):'Opt3'}[(head,bias)]
+    assert monitor['returncode']==0 and not monitor['timed_out']
+    assert config['architecture']=='optimized' and config['diagnostic_initialization']
+    for key in ['bf16_activations','disk_ple','offload_routed_experts','lora_routed_experts']:assert opt[key] is True
+    for key in ['bf16_lora','liger_rmsnorm','liger_swiglu']:assert not opt.get(key,False)
+    assert result['tokens']==16249 and result['targets']==651
+    assert result['optimizer_updates']==0 and not result['clipping_applied']
+    assert result['raw_gradient_tensors']==74472 and result['all_finite']
+    assert result['gradient_dtypes']==result['parameter_dtypes']=={'torch.float32':74472}
+    assert result['trainable_parameter_devices']=={'cuda':744,'cpu':73728}
+    assert result['raw_gradients_retained'] is False and result['gradient_archive'] is None
+    assert not (out/'gradients').exists() and not list(out.glob('gradients*.pt'))
+    assert not (out/'initial-adapter').exists() and not (out/'initial-adapter.pt').exists()
+    assert initial['passed'] and initial['raw_tensors']==initial['bitwise_equal_tensors']==74472
+    assert initial['baseline_initial_sha256']==sha(REFERENCE/'output/initial-adapter-manifest.json')
+    assert comparison['baseline_gradients_sha256']==sha(REFERENCE/'output/gradients-manifest.json')
+    assert comparison['loss']==result['loss'] and comparison['baseline_loss']==read(REFERENCE/'output/result.json')['loss']
+    assert comparison['raw_tensors']==len(summary)==len(reference)==74472
+    rows=comparison['tensors'];assert set(rows)==set(summary)==set(reference)
+    exact=sum(r['bitwise_equal'] for r in rows.values());nonzero=sum(not r['reference_zero'] for r in rows.values())
+    assert exact==comparison['bitwise_equal_tensors']
+    assert nonzero==comparison['nonzero_reference_tensors']==74394
+    assert comparison['bitwise_equal_nonzero_reference_tensors']==sum(r['bitwise_equal'] and not r['reference_zero'] for r in rows.values())
+    aa=bb=ee=0.
+    for name,row in rows.items():
+        a,b=reference[name],summary[name]
+        assert a['shape']==b['shape'] and row['finite'] and b['finite']
+        assert a['dtype']==b['dtype']=='torch.float32'
+        assert row['reference_zero']==(a['nonzero']==0) and row['candidate_zero']==(b['nonzero']==0)
+        norm=a['norm']**2;other=b['norm']**2
+        aa+=norm;bb+=other;ee+=norm*row['relative_l2']**2 if norm else other
+    assert math.isclose(comparison['global_relative_l2'],math.sqrt(ee/aa),rel_tol=1e-9,abs_tol=1e-12)
+    assert math.isclose(comparison['cosine'],(aa+bb-ee)/(2*math.sqrt(aa*bb)),rel_tol=1e-9,abs_tol=1e-12)
+    assert result['iso_verified']==comparison['passed']==(exact==74472 and comparison['loss_bitwise_equal'])
+    for name,digest in read(job/'source-hashes.json').items():assert sha(job/'source'/name)==digest,name
+    provenance=read(out/'provenance.json');assert provenance['script_commit']==config['dispatch_commit']
+    assert provenance['model_config_sha256']==config['expected_sha256']['model_config']
+    for name,digest in provenance['source_hashes'].items():assert sha(out/'sources'/name)==sha(job/'source'/name)==digest,name
+    for original,row in provenance['archived_inputs'].items():assert sha(out/row['path'])==row['sha256']==config['expected_sha256']['sample']
+    staged=read(out/'expert-prefetch.json');assert staged['max_staged_layers']<=2
+    executes=[r for r in staged['records'] if r['event']=='execute']
+    assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))
+    assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))
+    assert all(r['activation_dtype']=='torch.bfloat16' for r in executes)
+    components=Counter(r['implementation'] for r in read(out/'components.json'))
+    assert components['CPUBF16Experts']==48 and components['BF16Decoder']==48
+    assert not any('Liger' in name for name in components)
+    if bias:assert components['DirectBiasIndexer']>0 and components['DirectBiasTextModel']==1
+    else:assert not any('DirectBias' in name for name in components)
+    resources=read(out/'resources.json');phases={r['phase']:r for r in resources}
+    for phase in ['forward','backward','gradient_export','gradient_comparison','initialization_verification']:
+        row=phases[phase];assert row['seconds']>0 and row['samples']>0 and row['tree_pss_bytes']>0
+    report=dict(evidence_checks_passed=True,attempt=job.name,optimization=label,execution_commit=config['dispatch_commit'],
+        loss=result['loss'],reference_loss=comparison['baseline_loss'],loss_relative_change=comparison['loss_relative_change'],
+        loss_bitwise_equal=comparison['loss_bitwise_equal'],gradient_relative_l2=comparison['global_relative_l2'],gradient_cosine=comparison['cosine'],
+        bitwise_equal_gradients=exact,gradient_tensors=74472,nonzero_reference_tensors=nonzero,
+        bitwise_equal_nonzero_reference_gradients=comparison['bitwise_equal_nonzero_reference_tensors'],
+        all_finite=True,initialization_bitwise_equal=True,raw_candidate_gradients_retained=False,optimizer_updates=0,
+        numerical_bitwise_match=comparison['passed'],acceptance_tolerance=None,resources=resources,
+        scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False)
+    (ROOT/'reports'/f'{label.lower()}-rerun.json').write_text(json.dumps(report,indent=2)+'\n')
+    inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
+    (job/'file-hashes.json').write_text(json.dumps(inventory,indent=2)+'\n')
+    print(json.dumps({k:v for k,v in report.items() if k!='resources'},indent=2))
+
+
+if __name__=='__main__':main()
