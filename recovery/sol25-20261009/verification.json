@@ -1,0 +1,18 @@
+{
+  "verified": true,
+  "parts_read_back": 109,
+  "parts_tree_sha": "9a81a59e838f0f88cb0927d5015d54f208fabd9c",
+  "method": "Every remote encoded part matched local source byte-for-byte. Committed tree hashes and metadata matched the manifest. Local reconstruction of identical encoded parts matched full-file SHA-256 checksums.",
+  "reconstruction_sha256": {
+    "sol25-handoff-20261009.tar.zst": "84421cf8d1ca0beea3e7fcc8ac6fedfe887d6e8162d68f14948090549c861cd6",
+    "sol25-code-delta-20261009.bundle": "e922f5af822c4884a24eb0a9ea1dae286bc05fd60583ae08ac3c4f9076783cb4"
+  },
+  "archive_integrity": "zstd -t passed",
+  "code_bundle": "git bundle verify passed; required base commit confirmed on GitHub",
+  "archive_checkpoint_counts": {
+    "attempts": 4591,
+    "stages": 4342,
+    "finals": 1004
+  },
+  "archive_checkpoints_match_live": true
+}
