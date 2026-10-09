@@ -1,6 +1,11 @@
 # Progressive thinking generation for the 25 Sol games
 
-Status (2026-10-09 04:41 UTC): **1,004/1,334 turns finalized** across 25 games;
+Final release (2026-10-09 10:07 UTC): **1,334/1,334 turns finalized** across all
+25 games, with 1,324 training samples. See the
+[full dataset verification and exploratory analysis](progressive-sol25-exploration.md)
+for exact input/output token counts and length distributions.
+
+Historical status (2026-10-09 04:41 UTC): **1,004/1,334 turns finalized** across 25 games;
 999 are eligible training targets and five exceed the 120,000-token input limit.
 Sixteen games have finished. The resumable driver is stopped while a provider
 connectivity failure is investigated; the **$300 guard** remains in force.
