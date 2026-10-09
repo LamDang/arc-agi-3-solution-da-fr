@@ -1,3 +1,23 @@
+# Opt1–3 reruns complete — 2026-10-10
+
+* Active single statistics table: `../architecture/v0.md`. It contains reference
+  and all three experiments: numerical comparison plus every recorded phase's
+  timing, GPU allocated/reserved peaks, RAM RSS/PSS/child/host peaks and samples.
+* All runs use the exact all-expert reference initialization: 74,472 FP32 tensors,
+  BF16 activation ports, CPU expert prefetch and disk PLE; 16,249 tokens/651 targets.
+* Opt1 target-only logits: loss0.6244627833366394, all74,472 gradients bitwise exact.
+* Opt2 CCE exact, filters disabled: loss0.624378502368927; gradient relative L2
+  1.7518938458%, cosine0.9998468513 vs reference. Finite, not bitwise identical.
+* Opt3 CCE exact + direct bias: loss0.6243786215782166; gradient relative L2
+  1.7842227037%, cosine0.9998408553 vs reference. Finite, not bitwise identical.
+* Direct native/indexer/SDPA fixtures passed eight BF16/FP32 cases. Opt3's full
+  comparison includes CCE; do not attribute all full-model drift to mask storage.
+* Opt4–6 are dropped as separate experiments. Reference PLE/precision settings
+  remain required; BF16 LoRA masters and Liger RMSNorm/SwiGLU are disabled.
+* Zero optimizer updates/clipping. No candidate raw gradient or duplicate initial
+  archive retained; only comparison metrics. Local DVC cache verified by SHA256.
+* No further experiment started. No Git or DVC push. See reviewed rerun JSONs.
+
 # Gradient retention — latest user instruction (2026-10-10)
 
 * Keep raw full-sample gradients only for current all-expert reference

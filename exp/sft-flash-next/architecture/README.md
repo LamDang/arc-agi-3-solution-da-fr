@@ -152,3 +152,11 @@ Each config pins the current reference's gradient and initial-state manifests;
 every initial tensor must match before forward/backward. Candidate initial
 states are compared rather than duplicated on disk. Reference shards are
 verified and streamed one at a time. Raw candidate gradients are never saved.
+
+The consolidated result table is [v0.md](v0.md): every recorded phase's timing,
+GPU allocation/reservation, RAM RSS/PSS/child/host counters, total wall time,
+loss change and gradient L2/cosine/bitwise matches appear in this one table.
+Opt1 matches all 74,472 reference gradients bitwise. Opt2 and Opt3 complete with
+finite gradients but have 1.751894% and 1.784223% relative L2 differences against
+the reference. Direct-bias operator fixtures pass; the full Opt3 result includes
+CCE and does not separately prove full-model mask equivalence.

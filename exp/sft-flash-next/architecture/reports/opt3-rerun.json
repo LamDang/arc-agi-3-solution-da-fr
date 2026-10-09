@@ -1,0 +1,93 @@
+{
+  "evidence_checks_passed": true,
+  "attempt": "20261009231306812-e88f0f30",
+  "optimization": "Opt3",
+  "execution_commit": "67af4322bc32609e047a5fec11207772bec1c26c",
+  "loss": 0.6243786215782166,
+  "reference_loss": 0.6244627833366394,
+  "loss_relative_change": -0.00013477465858438692,
+  "loss_bitwise_equal": false,
+  "gradient_relative_l2": 0.017842227037243096,
+  "gradient_cosine": 0.9998408552616926,
+  "bitwise_equal_gradients": 79,
+  "gradient_tensors": 74472,
+  "nonzero_reference_tensors": 74394,
+  "bitwise_equal_nonzero_reference_gradients": 1,
+  "all_finite": true,
+  "initialization_bitwise_equal": true,
+  "raw_candidate_gradients_retained": false,
+  "optimizer_updates": 0,
+  "numerical_bitwise_match": false,
+  "direct_bias_operator_checks_passed": true,
+  "acceptance_tolerance": null,
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 232.167869744997,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94611963904,
+      "tree_pss_bytes": 95163490304,
+      "children_rss_bytes": 1179627520,
+      "host_used_bytes": 46406430720,
+      "samples": 311
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 9.373495513005764,
+      "cuda_peak_allocated_bytes": 10931468800,
+      "cuda_peak_reserved_bytes": 11148460032,
+      "rss_bytes": 94769078272,
+      "tree_pss_bytes": 95321665536,
+      "children_rss_bytes": 999129088,
+      "host_used_bytes": 46261751808,
+      "samples": 14
+    },
+    {
+      "phase": "forward",
+      "seconds": 138.0103096640014,
+      "cuda_peak_allocated_bytes": 18232043520,
+      "cuda_peak_reserved_bytes": 19327352832,
+      "rss_bytes": 115896852480,
+      "tree_pss_bytes": 116449370112,
+      "children_rss_bytes": 999129088,
+      "host_used_bytes": 67156971520,
+      "samples": 152
+    },
+    {
+      "phase": "backward",
+      "seconds": 219.51916933600296,
+      "cuda_peak_allocated_bytes": 29447464960,
+      "cuda_peak_reserved_bytes": 29817307136,
+      "rss_bytes": 115914022912,
+      "tree_pss_bytes": 116466540544,
+      "children_rss_bytes": 999129088,
+      "host_used_bytes": 67174191104,
+      "samples": 272
+    },
+    {
+      "phase": "gradient_export",
+      "seconds": 4.8898818110028515,
+      "cuda_peak_allocated_bytes": 11102735872,
+      "cuda_peak_reserved_bytes": 29817307136,
+      "rss_bytes": 103605645312,
+      "tree_pss_bytes": 104158117888,
+      "children_rss_bytes": 999129088,
+      "host_used_bytes": 55123218432,
+      "samples": 8
+    },
+    {
+      "phase": "gradient_comparison",
+      "seconds": 18.36949487899983,
+      "cuda_peak_allocated_bytes": 11101359616,
+      "cuda_peak_reserved_bytes": 29817307136,
+      "rss_bytes": 103662059520,
+      "tree_pss_bytes": 104214532096,
+      "children_rss_bytes": 999129088,
+      "host_used_bytes": 55116750848,
+      "samples": 25
+    }
+  ],
+  "scope": "Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.",
+  "pushed_to_remote": false
+}

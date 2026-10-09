@@ -1,40 +1,67 @@
-"""Render the active v0 table from the verified reference and rerun summaries."""
+"""One consolidated table: numerical comparisons and every recorded phase counter."""
 import json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
-ref=json.loads((ROOT/'reports/reference.json').read_text());g=2**30
-lines=['# v0 — current all-expert reference and Opt1–3', '',
-'Anchor:16,249 tokens,651 targets,7 images. Test-only nonzero A/B initialization;',
-'74,472 FP32 LoRA tensors, including all routed experts. BF16 activation ports,',
-'CPU expert prefetch and disk PLE are fixed reference settings. No optimizer',
-'updates or clipping. Opt4–6 are dropped as separate experiments.', '',
-'| Run | Loss | Gradient difference vs reference (relative L2) | Bitwise matching tensors | F/B seconds | F/B GPU allocated GiB | F/B RAM tree PSS GiB |',
-'| --- | ---: | ---: | ---: | ---: | ---: | ---: |']
-def metrics(rows):
- phases={r['phase']:r for r in rows};a,b=phases['forward'],phases['backward']
- return f"{a['seconds']:.2f} / {b['seconds']:.2f}",f"{a['cuda_peak_allocated_bytes']/g:.3f} / {b['cuda_peak_allocated_bytes']/g:.3f}",f"{a['tree_pss_bytes']/g:.3f} / {b['tree_pss_bytes']/g:.3f}"
-time,gpu,ram=metrics(ref['resources']);lines.append(f"| Reference | {ref['loss']:.10f} | — | — | {time} | {gpu} | {ram} |")
+read=lambda p:json.loads(Path(p).read_text())
+ref=read(ROOT/'reports/reference.json');g=2**30
+columns=['Run / total wall s','Loss (change vs ref)','Gradient relative L2 / cosine',
+    'Bitwise matches: all / nonzero','Phase','Seconds','GPU allocated / reserved GiB',
+    'RAM parent RSS / tree PSS GiB','RAM child RSS / host-used GiB','RAM samples']
+lines=['# v0 — current all-expert reference and Opt1–3','',
+'Anchor: 16,249 tokens, 651 targets, 7 images; exact test-only nonzero A/B initialization.',
+'All 74,472 LoRA tensors remain FP32, including all routed experts. BF16 activation',
+'ports, CPU expert prefetch and disk PLE are fixed reference settings. Every',
+'completed run has finite gradients, zero optimizer updates and no clipping.',
+'Opt4–6 are dropped as separate experiments.',
+'Each run has 1,920,915,456 trainable parameters: FP32 masters and gradients',
+'are 7.155968 GiB each. There are 744 CUDA and 73,728 CPU parameter tensors.',
+'Expert staging is bounded to two layers; all observed expert inputs are BF16.','',
+'**One table contains the run comparisons and every measured phase statistic.**',
+'Run-level loss/gradient results appear once on the first row of each experiment.',
+'Bitwise match denominators are 74,472 overall and 74,394 nonzero reference tensors.',
+'Each paired memory cell follows the order in its column heading.','',
+'| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*3+['---']+['---:']*5)+' |']
 reports=[]
+cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
 for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
- if not path.exists():
-  lines.append(f'| {label} | pending | pending | pending | pending | pending | pending |');continue
- r=json.loads(path.read_text());reports.append(r);time,gpu,ram=metrics(r['resources'])
- lines.append(f"| {label} | {r['loss']:.10f} | {r['gradient_relative_l2']:.6%} | {r['bitwise_equal_gradients']:,} /74,472 | {time} | {gpu} | {ram} |")
-lines+=['', 'RAM is sampled process-tree PSS; GPU is synchronized allocator allocated peak.',
-'Full JSON retains reserved GPU, parent RSS, child RSS, host-used RAM, all phases',
-'and per-tensor comparison metrics. No AdamW state or130K capacity measurement.', '',
+ if path.exists():
+  r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
+ else:cases.append((label,None,None,False))
+for label,r,monitor,is_ref in cases:
+ if r is None:
+  lines.append('| '+' | '.join([label]+['pending']*9)+' |');continue
+ wall=read(monitor)['seconds']
+ for index,row in enumerate(r['resources']):
+  phase=row['phase'];phase=f'**{phase}**' if phase in ('forward','backward') else phase
+  prefix=['','','','']
+  if index==0:
+   prefix=[f'{label}<br>wall {wall:.2f}',f"{r['loss']:.10f}"+(' (reference)' if is_ref else f" ({r['loss_relative_change']:+.6%})"),
+       '—' if is_ref else f"{r['gradient_relative_l2']:.6%} / {r['gradient_cosine']:.10f}",
+       '—' if is_ref else f"{r['bitwise_equal_gradients']:,} / {r['bitwise_equal_nonzero_reference_gradients']:,}"]
+  values=prefix+[phase,f"{row['seconds']:.3f}",
+       f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
+       f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
+       f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  assert len(values)==len(columns)
+  lines.append('| '+' | '.join(values)+' |')
+lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved includes cache.',
+'RAM peaks are sampled, not exact allocator peaks. Tree PSS includes the worker;',
+'host-used is a distinct psutil system counter with different cache/mapping accounting.',
+'Loading, initialization verification, gradient export and gradient comparison are',
+'separate from forward/backward. Total wall also includes startup and teardown.',
+'Timings are single captures and can include compilation/cache effects. No AdamW',
+'state or 130K capacity measurement is included.','',
 'All candidates compare directly with the same saved native-head reference.',
 'Opt3 includes CCE, so its difference from reference cannot be attributed solely',
 'to mask construction. Small native/direct-bias selection and SDPA forward/',
-'backward fixtures are checked independently before the Opt2/Opt3 model passes.', '',
+'backward fixtures passed independently before the Opt2/Opt3 model passes.','',
 'Only reference raw gradients are retained. Candidates keep comparisons and',
-'statistics, with exact initialization verified against reference shards. Their',
-'raw gradients and duplicate initial-state archives are never written. No',
-'acceptance tolerance is invented; bitwise matches and numerical drift are',
-'reported explicitly. No Git or DVC push.', '', '## Run identities', '',
-f"- Reference `{ref['attempt']}`, execution `{ref['execution_commit']}`."]
+'statistics, with exact initialization verified against reference shards. Raw',
+'candidate gradients and duplicate initial-state archives are never written.',
+'No acceptance tolerance is invented; numerical drift is reported explicitly.',
+'All attempt files are SHA256 inventoried and cached in local DVC. No pushes.','',
+'## Run identities','',f"- Reference `{ref['attempt']}`, execution `{ref['execution_commit']}`."]
 for r in reports:
- lines.append(f"- {r['optimization']} `{r['attempt']}`, execution `{r['execution_commit']}`; evidence checks passed. All gradients finite; initialization matches every reference tensor.")
- lines.append(f"  Nonzero reference gradient matches: {r['bitwise_equal_nonzero_reference_gradients']:,} /{r['nonzero_reference_tensors']:,}; gradient cosine {r['gradient_cosine']:.10f}.")
+ lines.append(f"- {r['optimization']} `{r['attempt']}`, execution `{r['execution_commit']}`; evidence checks passed. See `reports/{r['optimization'].lower()}-rerun.json` and the DVC attempt for complete per-tensor metrics and source hashes.")
 (ROOT/'v0.md').write_text('\n'.join(lines)+'\n')
