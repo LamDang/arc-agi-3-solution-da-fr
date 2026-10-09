@@ -17,8 +17,10 @@ input-only filter. The largest trajectory is 129,169 tokens.
 - `summary.json` records counts and source/data hashes.
 - `ratios.csv` lists input tokens, supervised output tokens, and their ratio
   for every trajectory.
+- `exploration.md` reports token and response-length distributions, rendered
+  tokens by message type, compaction effects, and per-game coverage.
 - `dvc.yaml` and `dvc.lock` define and pin the reproducible export. `build.py`
-  implements the stage.
+  implements the stage; `analyze.py` regenerates the checked-in report.
 
 ## Reproduce
 
@@ -28,6 +30,8 @@ pull the two archived source runs, and run the stage:
 ```sh
 dvc pull ARC3-Inference/runs/gpt61sol-features-25games.dvc ARC3-Inference/runs/think-progressive-sol25.dvc
 dvc repro data/progressive-sol25-trajectories/dvc.yaml
+ARC3-Inference/.venv/bin/python data/progressive-sol25-trajectories/analyze.py
+git diff --exit-code data/progressive-sol25-trajectories/exploration.md
 ```
 
 The stage depends on the pinned Qwen tokenizer and chat template supplied by
