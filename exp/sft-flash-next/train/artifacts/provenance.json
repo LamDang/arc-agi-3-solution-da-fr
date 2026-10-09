@@ -1,0 +1,9 @@
+{
+  "source_repository": "LamDang/arc-agi-3-solution-da-fr",
+  "source_artifact": "data/sol-nll-fold0-30-results-20261008/results.zip",
+  "dvc_md5": "4096658b60e9a324a67d205f9e28545c",
+  "archive_member": "maps/keep-256.json",
+  "sha256": "c76c2734c30fabcde2a44fa44467f93ae50ade945068a11e4befb5246bd5fca6",
+  "validation_fold": 0,
+  "validation_exposed": false
+}

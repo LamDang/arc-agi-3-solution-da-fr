@@ -1,0 +1,10 @@
+{
+  "files": 321,
+  "bytes": 1946137,
+  "md5": "7a5f88df68aeccf857a79ae9ab498ce3",
+  "sha256": "82ee0b8059b18a3063a9c8fb85484959bbef837ad4c2f5969ab9801bd5ebd289",
+  "contents": "Capacity successes/failures, source snapshots, storage probes and fresh fold-0 validation; no trained adapter",
+  "remote": "s3://kaggle-arc-agi-3-dvc/files/md5/7a/5f88df68aeccf857a79ae9ab498ce3",
+  "remote_roundtrip_verified": true,
+  "verified_utc": "2026-10-09T02:37:40.185454+00:00"
+}
