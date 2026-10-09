@@ -71,7 +71,7 @@ def main():
     executes=[r for r in staged['records'] if r['event']=='execute']
     assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))
     assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))
-    assert all(r['activation_dtype']=='torch.bfloat16' for r in executes)
+    assert all(r['input_dtype']=='torch.bfloat16' for r in executes)
     components=Counter(r['implementation'] for r in read(out/'components.json'))
     assert components['CPUBF16Experts']==48 and components['BF16Decoder']==48
     assert not any('Liger' in name for name in components)
