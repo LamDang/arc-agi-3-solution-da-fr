@@ -15,13 +15,26 @@ class Optimizations:
     liger_swiglu: bool = False
     offload_routed_experts: bool = False
     lora_routed_experts: bool = False
+    expert_chunking: bool = False
+    qsa_chunking: bool = False
+    hyperconnection_chunking: bool = False
+    ple_chunking: bool = False
+    chunk_tokens: int = 8192
 
     def validate(self):
         if self.head not in {'native', 'target', 'cce_exact', 'liger_flce'}:
             raise ValueError('Unknown head implementation')
         for field in fields(self):
-            if field.name != 'head' and type(getattr(self, field.name)) is not bool:
+            if field.name not in {'head','chunk_tokens'} and type(getattr(self, field.name)) is not bool:
                 raise ValueError('Optimization flags must be booleans: '+field.name)
+        if type(self.chunk_tokens) is not int or self.chunk_tokens < 1:
+            raise ValueError('chunk_tokens must be a positive integer')
+        if self.expert_chunking and not self.offload_routed_experts:
+            raise ValueError('Expert chunks currently require CPU canonical experts')
+        if self.qsa_chunking and not self.direct_attention_bias:
+            raise ValueError('QSA chunks require direct bias selection')
+        if self.ple_chunking and not self.disk_ple:
+            raise ValueError('PLE chunks require prepared full-context embeddings')
 
 
 @dataclass(frozen=True)

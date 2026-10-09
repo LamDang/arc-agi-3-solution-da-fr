@@ -18,6 +18,9 @@ class ExpertStage:
     def forward(self, hidden_states, top_k_index, top_k_weights, *, _prefetched=False):
         if _prefetched:
             return super().forward(hidden_states,top_k_index,top_k_weights)
+        if getattr(self,'chunk_tokens',0):
+            from .expert_chunks import expert_chunks
+            return expert_chunks(self,hidden_states,top_k_index,top_k_weights)
         return self.expert_stager.call(self,hidden_states,top_k_index,top_k_weights)
 
 
@@ -86,7 +89,7 @@ class LayerPrefetch:
             frozen_bytes=self.slabs[index].numel(),parameter_bytes=sum(p.numel()*p.element_size() for _,p in parameters),
             host_dispatch_seconds=time.monotonic()-started,staged_layers=len(self.cache)))
 
-    def call(self,module,*args):
+    def acquire(self,module,input_dtype,parameter_flat=None,event='execute'):
         index=module.expert_layer
         # Checkpoint recomputation reverses the layer order. Remove a stale
         # lookahead before acquiring a new window (e.g. early-stop recompute).
@@ -98,10 +101,20 @@ class LayerPrefetch:
         current.wait_event(ready)
         for value in state.values():value.record_stream(current)
         self.prefetch(index+self.direction)
-        self.records.append(dict(event='execute',layer=index,direction=self.direction,input_dtype=str(args[0].dtype)))
+        if parameter_flat is not None:
+            state=dict(state);offset=0
+            for name,p in module.named_parameters():
+                state[name]=parameter_flat[offset:offset+p.numel()].view_as(p).to(p.dtype)
+                offset+=p.numel()
+            assert offset==parameter_flat.numel()
+        self.records.append(dict(event=event,layer=index,direction=self.direction,input_dtype=str(input_dtype)))
+        return state
+
+    def call(self,module,*args):
+        state=self.acquire(module,args[0].dtype)
         try:
             return torch.func.functional_call(module,state,args,{'_prefetched':True},strict=True)
-        finally:self.release(index)
+        finally:self.release(module.expert_layer)
 
     def release(self,index):
         entry=self.cache.pop(index,None)
@@ -121,13 +134,13 @@ class LayerPrefetch:
             records=self.records)
 
 
-def install(model,inventory):
+def install(model,inventory,chunk_tokens=0):
     modules=[]
     for index,layer in enumerate(model.get_base_model().model.language_model.layers):
         old=layer.mlp.experts
         if type(old) not in CLASSES:raise TypeError('Unsupported expert component '+type(old).__name__)
         module=adopt(old,CLASSES[type(old)])
-        layer.mlp.experts=module;module.to('cpu');modules.append(module)
+        layer.mlp.experts=module;module.to('cpu');module.chunk_tokens=chunk_tokens;modules.append(module)
         inventory.append(dict(name=f'model.language_model.layers.{index}.mlp.experts',
             original=type(old).__name__,implementation=type(module).__name__))
     return LayerPrefetch(modules)

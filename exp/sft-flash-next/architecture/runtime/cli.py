@@ -12,12 +12,13 @@ def main(mode):
     parser.add_argument('--config',required=True)
     parser.add_argument('--architecture',choices=['native','reference','optimized'])
     parser.add_argument('--head',choices=['native','target','cce_exact','liger_flce'])
-    flags=['direct_attention_bias','disk_ple','bf16_lora','bf16_activations','liger_rmsnorm','liger_swiglu','offload_routed_experts','lora_routed_experts']
+    flags=['direct_attention_bias','disk_ple','bf16_lora','bf16_activations','liger_rmsnorm','liger_swiglu','offload_routed_experts','lora_routed_experts','expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking']
+    parser.add_argument('--chunk-tokens',type=int)
     for name in flags:
         parser.add_argument('--'+name.replace('_','-'),action=argparse.BooleanOptionalAction,default=None)
     parser.add_argument('--validate-only',action='store_true')
     args = parser.parse_args()
-    overrides = {name:getattr(args,name) for name in ['head',*flags] if getattr(args,name) is not None}
+    overrides = {name:getattr(args,name) for name in ['head','chunk_tokens',*flags] if getattr(args,name) is not None}
     config = load_config(args.config,mode,args.architecture,overrides)
     if args.validate_only:
         print(__import__('json').dumps(config.as_dict(),indent=2));return

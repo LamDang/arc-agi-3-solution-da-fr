@@ -178,7 +178,7 @@ def build(config, output):
     stager=None
     if config.optimizations.offload_routed_experts:
         from components.expert_offload import install
-        stager=install(model,inventory)
+        stager=install(model,inventory,config.optimizations.chunk_tokens if config.optimizations.expert_chunking else 0)
         del parameters
         parameters={name:p for name,p in model.named_parameters() if p.requires_grad}
         torch.cuda.empty_cache()
