@@ -1,0 +1,118 @@
+# Flash-Next architecture and training
+
+This is the active architecture implementation. `../train/` preserves earlier
+experiments, their immutable sources, DVC evidence and the existing trajectory
+preparation/resume pipeline. New architecture work belongs here.
+
+## Layout
+
+```text
+architecture/
+  train.py                 whole-sample supervised training
+  test.py                  one loss/backward capture, zero optimizer updates
+  config.py                validated architecture/optimization settings
+  model.py                 native loading, PEFT initialization, component assembly
+  components/
+    attention.py           native QSA selection with direct dense bias
+    head.py                native, target-only, CCE exact, Liger FLCE objectives
+    normalization.py       optional Liger plain/grouped/gated RMSNorm
+    mlp.py                 optional shared/routed Liger SwiGLU
+    ple.py                 frozen disk lookup and bounded CPU preparation
+    precision.py           BF16 activation ports; native statistics preserved
+    common.py              component adoption with unchanged parameter names
+  runtime/
+    loop.py                shared data/forward/backward path
+    resources.py           per-phase GPU/RAM/time measurements
+    evidence.py            source snapshots, hashes, raw-gradient comparison
+    worker.py              detached Jupyter job supervision
+  configs/                 explicit run configurations
+  tests/                   configuration, state/dispatch and arithmetic checks
+  reports/                 small reviewed results in Git
+  results/                 raw attempts and DVC pointers
+  jupyter.mjs              Kaggle HTTP/WebSocket dispatch and collection
+```
+
+## Architecture selection
+
+`reference` calls the installed native HF/AutoRound/PEFT implementation directly
+and rejects every optimization flag. `optimized` starts from the same loader
+and selects component subclasses. With all flags disabled, no component is
+replaced. Each enabled component retains existing parameter objects and state
+keys; the builder refuses unexpected instance forwards/offload hooks.
+
+There are no mutations of PEFT factories, Torch loading/saved-tensor functions,
+native classes, or global expert registries. There is no runtime AST rewriting
+or generated model code. Native selection/expert arithmetic copied into explicit
+components is source-pinned and reviewed separately.
+
+| Flag | Choices/effect |
+| --- | --- |
+| `head` | `native`, `target`, `cce_exact`, `liger_flce` |
+| `direct_attention_bias` | Opt3 mask storage; still dense native SDPA |
+| `disk_ple` | Opt4 full frozen disk table and prepared CPU samples |
+| `bf16_lora` | BF16 adapter parameter storage |
+| `bf16_activations` | Opt5 declared model activation ports; statistics stay native |
+| `liger_rmsnorm` | Opt6 normalization kernels, independently selectable |
+| `liger_swiglu` | Opt6 shared/routed activation kernels, independently selectable |
+
+Flags are independent unless a component has an explicit restriction. Opt6
+remains unqualified: its earlier full-model gradient drift is unresolved.
+Migration of a flag does not qualify its numerical behavior. No optimization is
+enabled by default.
+
+## Commands
+
+On the pinned GPU runtime:
+
+```bash
+python test.py --config configs/reference-iso.json
+python test.py --config configs/optimized-off-iso.json
+python test.py --config /path/to/run.json --architecture optimized --head cce_exact --bf16-lora --bf16-activations
+python train.py --config /path/to/complete-labeled-samples.json
+```
+
+Both entry points accept the same architecture/optimization overrides, including
+`--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
+`test.py` always performs exactly one forward/backward, saves all744 raw adapter
+gradients before clipping, and performs zero optimizer updates. It compares with
+a saved reference when configured; refactor isolation requires bitwise loss and
+all744 gradients. Numerical optimization comparisons should be reported separately.
+
+Training requires explicit labels in each complete encoded PT sample. Ignored
+user/tool/image tokens use -100; every supervised span remains interleaved with
+its original context. No truncation or label reconstruction occurs in training.
+The diagnostic `prompt_tokens` fallback exists only in test mode. Diagnostic
+adapters cannot initialize `train.py`.
+
+Training accumulates whole samples weighted by their target counts, normalizes
+once by actual targets before clipping, and writes adapter/optimizer/RNG/cursor
+checkpoints. The current entry point starts fresh; durable resume and production
+data/fold qualification remain in the historical trajectory pipeline until a
+separate migration is verified. No production training is claimed here.
+
+## Kaggle Jupyter execution and evidence
+
+From this folder on the desktop:
+
+```bash
+node jupyter.mjs --config configs/optimized-off-iso.json --mode test
+node jupyter.mjs --action status --attempt <attempt-id>
+node jupyter.mjs --action collect --attempt <attempt-id>
+```
+
+The bearer URL stays in `/tmp/kaggle_probe_url`. Each attempt uploads an isolated
+source snapshot with SHA256s and dispatch Git commit, then executes in a detached
+process through Jupyter. Mutable status reads bypass HTTP caching. It refuses a
+busy GPU, times out after1200seconds and preserves failures. Collection excludes
+only derived model-view symlinks, never copying the full model accidentally.
+
+Each capture records loss/raw gradients, initialization, input/source/package
+identities, phase timings, exact CUDA allocated/reserved peaks and sampled parent
+RSS/treePSS/childRSS/host-used RAM. Raw attempts are cached locally with DVC;
+small comparison reports are kept in Git. No Git or DVC pushes are authorized.
+
+## Refactor qualification
+
+Status: implementation prepared; native16K loss/all744-gradient replay pending.
+Small component checks do not replace that full-model isolation gate. Earlier
+v8/Opt6 results and their identities are preserved under `../train/`.

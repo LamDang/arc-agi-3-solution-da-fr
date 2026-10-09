@@ -1,0 +1,20 @@
+{
+  "architecture": "reference",
+  "model": "/tmp/reference-256-hf",
+  "samples": [
+    "/kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt"
+  ],
+  "adapter": "/kaggle/working/gradient-audit-20261009/nonzero-diagnostic-adapter-v2/adapter.pt",
+  "prompt_tokens": 15598,
+  "output": "/kaggle/working/architecture-runs/reference-iso",
+  "optimizations": {},
+  "expected_sha256": {
+    "sample": "48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff",
+    "adapter": "49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "baseline": {
+    "loss": 0.6256952285766602,
+    "gradients": "/kaggle/working/gradient-audit-20261009/reference-runner-v0-attempt-20261009151955-6e8d6cf9/gradients.pt"
+  }
+}

@@ -1,3 +1,15 @@
+# Active work: clean architecture refactor
+
+* User requests a clean component architecture and train.py/test.py accepting
+  reference or optimized architecture plus independent flags; verify refactor iso.
+* Active implementation: `../architecture/`. Historical files/evidence remain here.
+* No global PEFT/Torch/model-class/expert-registry patches in the new builder.
+* First gate: optimized architecture with all flags off, full16K nonzero A/B
+  anchor, one loss/backward, all744 raw gradients versus saved native v0.
+  No optimizer/clipping/overfit and no pushes. Implementation prepared; replay pending.
+* Reference calls native HF/AutoRound directly. Optional component migrations
+  are not qualified by the all-flags-off isolation result; verify separately.
+
 # Opt6 numerical comparison — small variation permitted, no overfit
 
 * Latest user steering: "just compare the loss and gradient, some small variant

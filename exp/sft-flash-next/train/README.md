@@ -1,3 +1,8 @@
+> **Architecture work has moved to [../architecture/](../architecture/README.md).**
+> This folder preserves historical experiment runners, immutable evidence and
+> the existing trajectory data/resume pipeline. Use the new `train.py` / `test.py`
+> entry points for architecture work. Historical results below are unchanged.
+
 # Fine-tune the 256-expert Flash-Next on generated-thinking requests
 
 This is **PyTorch + Hugging Face Transformers, with a custom LoRA loop** for
