@@ -265,3 +265,80 @@ stages:
       hash: md5
       md5: 7b7812ca1e8bc9332d8454a13194da6f
       size: 19881
+  cce_opt4_ple_v5:
+    cmd: node kaggle_reference_run.mjs --config configs/cce-opt4-ple-v5.json
+    deps:
+    - path: cce_operator_check.py
+      hash: md5
+      md5: eecd7feed863a53f37f14d76d72ce478
+      size: 5603
+    - path: cce_target_loss.py
+      hash: md5
+      md5: 596ce68b7fe2074c52407b2f1d90197f
+      size: 8906
+    - path: configs/cce-opt4-ple-v5.json
+      hash: md5
+      md5: c20a56b46865e31dae00730a0595e0a5
+      size: 3454
+    - path: gradient-results/cce-opt3-mask-v4/gradients.pt
+      hash: md5
+      md5: 3782b71b454b2fd998e82e28f1702b1b
+      size: 134192587
+    - path: gradient-results/cce-opt3-mask-v4/result.json
+      hash: md5
+      md5: 0479fe23f216722bb11dd45b45b51b3a
+      size: 669
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: 09db41181454e8b179fde699246a78a5
+      size: 30181
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: 116e3daa566aff445f787d89b6462a7f
+      size: 23050
+    - path: native_mask_storage.py
+      hash: md5
+      md5: 8ce4756dd425e0f9cd66a6236b48f016
+      size: 3797
+    - path: opt3_mask_capture.py
+      hash: md5
+      md5: 22542eab83e538d466783f833ed25c83
+      size: 3656
+    - path: opt3_mask_operator_check.py
+      hash: md5
+      md5: 638cb251148d5078ce5546a5f3e86f56
+      size: 6398
+    - path: opt4_ple_capture.py
+      hash: md5
+      md5: 00422d37ba760d48034400bb8b527aec
+      size: 6854
+    - path: opt4_ple_operator_check.py
+      hash: md5
+      md5: d962b836a0cd542d0e04d087cad3c733
+      size: 5759
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    - path: ple_preparation.py
+      hash: md5
+      md5: 02044d7dcf76069791236c805c4f4961
+      size: 8950
+    - path: target_only_head.py
+      hash: md5
+      md5: a7d5f75bc5d055d558be64d0e1c07dc6
+      size: 8936
+    outs:
+    - path: gradient-results/cce-opt4-ple-v5
+      hash: md5
+      md5: ebb3229748d601a248020122433ede0e.dir
+      size: 1551100183
+      nfiles: 86
+    - path: metrics/cce-opt4-ple-v5.json
+      hash: md5
+      md5: b9ac01ced818e3c9b7af6532c378ee00
+      size: 26332

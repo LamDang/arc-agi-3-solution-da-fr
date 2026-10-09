@@ -1,3 +1,48 @@
+# Latest Opt4 capture — 2026-10-09
+
+* CCE exact and Opt3 retained; primary directly executes, no subagents, Kaggle
+  Jupyter API only. Opt4 code `df0947c`, attempt `20261009173647-1a7e7242`,
+  config/stage `cce-opt4-ple-v5` / `cce_opt4_ple_v5`.
+* `ple_preparation.py`: original native CPU hash forward, exact checkpoint hash
+  buffers/EOS history, deduplicated read-only disk lookup from all 128 shards,
+  one spawned DataLoader worker and two outstanding preparations. Source Dataset
+  can tokenize full sequences; capture reuses three identical pre-encoded anchors
+  to exercise the queue. Only the first is trained for one forward/backward.
+* `opt4_ple_capture.py` bypasses the 95.367889 GiB table at native model loading
+  via an empty marker/filtered checkpoint-index view. All non-table weights and
+  native PLE projections/gating/convolution remain native. Full table stays on disk.
+* All 16,249-token CPU hash IDs equal native CUDA IDs; every prepared row equals
+  safetensors reference bytes. 259,984 IDs deduplicate to 69,280 rows. Payload
+  83,194,880 bytes, SHA256
+  `ac0f7b432b156a88d5168e9fb52484e690dbf01b204036c40473cb6fcda8cbae`.
+  Real-weight PLE outputs/input gradients and EOS/unfamiliar-token cases match.
+* Two queued copies finish before forward; initial preparation 4.389 s, first
+  wait 5.232 s, warm duplicate lookahead 0.343/0.354 s. These are not measured
+  new-trajectory throughput. Same CPU storage is used forward/recomputation;
+  GPU path does zero disk reads. Worker shuts down after capture.
+* GPU allocated peaks exactly unchanged: 49.529/58.277 GiB. Parent RSS peaks
+  33.878/34.006 GiB (down 96.447/95.161 GiB); worker adds 0.952 GiB RSS.
+  New process-tree PSS 34.393/34.518 GiB; cgroup anonymous/file/current counters
+  also logged. Reclaimable OS file cache remains; do not confuse it with anon.
+* Forward/backward 116.754/217.409 s, combined +0.403% vs v4. Total 733.234 s
+  includes a new 141.775 s exhaustive PLE check before native loading.
+* Loss 0.6256126165390015 (`3f202826`), one ULP below v4. All 744 finite/nonzero,
+  0 exact vs v4; global L2 1.138583%, worst tensor 2.276983%, cosine
+  0.999935189389238. Gradient SHA256
+  `235d769690d07fe434ceb870ec8f5008e7be4b6e61e14c6f0f4dcc7bf483dc8b`.
+* PLE checks pass, but full-model bitwise gate fails explicitly. Unchanged CCE
+  probe also varies independently (0.014461% / 0.011021% mean/sum L2 vs v4).
+  Do not attribute the whole full-model difference to CCE without more evidence.
+  No tolerance, clipping or optimizer update, and no production promotion.
+* At 130K: current + two BF16 payloads = 1.859665 GiB, replacing the table's
+  95.367889 GiB before hash/lookup/worker/image/offload/cache overhead. Component
+  reduction ~93.508 GiB; no complete 130K memory/throughput claim. Opt3's dense
+  FP32 GPU bias remains. Actual-trajectory training requires its independent gate.
+* All 86 files restored identically from DVC; tree
+  `ebb3229748d601a248020122433ede0e.dir`. Cached reproduction does not rerun the GPU
+  or change the failed numerical gate.
+* `v5.md`, master `v0.md`, metrics/review retain all results. No successor GPU job.
+
 # Latest Opt3 capture — 2026-10-09
 
 * User explicitly selected **CCE exact** for subsequent comparisons, superseding

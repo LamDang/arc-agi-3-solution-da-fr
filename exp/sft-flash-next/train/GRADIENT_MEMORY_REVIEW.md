@@ -1,3 +1,25 @@
+# Latest Opt4 / v5 — frozen PLE storage and worker preparation
+
+CCE exact and Opt3 are retained. The 95.367889 GiB PLE table stays on disk;
+native HF loads every non-table parameter through its original path. One spawned
+CPU worker computes exact original hashes and prepares deduplicated rows, with
+current + two lookahead payloads bounded in flight. The current CPU payload is
+retained through backward; GPU training/recomputation perform no table reads.
+
+At 16,249 tokens, parent RSS forward/backward peaks fall from 130.325/129.167 to
+33.878/34.006 GiB. New worker RSS is 0.952 GiB; process-tree PSS 34.393/34.518 GiB.
+GPU allocated/reserved peaks are unchanged. Combined compute time is 334.163 s,
++0.403% in one comparison. Reclaimable OS file cache is logged separately.
+At 130K, three BF16 payloads are 1.859665 GiB, giving ~93.508 GiB component storage
+saving before all temporary/worker/offload/image/cache overhead. Full 130K host
+peak and steady-state real-trajectory throughput remain unmeasured.
+
+Full anchor native CPU/CUDA hash IDs and lookup bytes match; real native PLE
+outputs and input gradients also match bitwise. All 744 adapter gradients remain
+finite/nonzero, but full-model equality vs CCE+Opt3 fails (1.138583% L2; loss one
+ULP lower). The unchanged CCE probe also varies independently. No tolerance or
+full-model root-cause attribution is assumed. See `v5.md` and its raw DVC evidence.
+
 # Latest incremental mask measurement — Opt3 / v4
 
 CCE exact is the user-selected baseline for this comparison. See `v4.md` and
