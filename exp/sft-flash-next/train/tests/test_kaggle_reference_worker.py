@@ -13,6 +13,15 @@ CONFIG = json.loads((Path(__file__).resolve().parents[1] / 'configs/reference-v0
 
 
 class WorkerTests(unittest.TestCase):
+    def test_cce_bootstrap_uses_isolated_source_and_saves_gradient_comparison(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-exact-v3.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<cce-bootstrap>', 'exec')
+        self.assertIn('from cce_operator_check import qualify', source)
+        self.assertIn('from cce_target_loss import compare_gradients', source)
+        self.assertIn(config['cce_dependency']['archive_prefix'], source)
+        self.assertNotIn('optimizer.step', source)
+
     def test_liger_bootstrap_records_differences_without_an_optimizer(self):
         config = json.loads((Path(__file__).resolve().parents[1] / 'configs/liger-flce-v2.json').read_text())
         source = bootstrap_source(config)

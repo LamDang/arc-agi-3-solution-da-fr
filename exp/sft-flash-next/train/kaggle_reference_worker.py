@@ -54,12 +54,17 @@ def validate(config):
         if sha256(path) != config['expected_sha256'][key]:
             raise ValueError(f'Pinned input SHA256 mismatch: {key}')
     objective = config.get('objective', 'native')
-    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce'):
+    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'):
         raise ValueError('Unsupported objective')
     if objective == 'liger_target_flce':
         dep = config['liger_dependency']
         if sha256(dep['remote_wheel']) != dep['sha256']:
             raise ValueError('Pinned Liger wheel differs')
+        if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
+            raise ValueError('Native comparison gradients differ')
+    if objective == 'cce_target_exact':
+        if sha256(config['cce_dependency']['remote_archive']) != config['cce_dependency']['sha256']:
+            raise ValueError('Pinned CCE source archive differs')
         if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
             raise ValueError('Native comparison gradients differ')
     for name, checksum in config.get('candidate_sources_sha256', {}).items():
@@ -81,6 +86,7 @@ def bootstrap_source(config):
     """Apply the original bootstrap's package view, then time backward only."""
     candidate_setup = ''
     candidate_compare = ''
+    runtime_prefix = str(Path(config['remote_launch']) / 'liger-runtime') + '/'
     if config.get('objective') == 'target_only_mask_native_backward':
         candidate_setup = ("from target_only_head import install_for_capture\ninstall_for_capture("
             + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")")
@@ -96,6 +102,19 @@ def bootstrap_source(config):
             + repr(config['model']) + "," + repr(config['sample']) + ","
             + repr(config['remote_launch']) + ")")
         candidate_compare = ("\n    from liger_target_loss import compare_gradients\n    compare_gradients("
+            + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
+            + repr(config['native_gradients']) + ","
+            + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
+    elif config.get('objective') == 'cce_target_exact':
+        runtime_prefix = str(Path(config['remote_launch']) / 'cce-runtime') + '/'
+        runtime = str(Path(runtime_prefix) / config['cce_dependency']['archive_prefix'])
+        candidate_setup = ("sys.path.insert(0," + repr(runtime) + ")\n"
+            + "from cce_target_loss import install_for_capture\ninstall_for_capture("
+            + repr(str(Path(config['remote_output']) / 'target-head.json')) + ")\n"
+            + "from cce_operator_check import qualify\nqualify("
+            + repr(config['model']) + "," + repr(config['sample']) + ","
+            + repr(config['remote_launch']) + ")")
+        candidate_compare = ("\n    from cce_target_loss import compare_gradients\n    compare_gradients("
             + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
             + repr(config['native_gradients']) + ","
             + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
@@ -176,7 +195,7 @@ finally:
                      'bootstrap': config['bootstrap'],
                      'candidate_setup': candidate_setup,
                      'candidate_compare': candidate_compare,
-                     'runtime_prefix': str(Path(config['remote_launch']) / 'liger-runtime') + '/',
+                     'runtime_prefix': runtime_prefix,
                      'source_hash_path': str(Path(config['remote_launch']) / 'imported-source-hashes.json')}
 
 
@@ -251,6 +270,12 @@ def launch(config_path):
         (launch_dir / wheel.name).write_bytes(wheel.read_bytes())
         with zipfile.ZipFile(wheel) as archive:
             archive.extractall(launch_dir / 'liger-runtime')
+    if config.get('objective') == 'cce_target_exact':
+        import tarfile
+        source = Path(config['cce_dependency']['remote_archive'])
+        (launch_dir / source.name).write_bytes(source.read_bytes())
+        with tarfile.open(source) as archive:
+            archive.extractall(launch_dir / 'cce-runtime', filter='data')
     instrumented = launch_dir / 'instrumented-bootstrap.py'
     instrumented.write_text(bootstrap_source(config))
     command = native_command(config, instrumented)

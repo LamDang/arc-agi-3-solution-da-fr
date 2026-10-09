@@ -37,6 +37,7 @@ stages:
       - metrics/target-mask-v1.json:
           cache: false
   liger_flce_v2:
+    frozen: true
     desc: Diagnostic target-only frozen-head Liger FLCE comparison, no optimizer update.
     cmd: node kaggle_reference_run.mjs --config configs/liger-flce-v2.json
     deps:
@@ -54,4 +55,23 @@ stages:
       - gradient-results/liger-flce-v2
     metrics:
       - metrics/liger-flce-v2.json:
+          cache: false
+  cce_exact_v3:
+    desc: Diagnostic frozen-head CCE exact with both gradient filters disabled, no update.
+    cmd: node kaggle_reference_run.mjs --config configs/cce-exact-v3.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/cce-exact-v3.json
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      - gradient-results/reference-nonzero-ab-repeat-v1/result.json
+    outs:
+      - gradient-results/cce-exact-v3
+    metrics:
+      - metrics/cce-exact-v3.json:
           cache: false

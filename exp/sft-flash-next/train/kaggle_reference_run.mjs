@@ -43,7 +43,7 @@ export function validateConfig(config) {
       config.local_metrics.includes('..')) throw new Error('Unsafe local metrics path');
   if (!/^[0-9a-f]{8}$/.test(config.expected_loss_float32_bits) ||
       !/^[0-9a-f]{64}$/.test(config.expected_gradients_sha256)) throw new Error('Missing exact reference gate');
-  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
   if (config.objective === 'liger_target_flce') {
     const dep = config.liger_dependency;
     if (dep?.version !== '0.8.4' || dep.sha256 !== '9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111' ||
@@ -53,6 +53,18 @@ export function validateConfig(config) {
         !config.candidate_sources_sha256?.['liger_operator_check.py'] ||
         config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
       throw new Error('Missing pinned Liger dependency/comparison identity');
+  }
+  if (config.objective === 'cce_target_exact') {
+    const dep = config.cce_dependency;
+    if (dep?.commit !== '3de376c106a1916bc5e1b619f9c77c87a461ee1c' ||
+        dep.sha256 !== '446d282d5b9f5bf2f8bc5a551a016498706f5066230ed682f7477c16c09cc553' ||
+        dep.url !== `https://codeload.github.com/apple/ml-cross-entropy/tar.gz/${dep.commit}` ||
+        dep.remote_archive !== `${remoteRoot}/cce-${dep.commit}.tar.gz` ||
+        dep.archive_prefix !== `ml-cross-entropy-${dep.commit}` ||
+        !config.candidate_sources_sha256?.['cce_target_loss.py'] ||
+        !config.candidate_sources_sha256?.['cce_operator_check.py'] ||
+        config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
+      throw new Error('Missing pinned CCE dependency/comparison identity');
   }
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
@@ -124,13 +136,13 @@ export function preflightCode(config, workerHash) {
 }
 
 async function preflight(base, config, workerBytes) {
-  if (config.objective === 'liger_target_flce') {
-    const dep = config.liger_dependency;
+  if (['liger_target_flce', 'cce_target_exact'].includes(config.objective)) {
+    const dep = config.liger_dependency ?? config.cce_dependency;
     const response = await fetch(dep.url, { signal: AbortSignal.timeout(90000) });
     if (!response.ok) throw new Error('Pinned Liger wheel download failed');
     const wheel = Buffer.from(await response.arrayBuffer());
     if (sha256(wheel) !== dep.sha256) throw new Error('Liger wheel checksum differs');
-    await upload(base, dep.remote_wheel, wheel);
+    await upload(base, dep.remote_wheel ?? dep.remote_archive, wheel);
   }
   for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
     const bytes = fs.readFileSync(path.join(here, name));
@@ -230,19 +242,28 @@ async function collect(base, config) {
   const gradients = { a_tensors: a.length, b_tensors: b.length,
     a_nonzero_tensors: a.filter(([, row]) => row.nonzero > 0).length,
     b_nonzero_tensors: b.filter(([, row]) => row.nonzero > 0).length };
-  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce'].includes(config.objective)
+  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact'].includes(config.objective)
     ? JSON.parse(fs.readFileSync(path.join(local, 'target-head.json'))) : null;
   const targetHeadValid = !targetHead || (targetHead.head_calls.length === 1 &&
     targetHead.head_calls[0].context_tokens === result.tokens &&
     targetHead.head_calls[0].target_tokens === result.supervised_tokens &&
-    (config.objective === 'liger_target_flce'
+    (config.objective === 'cce_target_exact'
+      ? targetHead.frozen_head === true && targetHead.implementation === 'cce_exact' &&
+        targetHead.effective_options.filter_eps === null &&
+        targetHead.effective_options.filter_e_grad === false &&
+        targetHead.effective_options.filter_c_grad === false &&
+        targetHead.effective_options.accum_e_fp32 === true &&
+        targetHead.effective_options.accum_c_fp32 === true &&
+        targetHead.head_calls[0].dense_logits_materialized === false &&
+        targetHead.vocabulary_saved_tensor_calls.length === 0
+      : config.objective === 'liger_target_flce'
       ? targetHead.frozen_head === true && targetHead.liger_version === '0.8.4' &&
         targetHead.head_calls[0].dense_logits_materialized === false &&
         targetHead.vocabulary_saved_tensor_calls.length === 0
       : targetHead.vocabulary_saved_tensor_calls.length > 0 &&
         targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
           row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens)));
-  const gradientComparison = config.objective === 'liger_target_flce'
+  const gradientComparison = ['liger_target_flce', 'cce_target_exact'].includes(config.objective)
     ? JSON.parse(fs.readFileSync(path.join(local, 'gradient-comparison.json'))) : null;
   const operatorCheck = config.interleaved_operator_check
     ? JSON.parse(fs.readFileSync(path.join(local, 'launch-operator-check-report.json'))) : null;
@@ -267,7 +288,7 @@ async function collect(base, config) {
       (!operatorCheck || operatorCheck.passed === true) &&
       (!gradientComparison || (gradientComparison.all_finite && gradientComparison.raw_tensors === 744 &&
         gradientComparison.reference_sha256 === config.expected_gradients_sha256 &&
-        files[`launch-${path.posix.basename(config.liger_dependency.remote_wheel)}`]?.sha256 === config.liger_dependency.sha256)) &&
+        files[`launch-${path.posix.basename(config.liger_dependency?.remote_wheel ?? config.cce_dependency.remote_archive)}`]?.sha256 === (config.liger_dependency ?? config.cce_dependency).sha256)) &&
       result.optimizer_updates === 0 && result.clipping_applied === false &&
       monitor.returncode === 0 && monitor.timed_out === false;
   const lossBits = Buffer.alloc(4); lossBits.writeFloatBE(result.measured_loss);
@@ -311,7 +332,7 @@ async function collect(base, config) {
       vocabulary_saved_tensor_calls: targetHead.vocabulary_saved_tensor_calls },
     equality, timings: timing,
     structural_valid: record.structural_valid }, null, 2) + '\n');
-  if (!record.structural_valid || (config.objective !== 'liger_target_flce' && (!equality.loss_exact || !equality.gradients_file_exact)))
+  if (!record.structural_valid || (!['liger_target_flce', 'cce_target_exact'].includes(config.objective) && (!equality.loss_exact || !equality.gradients_file_exact)))
     throw new Error(`Native reference equality gate failed; evidence retained at ${local}`);
   return { local, loss: record.loss, equality, structural_valid: record.structural_valid,
     gradients_sha256: record.gradients_sha256, attempt_id: config.attempt_id };

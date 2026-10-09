@@ -54,3 +54,11 @@ test('Liger diagnostic pins wheel and comparison while preserving exact referenc
   assert.throws(() => validateConfig({ ...candidate, liger_dependency: {} }), /pinned Liger/);
   assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned Liger/);
 });
+
+test('CCE exact diagnostic pins official source archive and native gradient comparison', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/cce-exact-v3.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  assert.equal(candidate.expected_gradients_sha256, config.expected_gradients_sha256);
+  assert.throws(() => validateConfig({ ...candidate, cce_dependency: {} }), /pinned CCE/);
+  assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
+});
