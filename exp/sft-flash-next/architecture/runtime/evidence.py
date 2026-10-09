@@ -91,7 +91,9 @@ def compare_initial(state, baseline):
 def compare(gradients, loss, baseline):
     import torch
     rows = {};error = norm = other = dot = 0.
-    for name,a in reference_tensors(baseline['gradients']):
+    source=baseline['gradients']
+    reference=source.items() if isinstance(source,dict) else reference_tensors(source)
+    for name,a in reference:
         if name not in gradients:raise ValueError('Raw gradient keys/count differ')
         b = gradients[name]
         if a.shape != b.shape:
@@ -113,7 +115,7 @@ def compare(gradients, loss, baseline):
         nonzero_reference_tensors=sum(not row['reference_zero'] for row in rows.values()),
         bitwise_equal_nonzero_reference_tensors=sum(row['bitwise_equal'] and not row['reference_zero'] for row in rows.values()),
         passed=loss_exact and exact==len(rows),criterion=f'Bitwise loss and all {len(rows)} raw gradients',
-        baseline_gradients_sha256=sha(baseline['gradients']),tensors=rows)
+        baseline_gradients_sha256=None if isinstance(source,dict) else sha(source),tensors=rows)
 
 
 def snapshot_imports(output):

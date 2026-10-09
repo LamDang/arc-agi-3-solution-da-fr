@@ -133,6 +133,34 @@ def run(config, mode):
             with resources.phase('gradient_comparison'):
                 comparison = compare(raw,value,config.baseline) if config.baseline else None
             if comparison:write(output/'comparison.json',comparison)
+            paired=None
+            if any(getattr(config.optimizations,key) for key in ('expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking')):
+                # Same objects/weights/input/autocast; disable only chunk execution.
+                # Neither side's raw gradient is persisted. One extra F/B, no update.
+                chunk_modules=[m for m in model.modules() if getattr(m,'chunk_tokens',0)]
+                sizes=[m.chunk_tokens for m in chunk_modules]
+                for m in chunk_modules:m.chunk_tokens=0
+                model.zero_grad(set_to_none=True)
+                try:
+                    context=torch.autograd.graph.save_on_cpu(pin_memory=False) if config.save_on_cpu else nullcontext()
+                    with context:
+                        with resources.phase('unchunked_control_forward'):
+                            with torch.autocast('cuda',dtype=torch.bfloat16):control=architecture.loss(batch,labels)
+                        control_loss=float(control.detach())
+                        with resources.phase('unchunked_control_backward'):control.backward()
+                    del control
+                    with resources.phase('unchunked_control_gradient_export'):
+                        control_raw=gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
+                    with resources.phase('chunking_comparison'):
+                        paired=compare(raw,value,dict(loss=control_loss,gradients=control_raw))
+                    paired['gradient_gate_passed']=paired['global_relative_l2']<.01
+                    paired['gradient_gate']='Global relative L2 < 0.01 (1%), or bitwise equality; finite gradients required'
+                    paired['control']='Same model, initialization, sample and Opt1–3; all chunk sizes set to zero'
+                    paired['raw_gradients_retained']=False
+                    write(output/'chunking-comparison.json',paired)
+                    del control_raw
+                finally:
+                    for m,size in zip(chunk_modules,sizes):m.chunk_tokens=size
             result = dict(mode=mode,loss=value,raw_gradient_tensors=len(raw),targets=targets,tokens=labels.shape[1],
                 all_finite=True,optimizer_updates=0,clipping_applied=False,
                 iso_verified=comparison['passed'] if comparison else None,
@@ -140,6 +168,7 @@ def run(config, mode):
                 raw_gradients_retained=archive is not None,
                 gradient_retention='reference-only; candidates compared in memory and discarded',
                 absent_unrouted_gradients=absent,elapsed_seconds=time.monotonic()-started)
+            if paired is not None:result['chunking_gradient_gate_passed']=paired['gradient_gate_passed']
             from collections import Counter
             result['parameter_dtypes']=dict(Counter(str(p.dtype) for p in model.parameters() if p.requires_grad))
             result['gradient_dtypes']=dict(Counter(str(g.dtype) for g in raw.values()))
