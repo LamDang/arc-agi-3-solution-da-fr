@@ -1,3 +1,34 @@
+# Latest Opt3 capture — 2026-10-09
+
+* User explicitly selected **CCE exact** for subsequent comparisons, superseding
+  the earlier default-v1 wording below. Primary executes directly, no subagents;
+  Kaggle Jupyter API only. No production training is authorized by this capture.
+* Opt3 code `50b83fc`, attempt `20261009171104-b3b5e641`, config/stage
+  `cce-opt3-mask-v4` / `cce_opt3_mask_v4`. Pinned native source selection prefix
+  unchanged; lazy causal rows and direct dense bias, dummy -1 column/alignment.
+* Eight real native-indexer/SDPA cases (BF16/FP32, lengths 3/4/9/33) pass bitwise
+  output/QKV-gradient and mask/selection/causal checks, with raw fixtures saved.
+* Actual indexer hidden/bias dtype is **FP32**, 24 calls. At 130K the final logical
+  bias is 62.957 GiB (62.961 GiB padded), not the conditional BF16 31.479 GiB.
+* Loss 0.6256126761436462 (`3f202827`), three ULPs below CCE v3 (`3f20282a`). All
+  744 gradients finite/nonzero, 0/744 exact vs CCE v3; global relative L2 1.154146%,
+  worst tensor 2.232123%, cosine 0.9999333961936885. Raw SHA256
+  `ab1decf082a64b8ee9e45cce81f18ca4500c3faf68faa9dafe3f2eb70c40d66f`.
+* Strict full-model equality gate failed after preserving evidence. Retain this
+  failed diagnostic through DVC; no tolerance was accepted or gate weakened.
+* Pre-Opt3 unchanged CCE probe uses identical fixture/native gradients, but its
+  CCE gradients vary from v3 by 0.014741%/0.013137% L2 mean/sum. This proves CCE
+  repeat variability independently of Opt3, but does not attribute the full-model
+  difference. Do not assert full-model mask equivalence based on this capture.
+* Forward/backward 115.313/217.508 s; allocated GPU peaks 49.529/58.277 GiB,
+  each 0.245776 GiB below CCE v3. Reserved peaks unchanged. Sampled CPU RSS
+  130.325/129.167 GiB; no established RAM saving. Combined time +0.349%.
+* All 70 files restored identically from DVC; tree
+  `cc93515b1b120fc1bccd14ea1625f459.dir`. Cached reproduction skips the stage;
+  this verifies artifacts, not numerical replay.
+* `v4.md`, master `v0.md`, metrics/review preserve results, source identities,
+  numerical limitations and 130K storage arithmetic. No successor GPU job started.
+
 # Latest CCE exact experiment — 2026-10-09
 
 * User authorized CCE exact without gradient filtering, compared with native,

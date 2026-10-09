@@ -1,3 +1,23 @@
+# Latest incremental mask measurement — Opt3 / v4
+
+CCE exact is the user-selected baseline for this comparison. See `v4.md` and
+`reviews/cce-opt3-mask-v4.json`. At 16,249 tokens, direct bias/lazy causal rows
+save 0.245776 GiB allocated GPU memory in both phases (49.775→49.529 GiB forward,
+58.523→58.277 GiB backward). Reserved peaks are unchanged; CPU sampled RSS does
+not establish a saving. Forward+backward is 0.349% slower in one paired run.
+
+The actual bias dtype is FP32, because indexer hidden states are FP32. At 130K
+its logical dense bias alone is 62.957 GiB (aligned storage 62.961 GiB). Three
+removed boolean allocation sizes sum to 47.218 GiB, which is not the peak saving.
+Quadratically extending only the measured delta gives ~15.74 GiB, conditional on
+unchanged peak behavior. This is not a measured complete 130K training result.
+
+Eight small native-indexer/SDPA cases match outputs and QKV gradients exactly.
+All 744 full-model gradients are finite/nonzero but differ from saved CCE v3 by
+1.154146% L2 (0 exact tensors); loss differs by three ULPs. The unchanged CCE
+operator also varies across replays, independently of Opt3. Full-model bitwise
+qualification remains failed; no tolerance or root-cause attribution is assumed.
+
 # Latest CCE exact evidence — 2026-10-09
 
 `cce-exact-v3` uses official Apple CCE with both gradient filters disabled and

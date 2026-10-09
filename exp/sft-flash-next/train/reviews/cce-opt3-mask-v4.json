@@ -1,0 +1,59 @@
+{
+  "run_id": "cce-opt3-mask-v4",
+  "attempt_id": "20261009171104-b3b5e641",
+  "independent_raw_gradient_review": true,
+  "comparison_baseline": "cce-exact-v3",
+  "raw_tensors": 744,
+  "bitwise_exact_tensors": 0,
+  "nonzero_tensors": {
+    "A": 372,
+    "B": 372
+  },
+  "global_relative_l2_error": 0.011541463896081756,
+  "cosine_similarity": 0.9999333961936885,
+  "all_file_hashes_verified": true,
+  "mask_operator_cases_independently_verified": 8,
+  "mask_operator_raw_outputs_and_qkv_gradients_exact": true,
+  "selection_indices_causal_and_allowed_sets_verified": true,
+  "mask_guards_verified": [
+    "padding",
+    "batch",
+    "cache",
+    "use_cache"
+  ],
+  "actual_bias_dtypes": [
+    "torch.float32"
+  ],
+  "bias_calls": 24,
+  "cce_effective_options_unchanged": true,
+  "interleaved_cce_native_fixture_and_gradients_match_v3": true,
+  "unchanged_cce_operator_replay_comparison": [
+    {
+      "reduction": "mean",
+      "hidden_fixture_and_native_gradient_unchanged": true,
+      "cce_hidden_gradient_bytes_exact": false,
+      "relative_l2_error": 0.00014741260676854944,
+      "max_abs_error": 9.5367431640625e-07
+    },
+    {
+      "reduction": "sum",
+      "hidden_fixture_and_native_gradient_unchanged": true,
+      "cce_hidden_gradient_bytes_exact": false,
+      "relative_l2_error": 0.0001313739206662522,
+      "max_abs_error": 6.103515625e-05
+    }
+  ],
+  "imported_cce_sources_verified_against_archive": 15,
+  "frozen_candidate_and_native_source_hashes_verified": true,
+  "private_server_url_absent": true,
+  "loss": 0.6256126761436462,
+  "loss_float32_bits": "3f202827",
+  "bitwise_qualified": false,
+  "gradients_sha256": "ab1decf082a64b8ee9e45cce81f18ca4500c3faf68faa9dafe3f2eb70c40d66f",
+  "no_clipping": true,
+  "optimizer_updates": 0,
+  "dvc_restore_verified": true,
+  "dvc_restored_files": 70,
+  "dvc_tree_md5": "cc93515b1b120fc1bccd14ea1625f459.dir",
+  "execution_commit": "50b83fc80858dac1e5ff8b448d9c1bb9db4c0afa"
+}

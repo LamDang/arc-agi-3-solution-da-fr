@@ -200,3 +200,68 @@ stages:
       hash: md5
       md5: 37e991cd91b739123a36e68795c5d295
       size: 6760
+  cce_opt3_mask_v4:
+    cmd: node kaggle_reference_run.mjs --config configs/cce-opt3-mask-v4.json
+    deps:
+    - path: cce_operator_check.py
+      hash: md5
+      md5: eecd7feed863a53f37f14d76d72ce478
+      size: 5603
+    - path: cce_target_loss.py
+      hash: md5
+      md5: 596ce68b7fe2074c52407b2f1d90197f
+      size: 8906
+    - path: configs/cce-opt3-mask-v4.json
+      hash: md5
+      md5: 90742cab43f9c509cf7729ae8d85b565
+      size: 3183
+    - path: gradient-results/cce-exact-v3/gradients.pt
+      hash: md5
+      md5: f0030415a8e225c2374617fb7ab5f8b6
+      size: 134192587
+    - path: gradient-results/cce-exact-v3/result.json
+      hash: md5
+      md5: 32776065a2bb1f126bfbed751ca10b0a
+      size: 668
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: e7244040e4ff0c790c28c7fdae7a045b
+      size: 28331
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: 7f0e47177e7e1cde7f9bc213a90d5709
+      size: 20813
+    - path: native_mask_storage.py
+      hash: md5
+      md5: 8ce4756dd425e0f9cd66a6236b48f016
+      size: 3797
+    - path: opt3_mask_capture.py
+      hash: md5
+      md5: 22542eab83e538d466783f833ed25c83
+      size: 3656
+    - path: opt3_mask_operator_check.py
+      hash: md5
+      md5: 638cb251148d5078ce5546a5f3e86f56
+      size: 6398
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    - path: target_only_head.py
+      hash: md5
+      md5: a7d5f75bc5d055d558be64d0e1c07dc6
+      size: 8936
+    outs:
+    - path: gradient-results/cce-opt3-mask-v4
+      hash: md5
+      md5: cc93515b1b120fc1bccd14ea1625f459.dir
+      size: 1366163450
+      nfiles: 70
+    - path: metrics/cce-opt3-mask-v4.json
+      hash: md5
+      md5: 7b7812ca1e8bc9332d8454a13194da6f
+      size: 19881
