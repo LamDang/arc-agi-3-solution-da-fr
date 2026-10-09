@@ -1,0 +1,899 @@
+{
+  "format_version": 1,
+  "repository": "LamDang/arc-agi-3-solution-da-fr",
+  "branch": "codex/sol25-recovery-20261009",
+  "base_commit": "debc8a3fcefd68809b45f1d6cd72d6a0f6a15787",
+  "code_commit": "b4bcaa02a25562c8c8786d0699a072dfc0bb9f87",
+  "checkpoint_branch": "codex/sol25-offline-handoff-20261009",
+  "finalized": 1004,
+  "total": 1334,
+  "chunk_bytes": 524288,
+  "files": [
+    {
+      "name": "sol25-handoff-20261009.tar.zst",
+      "bytes": 56257129,
+      "sha256": "84421cf8d1ca0beea3e7fcc8ac6fedfe887d6e8162d68f14948090549c861cd6",
+      "parts": [
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0000.b64",
+          "index": 0,
+          "offset": 0,
+          "bytes": 524288,
+          "sha256": "7c6ddd170fd4bd85fcf406cd0a8c6a3a3ef5e5e882ddd7c612c6f7159795837e",
+          "git_blob_sha": "f8060c52eecbeffa5499af4b0aeb32c0634482d4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0001.b64",
+          "index": 1,
+          "offset": 524288,
+          "bytes": 524288,
+          "sha256": "80b3c41e870c98dcdfe1c822b5b320849146070357d6577d0d523ebfad315e24",
+          "git_blob_sha": "40a9c8fb0af1793d8c2986853c86e5878c9e842a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0002.b64",
+          "index": 2,
+          "offset": 1048576,
+          "bytes": 524288,
+          "sha256": "e0e4aa3e0c1cd053c9cf631dea39aaf74a8ac8970b3184e765d80b8182e5f8df",
+          "git_blob_sha": "e0c9ab7c35aff2aab786dea51c2271d840342412"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0003.b64",
+          "index": 3,
+          "offset": 1572864,
+          "bytes": 524288,
+          "sha256": "93593e4b62bc8b0edf7c0e13d5a62d790f7144079305fb4abc373e8a4237228d",
+          "git_blob_sha": "1b9fd935b13bfc906b5cdfb7fbce61cdf230d415"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0004.b64",
+          "index": 4,
+          "offset": 2097152,
+          "bytes": 524288,
+          "sha256": "fa3085e09c5acebca28b65cb1bbefbec45a3f1478da36a2ad1326b22386af8f8",
+          "git_blob_sha": "1a79f05cdd6e9690925c099c1b785f67b3a65c0e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0005.b64",
+          "index": 5,
+          "offset": 2621440,
+          "bytes": 524288,
+          "sha256": "d4298ee7efb31d8c0f346264ab7dfeb42cc89dfdf968509880ec1bcf1dd33a2f",
+          "git_blob_sha": "99b548890f2e27323ad0da4cf2d521c37ed98465"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0006.b64",
+          "index": 6,
+          "offset": 3145728,
+          "bytes": 524288,
+          "sha256": "900b28c7273658a73c2daf47fe7794672d54359b1ecfcab3865a65e1ec2e84c2",
+          "git_blob_sha": "26e2616a5b975dd9efd56499c5f822a7b9844034"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0007.b64",
+          "index": 7,
+          "offset": 3670016,
+          "bytes": 524288,
+          "sha256": "9ce19b9ac24729c4d6a1e8957ca38b3d387837c4049b91dd6c78d3ea1e2dbad0",
+          "git_blob_sha": "c0e81d2ca2ccdb07bc002074af88aa7fa49abb5b"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0008.b64",
+          "index": 8,
+          "offset": 4194304,
+          "bytes": 524288,
+          "sha256": "fcc595478ff2ddb251ca66338f03196235df5e5201eaff3cee9cd8ff67fe0002",
+          "git_blob_sha": "121bc2a4127f10e887f31df0250eaff759528b62"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0009.b64",
+          "index": 9,
+          "offset": 4718592,
+          "bytes": 524288,
+          "sha256": "7f01cf7858bf038f645db06423b81116e13bae0f473d74a831bc56ec32ea4a29",
+          "git_blob_sha": "8ee7cadde502041a2f721613b7fabc3cf187a644"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0010.b64",
+          "index": 10,
+          "offset": 5242880,
+          "bytes": 524288,
+          "sha256": "ed25d00fd663c910683d8e35fb234dc896d708b5b7f5a51170851fd830e08d29",
+          "git_blob_sha": "b012e173f5eecfb7106e4c64ab1771ba45c6fe51"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0011.b64",
+          "index": 11,
+          "offset": 5767168,
+          "bytes": 524288,
+          "sha256": "a6652d0283e91f67d3cc1fb923c9fcb6fd8b9e96f32df63bb8ecf0ae71e0fec1",
+          "git_blob_sha": "8d45a66b6ce64cf8facd2ac3cfd7dac62fbef30e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0012.b64",
+          "index": 12,
+          "offset": 6291456,
+          "bytes": 524288,
+          "sha256": "ee458df9a66b54d21f7481649b3e0ed284c865e0592e092dc1762de41951981c",
+          "git_blob_sha": "2b1d297c27554592d8838b7cdd351d7dc73fa76b"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0013.b64",
+          "index": 13,
+          "offset": 6815744,
+          "bytes": 524288,
+          "sha256": "c8bebea64382fb96e3a225678599accf74404e226f007f1d156cc69c8725ba11",
+          "git_blob_sha": "7f22e94a3aa5beb4240be5b22efbcd113a2dbf63"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0014.b64",
+          "index": 14,
+          "offset": 7340032,
+          "bytes": 524288,
+          "sha256": "c02a4b42997c1a1508c7ed6240413e1d2483b2fa011b8c64fe3a42d104d36d5c",
+          "git_blob_sha": "b28029e3c9db09b281a3afbd803108df307350d4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0015.b64",
+          "index": 15,
+          "offset": 7864320,
+          "bytes": 524288,
+          "sha256": "12510ac1c071649e2bbd2770afb2b45b817bf1401df418ac2ad9539684349f6d",
+          "git_blob_sha": "809f02325b4ddb82dcacbc358b9a3530216648c5"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0016.b64",
+          "index": 16,
+          "offset": 8388608,
+          "bytes": 524288,
+          "sha256": "3753c23a497b158872de6fc1dbdd93cd5cc605f8ea662dc15adc086edc0e2e72",
+          "git_blob_sha": "037ec2589ded56fc10aca379b280288d17052a94"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0017.b64",
+          "index": 17,
+          "offset": 8912896,
+          "bytes": 524288,
+          "sha256": "94875f989aae52e159f6ae4582ea72957c052ca5b057416bcfb2ea6080240f09",
+          "git_blob_sha": "3cdf27850b6e06422a01bd9a8e536acfbd2d459f"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0018.b64",
+          "index": 18,
+          "offset": 9437184,
+          "bytes": 524288,
+          "sha256": "45c201e0539e18595c0d00ae827a5894e3c81be34a0885081baf54bfad551ea1",
+          "git_blob_sha": "cc146a0bd8fd487bd9800568f55cc5447a29d057"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0019.b64",
+          "index": 19,
+          "offset": 9961472,
+          "bytes": 524288,
+          "sha256": "510f18841d402e94de196153af85ef16e39d5747595c6584263924961594a21a",
+          "git_blob_sha": "fdab1a9e6240efe8b2d786b4efcee7398c34e007"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0020.b64",
+          "index": 20,
+          "offset": 10485760,
+          "bytes": 524288,
+          "sha256": "f463dee125825c102285068c53100ce30639f2c0fe324696a247710b72632719",
+          "git_blob_sha": "07bc8c70820354aca1bd872112a61dc5263cc031"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0021.b64",
+          "index": 21,
+          "offset": 11010048,
+          "bytes": 524288,
+          "sha256": "552439d533a0f0c4344aca3e5a75f26b08aa14c8973453c6c48691ad30aa943b",
+          "git_blob_sha": "13d6a858c74c1bd6580fbe4943f22644462bf09b"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0022.b64",
+          "index": 22,
+          "offset": 11534336,
+          "bytes": 524288,
+          "sha256": "b969552d158db33093b9f977619bbaf854d863f0f9a9f90da8d7a039fc2f6feb",
+          "git_blob_sha": "2b98048f6e286bb6f4ae3b0a1564de7847db8340"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0023.b64",
+          "index": 23,
+          "offset": 12058624,
+          "bytes": 524288,
+          "sha256": "21b03e25bc77b9a1fd1fa4489ac53e08dbaf0f52bf098b607cd2c5ed923882f3",
+          "git_blob_sha": "24666ca08c6da5f4f5d7c266421d2f9def6a782c"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0024.b64",
+          "index": 24,
+          "offset": 12582912,
+          "bytes": 524288,
+          "sha256": "1f0612971995ed3c2f3913acbb815fa0619e1e2e7410c5223c89dce9d600b307",
+          "git_blob_sha": "2781748787c24f4178e67d768cdb4dcff3bc2a90"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0025.b64",
+          "index": 25,
+          "offset": 13107200,
+          "bytes": 524288,
+          "sha256": "e012dd0ad927ceccd893fcca3efd113ab85cf693816da63ce8187089439929d8",
+          "git_blob_sha": "f19322ad4c092fbaab9d5efb58fc979e069d03c3"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0026.b64",
+          "index": 26,
+          "offset": 13631488,
+          "bytes": 524288,
+          "sha256": "d64c926e373fdfc04d45eab2cff005f244512d4e13ea132c68a19661b95e5d45",
+          "git_blob_sha": "593404e15c6640f6cfa4d7769138c11027e06347"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0027.b64",
+          "index": 27,
+          "offset": 14155776,
+          "bytes": 524288,
+          "sha256": "ccb8d174691cc58e306940ffb94f3e296444e93c8ab97b9690741e87fca7e2b3",
+          "git_blob_sha": "2ffbc9a6baa135e7342b0828053e9919427d013e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0028.b64",
+          "index": 28,
+          "offset": 14680064,
+          "bytes": 524288,
+          "sha256": "c0f1c35b1d9e4e7ed6cc00e21a1d802bcc55028e3be2b3776258085edee8c3ad",
+          "git_blob_sha": "35213eb0d93d182077171d38ff3f4e9e7705a9e1"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0029.b64",
+          "index": 29,
+          "offset": 15204352,
+          "bytes": 524288,
+          "sha256": "0d006e27286368706b5f5003cc2be7b3efec7b98038388a5dd820eae4dedfe24",
+          "git_blob_sha": "2c3268bde6b82e5584fc3b25b5ad667a72208ecb"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0030.b64",
+          "index": 30,
+          "offset": 15728640,
+          "bytes": 524288,
+          "sha256": "d6294b457a51766c8a0bc93de973bea2882d25ba30442c4f902c976a0b30f2fb",
+          "git_blob_sha": "407899f0b277e4d4ce0b571de5210bd650af87fe"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0031.b64",
+          "index": 31,
+          "offset": 16252928,
+          "bytes": 524288,
+          "sha256": "bca32097593c0b00fc2d2abbebd50e521ad3f7511b2b6ff0d78f3856451d9576",
+          "git_blob_sha": "d868742bbfd033d5a095fc8b87677af79c1b760e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0032.b64",
+          "index": 32,
+          "offset": 16777216,
+          "bytes": 524288,
+          "sha256": "b266f517e22745891e99d8c73a0bb79a814815bd3f21b5788d0cb9e7b030153f",
+          "git_blob_sha": "372223c6f10cd42259229282b805ea6686af088f"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0033.b64",
+          "index": 33,
+          "offset": 17301504,
+          "bytes": 524288,
+          "sha256": "4b63e970ba17babbb3530efe1e5e0a710e44dc1e67d0f9f3914c2e68bc603e36",
+          "git_blob_sha": "20251190e7b5fe9319a31e06d085937194da8f0c"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0034.b64",
+          "index": 34,
+          "offset": 17825792,
+          "bytes": 524288,
+          "sha256": "c8f51cba377a6e392b90841ca72090ade10f0294be67459c571c87ef188d85b4",
+          "git_blob_sha": "9dbd2a4c46080a697106dddffcba67c870281284"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0035.b64",
+          "index": 35,
+          "offset": 18350080,
+          "bytes": 524288,
+          "sha256": "3be921e038432fae717558de8a3ba0e144e26da01e63f6fd0af73896ccec8762",
+          "git_blob_sha": "6f12c17214ac04bcd972f5a7b5a6cf3026a37bd8"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0036.b64",
+          "index": 36,
+          "offset": 18874368,
+          "bytes": 524288,
+          "sha256": "dde552050dac00d6cd63dbd9a769c88492474eea4d568fb0426c311130f5e9db",
+          "git_blob_sha": "b279913f6717ba81ecad627e96cd52906f10fc50"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0037.b64",
+          "index": 37,
+          "offset": 19398656,
+          "bytes": 524288,
+          "sha256": "d70a4f6abdfb246877b9b507f9f49a237996bc96da3806b511fe76cb00c209a8",
+          "git_blob_sha": "0a863b2f7121eddd52a4e9912b560ae7340cff13"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0038.b64",
+          "index": 38,
+          "offset": 19922944,
+          "bytes": 524288,
+          "sha256": "8f2aea02b803e661107ad5f710cc0fce59d9ea7053b9a43ade92030521912890",
+          "git_blob_sha": "ca5798a380816aa900d9c784fb5dfe8890ccaae8"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0039.b64",
+          "index": 39,
+          "offset": 20447232,
+          "bytes": 524288,
+          "sha256": "e4e921d8cc2238955e80d3f222831d1367cb3f59475ea3d25a60fd5bb3505c2d",
+          "git_blob_sha": "a3d53b458ff9f5458910ded3b6ed79ef5ca57d62"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0040.b64",
+          "index": 40,
+          "offset": 20971520,
+          "bytes": 524288,
+          "sha256": "ca86968e86c4332ad75adb802bf06b19cad8e5cfa5d5e37d8e03e6927ccd81af",
+          "git_blob_sha": "4ffe7de78b75766c8cf3ab977ca0596550d7e728"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0041.b64",
+          "index": 41,
+          "offset": 21495808,
+          "bytes": 524288,
+          "sha256": "c1e7c18e0d589b340324f8b58955d6cebdb3665ff879d319da35d24db7d6868c",
+          "git_blob_sha": "3699a47ab3a6b6242bcfa87545a129417c556da8"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0042.b64",
+          "index": 42,
+          "offset": 22020096,
+          "bytes": 524288,
+          "sha256": "113f90284ca7b3a7c7b659c2b32bec664f414c97c9f0b21fe9dca9e133fa96d0",
+          "git_blob_sha": "2385042262edff07da6bec69a99cfe55b91eeea4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0043.b64",
+          "index": 43,
+          "offset": 22544384,
+          "bytes": 524288,
+          "sha256": "5e986d904b1b8874dc1915abc7c6ca9beaaea5b41125496baabcb1a99ccd6800",
+          "git_blob_sha": "4eb116290f0aefc5baada7fd6c33c775f4ca32ab"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0044.b64",
+          "index": 44,
+          "offset": 23068672,
+          "bytes": 524288,
+          "sha256": "b0a79b22485c99e31b7958a8ead767e0c8e00d56f4f7800f41b2e84a9e3a6761",
+          "git_blob_sha": "3bb785ffde6e7d5910197017f9d3bb79d409aa4c"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0045.b64",
+          "index": 45,
+          "offset": 23592960,
+          "bytes": 524288,
+          "sha256": "104b458580417530fba343d168dc9c84896b98f01c02c7563576430be6b2d017",
+          "git_blob_sha": "7e156830a68b4c11eabfdc3ee60ce3387550b325"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0046.b64",
+          "index": 46,
+          "offset": 24117248,
+          "bytes": 524288,
+          "sha256": "067eb36566e8c2940f6597f29adbf8dd0625954af24c3339189caeb653147081",
+          "git_blob_sha": "1e89ccc9c03c79b5b4f8a1e6174ecd1e343234a8"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0047.b64",
+          "index": 47,
+          "offset": 24641536,
+          "bytes": 524288,
+          "sha256": "1907e160c9aac7bf13e9857e5fada4f0ff8df8eb08969a5e05d679366fa0036d",
+          "git_blob_sha": "40a1b30946abc7ec56709cdc8a7da6178f0a44ce"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0048.b64",
+          "index": 48,
+          "offset": 25165824,
+          "bytes": 524288,
+          "sha256": "59384e2c5195fc8c4194d800a5f39bc0355e3494c12fbf72dc93dfef675b1984",
+          "git_blob_sha": "959482f975fe62b63fde73bf7d0c8392c9a4079d"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0049.b64",
+          "index": 49,
+          "offset": 25690112,
+          "bytes": 524288,
+          "sha256": "b7cc0e33cb12de2dcfd7b5bbfc399ed1fbea915935d6680069531dcfe43bdb4c",
+          "git_blob_sha": "c06c21fd4c8208e35a8e29fa2a37a62eebf20169"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0050.b64",
+          "index": 50,
+          "offset": 26214400,
+          "bytes": 524288,
+          "sha256": "a71be71a840fecf109a1787432fe0d2426c50cc0783326c1e800189d53a1eb4e",
+          "git_blob_sha": "5a30c327073519c42c5e77481adf22886068bd5f"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0051.b64",
+          "index": 51,
+          "offset": 26738688,
+          "bytes": 524288,
+          "sha256": "7d2fb9937ea11177c036887a59e1d58d68f7031127793f4847a596768772a90a",
+          "git_blob_sha": "ea212e133ffcc4b10e83dd8b691be84e50c15ede"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0052.b64",
+          "index": 52,
+          "offset": 27262976,
+          "bytes": 524288,
+          "sha256": "66fafe442def7069c4c351abe0b69e4874989e57b4aabb2516040cfaabbdcf31",
+          "git_blob_sha": "db7d04d54e9b583b2e6c0f8dfda94b047e8bf017"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0053.b64",
+          "index": 53,
+          "offset": 27787264,
+          "bytes": 524288,
+          "sha256": "291d48708db78e18a5a196a046c2cb8f2903d977d8c45ab9e6976efda96e50d6",
+          "git_blob_sha": "e3f3dffaf57dc5b0db18193d30272c189fc14f98"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0054.b64",
+          "index": 54,
+          "offset": 28311552,
+          "bytes": 524288,
+          "sha256": "73daca4fcd36cb081068d0a8887fcda4c784c4a2f8726a3eaa3e3b616ffaf492",
+          "git_blob_sha": "f96d7cab486da8bcf89c4befcb500782e40036f4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0055.b64",
+          "index": 55,
+          "offset": 28835840,
+          "bytes": 524288,
+          "sha256": "a04efa9e09852c89a1498c0842fd1edd6c29270f7d1d7e49b9383789fc9e4794",
+          "git_blob_sha": "fef941f6728edad70bfe483bdb3d6d4b34975daa"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0056.b64",
+          "index": 56,
+          "offset": 29360128,
+          "bytes": 524288,
+          "sha256": "bc0f1f6059edcfdd6a4fcdb6ce16a0fdb004b4053fe9cf90637e34a9977282d7",
+          "git_blob_sha": "b39d6b2620b103a220e5a360ae1b8453b4d2cd26"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0057.b64",
+          "index": 57,
+          "offset": 29884416,
+          "bytes": 524288,
+          "sha256": "d449c4edfd739f8c34bc7d5f1c5dd713975685a9adab0b19af092a5356d56a31",
+          "git_blob_sha": "45dd7d92256f4f25a8dbb1f4970f81e7a14d6dfb"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0058.b64",
+          "index": 58,
+          "offset": 30408704,
+          "bytes": 524288,
+          "sha256": "44b6205893d92fd93e36c3cce38ae8a9abbd08f444af7eaaa78fe9bce480df2e",
+          "git_blob_sha": "e343b2f448ad74532721ffc6a221f4f00ec2d62f"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0059.b64",
+          "index": 59,
+          "offset": 30932992,
+          "bytes": 524288,
+          "sha256": "0ed8430d21a5cf007a0dfaffb343028a79dab76cabdc0d5b117f14f7c43e427c",
+          "git_blob_sha": "ae987c39aa5efa24f37fcdb640b99faf6522bd9e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0060.b64",
+          "index": 60,
+          "offset": 31457280,
+          "bytes": 524288,
+          "sha256": "69e2b2e0d9d574feb4540898666d509f715ce638f444246389e16448f9bc96aa",
+          "git_blob_sha": "3c46a075d2e87d28dc6699debd7ef4b594867feb"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0061.b64",
+          "index": 61,
+          "offset": 31981568,
+          "bytes": 524288,
+          "sha256": "0a957b909a0b75e977c1c27cef7ed5619152493547999594cebffa649d8ba0c2",
+          "git_blob_sha": "2a3000a371ea8428faa82ea1613a525bddea07ed"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0062.b64",
+          "index": 62,
+          "offset": 32505856,
+          "bytes": 524288,
+          "sha256": "7e7776eb2903178ed6890cbcc4d7c6f56d1d5b6d11f8dd3750334165258975d8",
+          "git_blob_sha": "daa23c3f90827b69e9eb141a5eecbfc2738e8ce5"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0063.b64",
+          "index": 63,
+          "offset": 33030144,
+          "bytes": 524288,
+          "sha256": "0e04a7634bd845c124e28ed0fd19e6469480165d99c3ad10bbe4e307ede86433",
+          "git_blob_sha": "1f5214f82c4e518dd551ed363aaa59fdaaedd9e0"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0064.b64",
+          "index": 64,
+          "offset": 33554432,
+          "bytes": 524288,
+          "sha256": "4c3a7e3d48238f3175a5d35ec0eff456dcc6b0a2f57864b3e23bb812fc929d09",
+          "git_blob_sha": "d7055bf0648c2bbdde01e5080c85fb4a79509cc4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0065.b64",
+          "index": 65,
+          "offset": 34078720,
+          "bytes": 524288,
+          "sha256": "d41315f27b4688e1a56e4f8ff30e1d42e37e92466a6339bdcdf9d28ba8d894ef",
+          "git_blob_sha": "5b1f7211e204338a05b1038e458a5cb47e9fc869"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0066.b64",
+          "index": 66,
+          "offset": 34603008,
+          "bytes": 524288,
+          "sha256": "2e6af05d54ec0617e756448697492ec574e2336840ede24d2243938f2d9ea848",
+          "git_blob_sha": "710396a6c2fdce18d3195e5910d7d1a9b8f1e706"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0067.b64",
+          "index": 67,
+          "offset": 35127296,
+          "bytes": 524288,
+          "sha256": "8d52714bced5b5b06f672e073f9fc9e071d653bc84c1dbe3217025e530ec0a4b",
+          "git_blob_sha": "5ed33322f6158f20f77cfdabe4bd302cf551eb5a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0068.b64",
+          "index": 68,
+          "offset": 35651584,
+          "bytes": 524288,
+          "sha256": "71c7e4d58eafb191fe846191452e35463ce3ecc82496f518e94d746f00c76fcc",
+          "git_blob_sha": "60f002732c8ad2ef5980dbcfa759d39986b0830a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0069.b64",
+          "index": 69,
+          "offset": 36175872,
+          "bytes": 524288,
+          "sha256": "fea5abe54ad55395f457d35b49675c31e4083cbe241c37c1afd2245e421bc164",
+          "git_blob_sha": "ef517d214daa0338ce38807b86a6a33662986505"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0070.b64",
+          "index": 70,
+          "offset": 36700160,
+          "bytes": 524288,
+          "sha256": "2cf691c3c878f6826df8d2d99225f888bd6edae21ab16ac7ddef995f10d323ba",
+          "git_blob_sha": "6d2446aae547c70126e019f6ed341b647884df3e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0071.b64",
+          "index": 71,
+          "offset": 37224448,
+          "bytes": 524288,
+          "sha256": "ed255e3520d0d05ddea681a4d0285fd26b73972bb9690ba3b0fbbb216f12d716",
+          "git_blob_sha": "51d3cf93f145e70ba252db9dc07c15b1c44763e7"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0072.b64",
+          "index": 72,
+          "offset": 37748736,
+          "bytes": 524288,
+          "sha256": "9063d7de99079345c6bf79f63b51de84c5fbaecfb5d4d202bd7b344f9fed3a01",
+          "git_blob_sha": "3348789f9159e4c33b182dc489abfc4f47008357"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0073.b64",
+          "index": 73,
+          "offset": 38273024,
+          "bytes": 524288,
+          "sha256": "0ad2aea3a9f9ef9b5960291424cad28d0995e66eaffbd10636648f14b853e011",
+          "git_blob_sha": "8c1d865bb8ceb14002cffab9f7a578b9994e83ff"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0074.b64",
+          "index": 74,
+          "offset": 38797312,
+          "bytes": 524288,
+          "sha256": "43c3d95d873d22ee30d7b9bb3392d748b3c24ec4fa88e75fa5bb66513120216b",
+          "git_blob_sha": "3f04f78ad6fbe0ad916ff6823c76a0d56c2023dc"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0075.b64",
+          "index": 75,
+          "offset": 39321600,
+          "bytes": 524288,
+          "sha256": "820ff95ea41fb64b3306b6e12a1d007510d20483270fffea3ef80e63b1870136",
+          "git_blob_sha": "562c24df9f407c2e99bbbb83b7ecfa40008b5c0d"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0076.b64",
+          "index": 76,
+          "offset": 39845888,
+          "bytes": 524288,
+          "sha256": "ac622649a1350ae20e6d5bfab5bf2bb9dfc21c662cdeae6e145f7a1114adfad6",
+          "git_blob_sha": "0253b045a0670d8e08cebea43af35a1fff6a4c79"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0077.b64",
+          "index": 77,
+          "offset": 40370176,
+          "bytes": 524288,
+          "sha256": "527bc22dbe4efd7623c1416c588f2ff6f1d12925a2ab028582888fc5c2b370f9",
+          "git_blob_sha": "ca0464e75c0ba4616c06d5e3cb33093f9f6d1e36"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0078.b64",
+          "index": 78,
+          "offset": 40894464,
+          "bytes": 524288,
+          "sha256": "21af9621084def68bcb28db4dbd41b0913721be0c51e326d19a5f33ca84e0e9f",
+          "git_blob_sha": "cbcd85bee350f73a16541ae1f7784bf0cfcb02c6"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0079.b64",
+          "index": 79,
+          "offset": 41418752,
+          "bytes": 524288,
+          "sha256": "c7809ffc041caf73d4ad53a694d9f649fd3571283d360b3c757a5cd9a612db1b",
+          "git_blob_sha": "f559c05e0f28a65ddf925daee07e70b889ec8a39"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0080.b64",
+          "index": 80,
+          "offset": 41943040,
+          "bytes": 524288,
+          "sha256": "d65dcbc400f0c3aaf2d3aa4415136f8bd39c287be3e4adb07500f5c2321217de",
+          "git_blob_sha": "d205695db1f539dcadc841b954e43044a77630a9"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0081.b64",
+          "index": 81,
+          "offset": 42467328,
+          "bytes": 524288,
+          "sha256": "594d6baa396fac8e3b73cbd9a9f2583407b43d4895bd6b672b8e7d53a5e4102f",
+          "git_blob_sha": "def0db71720133d36c16311ee5d4c3a10857a81a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0082.b64",
+          "index": 82,
+          "offset": 42991616,
+          "bytes": 524288,
+          "sha256": "214300e004bd2c2f029f583bb327ac3569f210a788d210902fb09e0a2c455532",
+          "git_blob_sha": "48502adfd2dfa6b2dee9bba1b73678b819df580a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0083.b64",
+          "index": 83,
+          "offset": 43515904,
+          "bytes": 524288,
+          "sha256": "78b34b6f9eb2dd671b37016121ef29ae9f106731aeac257d22edeff39f7a04f2",
+          "git_blob_sha": "d97921985f4701e0e0e7b8058f9097e6289175ac"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0084.b64",
+          "index": 84,
+          "offset": 44040192,
+          "bytes": 524288,
+          "sha256": "d91421916687548703e782fe18e97ab77841c4cdc2d43c474b604cbba7fa6f2f",
+          "git_blob_sha": "a1a59c534880e69b62b4210468c975a445a1e2b5"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0085.b64",
+          "index": 85,
+          "offset": 44564480,
+          "bytes": 524288,
+          "sha256": "7ae791dbec9fe1175163f6c9f05daa7a9e7cae39679eef3fe3ecad865aa826d8",
+          "git_blob_sha": "09cf76c5f3a24cb793b385986861f831c9825903"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0086.b64",
+          "index": 86,
+          "offset": 45088768,
+          "bytes": 524288,
+          "sha256": "1d7350194ba3811ac6aff9c4dd09eb635d15e3bb90e78b0932a9ea4ae5fcdd0b",
+          "git_blob_sha": "d8d48883da15e8b5a9544841efd185dafcc151fd"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0087.b64",
+          "index": 87,
+          "offset": 45613056,
+          "bytes": 524288,
+          "sha256": "28b89373eac54c7cdd99179fc6c7653061b39eb4dc89fd5fa841f686b55ac01c",
+          "git_blob_sha": "ec05fc3ccf95761e51ea7e4f631427d00a4b973b"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0088.b64",
+          "index": 88,
+          "offset": 46137344,
+          "bytes": 524288,
+          "sha256": "95a0685bde7f0cc15a48eb846c5f7f6ba0021e3d4e7a427156603ee3ae41fcf8",
+          "git_blob_sha": "3bca5bc103843a4684d60617d750dc5a7204084a"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0089.b64",
+          "index": 89,
+          "offset": 46661632,
+          "bytes": 524288,
+          "sha256": "c817817f39a27e2d00127a7e49a78c344a907e684959f07921f16dba2bb0c792",
+          "git_blob_sha": "d45a686c35b3fd698aa66417a0ed8a44344131db"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0090.b64",
+          "index": 90,
+          "offset": 47185920,
+          "bytes": 524288,
+          "sha256": "6c8e4beec760523cd36a1b073d3e740ccc792b26286dde8df69760efe2d20a2c",
+          "git_blob_sha": "9a92a79fef737d82c9cb4dce83d1e25134b6bd66"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0091.b64",
+          "index": 91,
+          "offset": 47710208,
+          "bytes": 524288,
+          "sha256": "d5b140c878db7216b9ec12b783312146a4a7feeb080097e14cceebc88b70f658",
+          "git_blob_sha": "edaeef3f4a8e1f78e5739fac193bce2e8ef369df"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0092.b64",
+          "index": 92,
+          "offset": 48234496,
+          "bytes": 524288,
+          "sha256": "5e36b5fd8ac255b8efc247f1e730aef96ba7397affd4aeb91ddaaa5f4d081a47",
+          "git_blob_sha": "8136f88fbadfcd4a6d3584ea705c90020c9df312"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0093.b64",
+          "index": 93,
+          "offset": 48758784,
+          "bytes": 524288,
+          "sha256": "fa20d0c13e41cd2033d28b588b8872dc37ddee1daf30884192d6c4cbb5c062d6",
+          "git_blob_sha": "1f45ccd0f90e9b995199c058dfbadc0d91a6e22c"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0094.b64",
+          "index": 94,
+          "offset": 49283072,
+          "bytes": 524288,
+          "sha256": "a1c932281b6ffbc1daaa42b5c5b7388ae5a452e9fc81dadffd378ba7be8b0f87",
+          "git_blob_sha": "a4ec1e67efda5cb204b5b89d8e09ed87d4b210ef"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0095.b64",
+          "index": 95,
+          "offset": 49807360,
+          "bytes": 524288,
+          "sha256": "814afce3e2a6e915e373bd3cb2011a87c18bc5474c924d8545e8376cd66e7c63",
+          "git_blob_sha": "cac9b677556b4765ca05b1626bf9197d454296bd"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0096.b64",
+          "index": 96,
+          "offset": 50331648,
+          "bytes": 524288,
+          "sha256": "da6435905210dd7533b75c890345ef9719f525052fe2a4c14914e294d5ea3d60",
+          "git_blob_sha": "502794fb285961fb025b5845ea55668e1049df4e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0097.b64",
+          "index": 97,
+          "offset": 50855936,
+          "bytes": 524288,
+          "sha256": "efa628bc818bc435f8dfc3f9b7ee03ac36d1148b85586d6a6deb4308d39a1ef8",
+          "git_blob_sha": "8c7a0d46c1524393b07c12bef9e8c7fd2048dfa0"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0098.b64",
+          "index": 98,
+          "offset": 51380224,
+          "bytes": 524288,
+          "sha256": "65435723d7fa57507290da2fab1a20b15589e7f1aa95050dff0f36bd844ffa88",
+          "git_blob_sha": "8cb3292df9ca247144c265ea2463eeddac845aa8"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0099.b64",
+          "index": 99,
+          "offset": 51904512,
+          "bytes": 524288,
+          "sha256": "0e8a129d47eb032c4262bb2315af19c2bb0739c93d541af0020ab9208e563526",
+          "git_blob_sha": "e42914ee99ff0743ce0945ecb8b10630655c1687"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0100.b64",
+          "index": 100,
+          "offset": 52428800,
+          "bytes": 524288,
+          "sha256": "39228fb10d83020d80f481eccc1f238502a57c9f5167a1d2e12e5327b307a5c1",
+          "git_blob_sha": "96bd908cfdaee87f82dd98428b8772f90e338759"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0101.b64",
+          "index": 101,
+          "offset": 52953088,
+          "bytes": 524288,
+          "sha256": "1c3f4278ef95f7c43f7bfbf34ce6c39279efabcaff7f5a709e94942a8bfa4986",
+          "git_blob_sha": "9d37ae6b441a53d7913997d29762c196bfb5d591"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0102.b64",
+          "index": 102,
+          "offset": 53477376,
+          "bytes": 524288,
+          "sha256": "e2e72821a547591a0acdf2afcd06804240d5a41e61909abe22d7fb9e636e0e4d",
+          "git_blob_sha": "481a0a62302ebf6d7cbdadaf8b7e0557abc066a4"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0103.b64",
+          "index": 103,
+          "offset": 54001664,
+          "bytes": 524288,
+          "sha256": "371c54a79de488b041cdb11fe1f57d74202686cd9b791c9f047c688d68b8e517",
+          "git_blob_sha": "19f659813a8780b4611c90af9f2aacebfa2024d0"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0104.b64",
+          "index": 104,
+          "offset": 54525952,
+          "bytes": 524288,
+          "sha256": "3a9ae7dfc83009eca9c31d93a6eef9148c34df2c736e506367b7f0ebf562e75d",
+          "git_blob_sha": "31c71823286f4d087008ec5db395915d77bb9f79"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0105.b64",
+          "index": 105,
+          "offset": 55050240,
+          "bytes": 524288,
+          "sha256": "15807eb53b95777ef94366ebab748ab775cb02f309fed40d5b5b8360e028d496",
+          "git_blob_sha": "32bae1289b09ee2c55a50b7fc66ed1a3ca96167e"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0106.b64",
+          "index": 106,
+          "offset": 55574528,
+          "bytes": 524288,
+          "sha256": "f2bbc422e87a606e1902719e530b27330cc0335e434a2ea05678c7489db28c78",
+          "git_blob_sha": "ec87373ee676b56b0188568d4d395aa2e83604b0"
+        },
+        {
+          "path": "parts/sol25-handoff-20261009.tar.zst.0107.b64",
+          "index": 107,
+          "offset": 56098816,
+          "bytes": 158313,
+          "sha256": "516355305095d06ac7f546f8a5f57dd6bab906270fc367bcfaa0305ea2082578",
+          "git_blob_sha": "805332e2c9aca5de03eeac4380b08e6432d6d612"
+        }
+      ]
+    },
+    {
+      "name": "sol25-code-delta-20261009.bundle",
+      "bytes": 82855,
+      "sha256": "e922f5af822c4884a24eb0a9ea1dae286bc05fd60583ae08ac3c4f9076783cb4",
+      "parts": [
+        {
+          "path": "parts/sol25-code-delta-20261009.bundle.0000.b64",
+          "index": 0,
+          "offset": 0,
+          "bytes": 82855,
+          "sha256": "e922f5af822c4884a24eb0a9ea1dae286bc05fd60583ae08ac3c4f9076783cb4",
+          "git_blob_sha": "4e37f4787107cca205a72bc0db2f44e9b46c9f58"
+        }
+      ]
+    }
+  ]
+}
