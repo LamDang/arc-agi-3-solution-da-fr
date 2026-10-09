@@ -1,0 +1,31 @@
+{
+  "reviewer": "root",
+  "method": "Independent restricted tensor metadata decoding and NumPy raw FP32 storage comparison",
+  "comparison_to_liger_v2": {
+    "reference": "liger-flce-v2",
+    "raw_tensors": 744,
+    "bitwise_exact_tensors": 0,
+    "relative_l2_error_with_liger_denominator": 0.01650272575545787,
+    "cosine_similarity": 0.9998638950778979
+  },
+  "raw_adapter_tensors_verified": 744,
+  "all_finite": true,
+  "nonzero_tensors": {
+    "A": 372,
+    "B": 372
+  },
+  "bitwise_exact_tensors": 0,
+  "global_relative_l2_error": 0.012059404860941496,
+  "cosine_similarity": 0.9999273038627808,
+  "per_tensor_comparison_verified": true,
+  "all_download_hashes_verified": true,
+  "four_raw_operator_gradients_verified": true,
+  "imported_cce_sources_verified_against_archive": 15,
+  "both_gradient_filters_confirmed_disabled": true,
+  "interleaved_fixture_and_labels_verified": true,
+  "private_server_url_absent": true,
+  "execution_commit": "c3da11927bd86b0caaa55d82f09a17a5eb55dfdd",
+  "dvc_checkout_all_files_byte_equal": true,
+  "dvc_restored_files": 54,
+  "dvc_artifact_tree_md5": "07c61ac3ad93923488c7a17fa18a5729.dir"
+}

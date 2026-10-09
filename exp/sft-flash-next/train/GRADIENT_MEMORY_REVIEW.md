@@ -1,3 +1,18 @@
+# Latest CCE exact evidence — 2026-10-09
+
+`cce-exact-v3` uses official Apple CCE with both gradient filters disabled and
+FP32 accumulation on the frozen head. Raw 744-gradient qualification gives
+1.205940% global L2 error versus native (Liger 1.609730%), worst tensor 2.499718%,
+0 bitwise-identical tensors. Scalar loss differs by -8.23736e-5. The candidate
+remains diagnostic with no accepted tolerance, production promotion or update.
+
+Synthetic interleaved head error is 0.333% versus Liger 5.03%, but isolated peak
+is 2.598 GiB versus Liger 1.712 GiB. Full-model allocated GPU peak still equals
+58.523 GiB and backward sampled RSS 129.270 GiB. Thus no whole-model peak saving
+versus v1/v2 is established. Zero vocabulary-shaped CPU saved tensors; CCE retains
+selected embeddings/classifier rather than dense logits, and recomputes during
+backward. See `v3.md` for complete timing, memory, source and raw-gradient evidence.
+
 # Latest Liger FLCE evidence — 2026-10-09
 
 The user-selected target-only frozen-head Liger experiment is logged as

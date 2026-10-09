@@ -147,3 +147,56 @@ stages:
       hash: md5
       md5: 0848ba0c6b80336177273694e24248ef
       size: 6792
+  cce_exact_v3:
+    cmd: node kaggle_reference_run.mjs --config configs/cce-exact-v3.json
+    deps:
+    - path: cce_operator_check.py
+      hash: md5
+      md5: eecd7feed863a53f37f14d76d72ce478
+      size: 5603
+    - path: cce_target_loss.py
+      hash: md5
+      md5: 596ce68b7fe2074c52407b2f1d90197f
+      size: 8906
+    - path: configs/cce-exact-v3.json
+      hash: md5
+      md5: f495ea0de4e522f2d949d5f2e8e96f78
+      size: 2749
+    - path: gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      hash: md5
+      md5: 73d999a775414e49b6cc298bc4a299ba
+      size: 134184559
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/gradients.pt
+      hash: md5
+      md5: 20370b16cedbe79d02ae905d86980f94
+      size: 134192587
+    - path: gradient-results/reference-nonzero-ab-repeat-v1/result.json
+      hash: md5
+      md5: de43732b505637a5ba69385effa7110f
+      size: 669
+    - path: kaggle_reference_run.mjs
+      hash: md5
+      md5: a1adddf54fa407e8046399f745c7892a
+      size: 26532
+    - path: kaggle_reference_worker.py
+      hash: md5
+      md5: 4f6609dbc5ff7d1f5a53d46b722435f1
+      size: 20345
+    - path: overfit_hf_reference.py
+      hash: md5
+      md5: 6618db7c75b60c9c366f69cece15f41d
+      size: 14678
+    - path: target_only_head.py
+      hash: md5
+      md5: a7d5f75bc5d055d558be64d0e1c07dc6
+      size: 8936
+    outs:
+    - path: gradient-results/cce-exact-v3
+      hash: md5
+      md5: 07c61ac3ad93923488c7a17fa18a5729.dir
+      size: 1365913509
+      nfiles: 54
+    - path: metrics/cce-exact-v3.json
+      hash: md5
+      md5: 37e991cd91b739123a36e68795c5d295
+      size: 6760

@@ -1,3 +1,29 @@
+# Latest CCE exact experiment — 2026-10-09
+
+* User authorized CCE exact without gradient filtering, compared with native,
+  v1 and Liger. Primary agent executed directly through Kaggle Jupyter; no agents.
+* `cce-exact-v3` completed at execution commit `c3da119`, attempt
+  `20261009164944-23fb1fb3`. Official Apple source commit
+  `3de376c106a1916bc5e1b619f9c77c87a461ee1c` (source version 25.9.3), isolated
+  archive pinned by SHA256; PyPI 25.1.1 lacks the preset and was not used.
+* Frozen head; `impl='cce_exact'`, `filter_eps=None`, both e/c filters false,
+  both FP32 accumulation flags true. Actual effective options and all 15 imported
+  CCE source hashes were independently checked against the archived source.
+* Full-model loss `0.6256128549575806`, native delta -8.237361907958984e-5.
+  All 744 A/B gradients finite/nonzero, 0/744 bitwise identical; global L2
+  error 1.205940% (Liger 1.609730%, about 25.1% less error), worst tensor
+  2.499718%, cosine 0.9999273038627808. No clipping/update or production promotion.
+* Forward/backward 115.109 / 216.554 s; allocated GPU peaks 49.775 / 58.523 GiB;
+  sampled process RSS peaks 129.066 / 129.270 GiB. No additional whole-model
+  GPU/RAM peak saving over v1/v2. Zero vocabulary-shaped CPU saved tensors.
+* Interleaved mean/sum operator losses match native. Hidden gradient errors
+  0.333004% / 0.332454%, versus Liger 5.03–5.06%; operator GPU peak 2.598 GiB.
+  Full-model adapter agreement remains much less close than this operator result.
+* `v3.md`, master `v0.md`, config/stage, metrics and independent review record
+  all results. All 54 files restored identically from DVC. Numerical qualification
+  remains failed; successful pipeline execution is not acceptance of a tolerance.
+  Production remains v1. Prior Liger stage is frozen; no successor GPU run started.
+
 # Latest experiment update — 2026-10-09
 
 * User authorized target-only Liger FLCE as the next optimization. Primary agent
