@@ -24,6 +24,16 @@ def apply_flags(base, flags):
     try:
         for m in base.model.language_model.modules():
             cls = type(m).__name__
+            native_choice = {
+                'Qwen4ExpTextRMSNorm': ('native_norm_block', 'rms_rows'),
+                'Qwen4ExpTextRMSNormGated': ('native_gated_block', 'gated_rows'),
+                'Qwen4ExpTextGatedResidual': ('native_hyper_block', 'hyper_rows'),
+            }.get(cls)
+            if native_choice and flags.get(native_choice[0]):
+                import native_checkpoint_blocks as native_blocks
+                set_attr(m, 'native_forward', m.forward)
+                set_attr(m, 'native_block', flags[native_choice[0]])
+                bind(m, getattr(native_blocks, native_choice[1]))
             if cls == 'Qwen4ExpTextRMSNorm' and flags.get('norm_block'):
                 set_attr(m, 'train_block', flags['norm_block']); bind(m, b.training_rms_norm)
             if cls == 'Qwen4ExpTextGatedResidual' and flags.get('hyper_block'):

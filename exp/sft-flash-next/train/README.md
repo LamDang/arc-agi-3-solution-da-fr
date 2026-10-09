@@ -20,7 +20,8 @@ A100 was tested.**
 **Capacity is not gradient equivalence.** The earlier 512-token diagnostic
 checks the attention backward against the same optimized forward, and does not
 validate every optimization against the native model. See the separate
-[gradient ablation audit](GRADIENT_AUDIT.md) for the real-request comparison.
+[native HF gradient audit](NATIVE_GRADIENT_AUDIT.md) for current comparisons.
+The older [custom-reference audit](GRADIENT_AUDIT.md) is retained as historical diagnostics.
 The current prerequisite is a separate [native HF overfit qualification](OVERFIT_REFERENCE.md)
 on a fixed real 16K window. It passed after 5 updates: loss
 0.624715 → 0.010218 (98.36% reduction). This qualifies learning

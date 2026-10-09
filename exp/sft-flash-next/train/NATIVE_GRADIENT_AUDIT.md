@@ -50,7 +50,18 @@ The old custom expert kernels and embedding preparation are not silently
 enabled as prerequisites. Block boundaries are set below the audit length so
 that tests exercise cross-block behavior.
 
-Status at implementation: capture and comparison jobs started; results pending.
+The first capture completed in 535.63 seconds including model load. Its native
+loss is exactly **0.6247151494026184**, reproducing the learning baseline.
+All **744 tensors / 33,478,656 values** are finite: 372 zero A gradients and
+372 nonzero B gradients. The downloaded tensor file matches the server hash:
+`4562ea2ec914c1b10d51d001eb01d4e07a4e2eebaf66884b37e8a40ba9bc85e6`.
+Per-adapter statistics and capture metadata are checked into
+[`gradient-results/native-first-pass`](gradient-results/native-first-pass).
+Raw tensors are retained in the shared workspace at
+`/workspace/quant-compat-audit/native-gradient-audit/native-first-pass/gradients.pt`
+and on Kaggle at `gradient-audit-20261009/native-first-pass/gradients.pt`.
+
+Optimization comparisons are running; results remain pending.
 Neither this implementation nor the prior capacity runs certify full-context
 gradient equivalence. A 16K comparison cannot directly prove equality at 130K;
 full-context execution is a subsequent capacity and boundary-behavior check.

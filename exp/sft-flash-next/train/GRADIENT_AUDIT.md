@@ -1,4 +1,8 @@
-# Gradient equivalence audit
+# Historical custom-reference gradient audit
+
+The active HF/PEFT first-pass capture and flag comparisons are documented in
+[NATIVE_GRADIENT_AUDIT.md](NATIVE_GRADIENT_AUDIT.md). The loader and model substitutions
+below are not the accepted reference.
 
 **Status: custom-reference audit stopped; native reference passed its learning qualification.**
 The current requested prerequisite is a [single-sample overfit test](OVERFIT_REFERENCE.md):
