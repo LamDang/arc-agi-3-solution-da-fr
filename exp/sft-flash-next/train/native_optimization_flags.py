@@ -12,6 +12,18 @@ from torch.utils.checkpoint import checkpoint
 
 @contextmanager
 def apply_flags(base, flags):
+    allowed={'name','loss','loss_block','offload','norm_block','hyper_block','gated_norm_block',
+             'native_norm_block','native_hyper_block','native_gated_block','ple_block',
+             'gdn_block_tokens','attention','index_block','query_block','attention_projection_block',
+             'checkpoint_group'}
+    if flags.keys()-allowed:
+        raise ValueError(f'Unknown optimization flags: {sorted(flags.keys()-allowed)}')
+    if flags.get('loss') not in (None,'selected','chunked') or flags.get('offload') not in (None,'cpu','disk'):
+        raise ValueError('Unsupported loss or activation-storage mode')
+    for native,custom in [('native_norm_block','norm_block'),('native_hyper_block','hyper_block'),
+                          ('native_gated_block','gated_norm_block')]:
+        if flags.get(native) and flags.get(custom):
+            raise ValueError(f'Choose one implementation: {native} or {custom}')
     import backend as b
     undo = []
     def set_attr(obj, name, value):

@@ -67,3 +67,11 @@ def test_outer_checkpoint_groups_keep_native_gradients_and_module_names():
             for a,b in zip(got,expected):torch.testing.assert_close(a,b,rtol=0,atol=0)
         assert base.model.language_model.layers is original_layers
         assert list(base.state_dict())==names
+
+
+def test_unknown_or_conflicting_flags_cannot_silently_pass():
+    base,_,_,_,_=setup()
+    for flags in ({'norm_blok':1024},{'loss':'unknown'},
+                  {'native_norm_block':7,'norm_block':7}):
+        with pytest.raises(ValueError):
+            with apply_flags(base,flags):pass

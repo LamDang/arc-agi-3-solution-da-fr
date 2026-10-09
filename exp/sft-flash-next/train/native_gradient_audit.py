@@ -38,6 +38,7 @@ def default_cases():
             dict(name='native_rms_blocks', native_norm_block=1024),
             dict(name='native_gated_blocks', native_gated_block=262144),
             dict(name='native_hyper_blocks', native_hyper_block=1024),
+            dict(name='native_checkpoint_groups_3', checkpoint_group=3),
             dict(name='rms_blocks', norm_block=1024),
             dict(name='hyper_blocks', hyper_block=1024),
             dict(name='gated_norm_blocks', gated_norm_block=262144),
@@ -137,6 +138,8 @@ def main():
                 value=loss.item();event('forward_complete',name=name,loss=value)
                 phase['pass']='backward';loss.backward();del loss
             torch.cuda.synchronize()
+            for key,value in get_peft_model_state_dict(model).items():
+                torch.testing.assert_close(value.cpu(),state[key],rtol=0,atol=0)
             gradients={n:v.grad.detach().cpu().clone() for n,v in parameters.items() if v.grad is not None}
             metric=compare(gradients,reference,rtol=args.rtol,atol=args.atol)
             torch.save(gradients,case/'gradients.pt');write(case/'comparison.json',metric)
@@ -166,7 +169,18 @@ def main():
             event('stopped',reason='Native replay is not stable at the declared tolerance; no flag can be certified.')
             return
         if result['passed'] and flags['name']!='reference_repeat':
-            candidate={**passed_flags,**{k:v for k,v in flags.items() if k!='name'}}
+            isolated={k:v for k,v in flags.items() if k!='name'}
+            candidate={**passed_flags,**isolated}
+            for group in [('native_norm_block','norm_block'),('native_hyper_block','hyper_block'),
+                          ('native_gated_block','gated_norm_block')]:
+                for key in group:
+                    if key in isolated:
+                        for alternative in group:
+                            if alternative!=key:candidate.pop(alternative,None)
+            if candidate==isolated:
+                passed_flags=candidate
+                event('cumulative_already_verified',source_case=flags['name'],flags=candidate)
+                continue
             combined=run(dict(name='cumulative_'+flags['name'],**candidate))
             if combined['passed']:passed_flags=candidate
     write(out/'accepted-flags.json',passed_flags)
