@@ -1,4 +1,53 @@
-# Resume prompt
+# Latest resume state — 2026-10-09
+
+This section supersedes the original immediate-action instructions below.
+
+* Branch: `codex/flash-next-full-context-training`, PR #24.
+* The requested zero-B native capture completed and is preserved in
+  `gradient-results/reference-new-server-one-run-v1`: loss
+  `0.6243623495101929`, all 744 finite raw gradients, 372 zero A gradients,
+  no clipping/update. Do not recapture it automatically.
+* A **test-only** reproducible nonzero A/B fixture now exists in
+  `gradient-results/nonzero-diagnostic-adapter-v2`. All 372 A and 372 B tensors
+  are nonzero; two fresh CPU processes reproduced identical bytes. The pinned
+  adapter SHA256 is
+  `49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f`.
+  Production initialization rejects this fixture. Read
+  `NONZERO_DIAGNOSTIC_ADAPTER.md` before reuse.
+* Its native capture `gradient-results/reference-nonzero-ab-v2` completed with
+  loss `0.6256952285766602`, all 744 gradients finite and nonzero, no
+  clipping/update. Root independently decoded and verified the raw tensor
+  storages. Gradient SHA256:
+  `91465990e81dd57bb29368510354674415c1f1d8bbbaba5225b62fdf4a8cced2`.
+* The single authorized fresh-process replay completed in
+  `gradient-results/reference-nonzero-ab-repeat-v1`. Loss FP32 bits (`3f202d90`)
+  and all 744 tensors' raw bytes match exactly, including signed-zero bits.
+  Both serialized gradient files have the SHA256 above. Source manifests,
+  runtime versions, sample/adapter/config identities and environment match.
+  Root independently verified the downloaded raw tensor storages and hashes.
+  No clipping/update occurred and no candidate sweep is authorized.
+* The user authorized committing the code/docs to Git and these session
+  artifacts to DVC, then pushing both remotes. Raw `.pt` and ZIP files are
+  excluded from Git by explicit directory ignore entries; `.dvc` pointers
+  restore the complete evidence, including independent review reports.
+* The executed native reference script is unchanged: last modifying commit
+  `c7ff17e78776a9888b280531a0c53718efa45c02`, SHA256
+  `f95893baa503ec446d4610878b7d5feb7ee975e9313e282349cac2d8952573a0`.
+* Use the Kaggle Jupyter server API directly for kernel access and transfers.
+  The user explicitly rejected computer-use automation for this work. Private
+  URL is in `/tmp/kaggle_probe_url` for this local session only; never print or
+  archive it.
+* `GRADIENT_MEMORY_REVIEW.md` lists historical gradient evidence and 130K memory
+  implications. The approximately 402 GiB stock-reference GPU estimate is an
+  extrapolation of measured head allocation; the 668 GiB host calculation is
+  illustrative only. The initially stated 600–700 GiB host range was withdrawn.
+* PR #26's new dataset outputs were verified in the main local checkout against
+  all four DVC MD5s: 58 trajectories, 25 games, 1,334 targets, 1,399,743 target
+  tokens / 5,712,174 total (24.5%). Twelve trajectories exceed 32,768 targets;
+  maximum 43,806. A fixed 32,768-row backward cannot cover this dataset. The
+  trajectory output objects were absent from DVC remote at the time of review.
+
+# Original resume prompt (historical)
 
 Continue Qwen3.8-Flash-Next W4A16 + LoRA gradient qualification and long-context
 training in `LamDang/arc-agi-3-solution-da-fr`, branch

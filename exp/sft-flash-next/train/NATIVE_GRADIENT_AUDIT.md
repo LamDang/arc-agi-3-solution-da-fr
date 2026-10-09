@@ -1,5 +1,22 @@
 # Native HF adapter-gradient verification
 
+## Latest diagnostic state (2026-10-09)
+
+The original zero-B captures are preserved. A reproducible **test-only** nonzero
+A/B adapter now exercises both adapter-gradient paths on the same 16,249-token
+anchor. Its first native capture saved all 744 finite, nonzero gradient tensors
+with loss `0.6256952285766602`, without clipping or an optimizer update. A single
+fresh-process replay reproduced the loss bits and all 744 raw tensor byte
+hashes exactly; the complete serialized gradient files also match. See
+[`NONZERO_DIAGNOSTIC_ADAPTER.md`](NONZERO_DIAGNOSTIC_ADAPTER.md) for exact fixture
+identity, replay status, production-rejection checks and DVC restore commands.
+
+The historical flag passes below remain evidence for their original zero-B
+fixture and recorded source/runtime hashes. They have not been requalified with
+the new nonzero fixture or the multi-span trajectory objective. See
+[`GRADIENT_MEMORY_REVIEW.md`](GRADIENT_MEMORY_REVIEW.md) for measured memory,
+130K estimates and their limits.
+
 The accepted learning reference is committed at `9d12e32`. The new
 `--first-pass-only` mode in `overfit_hf_reference.py` records all raw adapter
 gradients after the first backward, before clipping or any optimizer update.
