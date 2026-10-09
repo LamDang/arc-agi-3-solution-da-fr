@@ -1,6 +1,6 @@
 {
   "complete": false,
-  "verified_parts": 17,
+  "verified_parts": 33,
   "total_parts": 109,
   "verification": "Each remote part read back and compared byte-for-byte to the locally SHA-256 indexed source."
 }
