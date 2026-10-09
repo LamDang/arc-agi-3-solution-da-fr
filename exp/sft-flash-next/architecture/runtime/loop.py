@@ -142,11 +142,13 @@ def run(config, mode):
                 for m in chunk_modules:m.chunk_tokens=0
                 model.zero_grad(set_to_none=True)
                 try:
+                    event('unchunked_control_forward_start')
                     context=torch.autograd.graph.save_on_cpu(pin_memory=False) if config.save_on_cpu else nullcontext()
                     with context:
                         with resources.phase('unchunked_control_forward'):
                             with torch.autocast('cuda',dtype=torch.bfloat16):control=architecture.loss(batch,labels)
                         control_loss=float(control.detach())
+                        event('unchunked_control_backward_start',loss=control_loss)
                         with resources.phase('unchunked_control_backward'):control.backward()
                     del control
                     with resources.phase('unchunked_control_gradient_export'):
@@ -158,6 +160,7 @@ def run(config, mode):
                     paired['control']='Same model, initialization, sample and Opt1–3; all chunk sizes set to zero'
                     paired['raw_gradients_retained']=False
                     write(output/'chunking-comparison.json',paired)
+                    event('chunking_comparison',relative_l2=paired['global_relative_l2'],gate_passed=paired['gradient_gate_passed'])
                     del control_raw
                 finally:
                     for m,size in zip(chunk_modules,sizes):m.chunk_tokens=size
@@ -176,6 +179,8 @@ def run(config, mode):
             result['trainable_parameter_devices']=dict(Counter(p.device.type for p in model.parameters() if p.requires_grad))
             write(output/'result.json',result);event('finished',**result)
             del raw
+            if paired is not None and not paired['gradient_gate_passed']:
+                raise RuntimeError('Chunking gradient relative L2 failed the user gate: must be < 1%; comparison metrics preserved')
             if comparison is not None and config.comparison_mode == 'exact' and not comparison['passed']:
                 raise RuntimeError('Refactor equality gate failed; preserved comparison metrics')
             return result

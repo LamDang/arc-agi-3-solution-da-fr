@@ -18,9 +18,14 @@ separately measured, and retains candidate gradients in CPU RAM while it runs.
 
 ## Opt7: routed experts
 
-Routing occurs before expert execution. A custom autograd operation processes
-chunks using unchanged quantized expert dispatch, projections, SiLU, routing
-weight multiplication and sum. Backward stages the layer again, replays one
+Routing and the native global argsort occur before expert execution. A custom
+autograd operation gathers at most 8192 assigned rows for one expert at a time,
+without building a full expanded hidden-state dispatch buffer. It uses unchanged
+quantized projections and SiLU. Rounded BF16 routing products are accumulated in
+FP32 into one full output and cast to BF16, matching native sum accumulation dtype.
+This is per-expert row chunking: it avoids changing each expert GEMM shape when
+that expert already has fewer than 8192 rows. The first input-sequence chunking
+implementation is retained as rejected evidence if its paired gate fails. Backward stages the layer again, replays one
 chunk, consumes its VJP immediately and releases that graph. It returns input
 and routing-weight gradients plus accumulated FP32 adapter gradients through a
 CPU concatenation into the original CPU LoRA Parameters. Trainable expert LoRA

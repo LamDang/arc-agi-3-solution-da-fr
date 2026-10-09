@@ -15,8 +15,13 @@ from .mlp import LigerExperts
 
 
 class ExpertStage:
-    def forward(self, hidden_states, top_k_index, top_k_weights, *, _prefetched=False):
+    def forward(self, hidden_states, top_k_index, top_k_weights, *, _prefetched=False,_expert_index=None):
         if _prefetched:
+            if _expert_index is not None:
+                expert=getattr(self,str(_expert_index))
+                gate=expert.gate_proj(hidden_states);up=expert.up_proj(hidden_states)
+                gated=self._apply_gate(torch.cat([gate,up],dim=-1)) if hasattr(self,'_apply_gate') else self.act_fn(gate)*up
+                return expert.down_proj(gated).to(hidden_states.dtype)
             return super().forward(hidden_states,top_k_index,top_k_weights)
         if getattr(self,'chunk_tokens',0):
             from .expert_chunks import expert_chunks

@@ -25,9 +25,9 @@ class ExpertOffloadTests(unittest.TestCase):
         from components.expert_offload import ExpertStage,LayerPrefetch
         class Tiny(nn.Module):
             def __init__(self):
-                super().__init__();self.num_experts=2;self.act_fn=nn.SiLU()
+                super().__init__();self.num_experts=4 if chunk_tokens else 2;self.act_fn=nn.SiLU()
                 self.register_parameter('_device_anchor',nn.Parameter(torch.zeros(1),requires_grad=False))
-                for index in range(2):
+                for index in range(self.num_experts):
                     expert=nn.Module()
                     for name,ins,outs in [('gate_proj',128,64),('up_proj',128,64),('down_proj',64,128)]:
                         projection=QuantLinear(4,32,ins,outs,False)
@@ -47,7 +47,8 @@ class ExpertOffloadTests(unittest.TestCase):
         staged=adopt(canonical,Staged);manager=LayerPrefetch([staged]);staged.chunk_tokens=chunk_tokens
         x=torch.randn(32,128,device='cuda',dtype=torch.bfloat16,requires_grad=True)
         y=x.detach().clone().requires_grad_(True)
-        indices=torch.tensor([[0,1]]*32,device='cuda');weights=torch.full((32,2),.5,device='cuda',requires_grad=True);other_weights=weights.detach().clone().requires_grad_()
+        k=canonical.num_experts
+        indices=torch.arange(k,device='cuda').expand(32,-1);weights=torch.full((32,k),1/k,device='cuda',requires_grad=True);other_weights=weights.detach().clone().requires_grad_()
         with torch.autocast('cuda',dtype=torch.bfloat16):
             expected=resident(x,indices,weights);ref_loss=expected.float().square().mean()
         with torch.autograd.graph.save_on_cpu(pin_memory=False):
