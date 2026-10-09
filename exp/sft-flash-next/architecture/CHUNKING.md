@@ -35,9 +35,12 @@ remains bounded to two layers. Full input/output and routing decisions remain.
 
 ## Opt8: QSA queries
 
-Full-sequence K/V are projected once; query projection, normalization, rotary
-embedding, selection bias, SDPA, output gate and output projection run inside a
-checkpointed query window. Each query uses its absolute position and full-context
+Native Q/K/V projections, normalization, rotary embedding and output projection
+retain their original full-sequence GEMM shapes. A custom autograd operation
+chunks selection-bias construction and SDPA only. Full Q, gate and assembled
+attention output remain, in addition to full-context K/V. Backward replays each
+query window and accumulates shared K/V gradients in FP32, then casts once to
+the original BF16 gradient dtype. Each query uses its absolute position and full-context
 keys. The bias is allocated inside replay, including its sentinel column and
 alignment padding, with at most chunk_tokens query rows. Frozen indexer q/raw
 keys are projected over the full sequence; selection is nondifferentiable as in

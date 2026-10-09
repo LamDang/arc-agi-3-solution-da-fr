@@ -1,9 +1,7 @@
 # Native arithmetic: pinned Transformers Qwen4Exp, Apache-2.0 (see model.py).
 """Opt8: full-context K/V; construct selection bias inside each query replay."""
-from functools import partial
 import math
 import torch
-from torch.utils.checkpoint import checkpoint
 from transformers.models.qwen4_exp import modeling_qwen4_exp as native
 from .precision import BF16Attention
 from .attention import DirectBiasIndexer
@@ -46,34 +44,62 @@ class WindowIndexer(DirectBiasIndexer):
         return bias[...,:tokens].unsqueeze(1)
 
 
+class _QueryChunks(torch.autograd.Function):
+    @staticmethod
+    @torch.amp.custom_fwd(device_type='cuda')
+    def forward(ctx,q,k,v,iq,ik,cos,sin,module):
+        ctx.module=module;ctx.size=module.chunk_tokens
+        ctx.save_for_backward(q,k,v,iq,ik,cos,sin)
+        output=torch.empty((q.shape[0],q.shape[2],q.shape[1],q.shape[3]),device=q.device,dtype=q.dtype)
+        for start in range(0,q.shape[2],ctx.size):
+            stop=min(start+ctx.size,q.shape[2])
+            output[:,start:stop]=module.attend(q[:,:,start:stop],k,v,iq[:,start:stop],ik,cos,sin,start=start)
+        return output
+
+    @staticmethod
+    @torch.amp.custom_bwd(device_type='cuda')
+    def backward(ctx,grad_output):
+        q,k,v,iq,ik,cos,sin=ctx.saved_tensors
+        dq=torch.empty_like(q);dk=torch.zeros_like(k,dtype=torch.float32);dv=torch.zeros_like(v,dtype=torch.float32)
+        for start in range(0,q.shape[2],ctx.size):
+            stop=min(start+ctx.size,q.shape[2])
+            with torch.enable_grad(),torch.autograd.graph.saved_tensors_hooks(lambda t:t,lambda t:t):
+                a=q[:,:,start:stop].detach().requires_grad_(True)
+                b=k.detach().requires_grad_(True);c=v.detach().requires_grad_(True)
+                output=ctx.module.attend(a,b,c,iq[:,start:stop],ik,cos,sin,start=start)
+                ga,gb,gc=torch.autograd.grad(output,(a,b,c),grad_output[:,start:stop])
+            dq[:,:,start:stop]=ga;dk.add_(gb.float());dv.add_(gc.float())
+            del output,a,b,c,ga,gb,gc
+        return dq,dk.to(k.dtype),dv.to(v.dtype),None,None,None,None,None
+
+
 class ChunkedAttention(BF16Attention):
-    def _query(self,hidden,k,v,iq,ik,cos,sin,*,start):
-        b,t,_=hidden.shape;shape=(b,t,-1,self.head_dim)
-        q,gate=torch.chunk(self.q_proj(hidden).view(b,t,-1,self.head_dim*2),2,dim=-1)
-        gate=gate.reshape(b,t,-1)
-        q=self.q_norm(q.reshape(shape)).transpose(1,2)
-        q=native.apply_rotary_pos_emb(q,cos=cos[:,start:start+t],sin=sin[:,start:start+t])
-        bias=self.indexer.bias(iq,ik,(cos,sin),start,hidden.dtype)
+    def attend(self,q,k,v,iq,ik,cos,sin,*,start):
+        # Construct and discard only these query rows, in forward and replay.
+        bias=self.indexer.bias(iq,ik,(cos,sin),start,q.dtype)
         interface=native.ALL_ATTENTION_FUNCTIONS.get_interface(self.config._attn_implementation,native.eager_attention_forward)
         out,_=interface(self,q,k,v,bias,dropout=0.,scaling=self.scaling)
-        out=out.reshape(b,t,-1).contiguous()*torch.sigmoid(gate)
-        return self.o_proj(out).bfloat16()
+        return out
 
     def forward(self,hidden_states,position_embeddings,attention_mask,past_key_values=None,**kwargs):
         if not self.chunk_tokens:
             return super().forward(hidden_states,position_embeddings,attention_mask,past_key_values,**kwargs)
         if past_key_values is not None or self.attention_dropout or kwargs.get('output_attentions'):
             raise ValueError('Query chunks require cache-free SDPA training, zero dropout, no attention output')
-        hidden=hidden_states.bfloat16();b,t,_=hidden.shape
+        hidden=hidden_states.bfloat16();b,t,_=hidden.shape;shape=(b,t,-1,self.head_dim)
         cos,sin=position_embeddings
-        k=self.k_norm(self.k_proj(hidden).view(b,t,-1,self.head_dim)).transpose(1,2)
-        k=native.apply_rotary_pos_emb(k,cos=cos,sin=sin)
-        v=self.v_proj(hidden).view(b,t,-1,self.head_dim).transpose(1,2)
+        # Preserve native full-sequence projection GEMM shapes. Opt8 chunks
+        # selection bias + attention, not the projection layers.
+        q,gate=torch.chunk(self.q_proj(hidden).view(b,t,-1,self.head_dim*2),2,dim=-1)
+        gate=gate.reshape(b,t,-1)
+        q=self.q_norm(q.reshape(shape)).transpose(1,2)
+        k=self.k_norm(self.k_proj(hidden).view(shape)).transpose(1,2)
+        v=self.v_proj(hidden).view(shape).transpose(1,2)
+        q,k=native.apply_rotary_pos_emb(q,k,cos,sin)
         iq,ik=self.indexer.project(hidden,(cos,sin))
-        outputs=[]
-        for start in range(0,t,self.chunk_tokens):
-            stop=min(t,start+self.chunk_tokens)
-            outputs.append(checkpoint(partial(self._query,start=start),hidden[:,start:stop],k,v,iq[:,start:stop],ik,cos,sin,use_reentrant=False))
+        out=_QueryChunks.apply(q,k,v,iq,ik,cos,sin,self)
+        out=out.reshape(b,t,-1).contiguous()*torch.sigmoid(gate)
         self.chunk_stats=dict(max_query_tokens=min(t,self.chunk_tokens),key_tokens=t,
-            max_bias_payload_bytes=b*min(t,self.chunk_tokens)*(((t+1+7)//8)*8)*hidden.element_size(),chunks=len(outputs))
-        return torch.cat(outputs,dim=1),None
+            max_bias_payload_bytes=b*min(t,self.chunk_tokens)*(((t+1+7)//8)*8)*hidden.element_size(),
+            chunks=(t+self.chunk_tokens-1)//self.chunk_tokens,kv_gradient_accumulator_dtype='torch.float32',native_projection_shapes=True)
+        return self.o_proj(out).bfloat16(),None
