@@ -8,6 +8,7 @@ from collections import Counter
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -77,6 +78,8 @@ def main():
     assert not any('Liger' in name for name in components)
     if bias:assert components['DirectBiasIndexer']>0 and components['DirectBiasTextModel']==1
     else:assert not any('DirectBias' in name for name in components)
+    operator_checks=bool(re.search(r'test_direct_bias_preserves_native_selection_and_sdpa[^\n]*\.\.\. ok',(job/'process.log').read_text()))
+    if head=='cce_exact':assert operator_checks
     resources=read(out/'resources.json');phases={r['phase']:r for r in resources}
     for phase in ['forward','backward','gradient_export','gradient_comparison','initialization_verification']:
         row=phases[phase];assert row['seconds']>0 and row['samples']>0 and row['tree_pss_bytes']>0
@@ -86,7 +89,7 @@ def main():
         bitwise_equal_gradients=exact,gradient_tensors=74472,nonzero_reference_tensors=nonzero,
         bitwise_equal_nonzero_reference_gradients=comparison['bitwise_equal_nonzero_reference_tensors'],
         all_finite=True,initialization_bitwise_equal=True,raw_candidate_gradients_retained=False,optimizer_updates=0,
-        numerical_bitwise_match=comparison['passed'],acceptance_tolerance=None,resources=resources,
+        numerical_bitwise_match=comparison['passed'],direct_bias_operator_checks_passed=operator_checks,acceptance_tolerance=None,resources=resources,
         scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False)
     (ROOT/'reports'/f'{label.lower()}-rerun.json').write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
