@@ -10,6 +10,7 @@ from peft import get_peft_model_state_dict
 from model import build
 from .evidence import compare, sha, snapshot, snapshot_imports, write
 from .resources import Resources
+from .events import event_row
 
 
 def prepare(raw, config, mode):
@@ -55,7 +56,7 @@ def run(config, mode):
     write(output/'config.json',config.as_dict())
     started = time.monotonic()
     def event(name, **data):
-        row = dict(event=name,elapsed_seconds=time.monotonic()-started,**data)
+        row = event_row(name,time.monotonic()-started,data)
         with (output/'events.jsonl').open('a') as stream:stream.write(json.dumps(row)+'\n')
         print(json.dumps(row),flush=True)
     torch.manual_seed(config.seed);torch.set_num_threads(8);torch.use_deterministic_algorithms(True)

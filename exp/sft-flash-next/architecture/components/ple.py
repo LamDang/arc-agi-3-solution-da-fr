@@ -174,7 +174,7 @@ def prepared_loader(source, model_dir, lookahead=2, event_path=None):
 class DiskTablePlaceholder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.register_buffer('weight', torch.empty(0), persistent=False)
+        self.register_buffer('weight', torch.empty(0, device='cpu'), persistent=False)
     def forward(self, ids):
         raise RuntimeError('Activate a prepared sample before forward')
 
