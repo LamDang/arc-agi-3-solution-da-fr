@@ -13,6 +13,8 @@ class Optimizations:
     bf16_activations: bool = False
     liger_rmsnorm: bool = False
     liger_swiglu: bool = False
+    offload_routed_experts: bool = False
+    lora_routed_experts: bool = False
 
     def validate(self):
         if self.head not in {'native', 'target', 'cce_exact', 'liger_flce'}:
@@ -43,15 +45,26 @@ class Config:
     baseline: dict | None = None
     dispatch_commit: str | None = None
     comparison_mode: str = 'report'
+    diagnostic_initialization: bool = False
+
+    @property
+    def adapter_tensors(self):
+        return 744 + (48*256*3*2 if self.optimizations.lora_routed_experts else 0)
 
     def validate(self, mode):
         self.optimizations.validate()
         if self.comparison_mode not in {'report','exact'}:
             raise ValueError('Comparison mode must be report or exact')
-        if self.architecture not in {'reference', 'optimized'}:
-            raise ValueError('Architecture must be reference or optimized')
-        if self.architecture == 'reference' and self.optimizations != Optimizations():
-            raise ValueError('Reference architecture cannot enable optimization flags')
+        if self.architecture not in {'native','reference', 'optimized'}:
+            raise ValueError('Architecture must be native, reference or optimized')
+        if self.architecture == 'native' and self.optimizations != Optimizations():
+            raise ValueError('Historical native architecture cannot enable flags')
+        if self.architecture == 'reference' and self.optimizations != reference_options():
+            raise ValueError('Reference settings are fixed; use optimized for variations')
+        if self.optimizations.offload_routed_experts and not self.checkpointing:
+            raise ValueError('Expert prefetch requires non-reentrant layer checkpointing')
+        if self.optimizations.offload_routed_experts and self.optimizations.bf16_lora:
+            raise ValueError('CPU expert masters and gradients must remain FP32')
         if not self.samples or len(set(self.samples)) != len(self.samples):
             raise ValueError('Require distinct, complete encoded sample paths')
         if mode == 'test' and len(self.samples) != 1:
@@ -60,6 +73,8 @@ class Config:
             raise ValueError('Disk PLE loader currently supports one complete epoch')
         if mode == 'train' and self.adapter is not None:
             raise ValueError('Production training starts fresh; diagnostic adapters are test-only')
+        if self.diagnostic_initialization and (mode != 'test' or self.adapter is not None):
+            raise ValueError('Nonzero diagnostic initialization is test-only and excludes an adapter file')
         if self.prompt_tokens is not None and self.prompt_tokens < 1:
             raise ValueError('Invalid diagnostic prompt length')
         if min(self.max_tokens, self.target_tokens_per_update, self.epochs) < 1:
@@ -71,9 +86,16 @@ class Config:
         return asdict(self)
 
 
+def reference_options():
+    return Optimizations(bf16_activations=True,disk_ple=True,
+        offload_routed_experts=True,lora_routed_experts=True)
+
+
 def load_config(path, mode, architecture=None, overrides=None):
     value = json.loads(Path(path).read_text())
-    options = value.pop('optimizations', {})
+    selected=architecture or value['architecture']
+    options = asdict(reference_options()) if selected=='reference' else {}
+    options.update(value.pop('optimizations', {}))
     options.update(overrides or {})
     value['optimizations'] = Optimizations(**options)
     if architecture is not None:

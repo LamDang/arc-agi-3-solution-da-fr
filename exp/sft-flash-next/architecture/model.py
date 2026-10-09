@@ -12,10 +12,12 @@ from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft
 
 from components.common import adopt, replace_components
 
-TARGETS = (r'^model\.language_model\.layers\.\d+\.(?:'
+def targets(all_experts=False):
+    routed=r'|mlp\.experts\.\d+\.(?:gate_proj|up_proj|down_proj)' if all_experts else ''
+    return (r'^model\.language_model\.layers\.\d+\.(?:'
            r'self_attn\.(?:q_proj|k_proj|v_proj|o_proj)|'
            r'linear_attn\.(?:in_proj_qkv|in_proj_z|in_proj_b|in_proj_a|out_proj)|'
-           r'mlp\.shared_expert\.(?:gate_proj|up_proj|down_proj))$')
+           r'mlp\.shared_expert\.(?:gate_proj|up_proj|down_proj)'+routed+r')$')
 NATIVE_SHA256 = '0154ba57593c79330a97aefa2a909390f5f1f949aaacc6cbc8586174cd301206'
 
 
@@ -95,6 +97,7 @@ class Architecture:
     inventory: list
     loading: dict
     ple_manifest: dict | None = None
+    expert_stager: object | None = None
 
     def loss(self, batch, labels):
         from components.head import objective
@@ -138,12 +141,12 @@ def build(config, output):
         for name, value in module._buffers.items():
             if value is not None and value.device.type != 'cuda':
                 module._buffers[name] = value.to('cuda')
-    inventory = compose(base,config.optimizations) if config.architecture == 'optimized' else []
+    inventory = compose(base,config.optimizations) if config.architecture != 'native' else []
     base.requires_grad_(False)
     model = get_peft_model(base,LoraConfig(r=16,lora_alpha=32,lora_dropout=0.,
-        target_modules=TARGETS,bias='none',task_type='CAUSAL_LM'))
+        target_modules=targets(config.optimizations.lora_routed_experts),bias='none',task_type='CAUSAL_LM'))
     parameters = {name:value for name,value in model.named_parameters() if value.requires_grad}
-    if len(parameters) != 744 or any('.lora_' not in name for name in parameters):
+    if len(parameters) != config.adapter_tensors or any('.lora_' not in name for name in parameters):
         raise RuntimeError('Unexpected trainable parameter inventory')
     if config.optimizations.bf16_lora:
         for parameter in parameters.values():
@@ -156,10 +159,30 @@ def build(config, output):
         for name,value in get_peft_model_state_dict(model).items():
             if not torch.equal(value.cpu(),state[name].to(value.dtype)):
                 raise RuntimeError('Diagnostic adapter loading differs')
-    else:
+    elif not config.diagnostic_initialization:
         if any(torch.count_nonzero(value).item() != 0 for name,value in parameters.items() if '.lora_B.' in name):
             raise RuntimeError('Fresh training requires zero B')
+    if config.diagnostic_initialization:
+        # Test fixture only: deterministic per-name CPU generators; production
+        # keeps PEFT random-A/zero-B. Both A/B are nonzero to exercise all VJPs.
+        with torch.no_grad():
+            for name,parameter in parameters.items():
+                seed=int.from_bytes(hashlib.sha256((str(config.seed)+':'+name).encode()).digest()[:8],'little')%(2**63-1)
+                generator=torch.Generator(device='cpu').manual_seed(seed)
+                value=torch.randn(parameter.shape,dtype=torch.float32,generator=generator)*.002
+                parameter.copy_(value)
+    stager=None
+    if config.optimizations.offload_routed_experts:
+        from components.expert_offload import install
+        stager=install(model,inventory)
+        del parameters
+        parameters={name:p for name,p in model.named_parameters() if p.requires_grad}
+        torch.cuda.empty_cache()
+    if not config.optimizations.bf16_lora and any(p.dtype!=torch.float32 for p in parameters.values()):
+        raise RuntimeError('Reference LoRA master dtype must be FP32')
     model.train()
     if config.checkpointing:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant':False})
-    return Architecture(model,config,inventory,loading,manifest)
+        kwargs={'use_reentrant':False}
+        if stager:kwargs['context_fn']=stager.checkpoint_contexts
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs=kwargs)
+    return Architecture(model,config,inventory,loading,manifest,stager)

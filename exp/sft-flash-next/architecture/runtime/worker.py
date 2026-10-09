@@ -24,6 +24,9 @@ def main():
     job = config_path.parent
     config = json.loads(config_path.read_text())
     if Path(config['output']).exists():raise FileExistsError('Attempt output already exists')
+    if Path(config['output']) != job/'output':
+        Path(config['output']).parent.mkdir(parents=True,exist_ok=True)
+        (job/'output').symlink_to(config['output'],target_is_directory=True)
     manifest = json.loads((job/'source-hashes.json').read_text())
     for name,digest in manifest.items():
         if hashlib.sha256((root/name).read_bytes()).hexdigest() != digest:
@@ -62,7 +65,8 @@ def main():
         'sys.path[:0]='+repr(packages)+'\n'+
         'sys.argv='+repr([str(script),'--config',str(config_path)])+'\n'+
         "if __name__ == '__main__':\n    import unittest\n    suite=unittest.defaultTestLoader.discover("+repr(str(root/'tests'))+")\n    result=unittest.TextTestRunner(verbosity=2).run(suite)\n    if not result.wasSuccessful(): raise RuntimeError('Component checks failed before model loading')\n    runpy.run_path("+repr(str(script))+",run_name='__main__')\n")
-    env = {**os.environ,'CUBLAS_WORKSPACE_CONFIG':':4096:8','PYTORCH_CUDA_ALLOC_CONF':'expandable_segments:True'}
+    env = {**os.environ,'FLASH_NEXT_CHECK_EXPERT_OFFLOAD':'1' if opt.get('offload_routed_experts') else '0',
+           'FLASH_NEXT_EXPERT_CHECK_RESULT':str(job/'expert-offload-check.json'),'CUBLAS_WORKSPACE_CONFIG':':4096:8','PYTORCH_CUDA_ALLOC_CONF':'expandable_segments:True'}
     started = time.monotonic()
     with (job/'process.log').open('w') as log:
         child = subprocess.Popen(['/usr/bin/python3',str(bootstrap)],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)

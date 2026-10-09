@@ -78,7 +78,7 @@ def compare(gradients, loss, baseline):
 
 
 def snapshot_imports(output):
-    roots = ('/tmp/peft-autoround-compat/',str(Path(output).parent/'dependencies')+'/')
+    roots = ('/tmp/peft-autoround-compat/',str(Path(__file__).resolve().parents[2]/'dependencies')+'/')
     hashes = {}
     for module in tuple(sys.modules.values()):
         name = getattr(module,'__file__',None)

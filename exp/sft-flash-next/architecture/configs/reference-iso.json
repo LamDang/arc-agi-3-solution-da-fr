@@ -1,5 +1,5 @@
 {
-  "architecture": "reference",
+  "architecture": "native",
   "model": "/tmp/reference-256-hf",
   "samples": [
     "/kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt"

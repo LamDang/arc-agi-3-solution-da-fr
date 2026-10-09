@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from config import Config, Optimizations
+from config import Config, Optimizations,load_config,reference_options
 
 
 class ConfigTests(unittest.TestCase):
@@ -20,5 +20,12 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):Optimizations(disk_ple='false').validate()
     def test_unknown_head_rejected(self):
         with self.assertRaises(ValueError):Optimizations(head='approximate').validate()
+    def test_new_reference_preset_and_adapter_inventory(self):
+        c=load_config(Path(__file__).resolve().parents[1]/'configs/reference.json','test')
+        self.assertEqual(c.optimizations,reference_options())
+        self.assertEqual(c.adapter_tensors,74472)
+        self.assertFalse(c.optimizations.bf16_lora)
+        self.assertTrue(c.diagnostic_initialization)
+        with self.assertRaises(ValueError):c.validate('train')
 
 if __name__ == '__main__':unittest.main()

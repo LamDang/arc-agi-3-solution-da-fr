@@ -119,6 +119,7 @@ def main():
         resources=resources,scope='Full 16K native-equivalent clean builder/loop with every optimization disabled. Enabled flags require separate qualification.',
         pushed_to_remote=False)
     (ROOT/'reports/refactor-iso.json').write_text(json.dumps(report,indent=2)+'\n')
+    (ROOT/f'reports/refactor-iso-{job.name}.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k!='resources'},indent=2))
 
 

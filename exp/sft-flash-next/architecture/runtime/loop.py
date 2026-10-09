@@ -38,17 +38,34 @@ def prepare(raw, config, mode):
     return batch, labels.to('cuda'), count
 
 
-def gradients(model):
+def gradients(model,expected=744,allow_unrouted=False):
     result = {}
     for name,parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
+        if parameter.grad is None and allow_unrouted and '.mlp.experts.' in name:
+            result[name]=torch.zeros_like(parameter,device='cpu')
+            continue
         if parameter.grad is None or not torch.isfinite(parameter.grad).all():
             raise RuntimeError('Missing/nonfinite raw gradient: '+name)
         result[name] = parameter.grad.detach().cpu().clone()
-    if len(result) != 744:
-        raise RuntimeError('Expected all 744 adapter gradients')
+    if len(result) != expected:
+        raise RuntimeError('Unexpected adapter gradient count')
     return result
+
+
+def save_tensors(state,output,stem):
+    if len(state)<=744:
+        path=output/(stem+'.pt');torch.save(state,path)
+        return dict(format='torch',sha256=sha(path),tensors=len(state))
+    # Bounded files can be collected over Jupyter without multi-GB requests.
+    directory=output/stem;directory.mkdir();rows=[];items=list(state.items())
+    for index,start in enumerate(range(0,len(items),1024)):
+        shard=dict(items[start:start+1024]);path=directory/f'{index:04d}.pt'
+        torch.save(shard,path);rows.append(dict(path=str(path.relative_to(output)),sha256=sha(path),tensors=len(shard)))
+    manifest=dict(format='torch-shards',tensors=len(state),shards=rows)
+    write(output/(stem+'-manifest.json'),manifest)
+    return manifest
 
 
 def run(config, mode):
@@ -81,8 +98,8 @@ def run(config, mode):
         write(output/'loading.json',architecture.loading)
         if architecture.ple_manifest:write(output/'ple-manifest.json',architecture.ple_manifest)
         initial = {name:value.detach().cpu().clone() for name,value in get_peft_model_state_dict(model).items()}
-        torch.save(initial,output/'initial-adapter.pt');del initial
-        event('load_complete',trainable_tensors=744)
+        save_tensors(initial,output,'initial-adapter');del initial
+        event('load_complete',trainable_tensors=config.adapter_tensors)
         if mode == 'test':
             current = next(iterator) if iterator else {'batch':torch.load(config.samples[0],map_location='cpu',weights_only=True)}
             architecture.activate(current)
@@ -100,7 +117,9 @@ def run(config, mode):
                 with resources.phase('backward'):loss.backward()
                 del loss
             with resources.phase('gradient_export'):
-                raw = gradients(model);torch.save(raw,output/'gradients.pt')
+                absent=[name for name,p in model.named_parameters() if p.requires_grad and p.grad is None]
+                raw = gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
+                archive=save_tensors(raw,output,'gradients')
             summary = {name:dict(shape=list(g.shape),dtype=str(g.dtype),norm=float(g.double().norm()),
                 nonzero=int(torch.count_nonzero(g)),finite=bool(torch.isfinite(g).all())) for name,g in raw.items()}
             write(output/'gradient-summary.json',summary)
@@ -109,7 +128,13 @@ def run(config, mode):
             result = dict(mode=mode,loss=value,raw_gradient_tensors=len(raw),targets=targets,tokens=labels.shape[1],
                 all_finite=True,optimizer_updates=0,clipping_applied=False,
                 iso_verified=comparison['passed'] if comparison else None,
-                gradients_sha256=sha(output/'gradients.pt'),elapsed_seconds=time.monotonic()-started)
+                gradients_sha256=archive.get('sha256'),gradient_archive=archive,
+                absent_unrouted_gradients=absent,elapsed_seconds=time.monotonic()-started)
+            from collections import Counter
+            result['parameter_dtypes']=dict(Counter(str(p.dtype) for p in model.parameters() if p.requires_grad))
+            result['gradient_dtypes']=dict(Counter(str(g.dtype) for g in raw.values()))
+            result['trainable_parameter_bytes']=sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
+            result['trainable_parameter_devices']=dict(Counter(p.device.type for p in model.parameters() if p.requires_grad))
             write(output/'result.json',result);event('finished',**result)
             if comparison is not None and config.comparison_mode == 'exact' and not comparison['passed']:
                 raise RuntimeError('Refactor equality gate failed; preserved comparison and raw evidence')
@@ -117,6 +142,9 @@ def run(config, mode):
         return train_samples(architecture,config,output,resources,event,iterator)
     finally:
         write(output/'resources.json',resources.rows)
+        if 'architecture' in locals() and architecture.expert_stager:
+            architecture.expert_stager.close()
+            write(output/'expert-prefetch.json',architecture.expert_stager.report())
         snapshot_imports(output)
         if iterator is not None and getattr(iterator,'_shutdown_workers',None):iterator._shutdown_workers()
 
@@ -146,9 +174,10 @@ def train_samples(architecture,config,output,resources,event,iterator):
             final = epoch+1 == config.epochs and index+1 == len(config.samples)
             if pending >= config.target_tokens_per_update or final:
                 for p in parameters:
-                    if p.grad is None:raise RuntimeError('Missing adapter gradient')
+                    if p.grad is None:continue  # A sample may select no tokens for an expert.
                     p.grad.div_(pending)
-                raw = gradients(model);torch.save(raw,output/f'gradients-step-{updates:03d}.pt');del raw
+                raw = gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
+                save_tensors(raw,output,f'gradients-step-{updates:03d}');del raw
                 with resources.phase(f'optimizer-{updates}'):
                     norm = torch.nn.utils.clip_grad_norm_(parameters,1.,error_if_nonfinite=True)
                     optimizer.step()

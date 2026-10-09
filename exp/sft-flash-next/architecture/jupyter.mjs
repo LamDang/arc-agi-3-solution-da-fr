@@ -70,6 +70,8 @@ async function collect(remote,local){
 }
 async function main(){
   const action=args.action ?? 'run';
+  const timeoutSeconds=Number(args['timeout-seconds'] ?? 1200);
+  if(!Number.isSafeInteger(timeoutSeconds)||timeoutSeconds<1)throw new Error('Timeout must be a positive integer');
   let job,config,attempt;
   if(action==='run'){
     config=JSON.parse(fs.readFileSync(path.resolve(args.config),'utf8'));
@@ -77,7 +79,9 @@ async function main(){
     if(!['test','train'].includes(mode))throw new Error('Unknown mode');
     attempt=new Date().toISOString().replace(/[-:.TZ]/g,'')+'-'+crypto.randomBytes(4).toString('hex');
     job='/kaggle/working/architecture-runs/'+attempt;
-    config.output=job+'/output';config.dispatch_commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+    const large=config.optimizations?.lora_routed_experts||config.architecture==='reference';
+    config.output=large?'/tmp/flash-next-architecture-artifacts/'+attempt+'/output':job+'/output';
+    config.dispatch_commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
     const sources=files(root),directories=new Set([job,job+'/source',job+'/dependencies']);
     for(const name of sources)directories.add(path.posix.dirname(job+'/source/'+name));
     const code='from pathlib import Path\n'+[...directories].map(d=>'Path('+JSON.stringify(d)+').mkdir(parents=True,exist_ok=True)').join('\n');
@@ -96,7 +100,7 @@ async function main(){
     }
     await upload(job+'/config.json',Buffer.from(JSON.stringify(config,null,2)+'\n'));
     await upload(job+'/source-hashes.json',Buffer.from(JSON.stringify(hashes,null,2)+'\n'));
-    console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
+    console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+',"--timeout",'+JSON.stringify(String(timeoutSeconds))+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
     fs.mkdirSync(path.join(root,'results'),{recursive:true});fs.writeFileSync(path.join(root,'results','last-attempt.json'),JSON.stringify({attempt,job,mode},null,2)+'\n');
   }else{
     attempt=args.attempt;if(!/^[0-9]+-[a-f0-9]+$/.test(attempt))throw new Error('Invalid attempt');job='/kaggle/working/architecture-runs/'+attempt;
@@ -106,7 +110,7 @@ async function main(){
     console.log(JSON.stringify({attempt,monitor,result}));return;
   }
   let monitor;
-  const deadline=Date.now()+1300*1000;let lastLog=0;
+  const deadline=Date.now()+(timeoutSeconds+100)*1000;let lastLog=0;
   while(!(monitor=await json(job+'/monitor.json'))){
     if(Date.now()>deadline)throw new Error('Supervisor completion deadline exceeded; inspect the saved attempt before retrying');
     if(Date.now()-lastLog>60000){console.log(JSON.stringify({attempt,status:'running'}));lastLog=Date.now();}
