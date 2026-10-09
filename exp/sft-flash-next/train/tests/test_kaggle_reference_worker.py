@@ -13,6 +13,19 @@ CONFIG = json.loads((Path(__file__).resolve().parents[1] / 'configs/reference-v0
 
 
 class WorkerTests(unittest.TestCase):
+    def test_opt4_spawn_import_cannot_restart_capture(self):
+        config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt4-ple-v5.json').read_text())
+        source = bootstrap_source(config)
+        compile(source, '<opt4-bootstrap>', 'exec')
+        self.assertTrue(source.startswith("if __name__ == '__main__':"))
+        namespace = {'__name__': '__mp_main__'}
+        exec(source, namespace)
+        self.assertNotIn('torch', namespace)
+        self.assertIn('qualify_ple(', source)
+        self.assertIn('finalize_ple()', source)
+        self.assertIn('install_mask(', source)
+        self.assertIn(config['native_gradients'], source)
+
     def test_opt3_keeps_cce_and_adds_mask_checks_before_capture(self):
         config = json.loads((Path(__file__).resolve().parents[1] / 'configs/cce-opt3-mask-v4.json').read_text())
         source = bootstrap_source(config)

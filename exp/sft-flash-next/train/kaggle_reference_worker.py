@@ -54,7 +54,7 @@ def validate(config):
         if sha256(path) != config['expected_sha256'][key]:
             raise ValueError(f'Pinned input SHA256 mismatch: {key}')
     objective = config.get('objective', 'native')
-    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask'):
+    if objective not in ('native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple'):
         raise ValueError('Unsupported objective')
     if objective == 'liger_target_flce':
         dep = config['liger_dependency']
@@ -62,7 +62,7 @@ def validate(config):
             raise ValueError('Pinned Liger wheel differs')
         if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
             raise ValueError('Native comparison gradients differ')
-    if objective in ('cce_target_exact', 'cce_opt3_mask'):
+    if objective in ('cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple'):
         if sha256(config['cce_dependency']['remote_archive']) != config['cce_dependency']['sha256']:
             raise ValueError('Pinned CCE source archive differs')
         if sha256(config['native_gradients']) != config['expected_gradients_sha256']:
@@ -105,7 +105,7 @@ def bootstrap_source(config):
             + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
             + repr(config['native_gradients']) + ","
             + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
-    elif config.get('objective') in ('cce_target_exact', 'cce_opt3_mask'):
+    elif config.get('objective') in ('cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple'):
         runtime_prefix = str(Path(config['remote_launch']) / 'cce-runtime') + '/'
         runtime = str(Path(runtime_prefix) / config['cce_dependency']['archive_prefix'])
         candidate_setup = ("sys.path.insert(0," + repr(runtime) + ")\n"
@@ -118,11 +118,18 @@ def bootstrap_source(config):
             + repr(str(Path(config['remote_output']) / 'gradients.pt')) + ","
             + repr(config['native_gradients']) + ","
             + repr(str(Path(config['remote_output']) / 'gradient-comparison.json')) + ")")
-    if config.get('objective') == 'cce_opt3_mask':
+    if config.get('objective') in ('cce_opt3_mask', 'cce_opt4_ple'):
         candidate_setup += ("\nfrom opt3_mask_operator_check import qualify as qualify_mask\nqualify_mask("
             + repr(config['remote_launch']) + ")\n"
             + "from opt3_mask_capture import install_for_capture as install_mask\ninstall_mask("
             + repr(str(Path(config['remote_output']) / 'attention-mask.json')) + ")")
+    if config.get('objective') == 'cce_opt4_ple':
+        candidate_setup += ("\nfrom opt4_ple_operator_check import qualify as qualify_ple\nqualify_ple("
+            + repr(config['model']) + "," + repr(config['sample']) + "," + repr(config['remote_launch']) + ")\n"
+            + "from opt4_ple_capture import install_for_capture as install_ple\nfinalize_ple=install_ple("
+            + repr(config['model']) + "," + repr(config['sample']) + "," + repr(config['remote_launch']) + ","
+            + repr(str(Path(config['remote_output']) / 'ple-preparation.json')) + ",lookahead=2)")
+        candidate_compare += "\n    finalize_ple()"
     source = '''import builtins, hashlib, json, os, runpy, sys, time
 from pathlib import Path
 os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
@@ -195,13 +202,19 @@ finally:
                 imported[str(p)] = hashlib.file_digest(stream, 'sha256').hexdigest()
     Path(%(source_hash_path)r).write_text(json.dumps(imported, indent=2)+'\\n')
 '''
-    return source % {'timing_path': str(Path(config['remote_launch']) / 'timing-events.jsonl'),
+    rendered = source % {'timing_path': str(Path(config['remote_launch']) / 'timing-events.jsonl'),
                      'allocator_path': str(Path(config['remote_launch']) / 'allocator-phase-peaks.jsonl'),
                      'bootstrap': config['bootstrap'],
                      'candidate_setup': candidate_setup,
                      'candidate_compare': candidate_compare,
                      'runtime_prefix': runtime_prefix,
                      'source_hash_path': str(Path(config['remote_launch']) / 'imported-source-hashes.json')}
+    if config.get('objective') == 'cce_opt4_ple':
+        # Spawn workers must not re-execute model capture during __mp_main__ import.
+        import textwrap
+        rendered = "if __name__ == '__main__':\n" + textwrap.indent(rendered, '    ')
+    return rendered
+
 
 
 def event_rows(path):
@@ -236,6 +249,9 @@ def summarize(timing, telemetry, allocator, total_seconds):
         item['peak_gpu_used_mib'] = max(item['peak_gpu_used_mib'], row['gpu_used_mib'])
         item['peak_process_rss_bytes'] = max(item['peak_process_rss_bytes'], row['process_rss_bytes'])
         item['peak_host_used_bytes'] = max(item['peak_host_used_bytes'], row['host_used_bytes'])
+        for key in ('children_rss_bytes', 'process_tree_pss_bytes', 'cgroup_anon_bytes', 'cgroup_file_bytes', 'cgroup_current_bytes'):
+            if row.get(key) is not None:
+                item['peak_' + key] = max(item.get('peak_' + key, 0), row[key])
     for row in allocator:
         phases.setdefault(row['phase'], {'samples': 0, 'peak_gpu_used_mib': 0,
                                          'peak_process_rss_bytes': 0,
@@ -275,7 +291,7 @@ def launch(config_path):
         (launch_dir / wheel.name).write_bytes(wheel.read_bytes())
         with zipfile.ZipFile(wheel) as archive:
             archive.extractall(launch_dir / 'liger-runtime')
-    if config.get('objective') in ('cce_target_exact', 'cce_opt3_mask'):
+    if config.get('objective') in ('cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple'):
         import tarfile
         source = Path(config['cce_dependency']['remote_archive'])
         (launch_dir / source.name).write_bytes(source.read_bytes())
@@ -354,6 +370,20 @@ def monitor(config_path):
             row = {'elapsed_seconds': elapsed, 'phase': phase,
                    'process_rss_bytes': rss, 'host_used_bytes': host,
                    'gpu_used_mib': gpu, 'gpu_utilization_percent': utilization}
+            if config.get('objective') == 'cce_opt4_ple':
+                try:
+                    parent = psutil.Process(process.pid)
+                    children = parent.children(recursive=True)
+                    row['children_rss_bytes'] = sum(child.memory_info().rss for child in children)
+                    row['process_tree_pss_bytes'] = sum(child.memory_full_info().pss for child in [parent] + children)
+                except (psutil.Error, AttributeError):
+                    row['children_rss_bytes'] = row['process_tree_pss_bytes'] = None
+                stat = Path('/sys/fs/cgroup/memory.stat')
+                if stat.exists():
+                    counts = dict(line.split() for line in stat.read_text().splitlines())
+                    row['cgroup_anon_bytes'] = int(counts.get('anon', 0))
+                    row['cgroup_file_bytes'] = int(counts.get('file', 0))
+                    row['cgroup_current_bytes'] = int(Path('/sys/fs/cgroup/memory.current').read_text())
             telemetry.write(json.dumps(row) + '\n')
             telemetry.flush()
             time.sleep(2)

@@ -77,6 +77,7 @@ stages:
       - metrics/cce-exact-v3.json:
           cache: false
   cce_opt3_mask_v4:
+    frozen: true
     desc: Opt3 direct dense attention bias with unchanged CCE exact, no update.
     cmd: node kaggle_reference_run.mjs --config configs/cce-opt3-mask-v4.json
     deps:
@@ -97,4 +98,29 @@ stages:
       - gradient-results/cce-opt3-mask-v4
     metrics:
       - metrics/cce-opt3-mask-v4.json:
+          cache: false
+  cce_opt4_ple_v5:
+    desc: Opt4 disk PLE with bounded CPU-worker preparation, retaining CCE exact and Opt3.
+    cmd: node kaggle_reference_run.mjs --config configs/cce-opt4-ple-v5.json
+    deps:
+      - kaggle_reference_run.mjs
+      - kaggle_reference_worker.py
+      - configs/cce-opt4-ple-v5.json
+      - target_only_head.py
+      - cce_target_loss.py
+      - cce_operator_check.py
+      - native_mask_storage.py
+      - opt3_mask_capture.py
+      - opt3_mask_operator_check.py
+      - ple_preparation.py
+      - opt4_ple_capture.py
+      - opt4_ple_operator_check.py
+      - overfit_hf_reference.py
+      - gradient-results/nonzero-diagnostic-adapter-v2/adapter.pt
+      - gradient-results/cce-opt3-mask-v4/gradients.pt
+      - gradient-results/cce-opt3-mask-v4/result.json
+    outs:
+      - gradient-results/cce-opt4-ple-v5
+    metrics:
+      - metrics/cce-opt4-ple-v5.json:
           cache: false

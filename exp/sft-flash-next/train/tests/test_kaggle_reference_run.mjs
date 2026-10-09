@@ -72,3 +72,13 @@ test('Opt3 pins the saved CCE baseline and every attention patch source', () => 
   delete sources['opt3_mask_capture.py'];
   assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /pinned Opt3/);
 });
+
+test('Opt4 pins Opt3 baseline and disk/preparation implementation sources', () => {
+  const candidate = JSON.parse(fs.readFileSync(path.join(here, '../configs/cce-opt4-ple-v5.json')));
+  assert.equal(validateConfig(candidate), candidate);
+  assert.throws(() => validateConfig({ ...candidate, expected_loss_float32_bits: '3f20282a' }), /pinned Opt4/);
+  const sources = { ...candidate.candidate_sources_sha256 };
+  delete sources['ple_preparation.py'];
+  assert.throws(() => validateConfig({ ...candidate, candidate_sources_sha256: sources }), /pinned Opt4/);
+  assert.throws(() => validateConfig({ ...candidate, native_gradients: '/tmp/other.pt' }), /pinned CCE/);
+});
