@@ -20,6 +20,10 @@ architecture/
     ple.py                 frozen disk lookup and bounded CPU preparation
     precision.py           BF16 activation ports; native statistics preserved
     expert_offload.py      CPU expert masters and bounded layer prefetch
+    expert_chunks.py       bounded globally routed expert replay
+    qsa_chunks.py          query windows with full-context K/V
+    hyperconnection_chunks.py  local mixing/injection replay
+    ple_chunks.py          prepared lookup windows with convolution halo
     adapters.py            per-config PEFT support for packed expert projections
     common.py              component adoption with unchanged parameter names
   runtime/
@@ -61,6 +65,11 @@ components is source-pinned and reviewed separately.
 | `liger_swiglu` | Opt6 shared/routed activation kernels, independently selectable |
 | `offload_routed_experts` | CPU canonical expert state; at most two GPU layers |
 | `lora_routed_experts` | LoRA on every routed expert gate/up/down projection |
+| `expert_chunking` | Opt7 global routing, bounded per-expert assigned rows |
+| `qsa_chunking` | Opt8 query-window replay with full-context keys/values |
+| `hyperconnection_chunking` | Opt9 separate mixing and injection windows |
+| `ple_chunking` | Opt10 whole PLE windows with derived left halo |
+| `chunk_tokens` | Positive window limit, default8192 |
 
 Flags are independent unless a component has an explicit restriction. Opt6
 remains unqualified: its earlier full-model gradient drift is unresolved.
@@ -80,8 +89,9 @@ python train.py --config /path/to/complete-labeled-samples.json
 
 Both entry points accept the same architecture/optimization overrides, including
 `--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
-`test.py` performs exactly one anchor forward/backward and zero optimizer
-updates. Only `architecture="reference"` retains raw gradients. Optimized/native
+`test.py` performs one candidate anchor forward/backward and zero optimizer
+updates. Chunking qualification also performs one unchunked control forward/backward
+on the same unchanged model, then enforces the user-specified <1% gradient gate. Only `architecture="reference"` retains raw gradients. Optimized/native
 candidates compare all raw named gradients in memory against the configured
 reference, save `comparison.json` (bitwise matches, relative L2, cosine and
 per-tensor differences), then discard the candidate tensors. Training does not

@@ -46,6 +46,12 @@ for label,r,monitor,is_ref in cases:
        f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   assert len(values)==len(columns)
   lines.append('| '+' | '.join(values)+' |')
+for attempt,reason in [('20261009233104571-623698fb','dispatch commit corrected'),('20261009233157982-16930101','new 1% gate/control added')]:
+ job=ROOT/'results'/attempt
+ if (job/'monitor.json').exists():
+  wall=read(job/'monitor.json')['seconds']
+  values=[f'Opt7 loading stopped: {reason}<br>wall {wall:.2f}','not run','not run','—','—','startup/loading (incomplete)','—','unavailable','unavailable','unavailable','—']
+  lines.append('| '+' | '.join(values)+' |')
 lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved includes cache.',
 'RAM peaks are sampled, not exact allocator peaks. Tree PSS includes the worker;',
 'host-used is a distinct psutil system counter with different cache/mapping accounting.',
