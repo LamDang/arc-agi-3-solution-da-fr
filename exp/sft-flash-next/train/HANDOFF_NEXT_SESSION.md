@@ -1,18 +1,32 @@
-# BF16 one-sample overfit — user acceptance policy changed 2026-10-09
+# BF16 one-sample overfit PASSED — 2026-10-09
 
-* User explicitly accepts a numerical change: if the corrected BF16 version
-  still overfits one sample, exact gradient matching is not required.
-  Supersedes earlier strict-equality gate as acceptance for BF16 Opt5 only.
-* Primary executes directly through Kaggle Jupyter; no subagent or computer use.
-  New stage/config `bf16_overfit_v8` / `configs/bf16-overfit-v8.json`.
-* Fresh seeded random-A/zero-B (20261009), not the nonzero diagnostic fixture.
-  BF16 parameters/activation boundaries; native FP32 statistics preserved.
-  Native AdamW LR2e-4/decay0/clip1; up to20 updates, stop at >=95% loss reduction.
-* This test authorizes optimizer updates. All744 pre-clipping raw gradients,
-  trained adapters/optimizer state, loss curve and per-step GPU/RAM/time recorded.
-  Original native source stays pinned. v7 DVC snapshot frozen for provenance.
-* Runner/worker tests pass12 Node+12 Python. Overfit capture is next.
-* **DO NOT PUSH Git or DVC.** Keep sources, results and DVC cache local.
+* User accepts BF16 numerical change through one-sample overfit; exact loss/
+  gradient equality is no longer required for this BF16 Opt5 acceptance.
+* Primary executed via Kaggle Jupyter; no subagent or computer use.
+  Config/stage `configs/bf16-overfit-v8.json` / `bf16_overfit_v8`.
+* Attempt `20261009194513-88e8dff2`, code `b3572e0`, finished exit 0, no timeout.
+  **5 updates: loss 0.6250749230384827 -> 0.01285509578883648, 97.943431% reduction.**
+  Criterion >=95%; sixth forward measures final loss, no sixth backward/update.
+* Fresh seeded random-A/zero-B (20261009); native AdamW LR 2e-4 / decay 0 / clip 1.
+  BF16 adapters/activation ports; native FP32 statistics remain untouched.
+  Same 16,249-token final-reply anchor, 651 targets, 7 images.
+* All five sets of 744 raw pre-clipping gradients saved; all gradients/states/
+  parameters finite. All 744 parameter tensors changed. Actual AdamW moments
+  BF16, step counters FP32; native CCE FP32 LSE CPU roundtrip exact each forward.
+* Max forward/backward GPU allocated 44.973/53.036 GiB; parent RSS
+  19.947/19.954 GiB, tree PSS 20.456/20.462 GiB. Loading RSS 40.391 GiB;
+  reclaimable cgroup file cache ~121 GiB remains. Monitor wall 1645.170 s.
+* See `v8.md`, master `v0.md`, metrics and independent raw-artifact review.
+  This passes one-sample learning, not actual trajectory learning or 130K capacity.
+  No further experiment launched. Do not restart the successful attempt.
+* First launch failed before native model loading; retained separately in
+  `gradient-results/bf16-overfit-v8-failed-launch1.dvc` with logs/source snapshots.
+  Import/archive and fresh-load guard fixes are covered by tests.
+* Collection hit local ENOSPC; removed only temporary backups SHA256-identical
+  to preserved results, then resumed collection of the same completed run.
+* Independent review passed. Local DVC restore: all 110 files SHA256-identical,
+  tree `ee149b8605581c64e1b7f693467f5aaa.dir`. Cache restoration did not replay the GPU.
+* **DO NOT PUSH Git or DVC.** Keep sources/results/cache local.
 
 # Corrected Opt5 completed locally — 2026-10-09
 

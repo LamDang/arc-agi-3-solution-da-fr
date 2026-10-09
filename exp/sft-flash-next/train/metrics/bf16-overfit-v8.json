@@ -1,0 +1,748 @@
+{
+  "run_id": "bf16-overfit-v8",
+  "attempt_id": "20261009194513-88e8dff2",
+  "passed": true,
+  "structurally_valid": true,
+  "criterion": "finite-learning-and-loss-reduction; gradient equality not required",
+  "gradient_equality_required": false,
+  "loss_curve": [
+    {
+      "step": 0,
+      "loss": 0.6250749230384827,
+      "ratio": 1
+    },
+    {
+      "step": 1,
+      "loss": 0.5067047476768494,
+      "ratio": 0.8106304204522602
+    },
+    {
+      "step": 2,
+      "loss": 0.3386067748069763,
+      "ratio": 0.5417059016877726
+    },
+    {
+      "step": 3,
+      "loss": 0.17846858501434326,
+      "ratio": 0.2855155093197618
+    },
+    {
+      "step": 4,
+      "loss": 0.06903930008411407,
+      "ratio": 0.1104496397784041
+    },
+    {
+      "step": 5,
+      "loss": 0.01285509578883648,
+      "ratio": 0.0205656879120154
+    }
+  ],
+  "result": {
+    "passed": true,
+    "optimizer_updates": 5,
+    "baseline_loss": 0.6250749230384827,
+    "measured_loss": 0.01285509578883648,
+    "best_loss": 0.01285509578883648,
+    "ratio": 0.0205656879120154,
+    "target_ratio": 0.05,
+    "tokens": 16249,
+    "supervised_tokens": 651,
+    "checkpointing": true,
+    "save_on_cpu": true,
+    "gradient_equivalence_proven": false,
+    "elapsed_seconds": 1615.5384393349996
+  },
+  "learning_audit": {
+    "initialization": "seeded-random-A-zero-B",
+    "seed": 20261009,
+    "adapter_tensors": 744,
+    "completed_updates": 5,
+    "all_gradients_finite": true,
+    "optimizer_states_finite": true,
+    "parameters_changed": true,
+    "parameter_tensors_changed": 744,
+    "all_parameters_bf16": true,
+    "all_parameters_finite": true,
+    "gradient_exports": [
+      {
+        "step": 0,
+        "file": "gradients-step-000.pt",
+        "sha256": "280ed56a5bde18db6c1655a8edd3df15e2cd44acd397b8f1bdaf0bc93d79052f",
+        "tensors": 744,
+        "all_finite": true,
+        "raw_before_clipping": true,
+        "a_nonzero": 0,
+        "b_nonzero": 372
+      },
+      {
+        "step": 1,
+        "file": "gradients-step-001.pt",
+        "sha256": "581c2939d3911afb11e42a7e5c091558b3e4f92ec973aa71ebb07f2c5c1c6a33",
+        "tensors": 744,
+        "all_finite": true,
+        "raw_before_clipping": true,
+        "a_nonzero": 372,
+        "b_nonzero": 372
+      },
+      {
+        "step": 2,
+        "file": "gradients-step-002.pt",
+        "sha256": "2c61da23ca70f7fa9777bc1ed71f27da9003f9283eeb01c31764e22cb249efff",
+        "tensors": 744,
+        "all_finite": true,
+        "raw_before_clipping": true,
+        "a_nonzero": 372,
+        "b_nonzero": 372
+      },
+      {
+        "step": 3,
+        "file": "gradients-step-003.pt",
+        "sha256": "c643630bd702e9e27b2e3d0508ae4b65ded4e793e02128c9476dea154bb78459",
+        "tensors": 744,
+        "all_finite": true,
+        "raw_before_clipping": true,
+        "a_nonzero": 372,
+        "b_nonzero": 372
+      },
+      {
+        "step": 4,
+        "file": "gradients-step-004.pt",
+        "sha256": "bc1ce2d032df4197ad8a47b8c97ce54579e7d07bfd0bf655d0f400e97a537229",
+        "tensors": 744,
+        "all_finite": true,
+        "raw_before_clipping": true,
+        "a_nonzero": 372,
+        "b_nonzero": 372
+      }
+    ],
+    "optimizer_records": [
+      {
+        "update": 1,
+        "state_tensors": 2232,
+        "state_dtype_counts": {
+          "torch.float32": 744,
+          "torch.bfloat16": 1488
+        },
+        "state_bytes": 133917600,
+        "finite": true
+      },
+      {
+        "update": 2,
+        "state_tensors": 2232,
+        "state_dtype_counts": {
+          "torch.float32": 744,
+          "torch.bfloat16": 1488
+        },
+        "state_bytes": 133917600,
+        "finite": true
+      },
+      {
+        "update": 3,
+        "state_tensors": 2232,
+        "state_dtype_counts": {
+          "torch.float32": 744,
+          "torch.bfloat16": 1488
+        },
+        "state_bytes": 133917600,
+        "finite": true
+      },
+      {
+        "update": 4,
+        "state_tensors": 2232,
+        "state_dtype_counts": {
+          "torch.float32": 744,
+          "torch.bfloat16": 1488
+        },
+        "state_bytes": 133917600,
+        "finite": true
+      },
+      {
+        "update": 5,
+        "state_tensors": 2232,
+        "state_dtype_counts": {
+          "torch.float32": 744,
+          "torch.bfloat16": 1488
+        },
+        "state_bytes": 133917600,
+        "finite": true
+      }
+    ],
+    "gradient_equality_required": false,
+    "acceptance": "finite-learning-and-loss-reduction; gradient equality not required",
+    "diagnostic_only": true
+  },
+  "timings": {
+    "total_seconds": 1645.1701373210017,
+    "steps": [
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 120.178053736,
+        "pre_backward_export_seconds": 0.549655253,
+        "pure_backward_seconds": 165.02884869,
+        "gradient_export_seconds": 0.248698661,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 58,
+            "peak_gpu_used_mib": 71257,
+            "peak_process_rss_bytes": 20692054016,
+            "peak_host_used_bytes": 23346503680,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21237520384,
+            "peak_cgroup_anon_bytes": 21692706816,
+            "peak_cgroup_file_bytes": 129414369280,
+            "peak_cgroup_current_bytes": 152221499392,
+            "exact_cuda_peak_allocated_bytes": 48136489984,
+            "exact_cuda_peak_reserved_bytes": 73956065280
+          },
+          "pure_backward": {
+            "samples": 79,
+            "peak_gpu_used_mib": 71519,
+            "peak_process_rss_bytes": 20803452928,
+            "peak_host_used_bytes": 23483826176,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21348972544,
+            "peak_cgroup_anon_bytes": 21804163072,
+            "peak_cgroup_file_bytes": 129549041664,
+            "peak_cgroup_current_bytes": 152402599936,
+            "exact_cuda_peak_allocated_bytes": 56812706304,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "optimizer": {
+            "samples": 1,
+            "peak_gpu_used_mib": 71519,
+            "peak_process_rss_bytes": 4665458688,
+            "peak_host_used_bytes": 7148871680,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 5232551936,
+            "peak_cgroup_anon_bytes": 5636640768,
+            "peak_cgroup_file_bytes": 129635094528,
+            "peak_cgroup_current_bytes": 136359747584,
+            "exact_cuda_peak_allocated_bytes": 42839506944,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42287512576,
+            "exact_cuda_peak_reserved_bytes": 73729572864
+          },
+          "pre_backward_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42659168768,
+            "exact_cuda_peak_reserved_bytes": 73956065280
+          },
+          "gradient_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42806013440,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "clip": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42805030400,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "optimizer_audit": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42773532672,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 0,
+        "optimizer_seconds": 0.11157072,
+        "clip_seconds": 0.144120768
+      },
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 108.821286245,
+        "pre_backward_export_seconds": 5.142433202,
+        "pure_backward_seconds": 164.51524518,
+        "gradient_export_seconds": 0.254535568,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 52,
+            "peak_gpu_used_mib": 71519,
+            "peak_process_rss_bytes": 21310296064,
+            "peak_host_used_bytes": 23842902016,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21856196608,
+            "peak_cgroup_anon_bytes": 22251499520,
+            "peak_cgroup_file_bytes": 129702719488,
+            "peak_cgroup_current_bytes": 153077428224,
+            "exact_cuda_peak_allocated_bytes": 48289331712,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "pre_backward_export": {
+            "samples": 2,
+            "peak_gpu_used_mib": 71519,
+            "peak_process_rss_bytes": 24969265152,
+            "peak_host_used_bytes": 27536678912,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 25514711040,
+            "peak_cgroup_anon_bytes": 25909583872,
+            "peak_cgroup_file_bytes": 129702776832,
+            "peak_cgroup_current_bytes": 156742823936,
+            "exact_cuda_peak_allocated_bytes": 42793083904,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "pure_backward": {
+            "samples": 79,
+            "peak_gpu_used_mib": 71645,
+            "peak_process_rss_bytes": 21421821952,
+            "peak_host_used_bytes": 23982579712,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21967267840,
+            "peak_cgroup_anon_bytes": 22362140672,
+            "peak_cgroup_file_bytes": 129770287104,
+            "peak_cgroup_current_bytes": 153257005056,
+            "exact_cuda_peak_allocated_bytes": 56946647552,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42705592320,
+            "exact_cuda_peak_reserved_bytes": 74224500736
+          },
+          "gradient_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42939928576,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "clip": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42938945536,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42839506944,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer_audit": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42773532672,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 1,
+        "optimizer_seconds": 0.007644447,
+        "clip_seconds": 0.010399397
+      },
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 112.373088264,
+        "pre_backward_export_seconds": 0.55739704,
+        "pure_backward_seconds": 164.645084373,
+        "gradient_export_seconds": 0.254225678,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 54,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 21399683072,
+            "peak_host_used_bytes": 23906025472,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21945128960,
+            "peak_cgroup_anon_bytes": 22340161536,
+            "peak_cgroup_file_bytes": 129838256128,
+            "peak_cgroup_current_bytes": 153305657344,
+            "exact_cuda_peak_allocated_bytes": 48289274880,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pre_backward_export": {
+            "samples": 1,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 25062580224,
+            "peak_host_used_bytes": 27570978816,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 25608026112,
+            "peak_cgroup_anon_bytes": 26002907136,
+            "peak_cgroup_file_bytes": 129838329856,
+            "peak_cgroup_current_bytes": 156975722496,
+            "exact_cuda_peak_allocated_bytes": 42793083904,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pure_backward": {
+            "samples": 78,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 21424357376,
+            "peak_host_used_bytes": 23962673152,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21969803264,
+            "peak_cgroup_anon_bytes": 22364684288,
+            "peak_cgroup_file_bytes": 129905930240,
+            "peak_cgroup_current_bytes": 153399083008,
+            "exact_cuda_peak_allocated_bytes": 56946539520,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "gradient_export": {
+            "samples": 1,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 5063254016,
+            "peak_host_used_bytes": 7508987904,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 5608699904,
+            "peak_cgroup_anon_bytes": 6003585024,
+            "peak_cgroup_file_bytes": 129973174272,
+            "peak_cgroup_current_bytes": 137076396032,
+            "exact_cuda_peak_allocated_bytes": 42939928576,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42705592320,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "clip": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42938945536,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42839506944,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer_audit": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42773532672,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 2,
+        "optimizer_seconds": 0.007625357,
+        "clip_seconds": 0.011769406
+      },
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 111.710225842,
+        "pre_backward_export_seconds": 0.553589551,
+        "pure_backward_seconds": 164.565783102,
+        "gradient_export_seconds": 0.254072408,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 53,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 21402030080,
+            "peak_host_used_bytes": 23938711552,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21947971584,
+            "peak_cgroup_anon_bytes": 22343553024,
+            "peak_cgroup_file_bytes": 129982578688,
+            "peak_cgroup_current_bytes": 153457717248,
+            "exact_cuda_peak_allocated_bytes": 48288744960,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pre_backward_export": {
+            "samples": 1,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 25065132032,
+            "peak_host_used_bytes": 27583852544,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 25610577920,
+            "peak_cgroup_anon_bytes": 26005602304,
+            "peak_cgroup_file_bytes": 129982660608,
+            "peak_cgroup_current_bytes": 157127507968,
+            "exact_cuda_peak_allocated_bytes": 42793083904,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pure_backward": {
+            "samples": 78,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 21425446912,
+            "peak_host_used_bytes": 24390582272,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21970892800,
+            "peak_cgroup_anon_bytes": 22365917184,
+            "peak_cgroup_file_bytes": 130050367488,
+            "peak_cgroup_current_bytes": 153549377536,
+            "exact_cuda_peak_allocated_bytes": 56946498048,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "clip": {
+            "samples": 1,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 5127151616,
+            "peak_host_used_bytes": 7564185600,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 5671548928,
+            "peak_cgroup_anon_bytes": 6066573312,
+            "peak_cgroup_file_bytes": 130117832704,
+            "peak_cgroup_current_bytes": 137288343552,
+            "exact_cuda_peak_allocated_bytes": 42938945536,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42705592320,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "gradient_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42939928576,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42839506944,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "optimizer_audit": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42773532672,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 3,
+        "optimizer_seconds": 0.007632747,
+        "clip_seconds": 0.013494665
+      },
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 113.549514641,
+        "pre_backward_export_seconds": 0.55632149,
+        "pure_backward_seconds": 164.420842174,
+        "gradient_export_seconds": 0.253290849,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 54,
+            "peak_gpu_used_mib": 71647,
+            "peak_process_rss_bytes": 21408411648,
+            "peak_host_used_bytes": 23923666944,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21954258944,
+            "peak_cgroup_anon_bytes": 22349426688,
+            "peak_cgroup_file_bytes": 130118647808,
+            "peak_cgroup_current_bytes": 153602666496,
+            "exact_cuda_peak_allocated_bytes": 48287754240,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pure_backward": {
+            "samples": 79,
+            "peak_gpu_used_mib": 71649,
+            "peak_process_rss_bytes": 21425254400,
+            "peak_host_used_bytes": 24382869504,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21970700288,
+            "peak_cgroup_anon_bytes": 22365732864,
+            "peak_cgroup_file_bytes": 130178076672,
+            "peak_cgroup_current_bytes": 153680048128,
+            "exact_cuda_peak_allocated_bytes": 56946465280,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42705592320,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "pre_backward_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42793083904,
+            "exact_cuda_peak_reserved_bytes": 74358718464
+          },
+          "gradient_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42939928576,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "clip": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42938945536,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "optimizer": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42839506944,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "optimizer_audit": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42773532672,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 4,
+        "optimizer_seconds": 0.007729107,
+        "clip_seconds": 0.013467356
+      },
+      {
+        "loading_seconds": null,
+        "forward_setup_seconds": null,
+        "forward_seconds": 111.295539689,
+        "pre_backward_export_seconds": null,
+        "pure_backward_seconds": null,
+        "gradient_export_seconds": null,
+        "total_seconds": null,
+        "phase_resource_samples": {
+          "forward": {
+            "samples": 54,
+            "peak_gpu_used_mib": 71649,
+            "peak_process_rss_bytes": 21417861120,
+            "peak_host_used_bytes": 23964999680,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 21964691456,
+            "peak_cgroup_anon_bytes": 23025688576,
+            "peak_cgroup_file_bytes": 130246500352,
+            "peak_cgroup_current_bytes": 154411696128,
+            "exact_cuda_peak_allocated_bytes": 48289274880,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "finished": {
+            "samples": 3,
+            "peak_gpu_used_mib": 71649,
+            "peak_process_rss_bytes": 11561566208,
+            "peak_host_used_bytes": 14176956416,
+            "peak_children_rss_bytes": 1020129280,
+            "peak_process_tree_pss_bytes": 12107012096,
+            "peak_cgroup_anon_bytes": 11757199360,
+            "peak_cgroup_file_bytes": 130381107200,
+            "peak_cgroup_current_bytes": 143270211584
+          },
+          "forward_setup": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42705592320,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          },
+          "final_export": {
+            "samples": 0,
+            "peak_gpu_used_mib": 0,
+            "peak_process_rss_bytes": 0,
+            "peak_host_used_bytes": 0,
+            "exact_cuda_peak_allocated_bytes": 42793083904,
+            "exact_cuda_peak_reserved_bytes": 74360815616
+          }
+        },
+        "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds",
+        "step": 5,
+        "optimizer_seconds": null,
+        "clip_seconds": null
+      }
+    ],
+    "startup_and_loading": {
+      "loading_seconds": 98.775493977,
+      "forward_setup_seconds": null,
+      "forward_seconds": null,
+      "pre_backward_export_seconds": null,
+      "pure_backward_seconds": null,
+      "gradient_export_seconds": null,
+      "total_seconds": null,
+      "phase_resource_samples": {
+        "startup": {
+          "samples": 14,
+          "peak_gpu_used_mib": 40739,
+          "peak_process_rss_bytes": 35831054336,
+          "peak_host_used_bytes": 37864513536,
+          "peak_children_rss_bytes": 1160294400,
+          "peak_process_tree_pss_bytes": 35702620160,
+          "peak_cgroup_anon_bytes": 36469960704,
+          "peak_cgroup_file_bytes": 126989946880,
+          "peak_cgroup_current_bytes": 164087431168
+        },
+        "loading": {
+          "samples": 48,
+          "peak_gpu_used_mib": 71035,
+          "peak_process_rss_bytes": 43369922560,
+          "peak_host_used_bytes": 6334877696,
+          "peak_children_rss_bytes": 1020129280,
+          "peak_process_tree_pss_bytes": 43965065216,
+          "peak_cgroup_anon_bytes": 4683649024,
+          "peak_cgroup_file_bytes": 129077846016,
+          "peak_cgroup_current_bytes": 134779449344,
+          "exact_cuda_peak_allocated_bytes": 42319739392,
+          "exact_cuda_peak_reserved_bytes": 73729572864
+        }
+      },
+      "timing_method": "aligned monotonic event marks and observation-only Tensor.backward wrapper; synchronized CUDA at phase boundaries; allocator peaks reset per phase; RSS/device-used sampled every 2 seconds"
+    }
+  },
+  "execution_commit": "b3572e01340a6785c1b5257246e6752a11c63218",
+  "native_script_commit": "c7ff17e78776a9888b280531a0c53718efa45c02",
+  "native_source_sha256": "f95893baa503ec446d4610878b7d5feb7ee975e9313e282349cac2d8952573a0"
+}
