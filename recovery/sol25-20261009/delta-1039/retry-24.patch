@@ -1,0 +1,59 @@
+diff --git a/ARC3-Inference/experiments/teacher-reasoning/progressive-sol25.md b/ARC3-Inference/experiments/teacher-reasoning/progressive-sol25.md
+index 3dc6ef3..0a47f12 100644
+--- a/ARC3-Inference/experiments/teacher-reasoning/progressive-sol25.md
++++ b/ARC3-Inference/experiments/teacher-reasoning/progressive-sol25.md
+@@ -1,9 +1,11 @@
+ # Progressive thinking generation for the 25 Sol games
+ 
+-Status (2026-10-09 04:41 UTC): **1,004/1,334 turns finalized** across 25 games;
+-999 are eligible training targets and five exceed the 120,000-token input limit.
+-Sixteen games have finished. The resumable driver is stopped while a provider
+-connectivity failure is investigated; the **$300 guard** remains in force.
++Status (2026-10-09 05:41 UTC): **1,039/1,334 turns finalized** across 25 games;
++1,029 are eligible training targets and ten exceed the 120,000-token input limit.
++Seventeen games have finished. The resumable driver is stopped because the
++workspace proxy returned HTTP 503 before provider responses; the **$300 guard**
++remains in force. The successful-response estimate is **$71.890931**, with zero
++outstanding reservations. This is not account-verified billing.
+ The two-turn sampled/unsampled pilot passed, including finalized-history
+ preservation and a zero-call resume check. HTTP 429 backoff remains unlimited.
+ The HTTP billing correction passed independent setup review and 37 focused
+@@ -130,7 +132,7 @@ records the exact input count, eligibility and exclusion reason.
+ | Refinements | At most two; passed drafts/refinements skip remaining refinement work |
+ | Final audit + code regeneration/equivalence | 15 evenly spaced requests/game; 374 total |
+ | Workers | **16**, one sequential chain per game |
+-| Retry limit | HTTP 429: unlimited backoff in the same attempt; other failures: 12/stage |
++| Retry limit | HTTP 429: unlimited backoff in the same attempt; other failures: 24/stage after 12 proxy-503 slots were exhausted |
+ | Student input cap | 120,000 tokens |
+ | Pilot spend guard | $8 estimated spending + unresolved-call reservations |
+ | Full-run approved guard | $300 estimated spend plus uncertain-call reservations |
+@@ -250,7 +252,10 @@ PYTHONPATH=ARC3-Inference ARC3-Inference/.venv/bin/python -m think_gen.progressi
+ ```
+ 
+ The production launcher resumes the validated pilot and full job with the
+-actual approved settings (sixteen workers, $300 guard, three ordinary attempts):
++approved settings (sixteen workers and $300 guard). After twelve definite
++zero-charge proxy 503s exhausted a required stage, the launcher allows twelve
++additional non-429 attempts per unfinished stage, following a read-only
++connectivity preflight:
+ 
+ ```bash
+ ARC3-Inference/.venv/bin/python ARC3-Inference/scripts/run_progressive_sol25.py
+diff --git a/ARC3-Inference/scripts/run_progressive_sol25.py b/ARC3-Inference/scripts/run_progressive_sol25.py
+index a12d38e..23d0df8 100644
+--- a/ARC3-Inference/scripts/run_progressive_sol25.py
++++ b/ARC3-Inference/scripts/run_progressive_sol25.py
+@@ -89,9 +89,10 @@ def main():
+                             'source': 'sk48 first two consecutive turns; same final history; sampled + unsampled paths'})
+             elif read_json(ready)['manifest_hash'] != file_hash(OUT/'manifest.json'):
+                 raise RuntimeError('Validation belongs to a different manifest')
+-            # Keep extra slots for resumable recovery from provider 5xx outages.
+-            # HTTP 429 still retries indefinitely inside the generation client.
+-            summary = run('full', ['--workers','16','--budget','300','--max-attempts','12'])
++            # The workspace proxy exhausted 12 slots on definite zero-charge
++            # HTTP 503s. Give those unfinished stages 12 fresh slots after a
++            # read-only connectivity preflight. HTTP 429 retries stay unlimited.
++            summary = run('full', ['--workers','16','--budget','300','--max-attempts','24'])
+             if summary['completed'] != 1334:
+                 raise RuntimeError(f"Expected 1334 finalized responses, got {summary['completed']}")
+             status('completed', summary=summary)
