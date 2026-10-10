@@ -5,6 +5,7 @@ from pathlib import Path
 import traceback
 
 from config import load_config
+from .fla_environment import configure_fla_environment
 
 
 def main(mode):
@@ -24,9 +25,7 @@ def main(mode):
         print(__import__('json').dumps(config.as_dict(),indent=2));return
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
-    if config.fla_numeric_profile is not None:
-        os.environ['FLA_CACHE_MODE']='strict'
-        os.environ['FLA_CONFIG_DIR']=str(Path(__file__).resolve().parents[1]/'configs/kernels-reference-v0')
+    configure_fla_environment(os.environ,mode,config.fla_numeric_profile,Path(__file__).resolve().parents[1])
     from .loop import run
     try:
         run(config,mode)

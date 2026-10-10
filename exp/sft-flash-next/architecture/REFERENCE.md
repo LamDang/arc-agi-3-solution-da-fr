@@ -68,6 +68,10 @@ file for one reverse-scan key: B=1, H=48, BT=64, no variable lengths, reverse,
 FP32 input/output; one warp, one CTA and three stages. Forward and other kernel
 keys retain native autotuning. `numeric-profile.json` records the actual entry
 after backward. No installed package source or callable is replaced.
+This profile is **test-only**, including diagnostics and F/B capacity benchmarks.
+Real training rejects a non-null `fla_numeric_profile` before CUDA imports.
+Both the CLI and Jupyter launcher clear inherited FLA config paths and disable
+FLA config-file overrides for training, leaving native Triton autotuning active.
 
 On the replacement server, default autotuning picked two warps. Loss was exact
 but full gradients differed by1.738071%. With a fixed input and upstream

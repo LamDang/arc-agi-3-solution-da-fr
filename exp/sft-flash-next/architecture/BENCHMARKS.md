@@ -73,8 +73,9 @@ An unreachable connection alone is not proof of shutdown.
 The replacement server356919557 is connected. The original server's Opt7 attempt
 `20261010000620065-39a35a37` cannot be recovered there; its gate remains unknown.
 The corrected fold0 export was verified against the original checkpoint index
-and84 expert/router byte checks. Native reference identity replay is running;
-Opt7–10 are not yet qualified.
+and84 expert/router byte checks. Native replay20261010040404197-7f737faf passed
+bitwise loss and all74,472 gradients with the test-only FLA profile. Real training
+rejects that profile and uses native autotuning. Opt7–10 are not yet qualified.
 The dedicated `benchmark.py` path omits paired-control, raw-gradient export and
 full gradient dictionary clones. Configuration requires `benchmark_tokens`,
 explicit labels, `benchmark_repeats` (default2) and the saved initial-adapter pin.

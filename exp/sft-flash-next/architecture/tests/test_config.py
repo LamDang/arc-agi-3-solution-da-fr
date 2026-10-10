@@ -13,6 +13,12 @@ class ConfigTests(unittest.TestCase):
             Config('reference','/model',['/sample'],'/out',Optimizations(bf16_lora=True)).validate('test')
     def test_training_rejects_diagnostic_adapter(self):
         with self.assertRaises(ValueError):self.config(adapter='/trained-diagnostic.pt').validate('train')
+    def test_training_rejects_fla_test_profile(self):
+        # Isolate the profile guard from the nonzero-initialization guard.
+        c=self.config(fla_numeric_profile='reference-v0')
+        c.validate('test')
+        with self.assertRaisesRegex(ValueError,'FLA numerical profiles are test-only'):c.validate('train')
+        self.config().validate('train')
     def test_test_is_one_complete_sample(self):
         with self.assertRaises(ValueError):
             Config('optimized','/model',['/a','/b'],'/out',Optimizations()).validate('test')

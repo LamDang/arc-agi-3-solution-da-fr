@@ -181,6 +181,8 @@ Current replay and chunking configs also set `fla_numeric_profile="reference-v0"
 This pins one native FLA reverse-scan autotune entry and verifies the executed
 configuration after backward; see [REFERENCE.md](REFERENCE.md). A failed
 implementation gradient gate receives Astra review before a revision is promoted.
+The profile is test-only: real training rejects it and clears inherited FLA
+configuration overrides so its kernels use native autotuning.
 
 `benchmark.py` measures two forward/backward passes without an optimizer,
 unchunked control or raw gradient archive. Its four cumulative Opt10 configs

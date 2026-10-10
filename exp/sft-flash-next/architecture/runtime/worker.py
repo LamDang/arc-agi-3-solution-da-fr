@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+from fla_environment import configure_fla_environment
 
 
 def main():
@@ -24,6 +25,8 @@ def main():
     root = config_path.parent/'source'
     job = config_path.parent
     config = json.loads(config_path.read_text())
+    if args.mode=='train' and config.get('fla_numeric_profile') is not None:
+        raise ValueError('FLA numerical profiles are test-only; real training uses native autotuning')
     if Path(config['output']).exists():raise FileExistsError('Attempt output already exists')
     if Path(config['output']) != job/'output':
         Path(config['output']).parent.mkdir(parents=True,exist_ok=True)
@@ -69,10 +72,7 @@ def main():
         "if __name__ == '__main__':\n    import unittest\n    suite=unittest.defaultTestLoader.discover("+repr(str(root/'tests'))+")\n    result=unittest.TextTestRunner(verbosity=2).run(suite)\n    if not result.wasSuccessful(): raise RuntimeError('Component checks failed before model loading')\n    runpy.run_path("+repr(str(script))+",run_name='__main__')\n")
     env = {**os.environ,'FLASH_NEXT_CHECK_EXPERT_OFFLOAD':'1' if opt.get('offload_routed_experts') else '0',
            'FLASH_NEXT_EXPERT_CHECK_RESULT':str(job/'expert-offload-check.json'),'CUBLAS_WORKSPACE_CONFIG':':4096:8','PYTORCH_CUDA_ALLOC_CONF':'expandable_segments:True'}
-    profile=config.get('fla_numeric_profile')
-    if profile is not None:
-        if profile!='reference-v0':raise ValueError('Unknown FLA numerical profile')
-        env.update(FLA_CACHE_MODE='strict',FLA_CONFIG_DIR=str(root/'configs/kernels-reference-v0'))
+    configure_fla_environment(env,args.mode,config.get('fla_numeric_profile'),root)
     started = time.monotonic()
     with (job/'process.log').open('w') as log:
         child = subprocess.Popen(['/usr/bin/python3',str(bootstrap)],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)

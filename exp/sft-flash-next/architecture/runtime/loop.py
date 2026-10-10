@@ -70,6 +70,7 @@ def save_tensors(state,output,stem):
 
 
 def run(config, mode):
+    config.validate(mode)
     output = Path(config.output);output.mkdir(parents=True,exist_ok=False)
     write(output/'config.json',config.as_dict())
     started = time.monotonic()

@@ -1,3 +1,14 @@
+# Test-only FLA profile / Opt7 active — 2026-10-10 04:20 UTC
+
+* User explicitly restricts FLA1warpforcing to testing, NOT realtraining.
+  Config.validate(train) rejects any profile; standaloneCLI/Jupytersupervisor
+  clear inherited FLA_CONFIG_DIR and set FLA_CACHE_MODE=disabled for training
+  (native Triton autotuning). Test/diagnostic/F/Bbenchmark profiles remain allowed.
+  Four new boundary checks pass locally;35tests17pass18GPUskips.
+* Opt7v4 fullpaired job20261010041736293-6ef871bc, executionbb7f154,
+  supervisor3575, desktopwatcher36716. It uses frozen testprofile source before
+  the new training guards; no realtraining is running. Gate pending.
+
 # Native restoration gate PASSED — 2026-10-10 04:17 UTC
 
 * Replay20261010040404197-7f737faf (executionf624914) completed cleanly.

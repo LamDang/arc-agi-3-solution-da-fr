@@ -74,6 +74,8 @@ class Config:
         self.optimizations.validate()
         if self.fla_numeric_profile not in {None,'reference-v0'}:
             raise ValueError('Unknown FLA numerical profile')
+        if mode == 'train' and self.fla_numeric_profile is not None:
+            raise ValueError('FLA numerical profiles are test-only; real training uses native autotuning')
         if self.comparison_mode not in {'report','exact'}:
             raise ValueError('Comparison mode must be report or exact')
         if self.architecture not in {'native','reference', 'optimized'}:
