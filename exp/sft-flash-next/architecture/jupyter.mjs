@@ -101,7 +101,7 @@ async function main(){
     await upload(job+'/config.json',Buffer.from(JSON.stringify(config,null,2)+'\n'));
     await upload(job+'/source-hashes.json',Buffer.from(JSON.stringify(hashes,null,2)+'\n'));
     const entrypoint=args.entrypoint;
-    if(entrypoint && (mode!=='test'||!['diagnostics/gdn_backward.py','diagnostics/expert_replay.py'].includes(entrypoint)))throw new Error('Unknown diagnostic entrypoint');
+    if(entrypoint && (mode!=='test'||!['diagnostics/gdn_backward.py','diagnostics/expert_replay.py','diagnostics/expert_head_replay.py'].includes(entrypoint)))throw new Error('Unknown diagnostic entrypoint');
     const extra=entrypoint?',"--entrypoint",'+JSON.stringify(entrypoint):'';
     console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+',"--timeout",'+JSON.stringify(String(timeoutSeconds))+extra+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
     fs.mkdirSync(path.join(root,'results'),{recursive:true});fs.writeFileSync(path.join(root,'results','last-attempt.json'),JSON.stringify({attempt,job,mode},null,2)+'\n');

@@ -17,7 +17,7 @@ def main():
     p.add_argument('--config',required=True)
     p.add_argument('--mode',choices=['test','train','benchmark'],default='test')
     p.add_argument('--timeout',type=int,default=1200)
-    p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py','diagnostics/expert_replay.py'])
+    p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py','diagnostics/expert_replay.py','diagnostics/expert_head_replay.py'])
     args = p.parse_args()
     lock = open('/tmp/flash-next-architecture.lock','w')
     fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)

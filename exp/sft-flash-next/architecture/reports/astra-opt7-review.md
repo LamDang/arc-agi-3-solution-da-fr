@@ -199,3 +199,30 @@ alone does not prove deterministic custom Triton execution. If identical-input
 CCE repeats drift, the previous paired result cannot be attributed entirely to
 Opt7; this still does not grant acceptance. Keep all activations and cotangents
 in RAM and save comparison metrics only. FLA profile remains test-only.
+
+## Pre-dispatch review: combined expert/head diagnostic
+
+Read-only review of diagnostics/expert_head_replay.py found no blocking correctness
+bug. The head selection matches components/head.py: same target_positions order,
+BF16 cast and contiguous651-row layout. The local CCE call exactly matches
+production cce_exact/mean, filter_eps=None, filter_e_grad=False,
+filter_c_grad=False, accum_e_fp32=True and accum_c_fp32=True, with autocast disabled
+and the same frozen head parameter. Twelve repetitions use fresh identical input
+leaves. The base.model forward hook captures hidden states and raises before the
+objective executes its head; there is no full-model backward or optimizer step.
+
+Expert prehooks skip `_prefetched` native recursion, captured values stay in RAM,
+and each replay clears staged states before creating its gradient graph. Original
+8192-row thresholds define adapter partitions even in custom-unsplit mode.
+Native-repeat assertions check all local gradients and outputs. Only hashes,
+metrics and provenance are written, not raw candidate tensors. Dispatch remains
+the main agent's responsibility; this review executes no GPU work.
+
+Exact matching of all74472 initialization tensors and use of the same objects
+exclude initialization mismatch for the paired comparison. Torch deterministic
+mode and cuBLAS settings improve reproducibility but do not certify custom Triton
+reductions. BF16 rounding is a possible mechanism only when a concrete arithmetic
+or reduction change is shown; it is not sufficient by itself to explain or accept
+the1.7834% discrepancy. The combined diagnostic directly tests head repeatability
+and remaining split-layer arithmetic. The FLA profile remains testing-only and
+must not be applied to real training.
