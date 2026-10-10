@@ -19,7 +19,9 @@ def main():
     p.add_argument('--timeout',type=int,default=1200)
     p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py','diagnostics/expert_replay.py','diagnostics/expert_head_replay.py'])
     args = p.parse_args()
-    lock = open('/tmp/flash-next-architecture.lock','w')
+    lock_path = Path('/tmp/flash-next-architecture.lock')
+    # flock needs an open descriptor, not write access to an existing lock.
+    lock = lock_path.open('r' if lock_path.exists() else 'w')
     fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
     config_path = Path(args.config).resolve()
     root = config_path.parent/'source'
@@ -72,6 +74,15 @@ def main():
         "if __name__ == '__main__':\n    import unittest\n    suite=unittest.defaultTestLoader.discover("+repr(str(root/'tests'))+")\n    result=unittest.TextTestRunner(verbosity=2).run(suite)\n    if not result.wasSuccessful(): raise RuntimeError('Component checks failed before model loading')\n    runpy.run_path("+repr(str(script))+",run_name='__main__')\n")
     env = {**os.environ,'FLASH_NEXT_CHECK_EXPERT_OFFLOAD':'1' if opt.get('offload_routed_experts') else '0',
            'FLASH_NEXT_EXPERT_CHECK_RESULT':str(job/'expert-offload-check.json'),'CUBLAS_WORKSPACE_CONFIG':':4096:8','PYTORCH_CUDA_ALLOC_CONF':'expandable_segments:True'}
+    # Kaggle can stop accepting writes to the root overlay while its working
+    # volume remains writable. Keep compiler caches and IPC temporary files on
+    # that volume; checkpoint/model sources are still read from their pinned paths.
+    cache_root = Path('/kaggle/working/.flash-next-runtime')
+    for key, leaf in {'TMPDIR':'tmp','TRITON_CACHE_DIR':'triton','XDG_CACHE_HOME':'cache',
+                      'CUDA_CACHE_PATH':'cuda','TORCH_EXTENSIONS_DIR':'extensions'}.items():
+        destination = cache_root/leaf
+        destination.mkdir(parents=True,exist_ok=True)
+        env[key] = str(destination)
     configure_fla_environment(env,args.mode,config.get('fla_numeric_profile'),root)
     started = time.monotonic()
     with (job/'process.log').open('w') as log:

@@ -80,7 +80,8 @@ async function main(){
     attempt=new Date().toISOString().replace(/[-:.TZ]/g,'')+'-'+crypto.randomBytes(4).toString('hex');
     job='/kaggle/working/architecture-runs/'+attempt;
     const large=config.optimizations?.lora_routed_experts||config.architecture==='reference';
-    config.output=large?'/tmp/flash-next-architecture-artifacts/'+attempt+'/output':job+'/output';
+    const storage=JSON.parse(await execute('import tempfile,json\ntry:\n    with tempfile.TemporaryDirectory(dir="/tmp"): pass\n    writable=True\nexcept OSError:\n    writable=False\nprint(json.dumps({"tmp_writable":writable}))'));
+    config.output=large&&storage.tmp_writable?'/tmp/flash-next-architecture-artifacts/'+attempt+'/output':job+'/output';
     config.dispatch_commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
     const sources=files(root),directories=new Set([job,job+'/source',job+'/dependencies']);
     for(const name of sources)directories.add(path.posix.dirname(job+'/source/'+name));

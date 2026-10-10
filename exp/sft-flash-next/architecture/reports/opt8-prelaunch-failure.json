@@ -1,0 +1,17 @@
+{
+  "attempt": "20261010050340204-dc403b64",
+  "execution_commit": "9c8eb2acf26c925d57275ff6f7d5d75125b01300",
+  "monitor": {
+    "returncode": 1,
+    "timed_out": false,
+    "prelaunch_failure": true,
+    "error_type": "OSError",
+    "error": "[Errno 30] Read-only file system: '/tmp/flash-next-architecture.lock'"
+  },
+  "evidence_checks_passed": true,
+  "model_executed": false,
+  "optimizer_updates": 0,
+  "loss": null,
+  "gradients": null,
+  "reason": "Kaggle root overlay rejects writes; use existing read-only lock descriptor and writable working volume for caches/artifacts"
+}

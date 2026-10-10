@@ -83,6 +83,11 @@ if interrupted_head.exists():
  r=read(interrupted_head)
  values=[f'Head/expert diagnosis stopped on user request<br>wall {r["monitor"]["seconds"]:.2f}','not run','not run','—','—','loading (incomplete)','partial samples only','unavailable','not a completed phase peak','unavailable','—']
  lines.append('| '+' | '.join(values)+' |')
+prelaunch=ROOT/'reports/opt8-prelaunch-failure.json'
+if prelaunch.exists():
+ r=read(prelaunch)
+ values=['Opt8 first dispatch: read-only /tmp','not run','not run','—','—','prelaunch failure','not measured','not measured','not measured','not measured','—']
+ lines.append('| '+' | '.join(values)+' |')
 for tokens in [32000,64000,96000,120000]:
  path=ROOT/'reports'/f'benchmark-{tokens}.json'
  if not path.exists():

@@ -1,3 +1,16 @@
+# Opt8 prelaunch storage failure / writable-volume retry — 2026-10-10
+
+* Attempt20261010050340204-dc403b64 execution9c8eb2a failed BEFORE model launch:
+  EROFS opening existing /tmp/flash-next-architecture.lock for writing. GPU idle.
+  Root overlay statvfs saysrw but actual/tmp writes fail errno30; working volume
+  writes succeed (20GiB free). Source/input/reference remain readable.
+* Worker now opens existing lock read-only for flock, retaining same inode;
+  runtime temp/compiler caches moved to /kaggle/working/.flash-next-runtime.
+  Dispatcher tests actual/tmp writes and falls back to attempt output on working
+  volume. No change to arithmetic, expert placement or reference data. RetryOpt8.
+* User revised cumulativechunking gate2%; Opt7 1.783424% ACCEPTED. Test-onlyFLA
+  pin remains guarded. No optimizer/rawcandidatearchive/push/shutdown.
+
 # User revised gate: Opt7 accepted, advance to Opt8 — 2026-10-10
 
 * User explicitly says accept Opt7 and move gradient threshold to2%. Measured
