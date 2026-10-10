@@ -76,6 +76,8 @@ EXPERIMENTS_DIR := $(shell $(CONFIG_VALUE) experiments.root_dir)
 endif
 EXPERIMENT_DIR ?=
 RESUME_FROM ?=
+# 1: game runs RESUME_FROM left playing continue where they stopped (LOCAL_EVAL.md)
+RESUME_MID_GAME ?=
 ifeq ($(origin N_PASSES),undefined)
 N_PASSES := $(shell $(CONFIG_VALUE) environment.n_passes 1)
 endif
@@ -592,6 +594,7 @@ _taaf-run:
 		$(if $(strip $(EXPERIMENTS_DIR)),--experiments-dir '$(EXPERIMENTS_DIR)',) \
 		$(if $(strip $(EXPERIMENT_DIR)),--experiment-dir '$(EXPERIMENT_DIR)',) \
 		$(if $(strip $(RESUME_FROM)),--resume-from '$(RESUME_FROM)',) \
+		$(if $(filter true TRUE 1 yes YES on ON,$(RESUME_MID_GAME)),--resume-mid-game,) \
 		$(if $(strip $(MAX_ACTIONS)),--max-actions $(MAX_ACTIONS),) \
 		$(if $(strip $(MAX_RUNTIME_MINUTES)),--max-runtime-minutes $(MAX_RUNTIME_MINUTES),) \
 		$(if $(strip $(MAX_GENERATED_TOKENS_PER_GAME)),--max-generated-tokens-per-game $(MAX_GENERATED_TOKENS_PER_GAME),) \

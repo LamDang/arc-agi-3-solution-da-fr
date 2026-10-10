@@ -835,6 +835,14 @@ def _post_with_retries(
 
 
 _CONTROL_MESSAGE_KEY = "_arc3_control"
+# Put at the head of the first opener after ToolAgent.restore_session
+# (run.py --resume-mid-game), as engine_re's RESUME_NOTE does for its agent.
+_MID_GAME_RESUME_NOTE = (
+    "[harness] The run was interrupted and has now resumed in this same conversation at "
+    "step {step}, level {level}. The game state was replayed exactly; everything above is "
+    "kept. Python state is gone. A batch you were preparing in the last turn did not run "
+    "unless it appears in history."
+)
 
 _YIELD_RESUME_PROMPT_WITH_TOOLS = (
     "You yielded control on the turn time budget. Your tool results above are "
@@ -3882,6 +3890,57 @@ class ToolAgent:
             self._turns_without_wm_update = 0
             self._pending_wm_rebuild_reason = ""
             self._pending_wm_revise_reason = ""
+
+    def restore_session(
+        self,
+        state_path: Path,
+        *,
+        history_messages: list[dict[str, Any]],
+        generated_tokens: int,
+        total_tokens: int = 0,
+        assistant_texts: list[str] | tuple[str, ...] = (),
+        step: int,
+        level: int,
+        actions_at_level_start: int = 0,
+        tokens_at_level_start: int = 0,
+    ) -> None:
+        """Continue an interrupted game in its own conversation (--resume-mid-game).
+
+        _ensure_session first: it wipes the session when the state path changes,
+        so calling it here makes analyze()'s own call a no-op instead of a wipe.
+        The history is the last request the model saw, without its system
+        prompt and opener; the next opener starts with _MID_GAME_RESUME_NOTE.
+        Python state, retained functions and the per-game guards' memory are
+        not restored.
+        """
+        self._ensure_session(state_path)
+        messages = json.loads(json.dumps(history_messages))
+        if _get_env_bool("ARC3_RESUME_STRIP_REASONING_DETAILS", False):
+            # encrypted reasoning is tied to the provider that issued it; a
+            # resumed run on another one would have every request rejected
+            for message in messages:
+                message.pop("reasoning_details", None)
+        self._history_messages = messages
+        self._session_generated_tokens = max(0, int(generated_tokens))
+        self._session_total_tokens = max(0, int(total_tokens))
+        for text in assistant_texts:
+            self._update_summarized_knowledge_from_assistant(str(text))
+        self._wm_absorbed_in_turn = False
+        self._turns_without_wm_update = 0
+        self._actions_at_level_start = max(0, int(actions_at_level_start))
+        self._tokens_at_level_start = max(0, int(tokens_at_level_start))
+        if any(
+            message.get(_CONTROL_MESSAGE_KEY) in (_NOTE_CONTROL_KIND, _SUMMARY_CONTROL_KIND)
+            for message in messages
+        ):
+            self._has_evicted = True
+        if _persistent_functions():
+            self._kept_functions = {}
+            self._retained_clear_notice = (
+                "Your retained functions were lost when the run was interrupted; "
+                "redefine any you still need."
+            )
+        self._pending_restart_note = _MID_GAME_RESUME_NOTE.format(step=int(step), level=int(level))
 
     @property
     def total_tokens(self) -> int:
@@ -7082,6 +7141,11 @@ class ToolAgent:
             history_entries=history_entries,
             previous_step_summary=self._last_step_summary,
         )
+        # cleared only once a turn keeps its history, so a failed first request
+        # after the resume shows it again
+        restart_note = str(getattr(self, "_pending_restart_note", "") or "")
+        if restart_note:
+            user_prompt = f"{restart_note}\n\n{user_prompt}"
         display_action_num = _display_action_number(action_num)
         self._wm_absorbed_in_turn = False
 
@@ -7687,6 +7751,8 @@ class ToolAgent:
                 self._turns_without_wm_update += 1
             if preserve_history:
                 self._history_messages = self._persistent_history_messages(messages, tools=self._tools(state_path))
+                if restart_note:
+                    self._pending_restart_note = ""
             else:
                 self._history_messages = previous_history_messages
             solver_obj = getattr(self._step_env_callback, "__self__", None)

@@ -121,7 +121,8 @@ make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
   and artifacts are copied into the new run.
 - Replayed from the start: runs that crashed, were cancelled, gave up on
   analyzer errors, or were still `playing` because the process was killed.
-  A replayed game starts again at level 1.
+  A replayed game starts again at level 1 (a `playing` one can continue
+  instead: see [Resume mid-game](#resume-mid-game)).
 - `GAME` and `N_PASSES` must match the earlier run; the run stops with an
   error otherwise. Keep the other settings the same so the results stay
   comparable.
@@ -129,6 +130,40 @@ make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
 - `benchmark.json` is saved every 10 minutes, so after a kill a run can be up
   to 10 minutes behind and is replayed even if it had just finished.
 - If every run in the earlier directory finished, nothing runs.
+
+### Resume mid-game
+
+Add `RESUME_MID_GAME=1` (`--resume-mid-game`) and the game runs that were
+still `playing` when the earlier run was killed continue where they stopped
+instead of starting again at level 1:
+
+```bash
+make interactive <same settings as the earlier run> RESUME_FROM=runs/<run> RESUME_MID_GAME=1
+```
+
+- Same engine state: the actions in `artifacts/<stem>_tool_runtime_state.json`
+  (rewritten after every action; the viewer's `_events.jsonl` if it is
+  missing) are replayed into a fresh engine before the run starts, and every
+  board and level count is checked against the recorded one. A run whose
+  replay differs anywhere is replayed from level 1 as before; the run prints
+  why.
+- Same conversation: the agent continues from the last request in
+  `<stem>_requests.jsonl` (so the earlier run needs `ANALYZER_SAVE_REQUEST_LOGS=true`;
+  without the log the game continues with a fresh conversation). Its next
+  message starts with a `[harness]` note saying the run was interrupted and
+  resumed at step N. Python state, retained functions and the guards' memory
+  are gone. Encrypted `reasoning_details` are sent back as they were; if the
+  provider rejects them (another provider than the one that issued them), set
+  `ARC3_RESUME_STRIP_REASONING_DETAILS=1`.
+- Tokens and time already spent still count: the replayed action records
+  carry their earlier token counts and wallclock, the per-game token limit
+  counts every response in the request log, and the per-game time limit counts
+  the time up to the kill (the newest artifact's modification time, if it is
+  within an hour of the last saved action).
+- The request log, transcript, prompt log and viewer events of a continued run
+  are copied into the new run and go on growing; the transcript marks the
+  point with `--- resumed from <dir> at action N ---`.
+- The analysis step goes on from the last one, and no warmup RESET is issued.
 
 ## Play community games
 
@@ -246,7 +281,7 @@ Other tools:
 | `transcripts/*.txt`, `solver_analysis/*.html`, `prompts/*.log` | Model reasoning, tool calls and prompts for each game run. |
 | `<game>_p<pass>_requests.jsonl.xz` | Only with `ANALYZER_SAVE_REQUEST_LOGS=true`. One file per game run, compressed with xz when the game run ends (still `.jsonl` while it plays, or if the run was killed). Two lines per model request: `request` (full messages and tools) and `response` (the model's `reply`, finish reason, provider, `usage`). See [Request log size](#request-log-size). In older runs the `response` lines repeat the request instead of the reply, and the logs are uncompressed unless compressed later (as the two runs archived in DVC were). Older runs can also have a run-level `requests.jsonl` and `prompts/prompt.log`: all of a single-game run's logs, or a multi-game run's logs from whenever only one game was playing. |
 | `evaluation.json`, `score.json` | Written by scoring: per-game score, levels completed, total levels, completion rate, trial count; run metadata. |
-| `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed. |
+| `resume.json` | Only in a run started with `RESUME_FROM`: the earlier run, and which game runs were kept or replayed; with `RESUME_MID_GAME=1` also `continued`: the runs that picked up where they stopped (actions replayed, level, source, tokens and seconds already spent). |
 | `artifacts/*_game_code.json` | Only with `ARC3_GAME_CODE_DIR`: the source files the agent could read, with sha256 and line counts. |
 | `eval_settings.json` | Only in runs made by `scripts/dvc_eval.py`: the make variables and harness environment of the run. |
 | `pack.json`, `*.xz`, `*_events.jsonl.pack.xz`, `src.tar.xz` | Only in a packed run: what was replaced and the packed data. See [Pack a run](#pack-a-run). |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import copy
 import getpass
 import hashlib
 import inspect
@@ -29,6 +30,8 @@ import taaf.deploy_slurm
 import taaf.game
 import taaf.game_api
 
+from inference.agent.runtime_state import RUNTIME_STATE_FILENAME
+from inference.framework import mid_game_resume
 from inference.framework.kaggle import DUCK_HARNESS_PUBLIC_GAME_IDS
 from inference.framework.solver import HarnessSolver, artifact_stem
 from inference.utils.run_pack import packed_sources, unpack_run
@@ -434,6 +437,7 @@ def _make_solver(
     *,
     run_dir: Path,
     max_runtime_minutes_per_game: float,
+    mid_game_resume_plans: dict[str, dict[str, Any]] | None = None,
 ) -> HarnessSolver:
     start_local_server = str(
         args.deployment_target
@@ -470,6 +474,7 @@ def _make_solver(
             args, "slurm_local_server_tensor_parallel_size", None
         ),
         local_server_count=local_server_count,
+        mid_game_resume=mid_game_resume_plans or None,
     )
 
 
@@ -567,38 +572,122 @@ def _run_stem(game_id: str, pass_index: int) -> str:
     return f"{artifact_stem(game_id)}_p{pass_index}"
 
 
+def _plan_mid_game_resume(
+    resume_dir: Path,
+    *,
+    prior_runs: list[taaf.game.GameRun | None],
+    game_ids: list[str],
+    environments_dir: str | None,
+) -> dict[str, dict[str, Any]]:
+    """--resume-mid-game: the replayed runs that can continue where they stopped.
+
+    A candidate is a run still ``playing`` when the earlier run was killed,
+    with its actions on record (runtime state, else the viewer's event log).
+    Each is replayed here into a fresh engine first; one whose replay does not
+    reproduce every recorded board is replayed from level 1 as before.
+    Returns ``{run stem: plan}`` (mid_game_resume.build_plan).
+    """
+    unpack_run(resume_dir)
+    prior_json = json.loads((resume_dir / "benchmark.json").read_text(encoding="utf-8"))
+    plans: dict[str, dict[str, Any]] = {}
+    games = _make_games(game_ids, environments_dir=environments_dir)
+    session = taaf.game.RunSession(record_intermediate_states=False)
+    try:
+        for position, kept in enumerate(prior_runs):
+            prior = prior_json["game_runs"][position]
+            if kept is not None or prior.get("state") != "playing":
+                continue
+            stem = _run_stem(prior["game_id"], position // len(game_ids))
+            try:
+                plan = mid_game_resume.build_plan(resume_dir, stem, prior)
+                game = copy.deepcopy(games[position % len(game_ids)])
+                game.start_game(session)
+                divergence = mid_game_resume.replay(
+                    game, plan["steps"], initial_grid_sha=plan["initial_grid_sha"]
+                )
+            except Exception as exc:  # noqa: BLE001 - any failure means replay from level 1
+                print(f"Resume mid-game {stem}: replayed from level 1 ({type(exc).__name__}: {exc})")
+                continue
+            if divergence is not None:
+                print(
+                    f"Resume mid-game {stem}: replayed from level 1 (the replay diverged "
+                    f"at action {divergence + 1} of {len(plan['steps'])})"
+                )
+                continue
+            plan["level"] = int(game.current_state.levels_completed) + 1
+            plans[stem] = plan
+    finally:
+        session.close()
+    return plans
+
+
+def _copy_resumed_file(path: Path, destination: Path, *, continued: bool) -> None:
+    """Copy one artifact of a kept or continued game run into the new run."""
+    if not continued:
+        shutil.copy2(path, destination)
+        return
+    # a continued run appends to its logs: plain text, complete lines only
+    if path.name.endswith(".jsonl.xz"):
+        destination = destination.with_name(destination.name[: -len(".xz")])
+    mid_game_resume.copy_log_for_continuation(path, destination)
+
+
 def _prepare_resume(
     resume_dir: Path,
     *,
     run_dir: Path,
     prior_runs: list[taaf.game.GameRun | None],
     game_ids: list[str],
+    continued: dict[str, dict[str, Any]] | None = None,
 ) -> None:
-    """Copy the kept runs' artifacts into ``run_dir`` and record the resume."""
+    """Copy the kept runs' artifacts into ``run_dir`` and record the resume.
+
+    ``continued`` (--resume-mid-game): the plans of the runs that pick up where
+    they stopped. Their logs, transcript, prompts and viewer events are copied
+    too, so they go on growing; their runtime state is not, the solver writes
+    it again from the replay.
+    """
     # A packed run (scripts/pack_run.py) first rebuilds the files it left
     # out; its packed copies are not carried into the new run.
     unpack_run(resume_dir)
     packed = packed_sources(resume_dir)
+    continued = continued or {}
     kept_stems = {
         _run_stem(run.game_id, position // len(game_ids))
         for position, run in enumerate(prior_runs)
         if run is not None
     }
+    copied_stems = kept_stems | set(continued)
     for path in resume_dir.rglob("*"):
         relative = path.relative_to(resume_dir)
         if not path.is_file() or relative.parts[0] == "src" or path in packed:
             continue
         # "_p1" must not also match "_p10": the stem ends at "_" or "."
-        if any(
-            path.name.startswith(stem) and path.name[len(stem) : len(stem) + 1] in ("_", ".")
-            for stem in kept_stems
+        stem = next(
+            (
+                stem
+                for stem in copied_stems
+                if path.name.startswith(stem) and path.name[len(stem) : len(stem) + 1] in ("_", ".")
+            ),
+            None,
+        )
+        if stem is None:
+            continue
+        if stem in continued and (
+            path.name.startswith(f"{stem}_{RUNTIME_STATE_FILENAME}")
+            or path.name.endswith(".tmp")
+            # the plain log is the newer one when both exist
+            or (path.name.endswith(".jsonl.xz") and path.with_name(path.name[:-3]).exists())
         ):
-            destination = run_dir / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, destination)
+            continue
+        destination = run_dir / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        _copy_resumed_file(path, destination, continued=stem in continued)
 
     prior_json = json.loads((resume_dir / "benchmark.json").read_text(encoding="utf-8"))
     record: dict[str, Any] = {"resumed_from": str(resume_dir.resolve()), "kept": [], "replayed": []}
+    if continued:
+        record["continued"] = []
     for position, prior in enumerate(prior_json["game_runs"]):
         entry = {
             "game_id": prior["game_id"],
@@ -607,7 +696,22 @@ def _prepare_resume(
             "levels_completed": prior.get("levels_completed"),
             "solver_note": prior.get("solver_note"),
         }
-        record["kept" if prior_runs[position] is not None else "replayed"].append(entry)
+        plan = continued.get(_run_stem(prior["game_id"], position // len(game_ids)))
+        if prior_runs[position] is not None:
+            record["kept"].append(entry)
+        elif plan is not None:
+            record["continued"].append(
+                {
+                    **entry,
+                    "actions": len(plan["steps"]),
+                    "level": plan.get("level"),
+                    "source": plan["source"],
+                    "prior_generated_tokens": plan["prior_generated_tokens"],
+                    "prior_elapsed_seconds": round(float(plan["prior_elapsed_seconds"]), 1),
+                }
+            )
+        else:
+            record["replayed"].append(entry)
     (run_dir / RESUME_FILENAME).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     for key in ("kept", "replayed"):
         described = [
@@ -615,6 +719,12 @@ def _prepare_resume(
             for entry in record[key]
         ]
         print(f"Resume {key}: {', '.join(described) or 'none'}")
+    if continued:
+        described = [
+            f"{entry['game_id']} p{entry['pass']} (action {entry['actions']}, level {entry['level']})"
+            for entry in record["continued"]
+        ]
+        print(f"Resume continued: {', '.join(described)}")
 
 
 def _optional_positive_float(raw_value: Any, *, option_name: str) -> float | None:
@@ -1234,6 +1344,18 @@ def _run(args: argparse.Namespace) -> None:
             if all(run is not None for run in prior_runs):
                 print(f"Nothing to resume: every game run in {resume_dir} finished.")
                 return
+        mid_game_plans: dict[str, dict[str, Any]] = {}
+        if getattr(args, "resume_mid_game", False):
+            if resume_dir is None or prior_runs is None:
+                raise ValueError("--resume-mid-game needs --resume-from.")
+            if arcade_spec is not None:
+                raise ValueError("--resume-mid-game does not support --simulate-competition-arcade.")
+            mid_game_plans = _plan_mid_game_resume(
+                resume_dir,
+                prior_runs=prior_runs,
+                game_ids=game_ids,
+                environments_dir=args.environments_dir,
+            )
         run_dir = _experiment_dir(args)
         solver_args = _solver_args_for_local_server_pool(args, run_dir=run_dir)
         max_runtime_minutes_per_game, max_runtime_minutes_source, wave_count = (
@@ -1263,6 +1385,7 @@ def _run(args: argparse.Namespace) -> None:
             solver_args,
             run_dir=run_dir,
             max_runtime_minutes_per_game=max_runtime_minutes_per_game,
+            mid_game_resume_plans=mid_game_plans,
         )
         benchmark = taaf.benchmark.Benchmark(
             label=args.run_name or args.agent,
@@ -1279,7 +1402,13 @@ def _run(args: argparse.Namespace) -> None:
         print(f"Run directory: {run_dir.absolute()}")
         print(f"Games: {', '.join(game_ids)}")
         if resume_dir is not None and prior_runs is not None:
-            _prepare_resume(resume_dir, run_dir=run_dir, prior_runs=prior_runs, game_ids=game_ids)
+            _prepare_resume(
+                resume_dir,
+                run_dir=run_dir,
+                prior_runs=prior_runs,
+                game_ids=game_ids,
+                continued=mid_game_plans,
+            )
         if solver.concurrency != int(solver_args.concurrent_jobs):
             concurrency_text = (
                 f"{int(solver_args.concurrent_jobs)} per GPU/server "
@@ -1377,6 +1506,19 @@ def main() -> None:
             "Earlier run directory to resume. Game runs that finished there (won, or "
             "out of budget) are copied into the new run; the rest are played again. "
             "Pass the same games and --n-passes as that run."
+        ),
+    )
+    parser.add_argument(
+        "--resume-mid-game",
+        dest="resume_mid_game",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "With --resume-from: game runs that were still playing when that run was "
+            "killed continue where they stopped - the same engine state (their actions "
+            "are replayed and checked), the same conversation, and the tokens and time "
+            "already spent - instead of starting again at level 1. Needs the request "
+            "logs (--save-request-logs) for the conversation."
         ),
     )
     parser.add_argument("--max-actions", type=int, default=None)
