@@ -21,8 +21,9 @@ separately measured, and retains candidate gradients in CPU RAM while it runs.
 Routing and the native global argsort occur before expert execution. A custom
 autograd operation gathers at most 8192 assigned rows for one expert at a time,
 without building a full expanded hidden-state dispatch buffer. It uses unchanged
-quantized projections and SiLU. Rounded BF16 routing products are accumulated in
-FP32 into one full output and cast to BF16, matching native sum accumulation dtype.
+quantized projections and SiLU. Unweighted expert slot outputs are temporarily placed in CPU scratch. Native
+routing multiplication and top-k sum run in bounded GPU token windows in their
+original slot order; no reordered scatter sum substitutes for the native reduction.
 This is per-expert row chunking: it avoids changing each expert GEMM shape when
 that expert already has fewer than 8192 rows. The first input-sequence chunking
 implementation is retained as rejected evidence if its paired gate fails. Backward stages the layer again, replays one
@@ -84,3 +85,16 @@ The accumulation distinction is visible in the pinned Torch2.11 CUDA sources:
 and [BF16 sum reduction](https://github.com/pytorch/pytorch/blob/v2.11.0/aten/src/ATen/native/cuda/ReduceSumProdKernel.cu).
 The bounded unroute fixture compares the actual native gather VJP bitwise,
 including the model hidden width, rather than assuming a reduction ordering.
+
+## Prepared diagnostics after the connection failure
+
+Opt7 v3 observed loss0.6211259365 still differs from its expected unchunked
+control. Its detached backward/control result has not been collected because
+the Jupyter connection stopped responding. Do not promote it as numerically
+qualified. The next revision adds native-order routed reduction and zero-padding
+only terminal slices of split experts to8192 rows. Zero-padding does not introduce
+extra routed tokens; discarded padded rows have zero output cotangents. Its
+real-size fixture uses hidden2560/intermediate640/rank16 and9705 assigned rows
+against an8192-row chunk, with a bitwise forward gate and <1% gradient gate.
+**That revision and new fixture are prepared, not GPU-validated yet.** Reconnect
+and collect the existing attempt first. Opt8–10 full-model captures are pending.

@@ -1,0 +1,16 @@
+{
+  "attempt": "20261010000620065-39a35a37",
+  "execution_commit": "e20fc3d457b999f14d0e4a153c2c8db8280bdd9a",
+  "status": "Jupyter connection unavailable; detached job completion and gradient gate unknown",
+  "latest_observed_event": "backward_start",
+  "latest_observed_elapsed_seconds": 369.42442531200504,
+  "observed_loss": 0.6211259365081787,
+  "initialization_bitwise_equal_tensors": 74472,
+  "gpu_component_checks_passed_before_model_loading": true,
+  "phase_peak_resources_collected": false,
+  "raw_candidate_gradients_retained": false,
+  "connection_failure_observed_utc": "2026-10-10 00:18 UTC",
+  "verification": "Existing URL produced 404 and independent /api/kernels, /api/status and root checks timed out; no other working connection found. Refreshed URL requested.",
+  "next_action": "Reconnect to the same kernel if possible; read monitor/events and collect this attempt before launching anything. Opt8-10 full runs remain pending.",
+  "pushed_to_remote": false
+}

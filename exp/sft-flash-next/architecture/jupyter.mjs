@@ -109,9 +109,17 @@ async function main(){
     const monitor=await json(job+'/monitor.json'),result=await json(job+'/output/result.json');
     console.log(JSON.stringify({attempt,monitor,result}));return;
   }
-  let monitor;
+  let monitor,missing=0;
   const deadline=Date.now()+(timeoutSeconds+100)*1000;let lastLog=0;
   while(!(monitor=await json(job+'/monitor.json'))){
+    if(++missing%6===0){
+      try {
+        const health=await request('/api/status');
+        if(!health.headers.get('content-type')?.includes('application/json'))throw new Error('Invalid status');
+      }catch{
+        throw new Error('Jupyter connection unavailable; reconnect and collect attempt '+attempt+'. The detached job status is unknown; private URL omitted');
+      }
+    }
     if(Date.now()>deadline)throw new Error('Supervisor completion deadline exceeded; inspect the saved attempt before retrying');
     if(Date.now()-lastLog>60000){console.log(JSON.stringify({attempt,status:'running'}));lastLog=Date.now();}
     await new Promise(r=>setTimeout(r,10000));

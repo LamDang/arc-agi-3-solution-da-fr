@@ -55,6 +55,11 @@ if partial.exists():
   phase=row['phase']+(' (interrupted)' if row['phase']=='forward' else '')
   values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   lines.append('| '+' | '.join(values)+' |')
+uncollected=ROOT/'reports/opt7-connection-loss.json'
+if uncollected.exists():
+ r=read(uncollected)
+ values=['Opt7 v3: connection unavailable',f"{r['observed_loss']:.10f} (observed)",'not collected','not collected','unknown','backward last observed','not collected','not collected','not collected','not collected','—']
+ lines.append('| '+' | '.join(values)+' |')
 for attempt,reason in [('20261009233104571-623698fb','dispatch commit corrected'),('20261009233157982-16930101','new 1% gate/control added')]:
  job=ROOT/'results'/attempt
  if (job/'monitor.json').exists():
@@ -79,7 +84,8 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'The isolated comparison disables all chunking on the same model; Opt1–3 remain enabled.',
 'Its control F/B is separately timed and holds candidate raw gradients in RAM (never on disk).',
 'Candidate F/B precedes that extra RAM retention. Native-reference differences remain reported.',
-'All attempt files are SHA256 inventoried and cached in local DVC. No pushes.','',
+'Collected attempt files are SHA256 inventoried and cached in local DVC. No pushes.',
+'For the disconnected Opt7 v3 attempt, only the observed connection checkpoint is cached; full results are uncollected.','',
 '## Run identities','',f"- Reference `{ref['attempt']}`, execution `{ref['execution_commit']}`."]
 for r in reports:
  lines.append(f"- {r['optimization']} `{r['attempt']}`, execution `{r['execution_commit']}`; evidence checks passed. See `reports/{r['optimization'].lower()}-rerun.json` and the DVC attempt for complete per-tensor metrics and source hashes.")

@@ -11,7 +11,10 @@ class ExpertOffloadTests(unittest.TestCase):
     def test_chunked_quantized_experts_recompute_all_gradients(self):
         self.check_quantized(7)
 
-    def check_quantized(self,chunk_tokens):
+    def test_real_size_split_expert_preserves_forward_and_gradients(self):
+        self.check_quantized(8192,tokens=9705,hidden=2560,intermediate=640,experts=1)
+
+    def check_quantized(self,chunk_tokens,tokens=32,hidden=128,intermediate=64,experts=None):
         import copy,json
         from pathlib import Path
         import torch
@@ -25,30 +28,33 @@ class ExpertOffloadTests(unittest.TestCase):
         from components.expert_offload import ExpertStage,LayerPrefetch
         class Tiny(nn.Module):
             def __init__(self):
-                super().__init__();self.num_experts=4 if chunk_tokens else 2;self.act_fn=nn.SiLU()
+                super().__init__();self.num_experts=experts or (4 if chunk_tokens else 2);self.act_fn=nn.SiLU()
                 self.register_parameter('_device_anchor',nn.Parameter(torch.zeros(1),requires_grad=False))
                 for index in range(self.num_experts):
                     expert=nn.Module()
-                    for name,ins,outs in [('gate_proj',128,64),('up_proj',128,64),('down_proj',64,128)]:
-                        projection=QuantLinear(4,32,ins,outs,False)
+                    for name,ins,outs in [('gate_proj',hidden,intermediate),('up_proj',hidden,intermediate),('down_proj',intermediate,hidden)]:
+                        projection=QuantLinear(4,128 if tokens>8192 else 32,ins,outs,False)
                         projection.qweight.random_(0,2**30);projection.qzeros.zero_();projection.scales.fill_(.002)
+                        if tokens>8192:
+                            projection.qweight.random_(-2**31,2**31-1);projection.qzeros.fill_(0x77777777)
                         setattr(expert,name,projection)
                     self.add_module(str(index),expert)
             def forward(self,x,indices,weights):
                 return linear_loop_experts_forward(self,x,indices,weights).bfloat16()
         class Staged(ExpertStage,Tiny):pass
         torch.manual_seed(8643)
-        canonical=get_peft_model(Tiny(),configuration(r=4,lora_alpha=8,lora_dropout=0.,target_modules=['gate_proj','up_proj','down_proj'])).get_base_model()
+        rank=16 if tokens>8192 else 4
+        canonical=get_peft_model(Tiny(),configuration(r=rank,lora_alpha=2*rank,lora_dropout=0.,target_modules=['gate_proj','up_proj','down_proj'])).get_base_model()
         for p in canonical.parameters():
             if p.requires_grad:
                 self.assertEqual(p.dtype,torch.float32)
-                with torch.no_grad():p.normal_(0,.01)
+                with torch.no_grad():p.normal_(0,.002 if tokens>8192 else .01)
         resident=copy.deepcopy(canonical).cuda()
-        staged=adopt(canonical,Staged);manager=LayerPrefetch([staged]);staged.chunk_tokens=chunk_tokens
-        x=torch.randn(32,128,device='cuda',dtype=torch.bfloat16,requires_grad=True)
+        staged=adopt(canonical,Staged);manager=LayerPrefetch([staged]);self.addCleanup(manager.close);staged.chunk_tokens=chunk_tokens
+        x=torch.randn(tokens,hidden,device='cuda',dtype=torch.bfloat16,requires_grad=True)
         y=x.detach().clone().requires_grad_(True)
         k=canonical.num_experts
-        indices=torch.arange(k,device='cuda').expand(32,-1);weights=torch.full((32,k),1/k,device='cuda',requires_grad=True);other_weights=weights.detach().clone().requires_grad_()
+        indices=torch.arange(k,device='cuda').expand(tokens,-1);weights=torch.full((tokens,k),1/k,device='cuda',requires_grad=True);other_weights=weights.detach().clone().requires_grad_()
         with torch.autocast('cuda',dtype=torch.bfloat16):
             expected=resident(x,indices,weights);ref_loss=expected.float().square().mean()
         with torch.autograd.graph.save_on_cpu(pin_memory=False):
@@ -57,6 +63,39 @@ class ExpertOffloadTests(unittest.TestCase):
                 loss=actual.float().square().mean()
             loss.backward()
         ref_loss.backward()
+        if tokens>8192:
+            def relative(a,b):
+                return float((a.double()-b.double()).norm()/b.double().norm())
+            diagnostic=dict(tokens=tokens,chunk_tokens=chunk_tokens,hidden=hidden,intermediate=intermediate,
+                lora_rank=rank,output_bitwise_equal=bool(torch.equal(actual,expected)),
+                output_relative_l2=relative(actual,expected),input_gradient_relative_l2=relative(y.grad,x.grad),
+                differing_output_elements=int(torch.count_nonzero(actual!=expected)),
+                max_output_absolute_difference=float((actual.float()-expected.float()).abs().max()))
+            if not diagnostic['output_bitwise_equal']:
+                def chunk_projection(projection,values):
+                    pieces=[]
+                    for start in range(0,tokens,chunk_tokens):
+                        local=values[start:start+chunk_tokens];n=local.shape[0]
+                        if n<chunk_tokens:local=torch.nn.functional.pad(local,(0,0,0,chunk_tokens-n))
+                        pieces.append(projection(local)[:n])
+                    return torch.cat(pieces)
+                with torch.no_grad(),torch.autocast('cuda',dtype=torch.bfloat16):
+                    expert=getattr(resident,'0')
+                    gate=expert.gate_proj(x);up=expert.up_proj(x)
+                    activated=resident.act_fn(gate)*up
+                    diagnostic['projection_differences']={}
+                    for name,values in [('gate_proj',x),('up_proj',x),('down_proj',activated)]:
+                        projection=getattr(expert,name)
+                        full=projection(values);part=chunk_projection(projection,values)
+                        base=projection.base_layer(values);base_part=chunk_projection(projection.base_layer,values)
+                        diagnostic['projection_differences'][name]=dict(output_relative_l2=relative(part,full),
+                            output_bitwise_equal=bool(torch.equal(part,full)),base_relative_l2=relative(base_part,base),
+                            base_bitwise_equal=bool(torch.equal(base_part,base)))
+            if os.environ.get('FLASH_NEXT_EXPERT_CHECK_RESULT'):
+                Path(os.environ['FLASH_NEXT_EXPERT_CHECK_RESULT']).with_name('expert-split-check.json').write_text(json.dumps(diagnostic,indent=2)+'\n')
+            print('real_size_expert_split_diagnostic='+json.dumps(diagnostic),flush=True)
+            self.assertTrue(diagnostic['output_bitwise_equal'],
+                'Real-size expert split forward must be bitwise equal before full-model routing')
         if chunk_tokens:
             torch.testing.assert_close(actual,expected,rtol=.03,atol=1e-5)
             torch.testing.assert_close(y.grad,x.grad,rtol=.05,atol=1e-5)

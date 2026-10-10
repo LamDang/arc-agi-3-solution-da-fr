@@ -1,3 +1,27 @@
+# Connection unavailable — latest checkpoint 2026-10-10 00:20 UTC
+
+* Existing private Jupyter URL (/tmp/kaggle_probe_url) now returns404/timeouts.
+  /api/kernels, /api/status and root checks failed; no other working connection.
+  User has a pending request for a refreshed server URL, preferably SAME kernel.
+* Do not launch another job until reconnecting and inspecting/collecting current
+  Opt7 `20261010000620065-39a35a37` (execution e20fc3d). Latest observed loss
+  0.6211259365081787, backward_start elapsed369.424s; gradient gate/status unknown.
+  Its forward took about139s, but phase peak resources have not been collected.
+  Native-gather GPU fixture passed; this is NOT a numerical full-model acceptance.
+* `../architecture/reports/opt7-connection-loss.json` records observed facts.
+  After reconnect: `node jupyter.mjs --action collect --attempt
+  20261010000620065-39a35a37 --timeout-seconds 5400`. Check live GPU/process before
+  any retry. Kernel has reference raw14.31GiB in /tmp; preserve it if still alive.
+* Prepared (not GPU-tested) next Opt7 revision: native-order top-k reduction in
+  GPU windows, using temporary CPU slot outputs; terminal split-expert slices
+  are zero-padded to8192 to keep large GEMM shapes. Added representative9705-row,
+  hidden2560/intermediate640/rank16 quantized-expert fixture with bitwise forward
+  and <1% gradient gate. Native route/unroute fixtures cover top_k10.
+* CPU scratch each phase is0.775GiB at16K /6.199GiB at130K; forward and backward
+  scratch lifetimes do not overlap. No raw candidate gradients are written.
+* Opt8–10 code/configs prepared, full captures pending. Native reference, no
+  optimizer/overfit and no-push requirements unchanged. Finish Opt7 gate first.
+
 # Opt7–10 active — 2026-10-10
 
 * Work directly; no new subagents. No Git/DVC push. Only current reference raw
@@ -10,10 +34,11 @@
 * Global-sort per-expert v2 `20261009235340267-57a2caf2` was interrupted in forward:
   excessive whole-layer state binding and a known non-native FP32 input-gradient
   accumulation. Partial resources/source/stop reason preserved; no complete loss.
-* Current Opt7 v3 `20261010000620065-39a35a37`, execution e20fc3d, is running via
+* Opt7 v3 `20261010000620065-39a35a37`, execution e20fc3d, was dispatched via
   Jupyter. Source frozen under architecture-runs; supervisor22325. GPU fixtures
-  passed, including bitwise native gather-gradient replay. Wait/review its paired
-  gate before Opt8. Desktop watch session79474 collects and DVC-adds automatically.
+  passed, including bitwise native gather-gradient replay. Connection then failed;
+  detached status is unknown. Desktop watcher79474 was stopped locally. Reconnect
+  and explicitly collect/review the paired gate before Opt8.
 * V3 routes globally with native argsort; gathers bounded per-expert slices;
   binds only each projection; CPU per-slot input cotangents replay native gather
   backward in token windows. This scratch is temporary: top_k10, hidden2560,

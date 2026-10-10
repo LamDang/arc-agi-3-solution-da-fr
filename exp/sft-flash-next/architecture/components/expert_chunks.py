@@ -2,9 +2,9 @@
 """Opt7: globally route once; replay bounded native per-expert token slices.
 
 The global native argsort order is preserved before slicing. Only row/slot IDs
-are expanded; hidden vectors are gathered for the current expert slice. FP32
-sums combine already-rounded BF16 routing products, then cast once as native
-sum(dim=1) does. CPU master LoRA objects receive FP32 gradients through cat.
+are expanded; hidden vectors are gathered for the current expert slice. Native
+routing multiplication and sum run in original top-k order in token windows,
+using temporary CPU slot-output scratch to avoid a full expanded CUDA buffer. CPU master LoRA objects receive FP32 gradients through cat.
 """
 import torch
 
@@ -34,13 +34,28 @@ def projection_states(state):
     return grouped
 
 
-def expert_value(module,states,x,expert):
+def expert_value(module,states,x,expert,pad_to=0):
+    rows=x.shape[0]
+    if pad_to and rows<pad_to:x=torch.nn.functional.pad(x,(0,0,0,pad_to-rows))
     child=getattr(module,str(expert))
     def project(name,value):
         return torch.func.functional_call(getattr(child,name),states[name],(value,),strict=True)
     gate=project('gate_proj',x);up=project('up_proj',x)
     gated=module._apply_gate(torch.cat([gate,up],dim=-1)) if hasattr(module,'_apply_gate') else module.act_fn(gate)*up
-    return project('down_proj',gated).to(x.dtype)
+    return project('down_proj',gated)[:rows].to(x.dtype)
+
+
+def route_sum_native(slot_values,weights,device,size):
+    """Use native multiply/sum in original top-k order, with CUDA window bounds."""
+    tokens,_,hidden=slot_values.shape
+    output=torch.empty((tokens,hidden),device=device,dtype=slot_values.dtype)
+    for start in range(0,tokens,size):
+        stop=min(start+size,tokens)
+        local=slot_values[start:stop].to(device)
+        weighted=local*weights[start:stop,:,None].to(local.dtype)
+        output[start:stop]=weighted.sum(dim=1).to(output.dtype)
+        del local,weighted
+    return output
 
 
 def unroute_native(slot_grad,device,size):
@@ -74,17 +89,19 @@ class _ExpertChunks(torch.autograd.Function):
         ctx.save_for_backward(x,indices,weights,flat,order)
         manager=module.expert_stager;state=manager.acquire(module,x.dtype,flat.to(x.device))
         groups=projection_states(state)
-        output=torch.zeros(x.shape,device=x.device,dtype=torch.float32)
+        slot_values=torch.empty((*indices.shape,x.shape[-1]),device='cpu',dtype=x.dtype)
         try:
             for expert,rows,slots in slices(order,counts,indices.shape[1],size):
-                value=expert_value(module,groups[expert],x[rows],expert)
-                weighted=value*weights[rows,slots,None].to(x.dtype)
-                output.index_add_(0,rows,weighted.float())
+                value=expert_value(module,groups[expert],x[rows],expert,size if counts[expert]>size else 0)
+                slot_values[rows.cpu(),slots.cpu()]=value.cpu()
+                del value
+            output=route_sum_native(slot_values,weights,x.device,size)
             module.chunk_stats=dict(max_dispatched_tokens=min(max(counts),size),
                 max_assigned_tokens=max(counts),experts_split=sum(c>size for c in counts),
                 expert_slices=sum((c+size-1)//size for c in counts),global_native_sort=True,
-                fp32_output_accumulator_bytes=output.numel()*output.element_size())
-            return output.to(x.dtype)
+                forward_cpu_slot_value_bytes=slot_values.numel()*slot_values.element_size(),
+                native_topk_reduction=True,padded_split_terminal_rows=True)
+            return output
         finally:manager.release(module.expert_layer)
 
     @staticmethod
@@ -112,7 +129,7 @@ class _ExpertChunks(torch.autograd.Function):
                             p=gpu_flat[offset:offset+count].view(shape).detach().requires_grad_(True)
                             _,projection,key=name.split('.',2)
                             local[projection][key]=p;leaves.append(p);offsets.append((offset,count))
-                    value=expert_value(module,local,a,expert)
+                    value=expert_value(module,local,a,expert,ctx.size if ctx.counts[expert]>ctx.size else 0)
                     out=value*w[:,None].to(x.dtype)
                     ga,gw,*gp=torch.autograd.grad(out,(a,w,*leaves),grad_output[rows])
                 slot_grad[rows.cpu(),slots.cpu()]=ga.cpu();dw[rows,slots]=gw
