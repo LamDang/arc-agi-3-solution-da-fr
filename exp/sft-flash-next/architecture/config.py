@@ -66,6 +66,7 @@ class Config:
     benchmark_tokens: int | None = None
     fla_numeric_profile: str | None = None
     chunking_gradient_limit: float = 0.02
+    dataset: str | None = None
 
     @property
     def adapter_tensors(self):
@@ -92,11 +93,11 @@ class Config:
             raise ValueError('Expert prefetch requires non-reentrant layer checkpointing')
         if self.optimizations.offload_routed_experts and self.optimizations.bf16_lora:
             raise ValueError('Expert LoRA masters and gradients must remain FP32')
-        if not self.samples or len(set(self.samples)) != len(self.samples):
+        if (not self.samples and not (mode == 'train' and self.dataset)) or len(set(self.samples)) != len(self.samples):
             raise ValueError('Require distinct, complete encoded sample paths')
         if mode in {'test','benchmark'} and len(self.samples) != 1:
             raise ValueError('Capture/benchmark requires exactly one sample')
-        if self.optimizations.disk_ple and self.epochs != 1:
+        if self.optimizations.disk_ple and self.epochs != 1 and not (mode == 'train' and self.dataset):
             raise ValueError('Disk PLE loader currently supports one complete epoch')
         if mode == 'train' and self.adapter is not None:
             raise ValueError('Production training starts fresh; diagnostic adapters are test-only')

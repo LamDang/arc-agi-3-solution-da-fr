@@ -6,15 +6,17 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { CheckpointCollector, dvcPublisher, durableJson, hashFile, requireSpace } from './training/transfer.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
+const repository = path.resolve(root,'../../..');
 const args = Object.fromEntries(process.argv.slice(2).reduce((rows,value,index,all)=>{
   if(value.startsWith('--')) rows.push([value.slice(2),all[index+1]]);return rows;
 },[]));
 const base = fs.readFileSync(args['url-file'] ?? '/tmp/kaggle_probe_url','utf8').trim().replace(/\/$/,'');
 const sha = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
-async function request(relative, options={}) {
+async function request(relative, options={}, timeout=30000) {
   try {
-    const response = await fetch(base+relative,{...options,signal:AbortSignal.timeout(30000)});
+    const response = await fetch(base+relative,{...options,signal:AbortSignal.timeout(timeout)});
     if(!response.ok) throw new Error('HTTP '+response.status);
     return response;
   } catch { throw new Error('Jupyter request failed; private connection URL omitted'); }
@@ -49,7 +51,7 @@ function files(directory,prefix=''){
   });
 }
 async function upload(remote,bytes){
-  await request('/api/contents/'+remote.replace(/^\/kaggle\/working\//,''),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'file',format:'base64',content:bytes.toString('base64')})});
+  await request('/api/contents/'+remote.replace(/^\/kaggle\/working\//,''),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'file',format:'base64',content:bytes.toString('base64')})},300000);
 }
 async function json(remote){
   const response = await fetch(base+'/files/'+remote.replace(/^\/kaggle\/working\//,'')+'?t='+Date.now(),{signal:AbortSignal.timeout(15000)}).catch(()=>null);
@@ -62,7 +64,7 @@ async function collect(remote,local){
   const item=await (await request('/api/contents/'+remote.replace(/^\/kaggle\/working\//,'')+'?content=1')).json();
   for(const entry of item.content){
     if(path.basename(entry.name)!==entry.name)throw new Error('Unsafe artifact name');
-    if(entry.name==='model-view')continue; // Derived links to full model weights.
+    if(['model-view','transfer'].includes(entry.name))continue; // No frozen weights or transient checkpoint spool.
     if(entry.type==='directory'){await collect(remote+'/'+entry.name,path.join(local,entry.name));continue;}
     const response=await request('/files/'+(remote+'/'+entry.name).replace(/^\/kaggle\/working\//,'')+'?t='+Date.now());
     const dest=path.join(local,entry.name);await pipeline(Readable.fromWeb(response.body),fs.createWriteStream(dest+'.part'));fs.renameSync(dest+'.part',dest);
@@ -70,23 +72,61 @@ async function collect(remote,local){
 }
 async function main(){
   const action=args.action ?? 'run';
-  const timeoutSeconds=Number(args['timeout-seconds'] ?? 1200);
+  const timeoutSeconds=Number(args['timeout-seconds'] ?? (args.mode==='train'?86400:1200));
   if(!Number.isSafeInteger(timeoutSeconds)||timeoutSeconds<1)throw new Error('Timeout must be a positive integer');
-  let job,config,attempt;
+  let job,config,attempt,trainingRun,resume;
   if(action==='run'){
     config=JSON.parse(fs.readFileSync(path.resolve(args.config),'utf8'));
     const mode=args.mode ?? 'test';
     if(!['test','train','benchmark'].includes(mode))throw new Error('Unknown mode');
     attempt=new Date().toISOString().replace(/[-:.TZ]/g,'')+'-'+crypto.randomBytes(4).toString('hex');
     job='/kaggle/working/architecture-runs/'+attempt;
+    if(config.training){
+      if(mode!=='train')throw new Error('Production settings require --mode train');
+      if(args.resume){
+        resume=path.resolve(args.resume);
+        if(fs.existsSync(path.join(resume,'latest.json'))){
+          trainingRun=resume;
+          const latest=JSON.parse(fs.readFileSync(path.join(resume,'latest.json'),'utf8'));
+          resume=path.resolve(resume,latest.checkpoint);
+        }else if(fs.existsSync(path.join(resume,'manifest.json'))){
+          trainingRun=path.dirname(path.dirname(resume));
+        }
+      }
+      trainingRun=path.resolve(args['local-run'] ?? trainingRun ?? path.join(repository,'exp/sft-flash-next/training-runs',attempt));
+      if(!trainingRun.startsWith(repository+path.sep))throw new Error('Local checkpoints must be in this working repository');
+      requireSpace(trainingRun,(fs.existsSync(path.join(trainingRun,'latest.json'))?23:46)*2**30);
+      const ignore=path.join(trainingRun,'.gitignore');
+      fs.writeFileSync(ignore,'/dvc-cache\n/incoming\n/ack.json\n/launch.json\n');
+      if(args.resume){
+        const manifest=JSON.parse(fs.readFileSync(path.join(resume,'manifest.json'),'utf8'));
+        for(const shard of manifest.shards){
+          if(path.basename(shard.path)!==shard.path||hashFile(path.join(resume,shard.path))!==shard.sha256)
+            throw new Error('Local resume checkpoint is incomplete or corrupt');
+        }
+        config.training.resume=job+'/resume';
+      }else if(config.training.resume)throw new Error('Use --resume with the local checkpoint; resume uploads are streamed');
+    }
     const large=config.optimizations?.lora_routed_experts||config.architecture==='reference';
     const storage=JSON.parse(await execute('import tempfile,json\ntry:\n    with tempfile.TemporaryDirectory(dir="/tmp"): pass\n    writable=True\nexcept OSError:\n    writable=False\nprint(json.dumps({"tmp_writable":writable}))'));
-    config.output=large&&storage.tmp_writable?'/tmp/flash-next-architecture-artifacts/'+attempt+'/output':job+'/output';
+    config.output=!config.training&&large&&storage.tmp_writable?'/tmp/flash-next-architecture-artifacts/'+attempt+'/output':job+'/output';
     config.dispatch_commit=execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
     const sources=files(root),directories=new Set([job,job+'/source',job+'/dependencies']);
+    if(config.training){
+      config.training.dataset=job+'/dataset';config.training.folds=job+'/folds.json';
+      directories.add(job+'/dataset');
+      if(resume)directories.add(job+'/resume');
+    }
     for(const name of sources)directories.add(path.posix.dirname(job+'/source/'+name));
     const code='from pathlib import Path\n'+[...directories].map(d=>'Path('+JSON.stringify(d)+').mkdir(parents=True,exist_ok=True)').join('\n');
     await execute(code);
+    if(config.training){
+      const dataset=path.resolve(args.dataset ?? path.join(repository,'data/progressive-sol25-trajectories'));
+      for(const name of ['trajectories.jsonl','index.json','summary.json'])await upload(job+'/dataset/'+name,fs.readFileSync(path.join(dataset,name)));
+      await upload(job+'/folds.json',fs.readFileSync(path.resolve(args.folds ?? path.join(repository,'data/game_folds/folds.json'))));
+      if(resume)await upload(job+'/resume/manifest.json',fs.readFileSync(path.join(resume,'manifest.json')));
+      durableJson(path.join(trainingRun,'launch.json'),{attempt,job,resume,trainingRun});
+    }
     const hashes={};for(const name of sources){const bytes=fs.readFileSync(path.join(root,name));hashes[name]=sha(bytes);await upload(job+'/source/'+name,bytes);}
     const opt=config.optimizations ?? {},registry=JSON.parse(fs.readFileSync(path.join(root,'configs/dependencies.json'),'utf8'));
     const needed=[];
@@ -108,14 +148,45 @@ async function main(){
     fs.mkdirSync(path.join(root,'results'),{recursive:true});fs.writeFileSync(path.join(root,'results','last-attempt.json'),JSON.stringify({attempt,job,mode},null,2)+'\n');
   }else{
     attempt=args.attempt;if(!/^[0-9]+-[a-f0-9]+$/.test(attempt))throw new Error('Invalid attempt');job='/kaggle/working/architecture-runs/'+attempt;
+    config=await json(job+'/config.json');
+    if(config?.training){
+      trainingRun=path.resolve(args['local-run'] ?? path.join(repository,'exp/sft-flash-next/training-runs',attempt));
+      const launch=JSON.parse(fs.readFileSync(path.join(trainingRun,'launch.json'),'utf8'));resume=launch.resume;
+    }
   }
   if(action==='status'){
     const monitor=await json(job+'/monitor.json'),result=await json(job+'/output/result.json');
     console.log(JSON.stringify({attempt,monitor,result}));return;
   }
   let monitor,missing=0;
+  let collector;
+  async function telemetry(){
+    await collect(job+'/output',path.join(trainingRun,'telemetry',attempt));
+    const events=path.join(trainingRun,'telemetry',attempt,'tensorboard');
+    if(fs.existsSync(events)){
+      const combined=path.join(trainingRun,'telemetry','tensorboard');fs.mkdirSync(combined,{recursive:true});
+      for(const name of fs.readdirSync(events))fs.copyFileSync(path.join(events,name),path.join(combined,name)+'.part');
+      for(const name of fs.readdirSync(combined).filter(n=>n.endsWith('.part')))fs.renameSync(path.join(combined,name),path.join(combined,name.slice(0,-5)));
+    }
+  }
+  if(trainingRun){
+    let python=args['dvc-python'];
+    if(!python){
+      const executable=execFileSync('which',['dvc'],{encoding:'utf8'}).trim();
+      const shebang=fs.readFileSync(executable,'utf8').split('\n')[0];
+      if(!shebang.startsWith('#!/')||shebang.includes(' '))throw new Error('Set --dvc-python to a Python with DVC installed');
+      python=shebang.slice(2);
+    }
+    const publish=dvcPublisher(repository,trainingRun,python,path.join(root,'training/dvc_checkpoint.py'));
+    collector=new CheckpointCollector({run:trainingRun,remote:job+'/output',json,request,upload,resume,
+      publish:async manifest=>{
+        await telemetry();
+        publish(manifest);
+      }});
+  }
   const deadline=Date.now()+(timeoutSeconds+100)*1000;let lastLog=0;
   while(!(monitor=await json(job+'/monitor.json'))){
+    if(collector){await collector.restore();await collector.poll();}
     if(++missing%6===0){
       try {
         const health=await request('/api/status');
@@ -126,7 +197,20 @@ async function main(){
     }
     if(Date.now()>deadline)throw new Error('Supervisor completion deadline exceeded; inspect the saved attempt before retrying');
     if(Date.now()-lastLog>60000){console.log(JSON.stringify({attempt,status:'running'}));lastLog=Date.now();}
-    await new Promise(r=>setTimeout(r,10000));
+    await new Promise(r=>setTimeout(r,collector?1000:10000));
+  }
+  if(collector){
+    await collector.poll();
+    await telemetry();
+    const latest=path.join(trainingRun,'latest.json');
+    if(fs.existsSync(latest)){
+      const current=JSON.parse(fs.readFileSync(latest,'utf8'));
+      const python=args['dvc-python'] ?? fs.readFileSync(execFileSync('which',['dvc'],{encoding:'utf8'}).trim(),'utf8').split('\n')[0].slice(2);
+      dvcPublisher(repository,trainingRun,python,path.join(root,'training/dvc_checkpoint.py'))(path.join(trainingRun,current.checkpoint,'manifest.json'));
+    }
+    console.log(JSON.stringify({attempt,monitor,local:trainingRun,dvc_cached:fs.existsSync(latest)}));
+    if(monitor.returncode!==0)throw new Error('Training stopped; resume from the last complete local DVC checkpoint');
+    return;
   }
   const local=path.join(root,'results',attempt);
   await collect(job,local);

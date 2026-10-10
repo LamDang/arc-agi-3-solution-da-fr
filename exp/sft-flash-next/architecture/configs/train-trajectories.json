@@ -1,0 +1,39 @@
+{
+  "architecture": "optimized",
+  "model": "/tmp/reference-256-hf",
+  "output": "/kaggle/working/trajectory-training/output",
+  "max_tokens": 130000,
+  "seed": 20261009,
+  "optimizations": {
+    "bf16_activations": true,
+    "disk_ple": true,
+    "offload_routed_experts": true,
+    "lora_routed_experts": true,
+    "head": "cce_exact",
+    "direct_attention_bias": true,
+    "expert_chunking": true,
+    "chunk_tokens": 8192,
+    "qsa_chunking": true,
+    "hyperconnection_chunking": true,
+    "ple_chunking": true
+  },
+  "training": {
+    "dataset": "/kaggle/working/progressive-sol25-trajectories",
+    "processor": "/tmp/reference-256-hf",
+    "folds": "/kaggle/working/game-folds.json",
+    "validation_fold": 0,
+    "target_tokens_per_update": 49152,
+    "learning_rate": 0.0001,
+    "epochs": 5,
+    "weight_decay": 0.0,
+    "betas": [0.9, 0.999],
+    "eps": 1e-8,
+    "max_grad_norm": 1.0,
+    "lookahead": 2,
+    "resume": null,
+    "shard_bytes": 67108864,
+    "ack_timeout": 86400,
+    "accuracy_tokens": 128,
+    "accuracy_vocab": 8192
+  }
+}

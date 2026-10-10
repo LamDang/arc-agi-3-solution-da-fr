@@ -4,6 +4,11 @@ This folder contains the shared data code used by the final architecture and
 its benchmark preparation. Model execution lives in
 [architecture/](../architecture/README.md).
 
+The latest production loader uses the **58 compaction trajectories** in
+`data/progressive-sol25-trajectories`, with explicit turn ownership. See
+[production training](../architecture/TRAINING.md). The complete-game
+reconstruction tools below support the earlier preparation/benchmark contract.
+
 | File | Purpose |
 | --- | --- |
 | `dataset.py` | Stable hashes, processor loading, fold validation and request utilities |
@@ -14,7 +19,7 @@ its benchmark preparation. Model execution lives in
 | [TRAJECTORY_DATA.md](TRAJECTORY_DATA.md) | Data contract and preparation command |
 | [HANDOFF_NEXT_SESSION.md](HANDOFF_NEXT_SESSION.md) | Current state and next-session constraints |
 
-Production samples contain one complete trajectory per game. Every assistant
+The complete-game preparation below contains one trajectory per game. Every assistant
 turn is supervised; user/tool/image observations remain ignored-label context.
 Missing history, missing generated thinking and overlength trajectories fail
 preparation. Diagnostic benchmark prefixes do not change this production rule.
@@ -22,7 +27,8 @@ preparation. Diagnostic benchmark prefixes do not change this production rule.
 `architecture/prepare_benchmarks.py --encoder-root exp/sft-flash-next/train`
 uses the encoder here. It prepares labeled PT inputs for the recorded capacity
 experiments. The architecture runner accepts explicit labeled PT samples; a
-production trajectory training/resume integration is not yet qualified.
+production integration now has local mock/DVC tests; live GPU/data qualification
+is still pending.
 
 The previous training backends, qualification launchers, optimization trials,
 trajectory training prototype and their tests are source-only history under
