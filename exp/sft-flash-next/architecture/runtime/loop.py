@@ -84,7 +84,7 @@ def run(config, mode):
     if config.adapter:actual['adapter'] = sha(config.adapter)
     if any(actual.get(key) != digest for key,digest in expected.items()):
         raise RuntimeError('Run input hash differs from configuration')
-    resources = Resources()
+    resources = Resources(output)
     loader = iterator = None
     if config.optimizations.disk_ple:
         from components.ple import EncodedPaths,prepared_loader

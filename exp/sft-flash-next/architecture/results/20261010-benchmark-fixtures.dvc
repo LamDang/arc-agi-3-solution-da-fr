@@ -1,0 +1,6 @@
+outs:
+- md5: f59f8c768943c983f3bb885783ff72da.dir
+  size: 1545538029
+  nfiles: 15
+  hash: md5
+  path: 20261010-benchmark-fixtures

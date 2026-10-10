@@ -1,0 +1,62 @@
+{
+  "source_id": "lf52-271a04aa_p0#36",
+  "source_sha256": "9cf4a4957a6aa0755d4b285ff073fa598f3e62d25bc4f88ca71d650fc7ab8c32",
+  "full_tokens": 121022,
+  "full_targets": 32283,
+  "rows": [
+    {
+      "path": "sample-32000.pt",
+      "tokens": 32000,
+      "targets": 5816,
+      "target_fraction": 0.18175567986499577,
+      "images": 16,
+      "sha256": "fcf244f5f7019500eeb07972d5846a8b9c2e4d9cdeab1d7a703c3c62b0d07c81",
+      "bytes": 158313809,
+      "objective": "all assistant positions, interleaved with ignored context",
+      "complete_trajectory": false,
+      "purpose": "diagnostic capacity prefix only"
+    },
+    {
+      "path": "sample-64000.pt",
+      "tokens": 64000,
+      "targets": 15241,
+      "target_fraction": 0.23814434600540632,
+      "images": 33,
+      "sha256": "eabc7ef011bacaa68d893ab8e9744daba4e4732999a327edaa04dcd124eb802c",
+      "bytes": 326454993,
+      "objective": "all assistant positions, interleaved with ignored context",
+      "complete_trajectory": false,
+      "purpose": "diagnostic capacity prefix only"
+    },
+    {
+      "path": "sample-96000.pt",
+      "tokens": 96000,
+      "targets": 23937,
+      "target_fraction": 0.24934634735778496,
+      "images": 48,
+      "sha256": "d0cbd58e9f120710165e5ebd2aed3faab0eb9d2422ca4c95b7d5429d521bfa5e",
+      "bytes": 474935377,
+      "objective": "all assistant positions, interleaved with ignored context",
+      "complete_trajectory": false,
+      "purpose": "diagnostic capacity prefix only"
+    },
+    {
+      "path": "sample-120000.pt",
+      "tokens": 120000,
+      "targets": 31261,
+      "target_fraction": 0.26051050425420214,
+      "images": 59,
+      "sha256": "2d84790fd5165f2ab4207e80e448bbc91094507688d29cffb6de21416bb69b43",
+      "bytes": 583838045,
+      "objective": "all assistant positions, interleaved with ignored context",
+      "complete_trajectory": false,
+      "purpose": "diagnostic capacity prefix only"
+    }
+  ],
+  "encoder_sources": {
+    "dataset.py": "39bd4fd751dff97557cf61b1576a5dff1d29755a580249a4f2935a3c09b8359b",
+    "trajectory_encode.py": "bbb0e8df6841cdf9263b7bea7091aa09362c4a73c361dd64bd13d8be324704e8"
+  },
+  "script_sha256": "2950abdc61a84e5aa9c1fafa156ca323689ad178583cf98c8b025058fb5c9841",
+  "production_policy_changed": false
+}

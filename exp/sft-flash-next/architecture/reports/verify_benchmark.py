@@ -1,0 +1,61 @@
+"""Review capacity captures without retaining or reconstructing raw gradients."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+ROOT=Path(__file__).resolve().parents[1]
+read=lambda path:json.loads(Path(path).read_text())
+
+
+def sha(path):
+    with Path(path).open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
+    job=Path(args.attempt).resolve();out=job/'output'
+    config=read(job/'config.json');monitor=read(job/'monitor.json')
+    result=read(out/'result.json');provenance=read(out/'provenance.json')
+    assert monitor['returncode']==0 and not monitor['timed_out']
+    assert result['completed'] and result['mode']=='benchmark'
+    assert result['optimizer_updates']==0 and not result['clipping_applied']
+    assert not result['raw_gradients_retained'] and not result['unchunked_control_executed']
+    assert not (out/'gradients').exists() and not list(out.glob('gradients*.pt'))
+    assert not (out/'initial-adapter').exists()
+    assert config['prompt_tokens'] is None and config['benchmark_repeats']==2
+    for key in ['expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking']:
+        assert config['optimizations'][key]
+    initial=read(out/'initial-comparison.json')
+    assert initial['passed'] and initial['bitwise_equal_tensors']==74472
+    for name,digest in read(job/'source-hashes.json').items():assert sha(job/'source'/name)==digest
+    for name,digest in provenance['source_hashes'].items():assert sha(out/'sources'/name)==digest
+    for name,digest in config['expected_sha256'].items():
+        actual=provenance['sample_hashes'][config['samples'][0]] if name=='sample' else provenance['model_identity'][name]
+        assert actual==digest
+    for archived in provenance['archived_inputs'].values():
+        assert sha(out/archived['path'])==archived['sha256']
+    resources=read(out/'resources.json');phases={r['phase']:r for r in resources}
+    repeats=result['repeats'];assert len(repeats)==2
+    fixture=read(ROOT/'results/20261010-benchmark-fixtures/manifest.json')
+    expected=next(r for r in fixture['rows'] if r['tokens']==config['benchmark_tokens'])
+    assert expected['sha256']==config['expected_sha256']['sample']
+    for i,row in enumerate(repeats):
+        assert row['repeat']==i and row['all_finite'] and row['adapter_tensors']==74472
+        assert row['tokens']==expected['tokens'] and row['targets']==expected['targets']
+        for phase in [f'forward-{i}',f'backward-{i}',f'gradient_statistics-{i}']:
+            assert phases[phase]['seconds']>0 and phases[phase]['samples']>0
+    staging=read(out/'expert-prefetch.json');assert staging['max_staged_layers']<=2
+    report=dict(evidence_checks_passed=True,attempt=job.name,tokens=config['benchmark_tokens'],
+        fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
+        repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
+        optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
+        measurement_scope=result['measurement_scope'],monitor=monitor,pushed_to_remote=False)
+    (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
+    inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
+        for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
+    (job/'file-hashes.json').write_text(json.dumps(inventory,indent=2)+'\n')
+    print(json.dumps({k:v for k,v in report.items() if k not in {'resources'}},indent=2))
+
+
+if __name__=='__main__':main()

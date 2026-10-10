@@ -19,7 +19,13 @@ interleaved labels and a recorded SHA256. Record actual input tokens, supervised
 next-token targets, target fraction, images and provenance. Prefer real
 trajectory fixtures; record any diagnostic prefix/repetition as such. Never
 silently pad/repeat or present a diagnostic fixture as a complete production
-trajectory. Input preparation and source selection remain pending.
+trajectory. Prepared fixtures use `lf52-271a04aa_p0#36` from the completed
+progressive-sol25 dataset: full context121,022 tokens/32,283 assistant targets.
+The four diagnostic prefixes contain5,816/15,241/23,937/31,261 targets and
+16/33/48/59 images. `prepare_benchmarks.py` uses the existing trajectory encoder
+and rejects prefix boundaries inside vision blocks. Exact tensors, annotation,
+encoder sources and hashes are in local DVC `results/20261010-benchmark-fixtures`.
+Production full-trajectory preparation is unchanged.
 
 ## Measurement
 
@@ -64,11 +70,16 @@ An unreachable connection alone is not proof of shutdown.
 
 ## Current prerequisite
 
-The Jupyter connection is unavailable. Reconnect and collect Opt7 attempt
-`20261010000620065-39a35a37` before any new GPU job. Opt7–10 are not yet qualified.
+The replacement server356919557 is connected. The original server's Opt7 attempt
+`20261010000620065-39a35a37` cannot be recovered there; its gate remains unknown.
+The corrected fold0 export was verified against the original checkpoint index
+and84 expert/router byte checks. Native reference identity replay is running;
+Opt7–10 are not yet qualified.
 The dedicated `benchmark.py` path omits paired-control, raw-gradient export and
 full gradient dictionary clones. Configuration requires `benchmark_tokens`,
 explicit labels, `benchmark_repeats` (default2) and the saved initial-adapter pin.
 Dispatch with `node jupyter.mjs --mode benchmark --config CONFIG --timeout-seconds SECONDS`
 only after qualification and immutable fixture preparation. This new path is
-prepared but has not yet executed on the restored GPU.
+prepared but has not yet executed on the restored GPU. The ready configs are
+`configs/benchmark-{32000,64000,96000,120000}.json`; each pins its exact fixture
+and the fold0 expert selection. Review captures with `reports/verify_benchmark.py`.

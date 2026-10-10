@@ -1,6 +1,8 @@
 """Per-phase synchronized CUDA peaks and sampled host RAM; no arithmetic hooks."""
 from contextlib import contextmanager
 import os
+import json
+from pathlib import Path
 import threading
 import time
 
@@ -9,8 +11,14 @@ import torch
 
 
 class Resources:
-    def __init__(self):
+    def __init__(self, output=None):
         self.rows = []
+        self.output=Path(output) if output is not None else None
+
+    def persist(self,name,value):
+        if self.output is None:return
+        path=self.output/name;temporary=path.with_suffix('.json.tmp')
+        temporary.write_text(json.dumps(value,indent=2)+'\n');temporary.replace(path)
     @contextmanager
     def phase(self, name):
         torch.cuda.synchronize()
@@ -18,6 +26,7 @@ class Resources:
         stopped = threading.Event()
         peak = dict(rss_bytes=0,tree_pss_bytes=0,children_rss_bytes=0,host_used_bytes=0,samples=0)
         process = psutil.Process(os.getpid())
+        started=None
         def sample():
             peak['samples'] += 1
             peak['rss_bytes'] = max(peak['rss_bytes'],process.memory_info().rss)
@@ -26,6 +35,9 @@ class Resources:
             pss = sum(getattr(p.memory_full_info(),'pss',0) for p in [process,*children] if p.is_running())
             peak['tree_pss_bytes'] = max(peak['tree_pss_bytes'],pss)
             peak['host_used_bytes'] = max(peak['host_used_bytes'],psutil.virtual_memory().used)
+            if started is not None and peak['samples']%5==0:
+                self.persist('resource-progress.json',dict(phase=name,completed=False,
+                    seconds=time.monotonic()-started,**peak))
         def poll():
             while not stopped.wait(.5):
                 try:sample()
@@ -41,3 +53,5 @@ class Resources:
             self.rows.append(dict(phase=name,seconds=elapsed,
                 cuda_peak_allocated_bytes=torch.cuda.max_memory_allocated(),
                 cuda_peak_reserved_bytes=torch.cuda.max_memory_reserved(),**peak))
+            self.persist('resources.json',self.rows)
+            self.persist('resource-progress.json',dict(completed=True,**self.rows[-1]))

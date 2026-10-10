@@ -52,7 +52,24 @@ if fixtures.exists():
  values=['Opt7 Astra GPU component fixtures','fixed upstream cotangent','not a full-model comparison','bitwise forward/input/route/unroute',f'{err:.6%} adapter-only fixture / PASS','10 component tests',f"{r['suite_seconds']:.3f} total suite",'not measured','not measured','not measured','—']
  lines.append('| '+' | '.join(values)+' |')
 for tokens in [32000,64000,96000,120000]:
- lines.append('| '+' | '.join([f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10)+' |')
+ path=ROOT/'reports'/f'benchmark-{tokens}.json'
+ if not path.exists():
+  lines.append('| '+' | '.join([f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10)+' |');continue
+ r=read(path);wall=r['monitor']['seconds'];repeats=r['repeats']
+ for index,row in enumerate(r['resources']):
+  phase=row['phase'];prefix=['','','','','']
+  if index==0:
+   fixture=r['fixture']
+   prefix=[f'Opt10 benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})','—','finite gradients; no long-context reference','—','—']
+  if phase.startswith('forward-'):
+   repeat=repeats[int(phase.split('-')[-1])]
+   prefix[0]=f'Opt10 {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
+   prefix[1]=f'{repeat["loss"]:.10f}';prefix[2]='all finite'
+  values=prefix+[phase,f"{row['seconds']:.3f}",
+      f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
+      f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
+      f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
 partial=ROOT/'reports/opt7-interrupted.json'
 if partial.exists():
  r=read(partial)

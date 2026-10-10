@@ -1,0 +1,37 @@
+{
+  "architecture": "optimized",
+  "model": "/tmp/reference-256-hf",
+  "samples": [
+    "/kaggle/working/benchmark-fixtures/sample-120000.pt"
+  ],
+  "adapter": null,
+  "prompt_tokens": null,
+  "output": "/tmp/benchmark-120000/output",
+  "optimizations": {
+    "bf16_activations": true,
+    "disk_ple": true,
+    "offload_routed_experts": true,
+    "lora_routed_experts": true,
+    "head": "cce_exact",
+    "direct_attention_bias": true,
+    "expert_chunking": true,
+    "chunk_tokens": 8192,
+    "qsa_chunking": true,
+    "hyperconnection_chunking": true,
+    "ple_chunking": true
+  },
+  "expected_sha256": {
+    "sample": "2d84790fd5165f2ab4207e80e448bbc91094507688d29cffb6de21416bb69b43",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17",
+    "model_expert_selection": "df2b8fa7e50805de04f2fd20d6d51c477bffe1364ed8c7669b39532004faae30"
+  },
+  "baseline": {
+    "loss": 0.6244627833366394,
+    "gradients": "/kaggle/working/architecture-runs/20261009221135477-25bf58fe/output/gradients-manifest.json",
+    "initial_adapter": "/kaggle/working/architecture-runs/20261009221135477-25bf58fe/output/initial-adapter-manifest.json"
+  },
+  "comparison_mode": "report",
+  "diagnostic_initialization": true,
+  "benchmark_tokens": 120000,
+  "benchmark_repeats": 2
+}
