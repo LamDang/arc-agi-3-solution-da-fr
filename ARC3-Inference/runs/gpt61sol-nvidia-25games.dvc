@@ -1,0 +1,6 @@
+outs:
+- md5: 0af34628be801c2953fb00175461b721.dir
+  size: 1240504087
+  nfiles: 302
+  hash: md5
+  path: gpt61sol-nvidia-25games

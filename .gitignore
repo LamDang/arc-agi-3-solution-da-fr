@@ -12,6 +12,8 @@ __pycache__/
 # Local eval: downloaded game files and run outputs. Runs archived with
 # `dvc add` keep their .dvc pointer files in git; the data lives in DVC.
 environment_files/
+# Built from the community_games/ submodules by scripts/build_community_envs.py.
+environment_files_community/
 **/runs/*
 !**/runs/*.dvc
 # engine_re experiment runs: one DVC pointer per run in runs/engine-re/.
