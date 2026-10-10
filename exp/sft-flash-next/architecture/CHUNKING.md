@@ -102,6 +102,35 @@ kernel and dilation: `(kernel_size - 1) * dilation = 9` for this model. Only
 current outputs are retained; autograd slice backward sums overlap input
 contributions. Padding/conv masks are sliced with their windows.
 
+### PLE storage bottleneck observed during 64K startup
+
+The current table paths under `/tmp/reference-256-hf` are symlinks into the
+read-only Kaggle model mount. Inspection found **NFS v3**, with a 524288-byte
+maximum read size, rather than a local disk. The original table uses 22
+safetensors files containing 128 BF16 tensors. A row is 160 BF16 values (320
+bytes). `DiskPLERows.lookup` deduplicates/sorts IDs and gathers rows through
+NumPy memory maps, opening each required shard separately.
+
+At64K, 224793 unique rows contain 71933760 bytes (68.6MiB) of useful values.
+Preparation took620.0624s. The worker's cumulative startup/preparation counter
+reported24675921920 read bytes (22.98GiB), with about23s of CPU time. This
+counter also includes imports and sample loading; it is not a lookup-only
+counter. These observations support sparse network page faults/read-ahead as
+the bottleneck. The local writable working volume is20GiB ext4, about18GiB available
+at inspection, so the95.37GiB table cannot be copied there in full.
+
+For a fixed training dataset, the intended correction is a separate preparation
+stage: persist each sequence's deduplicated required rows and mapping in compact
+contiguous local files, with model/input identities and checksums, then assemble
+the CPU payload from those files each epoch. The full original table remains
+available for preparing new sequences. This persistent prepared-row cache is
+**not implemented yet**; the current DataLoader repeats sparse NFS lookups for
+each new sample preparation. The second F/B benchmark repeat already reuses the
+current in-memory payload and does not measure another disk preparation.
+The first64K F/B took1151.6877s, longer than620.0624s preparation, so lookahead
+could hide this cost after startup if the concurrent preparation keeps pace.
+Steady-state overlap has not been measured; one-sample benchmarks do not prove it.
+
 ## Evidence and limits
 
 `test_chunking.py` covers below/exactly/above chunk boundaries, multiple windows,
@@ -130,7 +159,9 @@ including the model hidden width, rather than assuming a reduction ordering.
   including nested checkpointing andCPU offload. Full-model qualification is
   passed at1.770794% against unchunkedOpt3; operator proof preceded this full gate.
 - Opt10: accepted at1.780845%, cumulative withOpt7–9.
-- 32K/64K/96K/120K benchmarks: pending.
+- 32K: twoF/B passes complete and verified; see `reports/benchmark-32000.json`.
+- 64K: twoF/B passes complete and verified; see `reports/benchmark-64000.json`.
+- 96K/120K: pending.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

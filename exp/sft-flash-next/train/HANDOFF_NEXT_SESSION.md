@@ -1,3 +1,47 @@
+# Benchmark64K complete / 96K next — 2026-10-10
+
+* Attempt20261010070441843-1f403905 sourcef897ddd completed2914.85206s/return0.
+  Bothlosses.9525977373123169/all74472finite. Norms.1485929962/.1485911175.
+  F0/B0 412.21944/739.46827s; F1/B1 365.57602/721.23571s.
+  GPU25.15041/32.95718GiB bothpasses; PSSpeak152.03674GiB/systemused105.677GiB.
+  No rawgradientarchives/control/optimizer. Sources/input/init/FLA/chunkbounds verified.
+* PLEprepared620.062425s/.30518GiB/224793unique rows. NFSv3 mount confirmed,
+  workerstartup+prep read22.98GiB vs68.6MiB useful rowvalues. Storage snapshot
+  collected+hashed in attempt and compactreport, v0table row. LocalDVC/cacheverified.
+* Useraskedcold/warmdifference. Explained PLE reusedbothpasses andoutside F/B;
+  CUDAallocator/kernelcachefirst-use overheadpossible, attributionnotprofiled.
+  No hidden/KV/gradientreuse; modelzero_grad(None),use_cacheFalse,no updates.
+  Correcttermfirstpass/warmrepeat: externalOS/disk/compiled cachesnotcleared.
+  32KF/Bwarm11.1%faster,64KFwarm11.3%,64KF/Bwarm5.63%; exactGPUpeaksunchanged.
+* Next96K then120K twoF/B benchmarks, timeout10800recommended. No push.
+  UserPLEslownessquestion answered; offlinecompactprepared-rowcache proposed,
+  NOTimplemented. CurrentbenchmarksretainoriginalNFSprep forcomparability.
+  KeepJupyter alive untilall4 capturescollected/hash/cacheverified thenkillserver.
+
+# User questions slow PLE — 2026-10-10
+
+* Explained and verified actual table is original22safetensors/128BF16tensors on
+  read-only Kaggle NFSv3 (rsize524288), NOTlocalSSD. ReferenceHFfiles symlink
+  into Kaggleinput. Localworking ext4 20GiB/~18GiBfree cannotfit95.37GiBtable.
+* 64Kprep620.062425s/224793unique rows=68.6MiBvalues; worker cumulative
+  read_bytes24675921920 (~22.98GiB) includesimports/sample too, CPU~23s.
+  Supports sparse mmap networkpagefault/readahead I/O bottleneck. Storedactual
+  remotejobroot ple-storage-inspection.json, collected automatically with64Kattempt.
+* Proposedcorrectionfixed-dataset offlinepreparecompactcontiguousdeduprows+mapping
+  onlocalworkingdisk, DataLoaderreadsequentiallyeach epoch; fulltablefornewinputs.
+  NOTimplementedyet. CHUNKING.md documentslimitation/proposedcorrection explicitly.
+* Active64Kattempt20261010070441843-1f403905 watcher8271. F0complete412.21944s,
+  GPU25.15041GiB/PSS151.62047GiB; B0running. Do not launchanotherGPUjob.
+
+# Benchmark64K running — 2026-10-10 07:04 UTC
+
+* Attempt20261010070441843-1f403905 executionf897ddd, supervisor8139,
+  desktopwatcher8271. Configbenchmark-64000, timeout5400, twoF/Bpasses.
+  Realprefix64000tokens/15241targets/33images. No optimizer/control/rawarchive.
+* 32K completed/verified/localDVCcache in f897ddd. Nextcollect64K before96K→120K.
+  Consider10800s timeoutfor96/120K as PLEprep andtwoF/Bgrow. No push;
+  shut Jupyter onlyafterallfourbenchmarkevidence collected andhash/cacheverified.
+
 # Benchmark32K complete / 64K next — 2026-10-10
 
 * Attempt20261010063855991-e75f0edd source1a142fa completed1444.62996s/return0.

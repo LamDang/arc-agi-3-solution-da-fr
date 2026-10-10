@@ -122,7 +122,11 @@ for tokens in [32000,64000,96000,120000]:
   lines.append('| '+' | '.join(values)+' |')
  if 'ple_preparation' in r:
   prep=r['ple_preparation']
-  values=[f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows','—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}','not measured','not measured for this worker phase','not measured for this worker phase','—']
+  detail=f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows'
+  if 'ple_storage_inspection' in r:
+   storage=r['ple_storage_inspection']
+   detail+=f'<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)'
+  values=[detail,'—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}','not measured','not measured for this worker phase','not measured for this worker phase','—']
   lines.append('| '+' | '.join(values)+' |')
 partial=ROOT/'reports/opt7-interrupted.json'
 if partial.exists():
@@ -151,7 +155,13 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'separate from forward/backward. Total wall also includes startup and teardown.',
 'Timings are single captures and can include compilation/cache effects. No AdamW',
 'state or 130K capacity measurement is included.','',
-'All candidates compare directly with the same saved native-head reference.',
+'Benchmark repeat 0 is the first pass in a fresh process; OS/disk/compiled-kernel caches may already be warm.',
+'Repeat 1 reuses the process, CUDA allocator and kernel caches. Both reuse the same prepared PLE payload.',
+'PLE preparation is outside both F/B timings. Model forward/backward executes again; gradients reset to None and parameters receive no update.',
+'No cache-clearing or per-cache timing attribution was performed. These are first-pass/warm-repeat measurements, not cold-storage benchmarks.','',
+'All 16K qualification candidates compare directly with the same saved native-head reference.',
+'Long-context benchmarks check finite gradients and repeat losses/norms; they have no long-context gradient reference.',
+'PLE table reads currently resolve to the original BF16 safetensors on Kaggle NFS; see CHUNKING.md for the observed startup bottleneck.',
 'Opt3 includes CCE, so its difference from reference cannot be attributed solely',
 'to mask construction. Small native/direct-bias selection and SDPA forward/',
 'backward fixtures passed independently before the Opt2/Opt3 model passes.','',

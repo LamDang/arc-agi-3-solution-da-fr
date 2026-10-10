@@ -144,6 +144,7 @@
   "raw_gradients_retained": false,
   "unchunked_control_executed": false,
   "measurement_scope": "Forward/backward only; no optimizer state or update",
+  "first_pass_cache_state": "Fresh process; OS/disk/compiled-kernel caches may already be warm",
   "monitor": {
     "returncode": 0,
     "timed_out": false,

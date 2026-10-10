@@ -78,8 +78,15 @@ def main():
         fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
         repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
         optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
-        measurement_scope=result['measurement_scope'],monitor=monitor,pushed_to_remote=False,
+        measurement_scope=result['measurement_scope'],first_pass_cache_state=result['first_pass_cache_state'],
+        monitor=monitor,pushed_to_remote=False,
         numerical_profile=profile,numerical_settings=settings,ple_preparation=preparation)
+    inspection=job/'ple-storage-inspection.json'
+    if inspection.exists():
+        storage=read(inspection)
+        counters=dict(line.split(': ',1) for line in storage['worker_io_snapshot'].splitlines())
+        storage['worker_cumulative_read_bytes']=int(counters['read_bytes'])
+        report['ple_storage_inspection']=storage
     (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
