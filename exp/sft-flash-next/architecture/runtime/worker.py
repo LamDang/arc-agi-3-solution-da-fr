@@ -16,6 +16,7 @@ def main():
     p.add_argument('--config',required=True)
     p.add_argument('--mode',choices=['test','train','benchmark'],default='test')
     p.add_argument('--timeout',type=int,default=1200)
+    p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py'])
     args = p.parse_args()
     lock = open('/tmp/flash-next-architecture.lock','w')
     fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -59,7 +60,8 @@ def main():
             with tarfile.open(archive) as package:package.extractall(destination,filter='data')
             packages.insert(0,str(destination/dependency['archive_prefix']))
     bootstrap = job/'bootstrap.py'
-    script = root/(args.mode+'.py')
+    if args.entrypoint and args.mode!='test':raise ValueError('Diagnostics require test mode')
+    script = root/(args.entrypoint or (args.mode+'.py'))
     bootstrap.write_text('import sys,runpy\n'+
         "sys.path=[p for p in sys.path if p!='/usr/local/lib/python3.13/dist-packages']\n"+
         'sys.path[:0]='+repr(packages)+'\n'+

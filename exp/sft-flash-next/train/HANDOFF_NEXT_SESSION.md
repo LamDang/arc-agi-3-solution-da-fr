@@ -1,3 +1,20 @@
+# Verified restoration / replay — 2026-10-10 03:39 UTC
+
+* Correct fold0 export passed84 expert/router byte checks; original index SHA
+  b9dcb19699ef52c057031be4b8b6fed5697b23b641d0ccf0a8a59b1d05d241d6.
+  Canonical /tmp/reference-256-hf now links to /tmp/reference-256-fold0-hf.
+* Exact native replay20261010033254797-28be4e26, execution e90415c,
+  supervisor2244, desktop watcher79405. Initial74472 all exact; forward loss
+  .6244627833366394 EXACT reference. Backward running; fullgradientgate pending.
+* Four real diagnostic capacity prefixes are encoded and SHA verified, localDVC
+  results/20261010-benchmark-fixtures (f59f8c768943c983f3bb885783ff72da.dir).
+  source lf52-271a04aa_p0#36, full121022tokens/32283targets; prefix32/64/96/120K
+  targets5816/15241/23937/31261. No production truncation/policy change.
+* Commit9383fed prepares configs/benchmark-{32000,64000,96000,120000}.json,
+  prepare_benchmarks.py, reports/verify_benchmark.py and incremental resource
+  persistence. Benchmarks blocked behind all Opt7–10 anchor gradient gates.
+* Use Astra for failed implementation gate. No pushes; no duplicate raw grads.
+
 # Latest restoration correction — 2026-10-10 03:33 UTC
 
 * New server356919557 runtime and149 reference files (14.47GiB) restored.

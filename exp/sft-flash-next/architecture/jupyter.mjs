@@ -100,7 +100,10 @@ async function main(){
     }
     await upload(job+'/config.json',Buffer.from(JSON.stringify(config,null,2)+'\n'));
     await upload(job+'/source-hashes.json',Buffer.from(JSON.stringify(hashes,null,2)+'\n'));
-    console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+',"--timeout",'+JSON.stringify(String(timeoutSeconds))+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
+    const entrypoint=args.entrypoint;
+    if(entrypoint && (mode!=='test'||entrypoint!=='diagnostics/gdn_backward.py'))throw new Error('Unknown diagnostic entrypoint');
+    const extra=entrypoint?',"--entrypoint",'+JSON.stringify(entrypoint):'';
+    console.log(await execute('import subprocess,json\nfrom pathlib import Path\np=subprocess.Popen(["/usr/bin/python3",'+JSON.stringify(job+'/source/runtime/worker.py')+',"--config",'+JSON.stringify(job+'/config.json')+',"--mode",'+JSON.stringify(mode)+',"--timeout",'+JSON.stringify(String(timeoutSeconds))+extra+'],stdout=open('+JSON.stringify(job+'/supervisor.log')+',"w"),stderr=subprocess.STDOUT,start_new_session=True)\nprint(json.dumps({"attempt":'+JSON.stringify(attempt)+',"supervisor_pid":p.pid}))'));
     fs.mkdirSync(path.join(root,'results'),{recursive:true});fs.writeFileSync(path.join(root,'results','last-attempt.json'),JSON.stringify({attempt,job,mode},null,2)+'\n');
   }else{
     attempt=args.attempt;if(!/^[0-9]+-[a-f0-9]+$/.test(attempt))throw new Error('Invalid attempt');job='/kaggle/working/architecture-runs/'+attempt;
