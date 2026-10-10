@@ -28,7 +28,8 @@ def main():
     assert not result['raw_gradients_retained'] and not result['unchunked_control_executed']
     assert not (out/'gradients').exists() and not list(out.glob('gradients*.pt'))
     assert not (out/'initial-adapter').exists()
-    assert config['prompt_tokens'] is None and config['benchmark_repeats']==2
+    repeat_count=1 if config['benchmark_tokens']==120000 else 2
+    assert config['prompt_tokens'] is None and config['benchmark_repeats']==repeat_count
     for key in ['expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking']:
         assert config['optimizations'][key]
     initial=read(out/'initial-comparison.json')
@@ -41,7 +42,7 @@ def main():
     for archived in provenance['archived_inputs'].values():
         assert sha(out/archived['path'])==archived['sha256']
     resources=read(out/'resources.json');phases={r['phase']:r for r in resources}
-    repeats=result['repeats'];assert len(repeats)==2
+    repeats=result['repeats'];assert len(repeats)==repeat_count
     fixture=read(ROOT/'results/20261010-benchmark-fixtures/manifest.json')
     expected=next(r for r in fixture['rows'] if r['tokens']==config['benchmark_tokens'])
     assert expected['sha256']==config['expected_sha256']['sample']
@@ -56,11 +57,11 @@ def main():
         assert staging['parameter_devices']=={'cuda':73728}
         assert staging['gradient_devices'].get('cuda',0)>0 and set(staging['gradient_devices'])=={'cuda'}
     executes=[r for r in staging['records'] if r['event']=='execute']
-    assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))*2
-    assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))*2
+    assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))*repeat_count
+    assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))*repeat_count
     assert all(r['input_dtype']=='torch.bfloat16' for r in executes)
     replay=[r for r in staging['records'] if r['event']=='chunk_backward']
-    assert [r['layer'] for r in replay]==list(range(47,-1,-1))*2
+    assert [r['layer'] for r in replay]==list(range(47,-1,-1))*repeat_count
     chunks=read(out/'chunking.json');size=config['optimizations']['chunk_tokens'];tokens=config['benchmark_tokens']
     attentions=[r for n,r in chunks.items() if n.endswith('.self_attn')]
     assert attentions and all(r['max_query_tokens']<=size and r['key_tokens']==tokens for r in attentions)
@@ -80,7 +81,8 @@ def main():
     assert preparation['seconds']>0
     report=dict(evidence_checks_passed=True,attempt=job.name,tokens=config['benchmark_tokens'],
         fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
-        repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
+        repeats=repeats,benchmark_repeats=repeat_count,
+        loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'] if repeat_count==2 else None,
         optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
         measurement_scope=result['measurement_scope'],first_pass_cache_state=result['first_pass_cache_state'],
         monitor=monitor,pushed_to_remote=False,profile_label=args.label or 'historical-cpu-lora',
@@ -96,6 +98,10 @@ def main():
                          ('server-block-details.json','server_block_details')]:
         if (job/filename).exists():report[key]=read(job/filename)
     suffix='-'+args.label if args.label else ''
+    for filename,key in [('cgroup-first-observation.json','cgroup_first_observation'),
+                         ('cgroup-after-completion.json','cgroup_after_completion'),
+                         ('after-loading-memory.json','after_loading_memory')]:
+        if (job/filename).exists():report[key]=read(job/filename)
     (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}{suffix}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}

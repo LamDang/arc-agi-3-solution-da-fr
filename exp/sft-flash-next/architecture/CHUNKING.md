@@ -121,12 +121,13 @@ counter. These observations support sparse network page faults/read-ahead as
 the bottleneck. The local writable working volume is20GiB ext4, about18GiB available
 at inspection, so the95.37GiB table cannot be copied there in full.
 
-For a fixed training dataset, the intended correction is a separate preparation
+For a fixed training dataset, a proposed alternative was a separate preparation
 stage: persist each sequence's deduplicated required rows and mapping in compact
 contiguous local files, with model/input identities and checksums, then assemble
 the CPU payload from those files each epoch. The full original table remains
 available for preparing new sequences. This persistent prepared-row cache is
-**not implemented yet**; the current DataLoader repeats sparse NFS lookups for
+**not implemented**; the user chose to keep the original NFS lookup path and
+focus on RAM capacity. The current DataLoader repeats sparse NFS lookups for
 each new sample preparation. The second F/B benchmark repeat already reuses the
 current in-memory payload and does not measure another disk preparation.
 The first64K F/B took1151.6877s, longer than620.0624s preparation, so lookahead
@@ -146,10 +147,10 @@ inaccessible. The256GiB NVMe partition is exposed through read-only mounts.
 No additional writable disk filesystem was found. Full table staging is not
 viable on the confirmed working volume; compact prepared rows fit its budget.
 
-### 96K capacity failure
+### Historical CPU-LoRA 96K capacity failure
 
 Attempt `20261010075533242-f30e823d` was killed during its first forward, after
-PLE preparation completed. There is no 96K loss or backward measurement. The
+PLE preparation completed. That attempt has no loss or backward measurement. The
 last incomplete observation recorded 170.005 GiB tree PSS; the post-failure
 cgroup peak was 174.49 GiB against a 175 GiB limit, with no swap and oom_kill=1.
 No pre-run counter snapshot exists, and max/oom counters are zero: this strongly
@@ -158,8 +159,8 @@ supports memory exhaustion but does not establish the exact OOM trigger.
 Astra's capacity review identifies 48 full decoder checkpoint inputs and the
 final mixer input, each BF16 `[1,T,10240]`. Their combined payload is 89.72 GiB
 at 96K and 112.15 GiB at 120K. Inner chunking does not remove these outer
-checkpoint boundaries. Do not dispatch 120K unchanged. A reviewed and qualified
-capacity remedy is needed; none has been implemented. See
+checkpoint boundaries. Astra recommended a capacity remedy before 120K.
+The subsequent allocation/placement correction is described below. See
 `reports/astra-capacity-review.md` and `reports/benchmark-96000-failure.json`.
 
 ### Measured RAM overhead and GPU LoRA correction
@@ -183,13 +184,19 @@ avoiding the old whole-model pageable staging path. Initialization comparison
 streams one current tensor alongside a reference shard rather than cloning all
 adapters onto CPU. The diagnostic `malloc_trim` call is not installed in training.
 
-Expected changes, pending measurement: about 16 GiB less pinned reservation,
-7.03125 GiB expert master relocation from CPU to GPU, and avoidance of the large
-pageable arena retention. GPU backward also gains up to 7.03125 GiB expert
-gradients; AdamW state now follows GPU parameters. The original raw numerical
-reference remains available. A new 16K original-reference and paired 2% gate is
-required before retrying capacity benchmarks. PLE remains on the original NFS
-mount as requested. See `reports/astra-gpu-lora-ram-review.md`.
+The active corrected 96K capture measures32.004 GiB pinned allocation, exactly
+16 GiB below the old48.004 GiB. Initialization treePSS is37.527 GiB versus
+89.663 GiB in the historical96K run, about52.14 GiB lower. This combines the
+smaller pinned reservation,7.03125 GiB expert master relocation to GPU and
+avoidance of pageable arena retention; it is not a paired allocator attribution
+experiment. GPU backward also gains up to7.03125 GiB expert gradients. AdamW
+state follows GPU parameters but is not allocated by these F/B captures.
+The original raw numerical
+reference remains available. After source review the user explicitly waived
+another numerical gate for these allocation changes and directed a 96K capacity
+pass before 120K. The prepared 16K qualification was stopped during loading;
+it is a user cancellation, not a numerical failure. PLE remains on the original
+NFS mount as requested. See `reports/astra-gpu-lora-ram-review.md`.
 
 ## Evidence and limits
 
@@ -221,8 +228,15 @@ including the model hidden width, rather than assuming a reduction ordering.
 - Opt10: accepted at1.780845%, cumulative withOpt7–9.
 - 32K: twoF/B passes complete and verified; see `reports/benchmark-32000.json`.
 - 64K: twoF/B passes complete and verified; see `reports/benchmark-64000.json`.
-- 96K: first forward killed before loss/backward; failure evidence verified.
-- 120K: not dispatched; blocked by host capacity pending a qualified remedy.
+- Historical CPU-LoRA 96K: first forward killed; failure evidence verified.
+- Corrected GPU-LoRA 96K: two F/B passes complete; source/input/initialization,
+  finite gradients, chunk bounds and local DVC evidence verified. Losses
+  0.8578786254/0.8578787446 (absolute difference1.1921e-7); all74472 gradients
+  finite and nonzero in both. F583.455/544.056s, B1281.113/1260.992s;
+  GPU allocated peaks39.120/57.510GiB, maximum treePSS130.805GiB.
+  See `reports/benchmark-96000-gpulora.json`. No raw repeat gradient comparison.
+- Corrected 120K: ready after verified96K capacity pass; config requests one
+  complete F/B capacity measurement, without repeat comparison. Not yet dispatched.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

@@ -1,3 +1,22 @@
+# Corrected 96K PASSED — 2026-10-10
+
+* Attempt20261010084759860-6c853f57, executionb597fae, return0/no timeout;
+  wall4540.991250507s. Two full F/B passes, no optimizer/control/raw archives.
+* Losses0.8578786253929138 and0.8578787446022034; difference1.1920928955e-7.
+  Both all74472 adapter gradients finite/nonzero, no absent/unrouted gradients.
+  Norms0.13618550331688126/0.13614371739267064. No raw repeat comparison.
+* F583.455318753/544.056484794s; B1281.113037604/1260.992288909s.
+  GPU allocated peaks39.12032GiB forward/57.510GiB backward. MaximumtreePSS
+  130.804920197GiB; pinned32.00405885GiB. PLE815.604104628s, originalNFS.
+* Complete source/input hashes, exact74472 initialization, execution order,
+  chunk bounds, finite gradients and SHA inventory verified by
+  reports/verify_benchmark.py; reportbenchmark-96000-gpulora.json. DVC caching
+  and all29attempt cache inventories verified before next dispatch.
+* Next120K, one full F/B capacity pass perbenchmark-120000 config. No numerical
+  requalification (userwaivedallocationtest), no optimizer update/raw candidates,
+  no push. KeepJupyter alive until120K artifacts/hash/cache verified, then kill
+  Jupyter server peruserinstruction. Historical32/64K remain CPU-LoRA profiles.
+
 # Corrected 96K benchmark running — 2026-10-10 08:47 UTC
 
 * User explicitly said no numerical requalification for tensor allocation; focus
@@ -14,15 +33,24 @@
   monitor appears. Resource samples now include cgroup current/anon/file/shmem
   and host allocator allocated_bytes.current. File includes shmem; maxima are
   sampled at potentially different times, do not sum individual peaks.
+* 120K config now requests one full capacity F/B pass, sufficient for requested
+  memory/time measurements. Its report/table explicitly omit repeat comparison.
+  96K retains its already-running two passes. No120K dispatch before96K finishes
+  and collected sources/initialization/finite gradients/DVC evidence verify.
 * PLE stays on original NFS per user; no compact cache work. Next finish 96K,
   collect/hash/DVC/record new profile separately from original failed96K, then
   120K only if 96K passes. No optimizer updates, numerical qualification retry,
   raw candidate archives, push or shutdown until requested work complete.
 * Corrected load completed169.116s; exact74472 init in10.696s. Pinned allocator
   measured32.004GiB versusold48.004GiB. Init treePSS37.528GiB versusold96K89.663GiB
-  (~52.13GiB lower). No completed forward/backward yet. PLE stillpreparing at
-  process age418s; worker10104 reads10.572GiB cumulative. after-loading-memory.json
+  (~52.13GiB lower). PLE preparation completed815.604s. after-loading-memory.json
   savedremote forautomaticcollection; earlycgroup counters savedbeforeheavyload.
+* First96K F/B COMPLETE: loss0.8578786253929138, all74472 gradients finite/nonzero,
+  norm0.13618550331688126, no absent gradients. F583.455318753s/B1281.113037604s;
+  GPU allocated peaks42005123584/61751370240bytes (~39.120/57.510GiB), maximum
+  treePSS140063719424bytes (~130.4445GiB). Second pass in forward at process
+  age2801s. Full capture verification/DVC collection pending; no120K dispatch.
+  Pinned remains32.004GiB.
 
 # RAM diagnosis complete / GPU LoRA correction prepared — 2026-10-10
 

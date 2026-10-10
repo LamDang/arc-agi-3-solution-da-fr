@@ -33,7 +33,7 @@
   "comparison_mode": "report",
   "diagnostic_initialization": true,
   "benchmark_tokens": 120000,
-  "benchmark_repeats": 2,
+  "benchmark_repeats": 1,
   "fla_numeric_profile": "reference-v0",
   "chunking_gradient_limit": 0.02
 }

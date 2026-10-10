@@ -24,7 +24,7 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: original 1% gate (failed)'),('opt7','Opt7: + expert chunks (accepted at 2%)'),('opt8','Opt8: + QSA query chunks'),('opt9rejected','Opt9 v1: hyperconnection chunks (rejected at 2%)'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows'),('gpulora','GPU LoRA: all Opt7–10 + shared pinned slab')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: original 1% gate (failed)'),('opt7','Opt7: + expert chunks (accepted at 2%)'),('opt8','Opt8: + QSA query chunks'),('opt9rejected','Opt9 v1: hyperconnection chunks (rejected at 2%)'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
@@ -146,7 +146,8 @@ for tokens,suffix in [(32000,''),(64000,''),(96000,''),(96000,'-gpulora'),(12000
   phase=row['phase'];prefix=['','','','','']
   if index==0:
    fixture=r['fixture']
-   prefix=[f'{profile} benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',f'loss repeats equal: {r["loss_repeat_bitwise_equal"]}','finite gradients; no long-context reference','—','—']
+   repeat_status=f'loss repeats equal: {r["loss_repeat_bitwise_equal"]}' if len(repeats)==2 else 'single capacity pass; no repeat comparison'
+   prefix=[f'{profile} benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',repeat_status,'finite gradients; no long-context reference','—','—']
   if phase.startswith('forward-'):
    repeat=repeats[int(phase.split('-')[-1])]
    prefix[0]=f'{profile} {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
@@ -217,7 +218,7 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'All 16K qualification candidates compare directly with the same saved native-head reference.',
 'Long-context benchmarks check finite gradients and repeat losses/norms; they have no long-context gradient reference.',
 'PLE table reads currently resolve to the original BF16 safetensors on Kaggle NFS; see CHUNKING.md for the observed startup bottleneck.',
-'The 96K first forward was killed without loss/backward; partial RAM observations are not completed phase peaks.',
+'The historical CPU-LoRA 96K first forward was killed without loss/backward; partial RAM observations are not completed phase peaks.',
 'Post-failure cgroup peak was 174.49 GiB against a 175 GiB limit, with oom_kill=1 but max=0/oom=0 and no pre-run counter snapshot.',
 'This strongly supports memory exhaustion; the exact OOM trigger is not proven. Astra reviewed the failure in reports/astra-capacity-review.md.',
 'GPU LoRA and shared-slab allocation changes are measured in separate rows; the user waived another numerical gate and directed 96K capacity before 120K.',
