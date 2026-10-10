@@ -1,3 +1,28 @@
+# Opt8 gate PASSED — 2026-10-10
+
+* Attempt20261010050551130-36e9cc98 executiond6296b5 completed1002.519s/return0.
+  Cumulativeexpert+QSA gradientL2 1.801111% versus unchunkedOpt3 PASS at user2%;
+  loss.624378502368927, control.6243788003921509;118/74472 exact(40nonzero).
+  Native-referenceL2 1.743932%; initial74472 bitwise, allgradsfiniteFP32.
+* F137.212s/GPU14.535GiB/treePSS107.792GiB; B208.142s/GPU21.947/treePSS107.799.
+  ControlF149.832s/GPU16.980/treePSS109.427; B227.090/GPU27.425/treePSS109.427.
+* reports/verify_optimizations.py passed source/input/init/alltensor/profile checks;
+  localDVC inventory/cache verified, single v0table regenerated. No rawcandidate
+  gradients, optimizer/clipping or push. Test-onlyFLA profile verified1warp.
+* Next Opt9 cumulativehyperconnection chunks, thenOpt10PLE, then32/64/96/120K
+  two-F/B benchmarks. Gate2% cumulative against unchunkedOpt3. Astra anyfailure.
+  KeepJupyter alive until all requested work complete/collected/verified.
+
+# Opt8 running — 2026-10-10 05:06 UTC
+
+* Attempt20261010050551130-36e9cc98 executiond6296b5, supervisor4916/child4919,
+  desktop watcher64982. Opt8 QSA+expert chunks; revised2% cumulativegradientgate.
+* Prelaunch/GPUfixtures passed, model loading underway. Writable-working-volume
+  caches/output fallback resolves/tmp EROFS. No optimizer or rawcandidatearchive.
+* Watch/collect existing attempt before another GPU job. Use JupyterHTTP/WS only.
+  After full gate pass, Opt9→Opt10→32/64/96/120K two-F/B benchmarks. Astra review
+  any new failed implementationgate. No push/Jupytershutdown until all complete.
+
 # Opt8 prelaunch storage failure / writable-volume retry — 2026-10-10
 
 * Attempt20261010050340204-dc403b64 execution9c8eb2a failed BEFORE model launch:
