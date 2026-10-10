@@ -1,3 +1,25 @@
+# Latest restoration correction — 2026-10-10 03:33 UTC
+
+* New server356919557 runtime and149 reference files (14.47GiB) restored.
+* Opt7 Astra GPU fixtures:10passed, largest adapter relativeL2 .3024694%,
+  bitwise large forward/input/router and production-size route/unroute.
+* Native restoration20261010031728305-45358181 FAILED: loss.6362957954,
+  gradientL2 106.739908%, all74472 initial adapters exact. LocalDVC collected.
+  Astra found wrong export mask: keep_256_smoke.json instead of documented
+  artifacts/keep-256-fold0.json. Frozen expert selections differ in all48layers.
+  This is rejected restoration evidence, not a new reference.
+* Correct export building at /tmp/reference-256-fold0-hf, PID1954,
+  /kaggle/working/restore/export-fold0.log. /tmp/verify_restored_model.py checks
+  map, tensor bytes and original index hash then switches canonical path.
+  Never switch while wrong-run PID1440 exists; that job has now exited.
+* Configs now pin expert-selection hash before model loading. Reestablish exact
+  native identity with configs/restored-reference-check.json before Opt7–10.
+* User requires Astra review for each implementation numerical gate failure;
+  main executes. See reports/astra-reference-restoration-review.md.
+* No pushes or duplicate raw gradients. Long benchmarks and conditional Jupyter
+  shutdown remain pending. Newest evidence in architecture/v0.md supersedes old
+  notes below. Dedicated benchmark runner committed38979e0, not yet GPU run.
+
 # Replacement Kaggle server and Astra review
 
 * User supplied a new private Jupyter URL for notebook356919557, stored only in

@@ -23,11 +23,11 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreference','Replacement-server native reference check'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
- elif key!='opt7-rejected':cases.append((label,None,None,False))
+ elif key not in {'opt7-rejected','wrongselectionreference'}:cases.append((label,None,None,False))
 for label,r,monitor,is_ref in cases:
  if r is None:
   lines.append('| '+' | '.join([label]+['pending']*10)+' |');continue
@@ -46,6 +46,13 @@ for label,r,monitor,is_ref in cases:
        f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   assert len(values)==len(columns)
   lines.append('| '+' | '.join(values)+' |')
+fixtures=ROOT/'reports/astra-opt7-fixtures.json'
+if fixtures.exists():
+ r=read(fixtures);err=max(x['adapter_relative_l2'] for x in r['gradient_diagnostics'])
+ values=['Opt7 Astra GPU component fixtures','fixed upstream cotangent','not a full-model comparison','bitwise forward/input/route/unroute',f'{err:.6%} adapter-only fixture / PASS','10 component tests',f"{r['suite_seconds']:.3f} total suite",'not measured','not measured','not measured','—']
+ lines.append('| '+' | '.join(values)+' |')
+for tokens in [32000,64000,96000,120000]:
+ lines.append('| '+' | '.join([f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10)+' |')
 partial=ROOT/'reports/opt7-interrupted.json'
 if partial.exists():
  r=read(partial)

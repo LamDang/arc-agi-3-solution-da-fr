@@ -31,12 +31,16 @@ def main():
     opt=config['optimizations'];head=opt['head'];bias=opt['direct_attention_bias']
     chunk_flags=['expert_chunking','qsa_chunking','hyperconnection_chunking','ple_chunking']
     enabled=[i for i,k in enumerate(chunk_flags,7) if opt.get(k)]
-    label=f'Opt{max(enabled)}' if enabled else {('target',False):'Opt1',('cce_exact',False):'Opt2',('cce_exact',True):'Opt3'}[(head,bias)]
+    label=f'Opt{max(enabled)}' if enabled else {('native',False):'RestoredReference',('target',False):'Opt1',('cce_exact',False):'Opt2',('cce_exact',True):'Opt3'}[(head,bias)]
     label=args.label or label
     assert not monitor['timed_out']
     if monitor['returncode']!=0:
-        assert enabled and result['chunking_gradient_gate_passed'] is False
-        assert 'user gate' in read(out/'failure.json')['error']
+        if enabled:
+            assert result['chunking_gradient_gate_passed'] is False
+            assert 'user gate' in read(out/'failure.json')['error']
+        else:
+            assert head=='native' and config['comparison_mode']=='exact' and not comparison['passed']
+            assert 'equality gate failed' in read(out/'failure.json')['error']
     assert config['architecture']=='optimized' and config['diagnostic_initialization']
     for key in ['bf16_activations','disk_ple','offload_routed_experts','lora_routed_experts']:assert opt[key] is True
     for key in ['bf16_lora','liger_rmsnorm','liger_swiglu']:assert not opt.get(key,False)

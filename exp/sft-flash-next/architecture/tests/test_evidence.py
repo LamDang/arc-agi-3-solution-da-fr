@@ -4,10 +4,23 @@ from pathlib import Path
 import tempfile
 import unittest
 from types import SimpleNamespace
-from runtime.evidence import retain_raw_gradients
+from runtime.evidence import retain_raw_gradients,model_identity
 
 
 class RetentionTests(unittest.TestCase):
+    def test_expert_selection_identity_detects_same_size_different_experts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'config.json').write_text('{"num_experts":2}')
+            (root/'keep.json').write_text(json.dumps({'kept':{'0':[1,3]},'source':'original'}))
+            original=model_identity(root)
+            (root/'keep.json').write_text(json.dumps({'source':'relocated','kept':{'0':[1,3]}}))
+            self.assertEqual(original,model_identity(root))
+            (root/'keep.json').write_text(json.dumps({'kept':{'0':[1,4]}}))
+            changed=model_identity(root)
+            self.assertEqual(original['model_config'],changed['model_config'])
+            self.assertNotEqual(original['model_expert_selection'],changed['model_expert_selection'])
+
     def test_only_reference_test_retains_raw_gradients(self):
         for architecture in ('reference','optimized','native'):
             for mode in ('test','train'):

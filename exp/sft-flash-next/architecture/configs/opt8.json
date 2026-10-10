@@ -20,7 +20,8 @@
   },
   "expected_sha256": {
     "sample": "48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff",
-    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17",
+    "model_expert_selection": "df2b8fa7e50805de04f2fd20d6d51c477bffe1364ed8c7669b39532004faae30"
   },
   "baseline": {
     "loss": 0.6244627833366394,

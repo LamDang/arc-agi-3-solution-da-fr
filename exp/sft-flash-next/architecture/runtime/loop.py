@@ -79,7 +79,8 @@ def run(config, mode):
     torch.manual_seed(config.seed);torch.set_num_threads(8);torch.use_deterministic_algorithms(True)
     provenance = snapshot(output,config,mode)
     expected = config.expected_sha256 or {}
-    actual = dict(sample=sha(config.samples[0]),model_config=sha(Path(config.model)/'config.json'))
+    from .evidence import model_identity
+    actual = dict(sample=sha(config.samples[0]),**model_identity(config.model))
     if config.adapter:actual['adapter'] = sha(config.adapter)
     if any(actual.get(key) != digest for key,digest in expected.items()):
         raise RuntimeError('Run input hash differs from configuration')

@@ -18,6 +18,20 @@ def write(path, value):
     Path(path).write_text(json.dumps(value,indent=2,default=str)+'\n')
 
 
+def model_identity(model):
+    """Pin exported expert identities, which config dimensions cannot establish."""
+    root=Path(model)
+    identity={'model_config':sha(root/'config.json')}
+    index=root/'model.safetensors.index.json'
+    if index.exists():identity['model_index']=sha(index)
+    keep=root/'keep.json'
+    if keep.exists():
+        selected=json.loads(keep.read_text())['kept']
+        canonical=json.dumps(selected,sort_keys=True,separators=(',',':')).encode()
+        identity['model_expert_selection']=hashlib.sha256(canonical).hexdigest()
+    return identity
+
+
 def retain_raw_gradients(config, mode):
     """Only the reference qualification owns a persistent raw gradient archive."""
     return mode == 'test' and config.architecture == 'reference'
@@ -49,7 +63,7 @@ def snapshot(output, config, mode):
         versions={name:importlib.metadata.version(name) for name in ('torch','transformers','peft','auto-round')},
         sample_hashes={path:sha(path) for path in config.samples},
         adapter_sha256=sha(config.adapter) if config.adapter else None,
-        model_config_sha256=sha(Path(config.model)/'config.json'),python=sys.version,
+        model_config_sha256=sha(Path(config.model)/'config.json'),model_identity=model_identity(config.model),python=sys.version,
         optimizer_updates=0 if mode in {'test','benchmark'} else None,pushed_to_remote=False)
     write(Path(output)/'provenance.json',provenance)
     return provenance

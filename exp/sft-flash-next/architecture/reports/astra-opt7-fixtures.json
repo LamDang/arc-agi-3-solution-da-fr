@@ -1,0 +1,44 @@
+{
+  "status": "GPU component fixtures passed; full-model qualification pending",
+  "attempt": "20261010-opt7-astra-fixtures",
+  "tests": 10,
+  "source_files_verified": 32,
+  "large_split": {
+    "tokens": 9705,
+    "chunk_tokens": 8192,
+    "hidden": 2560,
+    "intermediate": 640,
+    "lora_rank": 16,
+    "output_bitwise_equal": true,
+    "output_relative_l2": 0.0,
+    "input_gradient_relative_l2": 0.0,
+    "differing_output_elements": 0,
+    "max_output_absolute_difference": 0.0
+  },
+  "gradient_diagnostics": [
+    {
+      "adapter_relative_l2": 0.002394047968155222,
+      "input_relative_l2": 0.0,
+      "routing_relative_l2": 0.0
+    },
+    {
+      "adapter_relative_l2": 0.0030246938185079734,
+      "input_relative_l2": 0.0,
+      "routing_relative_l2": 0.0
+    },
+    {
+      "adapter_relative_l2": 0.0,
+      "input_relative_l2": 0.0,
+      "routing_relative_l2": 0.0
+    }
+  ],
+  "native_source_sha256": "0154ba57593c79330a97aefa2a909390f5f1f949aaacc6cbc8586174cd301206",
+  "expert_source_sha256": "2df52654daddd827cf7501ad862caf8e588be3430e5e2ce658a10ba493af161c",
+  "production_route_unroute_bitwise": true,
+  "unused_expert_gradients_explicit_zero": true,
+  "optimizer_updates": 0,
+  "raw_candidate_gradients_retained": false,
+  "phase_memory_measured": false,
+  "prior_attempts": "Runtime import failure and unused-expert fixture handling error preserved alongside successful logs",
+  "suite_seconds": 3.112
+}
