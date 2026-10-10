@@ -1,7 +1,7 @@
 # Full-context scaling benchmark — pending qualification
 
 Run this matrix after Opt7, Opt8, Opt9 and Opt10 pass their full-anchor gradient
-gate: bitwise equality or global relative L2 below 1% against the unchanged
+gate: bitwise equality or global relative L2 below 2% against the unchanged
 Opt3 control. Keep the native-reference comparison as well. Do not benchmark
 an unqualified composition as the accepted optimized architecture.
 

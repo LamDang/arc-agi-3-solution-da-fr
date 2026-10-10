@@ -34,5 +34,6 @@
   "diagnostic_initialization": true,
   "benchmark_tokens": 64000,
   "benchmark_repeats": 2,
-  "fla_numeric_profile": "reference-v0"
+  "fla_numeric_profile": "reference-v0",
+  "chunking_gradient_limit": 0.02
 }

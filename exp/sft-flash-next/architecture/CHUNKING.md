@@ -12,14 +12,20 @@ evidence review before accepting or continuing that implementation. The primary
 agent performs fixes and execution. Record findings and their disposition.
 The first Opt7 review is in `reports/astra-opt7-review.md`.
 
-User gate: bitwise gradients or **global gradient relative L2 < 1%**. Each capture
+User gate, revised2026-10-10: bitwise gradients or **global gradient relative L2 < 2%**. Each capture
 first compares all 74,472 FP32 adapter gradients with the saved native-head
 reference, then executes one additional F/B on the same model with all chunk
 sizes zero. This isolates chunking from Opt3's previously measured 1.7842%
 difference against the native-head reference. Both comparisons are reported;
-the isolated comparison is subject to the 1% chunking gate. No raw gradients from
+the isolated comparison is subject to the 2% chunking gate. No raw gradients from
 either candidate or its control are written to disk. Each control phase is
 separately measured, and retains candidate gradients in CPU RAM while it runs.
+
+Opt7 v4 measured1.783424% and is accepted under the user's revised2% gate.
+Its original1% failure and process exit remain preserved. The accepted report
+records both policies; this acceptance does not establish bitwise equivalence
+or prove the discrepancy is solely BF16 rounding. New configs explicitly record
+`chunking_gradient_limit=0.02` for the cumulative comparison against Opt3.
 
 ## Opt7: routed experts
 

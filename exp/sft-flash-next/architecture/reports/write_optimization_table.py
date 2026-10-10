@@ -23,7 +23,7 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: expert slices (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: original 1% gate (failed)'),('opt7','Opt7: + expert chunks (accepted at 2%)'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
@@ -78,6 +78,11 @@ probe=ROOT/'results/20261010-reverse-scan-dispatch-probe'
 if probe.exists():
  values=['Reverse-scan dispatch preflight','scan outputs only','warp1 differs from2/4/8','not gradient qualification','unseeded random diagnostic','4 direct JIT launches','unmeasured','unmeasured','unmeasured','unmeasured','—']
  lines.append('| '+' | '.join(values)+' |')
+interrupted_head=ROOT/'reports/expert-head-interrupted.json'
+if interrupted_head.exists():
+ r=read(interrupted_head)
+ values=[f'Head/expert diagnosis stopped on user request<br>wall {r["monitor"]["seconds"]:.2f}','not run','not run','—','—','loading (incomplete)','partial samples only','unavailable','not a completed phase peak','unavailable','—']
+ lines.append('| '+' | '.join(values)+' |')
 for tokens in [32000,64000,96000,120000]:
  path=ROOT/'reports'/f'benchmark-{tokens}.json'
  if not path.exists():
@@ -131,7 +136,8 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'Only reference raw gradients are retained. Candidates keep comparisons and',
 'statistics, with exact initialization verified against reference shards. Raw',
 'candidate gradients and duplicate initial-state archives are never written.',
-'Opt7–10 use the user-specified gradient gate: bitwise equality or global relative L2 below 1%.',
+'Opt7–10 use the user-specified gradient gate: bitwise equality or global relative L2 below 2% (user revised 2026-10-10).',
+'Opt7 v4 was accepted retrospectively at2%; its original1% failure remains preserved.',
 'The isolated comparison disables all chunking on the same model; Opt1–3 remain enabled.',
 'Its control F/B is separately timed and holds candidate raw gradients in RAM (never on disk).',
 'Candidate F/B precedes that extra RAM retention. Native-reference differences remain reported.',

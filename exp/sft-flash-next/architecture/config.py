@@ -1,6 +1,7 @@
 """Validated, serializable architecture and execution configuration."""
 from dataclasses import asdict, dataclass, fields
 import json
+import math
 from pathlib import Path
 
 
@@ -64,6 +65,7 @@ class Config:
     benchmark_repeats: int = 2
     benchmark_tokens: int | None = None
     fla_numeric_profile: str | None = None
+    chunking_gradient_limit: float = 0.02
 
     @property
     def adapter_tensors(self):
@@ -72,6 +74,8 @@ class Config:
     def validate(self, mode):
         if mode not in {'test','train','benchmark'}:raise ValueError('Unknown execution mode')
         self.optimizations.validate()
+        if type(self.chunking_gradient_limit) not in (int,float) or not math.isfinite(self.chunking_gradient_limit) or not 0<self.chunking_gradient_limit<=1:
+            raise ValueError('Chunking gradient limit must be finite and in (0,1]')
         if self.fla_numeric_profile not in {None,'reference-v0'}:
             raise ValueError('Unknown FLA numerical profile')
         if mode == 'train' and self.fla_numeric_profile is not None:

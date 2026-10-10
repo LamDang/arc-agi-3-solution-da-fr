@@ -91,7 +91,7 @@ Both entry points accept the same architecture/optimization overrides, including
 `--no-<flag>`. `--validate-only` checks configuration without importing CUDA.
 `test.py` performs one candidate anchor forward/backward and zero optimizer
 updates. Chunking qualification also performs one unchunked control forward/backward
-on the same unchanged model, then enforces the user-specified <1% gradient gate. Only `architecture="reference"` retains raw gradients. Optimized/native
+on the same unchanged model, then enforces the user-specified <2% gradient gate. Only `architecture="reference"` retains raw gradients. Optimized/native
 candidates compare all raw named gradients in memory against the configured
 reference, save `comparison.json` (bitwise matches, relative L2, cosine and
 per-tensor differences), then discard the candidate tensors. Training does not
@@ -173,7 +173,7 @@ CCE and does not separately prove full-model mask equivalence.
 
 ## Chunked activation replay (Opt7–10)
 
-See [CHUNKING.md](CHUNKING.md) for component boundaries, the <1% gradient gate,
+See [CHUNKING.md](CHUNKING.md) for component boundaries, the <2% gradient gate,
 paired in-memory control and cumulative configurations. Use `configs/opt7.json`
 through `configs/opt10.json`; `--chunk-tokens` controls window size.
 

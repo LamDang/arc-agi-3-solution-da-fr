@@ -1,3 +1,21 @@
+# User revised gate: Opt7 accepted, advance to Opt8 — 2026-10-10
+
+* User explicitly says accept Opt7 and move gradient threshold to2%. Measured
+  fullpaired Opt7v4 20261010041736293-6ef871bc globalL2 1.783424% now ACCEPTED.
+  reports/opt7-rerun.json records revised2% acceptance and original1% failure;
+  original execution artifacts/exit/result remain untouched. Not bitwise equality.
+* Config.chunking_gradient_limit defaults .02; cumulativeOpt7–10/benchmark
+  configs explicitly record .02. Runtime and reviewers use recorded policy;
+  historical attempts default .01. Same-model unchunked Opt3 control remains.
+* Optional combined diagnostic20261010045901358-9aba7efa executionfda3f01 was
+  stopped during loading following user's move-on request (child4436 SIGTERM,
+  monitor-15/148.966s). Collected/cacheDVC, no result or backward. It did not
+  establish CCE repeatability. reports/expert-head-interrupted.json records stop.
+* Next launch Opt8 cumulativeexpert+QSA chunks under2% gate, thenOpt9,Opt10,
+  then32/64/96/120K two-F/B benchmarks. Astra review any new failedgate.
+* Test-only FLA forcing remains guarded; initialization exact, no update/push.
+  No Jupyter shutdown until all requested measurements collected and verified.
+
 # Expert diagnostic completed — 2026-10-10
 
 * Attempt20261010044356417-24bc0932 execution507af2c completed459.830s/return0.

@@ -26,6 +26,11 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ValueError):Optimizations(disk_ple='false').validate()
     def test_unknown_head_rejected(self):
         with self.assertRaises(ValueError):Optimizations(head='approximate').validate()
+    def test_chunking_limit_rejects_unusable_values(self):
+        self.assertEqual(self.config().chunking_gradient_limit,.02)
+        self.config(chunking_gradient_limit=.02).validate('test')
+        for limit in [0,-.01,float('nan'),float('inf'),True,'0.02',1.01]:
+            with self.assertRaises(ValueError):self.config(chunking_gradient_limit=limit).validate('test')
     def test_new_reference_preset_and_adapter_inventory(self):
         c=load_config(Path(__file__).resolve().parents[1]/'configs/reference.json','test')
         self.assertEqual(c.optimizations,reference_options())

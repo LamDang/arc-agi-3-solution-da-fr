@@ -24,7 +24,10 @@ def read(path):return json.loads(Path(path).read_text())
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('attempt');parser.add_argument('--label');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('attempt');parser.add_argument('--label')
+    parser.add_argument('--acceptance-limit',type=float,help='User-authorized retrospective gate; preserves original execution result')
+    args=parser.parse_args()
+    if args.acceptance_limit is not None:assert math.isfinite(args.acceptance_limit) and 0<args.acceptance_limit<=1
     job=Path(args.attempt).resolve();out=job/'output'
     config=read(job/'config.json');result=read(out/'result.json');monitor=read(job/'monitor.json')
     profile=numerical_profile(job,config)
@@ -107,7 +110,9 @@ def main():
         assert paired['raw_tensors']==74472 and len(paired['tensors'])==74472
         assert paired['baseline_gradients_sha256'] is None and paired['raw_gradients_retained'] is False
         assert all(r['finite'] for r in paired['tensors'].values())
-        assert paired['gradient_gate_passed']==(paired['global_relative_l2']<.01)
+        execution_limit=config.get('chunking_gradient_limit',.01)
+        assert paired.get('gradient_limit',execution_limit)==execution_limit
+        assert paired['gradient_gate_passed']==(paired['global_relative_l2']<execution_limit)
         assert result['chunking_gradient_gate_passed']==paired['gradient_gate_passed']
         assert sum(r['bitwise_equal'] for r in paired['tensors'].values())==paired['bitwise_equal_tensors']
         if 'reference_norm' in paired:
@@ -138,10 +143,15 @@ def main():
         scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False,
         numerical_profile=profile)
     if paired is not None:
+        acceptance_limit=args.acceptance_limit if args.acceptance_limit is not None else execution_limit
         report.update(chunking_gradient_relative_l2=paired['global_relative_l2'],chunking_gradient_cosine=paired['cosine'],
-            chunking_gradient_gate_passed=paired['gradient_gate_passed'],chunking_control_loss=paired['baseline_loss'],
+            chunking_gradient_gate_passed=paired['global_relative_l2']<acceptance_limit,chunking_control_loss=paired['baseline_loss'],
             chunking_bitwise_equal_gradients=paired['bitwise_equal_tensors'],chunking_loss_bitwise_equal=paired['loss_bitwise_equal'],
-            chunking_bitwise_equal_nonzero_gradients=paired['bitwise_equal_nonzero_reference_tensors'],chunking_gradient_limit=.01)
+            chunking_bitwise_equal_nonzero_gradients=paired['bitwise_equal_nonzero_reference_tensors'],chunking_gradient_limit=acceptance_limit,
+            original_execution_gradient_limit=execution_limit,original_execution_gate_passed=paired['gradient_gate_passed'],
+            acceptance_policy_revised=args.acceptance_limit is not None)
+        if args.acceptance_limit is not None:
+            report['acceptance_authorization']='User: accept Opt7 and move threshold to2%; 2026-10-10. Original artifacts unchanged.'
     (ROOT/'reports'/f'{label.lower()}-rerun.json').write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p)) for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
     (job/'file-hashes.json').write_text(json.dumps(inventory,indent=2)+'\n')

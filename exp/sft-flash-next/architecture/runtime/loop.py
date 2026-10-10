@@ -165,8 +165,9 @@ def run(config, mode):
                         control_raw=gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)
                     with resources.phase('chunking_comparison'):
                         paired=compare(raw,value,dict(loss=control_loss,gradients=control_raw))
-                    paired['gradient_gate_passed']=paired['global_relative_l2']<.01
-                    paired['gradient_gate']='Global relative L2 < 0.01 (1%), or bitwise equality; finite gradients required'
+                    paired['gradient_gate_passed']=paired['global_relative_l2']<config.chunking_gradient_limit
+                    paired['gradient_limit']=config.chunking_gradient_limit
+                    paired['gradient_gate']=f'Global relative L2 < {config.chunking_gradient_limit:g} ({config.chunking_gradient_limit:.0%}), or bitwise equality; finite gradients required'
                     paired['control']='Same model, initialization, sample and Opt1–3; all chunk sizes set to zero'
                     paired['raw_gradients_retained']=False
                     write(output/'chunking-comparison.json',paired)
@@ -190,7 +191,7 @@ def run(config, mode):
             write(output/'result.json',result);event('finished',**result)
             del raw
             if paired is not None and not paired['gradient_gate_passed']:
-                raise RuntimeError('Chunking gradient relative L2 failed the user gate: must be < 1%; comparison metrics preserved')
+                raise RuntimeError(f'Chunking gradient relative L2 failed the user gate: must be < {config.chunking_gradient_limit:.0%}; comparison metrics preserved')
             if comparison is not None and config.comparison_mode == 'exact' and not comparison['passed']:
                 raise RuntimeError('Refactor equality gate failed; preserved comparison metrics')
             return result

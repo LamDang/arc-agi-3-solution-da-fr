@@ -30,5 +30,6 @@
   },
   "comparison_mode": "report",
   "diagnostic_initialization": true,
-  "fla_numeric_profile": "reference-v0"
+  "fla_numeric_profile": "reference-v0",
+  "chunking_gradient_limit": 0.02
 }
