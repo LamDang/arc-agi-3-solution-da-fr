@@ -1,0 +1,24 @@
+{
+  "architecture": "reference",
+  "model": "/tmp/reference-256-hf",
+  "samples": [
+    "/kaggle/working/architecture-runs/component-smoke-sample.pt"
+  ],
+  "adapter": null,
+  "prompt_tokens": null,
+  "output": "/tmp/flash-next-architecture-artifacts/reference/output",
+  "optimizations": {
+    "bf16_activations": true,
+    "disk_ple": true,
+    "offload_routed_experts": true,
+    "lora_routed_experts": true
+  },
+  "expected_sha256": {
+    "sample": "c46024a02cefcb39471ef2ae57ce90f1de522cb693130775b02681bee329a008",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "baseline": null,
+  "comparison_mode": "report",
+  "diagnostic_initialization": true,
+  "max_tokens": 32
+}

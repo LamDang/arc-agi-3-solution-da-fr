@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "run_id": "cce-opt5-bf16-v6",
+  "purpose": "diagnostic-gradient-qualification-only",
+  "model": "/tmp/reference-256-hf",
+  "sample": "/kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt",
+  "adapter": "/kaggle/working/gradient-audit-20261009/nonzero-diagnostic-adapter-v2/adapter.pt",
+  "bootstrap": "/kaggle/working/bootstrap/reference-one-run-bootstrap.py",
+  "reference_script": "/kaggle/working/training-gradient-audit/exp/sft-flash-next/train/overfit_hf_reference.py",
+  "reference_script_commit": "c7ff17e78776a9888b280531a0c53718efa45c02",
+  "reference_seed": 20261009,
+  "prompt_tokens": 15598,
+  "remote_output": "/kaggle/working/gradient-audit-20261009/cce-opt5-bf16-v6",
+  "remote_launch": "/kaggle/working/gradient-audit-20261009/cce-opt5-bf16-v6-launch",
+  "local_output": "exp/sft-flash-next/train/gradient-results/cce-opt5-bf16-v6",
+  "local_metrics": "exp/sft-flash-next/train/metrics/cce-opt5-bf16-v6.json",
+  "expected_loss_float32_bits": "3f202826",
+  "expected_gradients_sha256": "235d769690d07fe434ceb870ec8f5008e7be4b6e61e14c6f0f4dcc7bf483dc8b",
+  "timeout_seconds": 1200,
+  "environment": {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+  },
+  "expected_sha256": {
+    "sample": "48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff",
+    "adapter": "49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f",
+    "bootstrap": "1e598a8534a8655d4a99e20ca209f13c464c91e5b82818690da590ed38aed2e8",
+    "reference_script": "f95893baa503ec446d4610878b7d5feb7ee975e9313e282349cac2d8952573a0",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "objective": "cce_opt5_bf16",
+  "dvc_stage": "exp/sft-flash-next/train/dvc.yaml:cce_opt5_bf16_v6",
+  "candidate_sources_sha256": {
+    "target_only_head.py": "5028f809085be2d9be80b345f72d816f8c51577a989725ef6594c880af176e9f",
+    "cce_target_loss.py": "c813e2a2041c069e6c4a92adbfff36bc9fc29ed004660d29e763d78f7fc294ff",
+    "cce_operator_check.py": "9d5e933b8d8c9ffc5befbf91cad1a365c30b04b0438f1f36efeeaf4872de80cc",
+    "native_mask_storage.py": "7609ebd677dac2b48b3ee1ae6234666b03df76f666d32be7ceb38fec1475b09e",
+    "opt3_mask_capture.py": "d25cb4778938822beddffea1126ca1086e0a16b2e77f0749f079e5b03f001304",
+    "opt3_mask_operator_check.py": "30a5b1ad52269256421532f02614c12cda2e47af87fa30c5d188c0e0548fe8aa",
+    "ple_preparation.py": "24997b483a6e42fd378638ec9d0c2147af8128da3652c468efae72421e72d1a0",
+    "opt4_ple_capture.py": "9ae0817bf9f121193122c91895a05cc4ca1306f3100d040e62254aa32b6e0142",
+    "opt4_ple_operator_check.py": "0de172962537b8a2ca364102b86c4cf0e6be33d48b4531540ba0a399a08de9cf",
+    "bf16_activation_policy.py": "aa081f6dbf802bbfec3e61c5495014b680d8299badf3c6f8780ddc3bcb6f28ff"
+  },
+  "interleaved_operator_check": true,
+  "native_gradients": "/kaggle/working/gradient-audit-20261009/cce-opt4-ple-v5-attempt-20261009173647-1a7e7242/gradients.pt",
+  "cce_dependency": {
+    "commit": "3de376c106a1916bc5e1b619f9c77c87a461ee1c",
+    "url": "https://codeload.github.com/apple/ml-cross-entropy/tar.gz/3de376c106a1916bc5e1b619f9c77c87a461ee1c",
+    "sha256": "446d282d5b9f5bf2f8bc5a551a016498706f5066230ed682f7477c16c09cc553",
+    "remote_archive": "/kaggle/working/gradient-audit-20261009/cce-3de376c106a1916bc5e1b619f9c77c87a461ee1c.tar.gz",
+    "archive_prefix": "ml-cross-entropy-3de376c106a1916bc5e1b619f9c77c87a461ee1c"
+  },
+  "comparison_baseline": "cce-opt4-ple-v5; same CCE exact, Opt3 and Opt4; BF16 precision changes are expected to alter numerics",
+  "precision_policy": {
+    "lora_parameters": "bfloat16",
+    "module_boundary_activations": "bfloat16",
+    "saved_floating_activations": "bfloat16",
+    "scalar_loss": "float32",
+    "intermediate_computation": "native mixed precision; FP32 allowed",
+    "saved_fp32_statistics": "lossy BF16 storage; restored to FP32 for backward",
+    "optimizer_updates": 0
+  }
+}

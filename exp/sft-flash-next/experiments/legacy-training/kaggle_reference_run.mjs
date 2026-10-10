@@ -1,0 +1,479 @@
+/** Run and collect a pinned native gradient capture through Kaggle Jupyter API.
+ *
+ * The private bearer URL is read only from --url-file and never written to an
+ * artifact. DVC invokes this runner as a stage; this script never pushes DVC.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(here, '../../..');
+const remoteWorker = '/kaggle/working/training-gradient-audit/exp/sft-flash-next/train/kaggle_reference_worker.py';
+const remoteRoot = '/kaggle/working/gradient-audit-20261009';
+
+export function resolveAttempt(config, nonce = `${new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)}-${crypto.randomBytes(4).toString('hex')}`) {
+  if (!/^[0-9]{14}-[0-9a-f]{8}$/.test(nonce)) throw new Error('Invalid attempt identifier');
+  return { ...config, attempt_id: nonce,
+    remote_output: `${config.remote_output}-attempt-${nonce}`,
+    remote_launch: `${config.remote_launch}-attempt-${nonce}`,
+    remote_config: `${remoteRoot}/${config.run_id}-attempt-${nonce}-config.json` };
+}
+
+export function validateConfig(config) {
+  if (config.schema_version !== 1 || config.purpose !== 'diagnostic-gradient-qualification-only') throw new Error('Unsupported diagnostic config');
+  if (!/^[a-zA-Z0-9_-]+$/.test(config.run_id)) throw new Error('Invalid run_id');
+  if (config.timeout_seconds !== 1200 || config.prompt_tokens !== 15598) throw new Error('Pinned time/token settings differ');
+  if (config.reference_script_commit !== 'c7ff17e78776a9888b280531a0c53718efa45c02') throw new Error('Reference commit differs');
+  if (config.reference_seed !== 20261009) throw new Error('Native reference seed differs');
+  if (config.expected_sha256?.reference_script !== 'f95893baa503ec446d4610878b7d5feb7ee975e9313e282349cac2d8952573a0') throw new Error('Native script hash differs');
+  if (config.expected_sha256?.adapter !== '49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f') throw new Error('Pinned adapter differs');
+  if (config.expected_sha256?.sample !== '48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff') throw new Error('Pinned sample differs');
+  if (JSON.stringify(config.environment) !== JSON.stringify({ CUBLAS_WORKSPACE_CONFIG: ':4096:8', PYTORCH_CUDA_ALLOC_CONF: 'expandable_segments:True' })) throw new Error('Pinned environment differs');
+  if (!config.remote_output.startsWith('/kaggle/working/gradient-audit-20261009/') ||
+      !config.remote_launch.startsWith('/kaggle/working/gradient-audit-20261009/') ||
+      config.remote_output === config.remote_launch) throw new Error('Unsafe remote output paths');
+  if (!config.local_output.startsWith('exp/sft-flash-next/train/gradient-results/') ||
+      config.local_output.includes('..')) throw new Error('Unsafe local output path');
+  if (!config.local_metrics.startsWith('exp/sft-flash-next/train/metrics/') ||
+      config.local_metrics.includes('..')) throw new Error('Unsafe local metrics path');
+  if (!/^[0-9a-f]{8}$/.test(config.expected_loss_float32_bits) ||
+      !/^[0-9a-f]{64}$/.test(config.expected_gradients_sha256)) throw new Error('Missing exact reference gate');
+  if (!['native', 'target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective ?? 'native')) throw new Error('Unsupported objective');
+  if (config.objective === 'liger_target_flce') {
+    const dep = config.liger_dependency;
+    if (dep?.version !== '0.8.4' || dep.sha256 !== '9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111' ||
+        dep.remote_wheel !== `${remoteRoot}/liger_kernel-0.8.4-py3-none-any.whl` ||
+        !dep.url.startsWith('https://files.pythonhosted.org/packages/') ||
+        !config.candidate_sources_sha256?.['liger_target_loss.py'] ||
+        !config.candidate_sources_sha256?.['liger_operator_check.py'] ||
+        config.native_gradients !== `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`)
+      throw new Error('Missing pinned Liger dependency/comparison identity');
+  }
+  if (['cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)) {
+    const dep = config.cce_dependency;
+    if (dep?.commit !== '3de376c106a1916bc5e1b619f9c77c87a461ee1c' ||
+        dep.sha256 !== '446d282d5b9f5bf2f8bc5a551a016498706f5066230ed682f7477c16c09cc553' ||
+        dep.url !== `https://codeload.github.com/apple/ml-cross-entropy/tar.gz/${dep.commit}` ||
+        dep.remote_archive !== `${remoteRoot}/cce-${dep.commit}.tar.gz` ||
+        dep.archive_prefix !== `ml-cross-entropy-${dep.commit}` ||
+        !config.candidate_sources_sha256?.['cce_target_loss.py'] ||
+        !config.candidate_sources_sha256?.['cce_operator_check.py'] ||
+        config.native_gradients !== (config.objective === 'cce_opt5_bf16'
+          ? `${remoteRoot}/cce-opt4-ple-v5-attempt-20261009173647-1a7e7242/gradients.pt`
+          : config.objective === 'cce_opt4_ple'
+          ? `${remoteRoot}/cce-opt3-mask-v4-attempt-20261009171104-b3b5e641/gradients.pt`
+          : config.objective === 'cce_opt3_mask'
+          ? `${remoteRoot}/cce-exact-v3-attempt-20261009164944-23fb1fb3/gradients.pt`
+          : `${remoteRoot}/reference-nonzero-ab-repeat-v1/gradients.pt`))
+      throw new Error('Missing pinned CCE dependency/comparison identity');
+  }
+  if (config.objective === 'cce_opt3_mask' &&
+      (config.expected_loss_float32_bits !== '3f20282a' ||
+       config.expected_gradients_sha256 !== 'e8f555e2745cc21b466c281474a50442a19a8ba4819c00e73ac03e97c58319a3' ||
+       !['native_mask_storage.py', 'opt3_mask_capture.py', 'opt3_mask_operator_check.py'].every(name => config.candidate_sources_sha256?.[name])))
+    throw new Error('Missing pinned Opt3 source/CCE baseline');
+  if (config.objective === 'cce_opt4_ple' &&
+      (config.expected_loss_float32_bits !== '3f202827' ||
+       config.expected_gradients_sha256 !== 'ab1decf082a64b8ee9e45cce81f18ca4500c3faf68faa9dafe3f2eb70c40d66f' ||
+       !['native_mask_storage.py', 'opt3_mask_capture.py', 'opt3_mask_operator_check.py',
+         'ple_preparation.py', 'opt4_ple_capture.py', 'opt4_ple_operator_check.py'].every(name => config.candidate_sources_sha256?.[name])))
+    throw new Error('Missing pinned Opt4 source/Opt3 baseline');
+  if (config.objective === 'cce_opt5_bf16' &&
+      (config.expected_loss_float32_bits !== '3f202826' ||
+       config.expected_gradients_sha256 !== '235d769690d07fe434ceb870ec8f5008e7be4b6e61e14c6f0f4dcc7bf483dc8b' ||
+       !['bf16_activation_policy.py', 'ple_preparation.py', 'opt4_ple_capture.py',
+         'opt4_ple_operator_check.py', 'native_mask_storage.py', 'opt3_mask_capture.py',
+         'opt3_mask_operator_check.py'].every(name => config.candidate_sources_sha256?.[name])))
+    throw new Error('Missing pinned BF16 policy/Opt4 baseline');
+  if (config.precision_policy?.implementation === 'model_activations_native_statistics' &&
+      (config.objective !== 'cce_opt5_bf16' ||
+       config.precision_policy.saved_fp32_statistics !== 'native float32 unchanged' ||
+       !config.candidate_sources_sha256?.['bf16_model_activations.py']))
+    throw new Error('Missing activation-only policy/native statistics contract');
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    if (path.basename(name) !== name || !name.endsWith('.py') || !/^[0-9a-f]{64}$/.test(hash)) throw new Error('Unsafe candidate source identity');
+  }
+  if (config.objective === 'target_only_mask_native_backward' && !config.candidate_sources_sha256?.['target_only_head.py']) throw new Error('Missing target-mask source');
+  return config;
+}
+
+export function sha256(data) { return crypto.createHash('sha256').update(data).digest('hex'); }
+
+function privateBase(urlFile) {
+  const value = fs.readFileSync(urlFile, 'utf8').trim().replace(/\/$/, '');
+  if (!/^https:\/\//.test(value)) throw new Error('Private Jupyter URL must be HTTPS');
+  return value;
+}
+
+async function request(base, endpoint, options = {}) {
+  let response;
+  try { response = await fetch(`${base}${endpoint}`, { signal: AbortSignal.timeout(90000), ...options }); }
+  catch { throw new Error('Jupyter request failed; private URL omitted'); }
+  if (!response.ok) throw new Error(`Jupyter request failed: HTTP ${response.status}; private URL omitted`);
+  return response;
+}
+
+async function execute(base, code) {
+  const kernels = await (await request(base, '/api/kernels')).json();
+  if (kernels.length !== 1) throw new Error(`Expected one Jupyter kernel, found ${kernels.length}`);
+  const socketUrl = `${base.replace(/^https:/, 'wss:')}/api/kernels/${kernels[0].id}/channels`;
+  const msgId = crypto.randomUUID();
+  const session = crypto.randomUUID();
+  return await new Promise((resolve, reject) => {
+    let output = '';
+    let settled = false;
+    const socket = new WebSocket(socketUrl);
+    const timer = setTimeout(() => { if (!settled) { settled = true; socket.close(); reject(new Error('Jupyter execution timed out')); } }, 90000);
+    socket.addEventListener('open', () => socket.send(JSON.stringify({
+      header: { msg_id: msgId, username: 'codex', session, date: new Date().toISOString(), msg_type: 'execute_request', version: '5.3' },
+      parent_header: {}, metadata: {}, channel: 'shell',
+      content: { code, silent: false, store_history: false, user_expressions: {}, allow_stdin: false, stop_on_error: true }
+    })));
+    socket.addEventListener('message', event => {
+      let msg; try { msg = JSON.parse(event.data); } catch { return; }
+      if (msg.parent_header?.msg_id !== msgId) return;
+      if (msg.msg_type === 'stream') output += msg.content.text;
+      if (msg.msg_type === 'error') output += `${msg.content.ename}: ${msg.content.evalue}\n`;
+      if (msg.msg_type === 'execute_reply') {
+        settled = true; clearTimeout(timer); socket.close();
+        if (msg.content.status === 'ok') resolve(output.trim());
+        else reject(new Error(`Remote execution failed: ${output.slice(-1000)}`));
+      }
+    });
+    socket.addEventListener('error', () => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(new Error('Jupyter WebSocket failed; private URL omitted')); }
+    });
+  });
+}
+
+async function upload(base, remotePath, bytes) {
+  const relative = remotePath.replace(/^\/kaggle\/working\//, '');
+  if (relative === remotePath) throw new Error('Upload path must be under /kaggle/working');
+  const payload = JSON.stringify({ type: 'file', format: 'base64', content: bytes.toString('base64') });
+  await request(base, `/api/contents/${relative}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: payload });
+}
+
+function pyLiteral(value) { return JSON.stringify(value); }
+
+export function preflightCode(config, workerHash) {
+  return `import json,hashlib,subprocess\nfrom pathlib import Path\nc=json.loads(Path(${pyLiteral(config.remote_config)}).read_text())\nwith Path(${pyLiteral(remoteWorker)}).open('rb') as stream: actual=hashlib.file_digest(stream,'sha256').hexdigest()\nassert actual==${pyLiteral(workerHash)}\nassert not Path(c['remote_output']).exists() and not Path(c['remote_launch']).exists()\nr=subprocess.run(['/usr/bin/python3',${pyLiteral(remoteWorker)},'validate',${pyLiteral(config.remote_config)}],capture_output=True,text=True,timeout=60)\nassert r.returncode==0,r.stderr[-1000:]\nprint(json.dumps({'preflight':'ok','run_id':c['run_id'],'attempt_id':c['attempt_id'],'worker_sha256':actual}))`;
+}
+
+async function preflight(base, config, workerBytes) {
+  if (['liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)) {
+    const dep = config.liger_dependency ?? config.cce_dependency;
+    const response = await fetch(dep.url, { signal: AbortSignal.timeout(90000) });
+    if (!response.ok) throw new Error('Pinned Liger wheel download failed');
+    const wheel = Buffer.from(await response.arrayBuffer());
+    if (sha256(wheel) !== dep.sha256) throw new Error('Liger wheel checksum differs');
+    await upload(base, dep.remote_wheel ?? dep.remote_archive, wheel);
+  }
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    const bytes = fs.readFileSync(path.join(here, name));
+    if (sha256(bytes) !== hash) throw new Error(`Local candidate source hash differs: ${name}`);
+    await upload(base, `${path.posix.dirname(remoteWorker)}/${name}`, bytes);
+  }
+  await upload(base, remoteWorker, workerBytes);
+  await upload(base, config.remote_config, Buffer.from(JSON.stringify(config, null, 2) + '\n'));
+  const result = await execute(base, preflightCode(config, sha256(workerBytes)));
+  if (!result.includes('"preflight": "ok"')) throw new Error('Remote preflight did not confirm readiness');
+  return result;
+}
+
+async function launch(base, config) {
+  const code = `import subprocess,json\nr=subprocess.run(['/usr/bin/python3',${pyLiteral(remoteWorker)},'launch',${pyLiteral(config.remote_config)}],capture_output=True,text=True,timeout=60)\nprint(json.dumps({'returncode':r.returncode,'stdout':r.stdout[-1500:],'stderr':r.stderr[-1500:]}))\nassert r.returncode==0`;
+  return await execute(base, code);
+}
+
+async function jsonIfExists(base, remotePath) {
+  const relative = remotePath.replace(/^\/kaggle\/working\//, '');
+  let response;
+  try { response = await fetch(`${base}/files/${relative}`, { signal: AbortSignal.timeout(15000) }); }
+  catch { throw new Error('Jupyter status request failed; private URL omitted'); }
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Jupyter status HTTP ${response.status}; private URL omitted`);
+  return await response.json();
+}
+
+async function waitForMonitor(base, config) {
+  const monitorPath = `${config.remote_launch}/monitor.json`;
+  const deadline = Date.now() + (config.timeout_seconds + 150) * 1000;
+  let lastUpdate = 0;
+  while (true) {
+    const status = await jsonIfExists(base, monitorPath);
+    if (status) return status;
+    if (Date.now() > deadline) throw new Error('Monitor completion deadline exceeded; use --action collect after inspecting remote attempt');
+    if (Date.now() - lastUpdate > 60000) {
+      console.log(JSON.stringify({ run_id: config.run_id, attempt_id: config.attempt_id, status: 'waiting' }));
+      lastUpdate = Date.now();
+    }
+    await new Promise(resolve => setTimeout(resolve, 10000));
+  }
+}
+
+export function artifactNames(entries) {
+  // Kaggle's Jupytext contents manager reports .py source files as notebooks.
+  return entries.filter(entry => ['file', 'notebook'].includes(entry.type)).map(entry => {
+    if (path.basename(entry.name) !== entry.name) throw new Error('Unsafe artifact name');
+    return entry.name;
+  });
+}
+
+async function listRemote(base, remoteDirectory) {
+  const relative = remoteDirectory.replace(/^\/kaggle\/working\//, '');
+  const item = await (await request(base, `/api/contents/${relative}?content=1`)).json();
+  if (item.type !== 'directory') throw new Error('Expected remote artifact directory');
+  return artifactNames(item.content);
+}
+
+async function downloadFile(base, remotePath, localPath) {
+  const relative = remotePath.replace(/^\/kaggle\/working\//, '');
+  const response = await request(base, `/files/${relative}`);
+  const temporary = `${localPath}.part`;
+  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(temporary));
+  fs.renameSync(temporary, localPath);
+  const bytes = fs.readFileSync(localPath);
+  return { bytes: bytes.length, sha256: sha256(bytes) };
+}
+
+async function collect(base, config) {
+  const monitor = await jsonIfExists(base, `${config.remote_launch}/monitor.json`);
+  if (!monitor) throw new Error('Remote monitor has not finished');
+  const local = path.join(repoRoot, config.local_output);
+  fs.mkdirSync(local, { recursive: true });
+  const frozen = JSON.parse(fs.readFileSync(path.join(local, 'frozen-identities.json')));
+  for (const [name, hash] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+    if (sha256(fs.readFileSync(path.join(local, `frozen-candidate-${name}`))) !== hash) throw new Error('Frozen candidate source changed');
+  }
+  if (sha256(fs.readFileSync(path.join(local, 'frozen-runner.mjs'))) !== frozen.runner_sha256 ||
+      sha256(fs.readFileSync(path.join(local, 'frozen-worker.py'))) !== frozen.worker_sha256 ||
+      sha256(fs.readFileSync(path.join(local, 'frozen-config-template.json'))) !== frozen.config_template_sha256 ||
+      sha256(fs.readFileSync(path.join(local, 'frozen-reference.py'))) !== frozen.native_source_sha256)
+    throw new Error('Locally frozen runner/source/config bytes changed during capture');
+  const files = {};
+  for (const [remoteDirectory, prefix] of [[config.remote_output, ''], [config.remote_launch, 'launch-']]) {
+    for (const name of await listRemote(base, remoteDirectory)) {
+      const localName = `${prefix}${name}`;
+      files[localName] = await downloadFile(base, `${remoteDirectory}/${name}`, path.join(local, localName));
+    }
+  }
+  const result = JSON.parse(fs.readFileSync(path.join(local, 'result.json')));
+  const summary = JSON.parse(fs.readFileSync(path.join(local, 'gradient-summary.json')));
+  const timing = JSON.parse(fs.readFileSync(path.join(local, 'launch-timing-summary.json')));
+  const launchRecord = JSON.parse(fs.readFileSync(path.join(local, 'launch-launch.json')));
+  const a = Object.entries(summary).filter(([name]) => name.includes('lora_A'));
+  const b = Object.entries(summary).filter(([name]) => name.includes('lora_B'));
+  const gradients = { a_tensors: a.length, b_tensors: b.length,
+    a_nonzero_tensors: a.filter(([, row]) => row.nonzero > 0).length,
+    b_nonzero_tensors: b.filter(([, row]) => row.nonzero > 0).length };
+  const targetHead = ['target_only_mask_native_backward', 'liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'target-head.json'))) : null;
+  const targetHeadValid = !targetHead || (targetHead.head_calls.length === 1 &&
+    targetHead.head_calls[0].context_tokens === result.tokens &&
+    targetHead.head_calls[0].target_tokens === result.supervised_tokens &&
+    (['cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+      ? targetHead.frozen_head === true && targetHead.implementation === 'cce_exact' &&
+        targetHead.effective_options.filter_eps === null &&
+        targetHead.effective_options.filter_e_grad === false &&
+        targetHead.effective_options.filter_c_grad === false &&
+        targetHead.effective_options.accum_e_fp32 === true &&
+        targetHead.effective_options.accum_c_fp32 === true &&
+        targetHead.head_calls[0].dense_logits_materialized === false &&
+        targetHead.vocabulary_saved_tensor_calls.length === 0
+      : config.objective === 'liger_target_flce'
+      ? targetHead.frozen_head === true && targetHead.liger_version === '0.8.4' &&
+        targetHead.head_calls[0].dense_logits_materialized === false &&
+        targetHead.vocabulary_saved_tensor_calls.length === 0
+      : targetHead.vocabulary_saved_tensor_calls.length > 0 &&
+        targetHead.vocabulary_saved_tensor_calls.every(row => row.saved_device === 'cpu' &&
+          row.shape.slice(0, -1).reduce((a, b) => a * b, 1) === result.supervised_tokens)));
+  const gradientComparison = ['liger_target_flce', 'cce_target_exact', 'cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'gradient-comparison.json'))) : null;
+  const operatorCheck = config.interleaved_operator_check
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-operator-check-report.json'))) : null;
+  const attentionMask = ['cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'attention-mask.json'))) : null;
+  const maskOperator = ['cce_opt3_mask', 'cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-mask-operator-check-report.json'))) : null;
+  const maskValid = !attentionMask || (maskOperator?.passed === true &&
+    attentionMask.indexed_layers === 12 && attentionMask.bias_calls.length >= 12 &&
+    attentionMask.selection_arithmetic_unchanged === true &&
+    attentionMask.dense_causal_mask === false && attentionMask.dense_selected_boolean_mask === false &&
+    attentionMask.dense_combined_boolean_mask === false &&
+    attentionMask.bias_calls.every(row => row.shape.join(',') === `1,1,${result.tokens},${result.tokens}` &&
+      ['torch.float32', 'torch.bfloat16'].includes(row.dtype) && row.requires_grad === false));
+  const ple = ['cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'ple-preparation.json'))) : null;
+  const pleOperator = ['cce_opt4_ple', 'cce_opt5_bf16'].includes(config.objective)
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-ple-operator-check-report.json'))) : null;
+  const pleValid = !ple || (pleOperator?.passed === true && ple.fully_resident_table_bytes === 0 &&
+    ple.full_table_available === true && ple.table_parameters === 0 && ple.calls.length === 2 &&
+    ple.current_retained_through_backward === true && ple.workers_shutdown === true &&
+    ple.num_workers === 1 && ple.prefetch_factor === 2 && ple.worker_preparations.length === 3 &&
+    ple.calls.every(row => row.disk_reads === 0 && row.payload_sha256 === pleOperator.anchor_payload_sha256) &&
+    ple.current_sample.row_ids_sha256 === pleOperator.anchor_row_ids_sha256);
+  const bf16Policy = config.objective === 'cce_opt5_bf16'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'bf16-policy.json'))) : null;
+  const bf16Operator = config.objective === 'cce_opt5_bf16'
+    ? JSON.parse(fs.readFileSync(path.join(local, 'launch-bf16-policy-operator-check.json'))) : null;
+  const savedPrecisionValid = !bf16Policy ||
+    (config.precision_policy?.implementation === 'model_activations_native_statistics'
+      ? bf16Operator?.saved_tensors_original_dtype_and_values === true &&
+        bf16Operator?.fp32_lse_exact === true &&
+        bf16Policy.saved_fp32_statistics_compressed === false &&
+        bf16Policy.saved_tensor_conversion === false &&
+        JSON.stringify(bf16Policy.saved_original_dtype_counts) === JSON.stringify(bf16Policy.saved_storage_dtype_counts) &&
+        JSON.stringify(bf16Policy.saved_original_bytes) === JSON.stringify(bf16Policy.saved_storage_bytes) &&
+        bf16Policy.cce_fp32_lse?.length > 0 && bf16Policy.cce_fp32_lse.every(row => row.dtype === 'torch.float32' && row.roundtrip_values_exact === true)
+      : Object.keys(bf16Policy.saved_storage_dtype_counts).filter(key => key.includes('float')).join(',') === 'torch.bfloat16');
+  const bf16Valid = !bf16Policy || (bf16Operator?.passed === true && bf16Policy.finalized === true &&
+    bf16Policy.adapter_parameter_dtype_counts['torch.bfloat16'] === 744 &&
+    Object.keys(bf16Policy.boundary_output_dtype_counts).join(',') === 'torch.bfloat16' &&
+    savedPrecisionValid &&
+    bf16Policy.layer_calls.length >= 96 && bf16Policy.layer_calls.every(row => row.dtype === 'torch.bfloat16') &&
+    Object.values(summary).every(row => row.dtype === 'torch.bfloat16') &&
+    targetHead.head_calls[0].hidden_dtype === 'torch.bfloat16' &&
+    attentionMask.bias_calls.every(row => row.dtype === 'torch.bfloat16') &&
+    bf16Policy.adapter_rounding.repeated_conversion_digest_exact === true);
+  const sourceValid = Object.entries(config.candidate_sources_sha256 ?? {}).every(([name, hash]) =>
+      files[`launch-candidate-${name}`]?.sha256 === hash) &&
+    files['reference.py'].sha256 === config.expected_sha256.reference_script &&
+    files['launch-reference.py'].sha256 === config.expected_sha256.reference_script &&
+    files['launch-worker.py'].sha256 === launchRecord.worker_sha256 &&
+    files['launch-instrumented-bootstrap.py'].sha256 === launchRecord.instrumented_bootstrap_sha256 &&
+    files['launch-bootstrap.py'].sha256 === config.expected_sha256.bootstrap &&
+    files['launch-sample.pt'].sha256 === config.expected_sha256.sample &&
+    files['launch-model-config.json'].sha256 === config.expected_sha256.model_config &&
+    files['launch-worker.py'].sha256 === frozen.worker_sha256 &&
+    JSON.stringify(launchRecord.expected_sha256) === JSON.stringify(config.expected_sha256) &&
+    JSON.stringify(launchRecord.environment) === JSON.stringify(config.environment) &&
+    launchRecord.reference_script_commit === config.reference_script_commit &&
+    launchRecord.no_optimizer_update === true && launchRecord.no_clipping === true;
+  const structuralValid = files['gradients.pt'].sha256 === result.gradients_sha256 &&
+      result.gradient_tensors === 744 && Object.keys(summary).length === 744 &&
+      Object.values(summary).every(row => row.finite) &&
+      a.length === 372 && b.length === 372 && sourceValid && targetHeadValid && maskValid && pleValid && bf16Valid &&
+      (!operatorCheck || operatorCheck.passed === true) &&
+      (!gradientComparison || (gradientComparison.all_finite && gradientComparison.raw_tensors === 744 &&
+        gradientComparison.reference_sha256 === config.expected_gradients_sha256 &&
+        files[`launch-${path.posix.basename(config.liger_dependency?.remote_wheel ?? config.cce_dependency.remote_archive)}`]?.sha256 === (config.liger_dependency ?? config.cce_dependency).sha256)) &&
+      result.optimizer_updates === 0 && result.clipping_applied === false &&
+      monitor.returncode === 0 && monitor.timed_out === false;
+  const lossBits = Buffer.alloc(4); lossBits.writeFloatBE(result.measured_loss);
+  const equality = { expected_loss_float32_bits: config.expected_loss_float32_bits,
+    observed_loss_float32_bits: lossBits.toString('hex'),
+    expected_gradients_sha256: config.expected_gradients_sha256,
+    observed_gradients_sha256: files['gradients.pt'].sha256 };
+  equality.loss_exact = equality.expected_loss_float32_bits === equality.observed_loss_float32_bits;
+  equality.gradients_file_exact = equality.expected_gradients_sha256 === equality.observed_gradients_sha256;
+  const record = { run_id: config.run_id, objective: config.objective ?? 'native', loss: result.measured_loss,
+    raw_gradient_tensors: result.gradient_tensors, gradients_sha256: result.gradients_sha256,
+    gradient_counts: gradients,
+    target_head: targetHead,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
+    ple_preparation: ple, ple_operator_check: pleOperator,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
+    ple_preparation: ple, ple_operator_check: pleOperator,
+    interleaved_operator_check: operatorCheck,
+    gradient_comparison: gradientComparison,
+    bf16_policy: bf16Policy, bf16_operator_check: bf16Operator,
+    no_clipping: true, optimizer_updates: 0, timings: timing,
+    monitor, expected_sha256: config.expected_sha256, equality,
+    structural_valid: structuralValid,
+    source_identities: {
+      runner_sha256: frozen.runner_sha256,
+      worker_sha256: frozen.worker_sha256,
+      config_template_sha256: frozen.config_template_sha256,
+      repository_head: frozen.repository_head,
+      collector_sha256: sha256(fs.readFileSync(fileURLToPath(import.meta.url))),
+      collector_repository_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+      reference_script_commit: config.reference_script_commit },
+    files,
+    dvc_stage: config.dvc_stage ?? 'exp/sft-flash-next/train/dvc.yaml:reference_v0' };
+  fs.writeFileSync(path.join(local, 'collector-runner.mjs'), fs.readFileSync(fileURLToPath(import.meta.url)));
+  fs.writeFileSync(path.join(local, 'runner-result.json'), JSON.stringify(record, null, 2) + '\n');
+  fs.writeFileSync(path.join(local, 'file-hashes.json'), JSON.stringify(files, null, 2) + '\n');
+  const metricsPath = path.join(repoRoot, config.local_metrics);
+  fs.mkdirSync(path.dirname(metricsPath), { recursive: true });
+  fs.writeFileSync(metricsPath, JSON.stringify({ run_id: config.run_id,
+    objective: record.objective,
+    attention_mask: attentionMask, mask_operator_check: maskOperator,
+    ple_preparation: ple, ple_operator_check: pleOperator,
+    interleaved_operator_check: operatorCheck,
+    gradient_comparison: gradientComparison && Object.fromEntries(Object.entries(gradientComparison).filter(([key]) => key !== 'tensors')),
+    bf16_policy: bf16Policy, bf16_operator_check: bf16Operator,
+    attempt_id: config.attempt_id, loss: record.loss, gradients_sha256: record.gradients_sha256,
+    raw_gradient_tensors: record.raw_gradient_tensors, gradient_counts: gradients,
+    target_head: targetHead && { head_calls: targetHead.head_calls.map(({ prediction_positions, ...row }) => row),
+      vocabulary_saved_tensor_calls: targetHead.vocabulary_saved_tensor_calls },
+    equality, timings: timing,
+    structural_valid: record.structural_valid }, null, 2) + '\n');
+  if (!record.structural_valid || (!['liger_target_flce', 'cce_target_exact'].includes(config.objective) && (!equality.loss_exact || !equality.gradients_file_exact)))
+    throw new Error(`Native reference equality gate failed; evidence retained at ${local}`);
+  return { local, loss: record.loss, equality, structural_valid: record.structural_valid,
+    gradients_sha256: record.gradients_sha256, attempt_id: config.attempt_id };
+}
+
+export async function main(argv) {
+  const options = { action: 'run', config: path.join(here, 'configs/reference-v0.json'), urlFile: '/tmp/kaggle_probe_url' };
+  for (let index = 0; index < argv.length; index += 2) {
+    const key = argv[index], value = argv[index + 1];
+    if (!value || !['--action', '--config', '--url-file'].includes(key)) throw new Error('Use --action/--config/--url-file with values');
+    options[{ '--action': 'action', '--config': 'config', '--url-file': 'urlFile' }[key]] = value;
+  }
+  if (!['preflight', 'launch', 'collect', 'run'].includes(options.action)) throw new Error('Invalid action');
+  const templateBytes = fs.readFileSync(options.config);
+  const template = validateConfig(JSON.parse(templateBytes));
+  const local = path.join(repoRoot, template.local_output);
+  let config;
+  let workerBytes;
+  if (options.action === 'collect') {
+    config = JSON.parse(fs.readFileSync(path.join(local, 'resolved-config.json')));
+    const savedTemplate = JSON.parse(fs.readFileSync(path.join(local, 'frozen-config-template.json')));
+    validateConfig(savedTemplate);
+    if (JSON.stringify(resolveAttempt(savedTemplate, config.attempt_id)) !== JSON.stringify(config))
+      throw new Error('Saved resolved attempt differs from frozen template');
+    workerBytes = fs.readFileSync(path.join(local, 'frozen-worker.py'));
+  } else {
+    config = resolveAttempt(template);
+    workerBytes = fs.readFileSync(path.join(here, 'kaggle_reference_worker.py'));
+    if (options.action !== 'preflight') {
+      fs.mkdirSync(local, { recursive: false });
+      fs.writeFileSync(path.join(local, 'resolved-config.json'), JSON.stringify(config, null, 2) + '\n');
+      fs.writeFileSync(path.join(local, 'frozen-config-template.json'), templateBytes);
+      fs.writeFileSync(path.join(local, 'frozen-worker.py'), workerBytes);
+      for (const [name, checksum] of Object.entries(config.candidate_sources_sha256 ?? {})) {
+        const bytes = fs.readFileSync(path.join(here, name));
+        if (sha256(bytes) !== checksum) throw new Error(`Candidate source hash differs: ${name}`);
+        fs.writeFileSync(path.join(local, `frozen-candidate-${name}`), bytes);
+      }
+      const runnerBytes = fs.readFileSync(fileURLToPath(import.meta.url));
+      fs.writeFileSync(path.join(local, 'frozen-runner.mjs'), runnerBytes);
+      const nativeBytes = fs.readFileSync(path.join(here, 'overfit_hf_reference.py'));
+      if (sha256(nativeBytes) !== config.expected_sha256.reference_script) throw new Error('Local native source hash differs');
+      fs.writeFileSync(path.join(local, 'frozen-reference.py'), nativeBytes);
+      const identities = { runner_sha256: sha256(runnerBytes), worker_sha256: sha256(workerBytes),
+        config_template_sha256: sha256(templateBytes), native_source_sha256: sha256(nativeBytes),
+        repository_head: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' }).trim(),
+        reference_script_commit: config.reference_script_commit };
+      fs.writeFileSync(path.join(local, 'frozen-identities.json'), JSON.stringify(identities, null, 2) + '\n');
+    }
+  }
+  const base = privateBase(options.urlFile);
+  if (options.action === 'preflight') return console.log(await preflight(base, config, workerBytes));
+  if (options.action === 'collect') return console.log(JSON.stringify(await collect(base, config)));
+  console.log(await preflight(base, config, workerBytes));
+  console.log(await launch(base, config));
+  if (options.action === 'launch') return;
+  console.log(JSON.stringify(await waitForMonitor(base, config)));
+  console.log(JSON.stringify(await collect(base, config)));
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main(process.argv.slice(2)).catch(error => { console.error(error.message); process.exitCode = 1; });
+}

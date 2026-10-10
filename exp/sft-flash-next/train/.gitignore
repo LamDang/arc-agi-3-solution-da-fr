@@ -1,0 +1,9 @@
+# Generated data belongs in DVC, not the shared preparation source folder.
+/artifacts/*.json
+/gradient-results/
+/metrics/
+/reviews/
+/capacity-results/
+/*.zip
+/*.provenance.json
+/verification.json

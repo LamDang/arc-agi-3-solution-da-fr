@@ -1,0 +1,6 @@
+outs:
+- md5: e311ca0477a7c641ae6b80cc0edac4a4.dir
+  size: 169773
+  nfiles: 46
+  hash: md5
+  path: 20261010-opt7-astra-fixtures

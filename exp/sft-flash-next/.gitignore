@@ -1,2 +1,32 @@
-build/
-artifacts/
+# Detailed experiment data is published through evidence-data.dvc.
+/evidence-data/
+/architecture/reports/*.json
+/architecture/reports/*.jsonl
+/architecture/reports/*.csv
+/architecture/reports/*.log
+/architecture/reports/*.xml
+/train/reviews/*.json
+/train/reviews/*.jsonl
+/train/reviews/*.csv
+/train/reviews/*.log
+/train/reviews/*.xml
+/train/metrics/*.json
+/train/metrics/*.jsonl
+/train/metrics/*.csv
+/train/metrics/*.log
+/train/metrics/*.xml
+/train/gradient-results/**/*.json
+/train/gradient-results/**/*.jsonl
+/train/artifacts/*.json
+/train/*.provenance.json
+/train/verification.json
+
+# Legacy experiments are source only.
+/experiments/legacy-training/**/*.pt
+/experiments/legacy-training/**/*.safetensors
+/experiments/legacy-training/**/*.jsonl
+/experiments/legacy-training/**/*.csv
+/experiments/legacy-training/**/*.log
+/experiments/legacy-training/**/*.xml
+/experiments/legacy-training/**/*.dvc
+/experiments/legacy-training/**/*.zip

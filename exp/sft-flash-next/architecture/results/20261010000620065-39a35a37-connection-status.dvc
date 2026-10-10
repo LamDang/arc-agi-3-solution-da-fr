@@ -1,0 +1,6 @@
+outs:
+- md5: 9503b6eaf75bad0d50bc5b2c57c60f94.dir
+  size: 1109
+  nfiles: 2
+  hash: md5
+  path: 20261010000620065-39a35a37-connection-status

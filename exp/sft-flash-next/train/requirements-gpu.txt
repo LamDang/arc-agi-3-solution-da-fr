@@ -1,0 +1,10 @@
+# Install into the target GPU image; preserve its CUDA-compatible torch/torchvision.
+# These are the exact-model forward dependencies; training GPU qualification is required.
+transformers==5.18.0
+safetensors==0.8.0
+numpy==2.1.3
+pillow==12.3.0
+flash-linear-attention==0.5.2
+fla-core==0.5.2
+causal-conv1d==1.7.0
+pytest==9.1.1

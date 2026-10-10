@@ -1,0 +1,13 @@
+{
+  "liger": {
+    "url": "https://files.pythonhosted.org/packages/58/9f/c54c1285491e530c898de7be389368265660a2292afc18777f5d6c37f0ad/liger_kernel-0.8.4-py3-none-any.whl",
+    "sha256": "9a5f184020080917111aba265ccf260547d7d93274829d6f02196d387a6a4111",
+    "filename": "liger_kernel-0.8.4-py3-none-any.whl"
+  },
+  "cce": {
+    "url": "https://codeload.github.com/apple/ml-cross-entropy/tar.gz/3de376c106a1916bc5e1b619f9c77c87a461ee1c",
+    "sha256": "446d282d5b9f5bf2f8bc5a551a016498706f5066230ed682f7477c16c09cc553",
+    "filename": "cce-3de376c106a1916bc5e1b619f9c77c87a461ee1c.tar.gz",
+    "archive_prefix": "ml-cross-entropy-3de376c106a1916bc5e1b619f9c77c87a461ee1c"
+  }
+}

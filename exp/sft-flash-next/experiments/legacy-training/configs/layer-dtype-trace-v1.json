@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "run_id": "layer-dtype-trace-v1",
+  "purpose": "forward-only-layer-dtype-trace",
+  "model": "/tmp/reference-256-hf",
+  "sample": "/kaggle/working/gradient-audit-20261009/overfit-sample-16k/sample.pt",
+  "adapter": "/kaggle/working/gradient-audit-20261009/nonzero-diagnostic-adapter-v2/adapter.pt",
+  "tokens": 32,
+  "layers": 4,
+  "seed": 20261009,
+  "timeout_seconds": 900,
+  "remote_output": "/kaggle/working/gradient-audit-20261009/layer-dtype-trace-v1",
+  "local_output": "exp/sft-flash-next/train/gradient-results/layer-dtype-trace-v1",
+  "environment": {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"
+  },
+  "expected_sha256": {
+    "sample": "48f6f88b7bff3b2be5b823c7394388d6b530e26febd25e4c21d3c0b13fdd49ff",
+    "adapter": "49e0960ba1f5a2435e47180262a27e652dd797397a5a11ab13425ef2cf041b6f",
+    "model_config": "ed8de086c12d789969ff380ea41d353eacb13fd5431e40b66c79bde5257ecf17"
+  },
+  "sources": [
+    "trace_layer_dtypes.py", "overfit_hf_reference.py", "ple_preparation.py",
+    "opt4_ple_capture.py", "opt3_mask_capture.py", "native_mask_storage.py"
+  ]
+}
