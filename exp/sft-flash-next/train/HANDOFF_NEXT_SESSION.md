@@ -1,3 +1,33 @@
+# Opt9 FAILED2% gate / Astra review complete — 2026-10-10
+
+* Attempt20261010052326065-031fe094 execution4200f93 collected986.689s/return1.
+  PairedglobalL2 285.419802%, cosine.2658505; candidate norm.752846 versus.255001.
+  Loss.624601423740387/control.6243785619735718. Init74472exact/finiteFP32.
+  No optimizer/rawcandidatearchive. F122.672s GPU14.535/PSS105.900; B193.174
+  GPU19.470/PSS105.900. Control132.432/233.947s GPU16.980/27.425 PSS109.302.
+* reports/opt9rejected-rerun.json reviewed all source/input/init/profile/metrics;
+  original failedresult preserved. v0 includes rejectedrow; acceptedOpt9 pending.
+* Astra review reports/astra-opt9-review.md: no proven missingbranch/detach/cast
+  bug; native effectiveBF16 boundaries appear retained. Tinyhidden16 fixture
+  does not cover real16249-rowHC projections/nesteddecoder chain. Top47 MLP
+  differs12.52%, attention14.53%; amplification towardearlierlayers.
+* Next focusedactual-value HC shadows mixed/residual/coeffports and VJPs all
+  outputcotangents nonzero. Compare native/repeat/chunk-no-checkpoint/current/
+  custom-unsplit/outer-checkpoint+save_on_cpu; trace norm/down/up/injectionproj.
+  Captures/gradientsRAM only. Stop firstforward mismatch for focusedreplay.
+* Opt7 accepted1.783424%/Opt8 passes1.801111% at reviseduser2%. Do notadvance
+  Opt10/bench untilOpt9 passes. Main executes, Astra reviewsfailedgates. No push
+  or Jupytershutdown untilall requestedwork completed/collected/verified.
+
+# Opt9 running — 2026-10-10 05:23 UTC
+
+* Attempt20261010052326065-031fe094 execution4200f93, supervisor5547,
+  desktop watcher51563. Cumulativeexpert/QSA/hyperconnection chunks8192;
+  threshold2% against unchunkedOpt3. Watch/collect this attempt before any retry.
+* Opt7 accepted1.783424%; Opt8 passed1.801111%, verified and localcommit4200f93.
+  Opt10 then32/64/96/120K benchmarks remain. Astra anyfailedgate. No pushes,
+  optimizer or candidate raw archive. KeepJupyter until all requestedwork done.
+
 # Opt8 gate PASSED — 2026-10-10
 
 * Attempt20261010050551130-36e9cc98 executiond6296b5 completed1002.519s/return0.
