@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from evidence_checks import numerical_profile
 
 ROOT=Path(__file__).resolve().parents[1]
 read=lambda path:json.loads(Path(path).read_text())
@@ -16,6 +17,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
     job=Path(args.attempt).resolve();out=job/'output'
     config=read(job/'config.json');monitor=read(job/'monitor.json')
+    profile=numerical_profile(job,config)
     result=read(out/'result.json');provenance=read(out/'provenance.json')
     assert monitor['returncode']==0 and not monitor['timed_out']
     assert result['completed'] and result['mode']=='benchmark'
@@ -50,7 +52,8 @@ def main():
         fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
         repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
         optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
-        measurement_scope=result['measurement_scope'],monitor=monitor,pushed_to_remote=False)
+        measurement_scope=result['measurement_scope'],monitor=monitor,pushed_to_remote=False,
+        numerical_profile=profile)
     (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}

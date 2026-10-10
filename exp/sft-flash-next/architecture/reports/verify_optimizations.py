@@ -10,6 +10,7 @@ import json
 import math
 import re
 from pathlib import Path
+from evidence_checks import numerical_profile
 
 ROOT=Path(__file__).resolve().parents[1]
 REFERENCE=ROOT/'results/20261009221135477-25bf58fe'
@@ -26,6 +27,7 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('attempt');parser.add_argument('--label');args=parser.parse_args()
     job=Path(args.attempt).resolve();out=job/'output'
     config=read(job/'config.json');result=read(out/'result.json');monitor=read(job/'monitor.json')
+    profile=numerical_profile(job,config)
     comparison=read(out/'comparison.json');initial=read(out/'initial-comparison.json')
     summary=read(out/'gradient-summary.json');reference=read(REFERENCE/'output/gradient-summary.json')
     opt=config['optimizations'];head=opt['head'];bias=opt['direct_attention_bias']
@@ -133,7 +135,8 @@ def main():
         bitwise_equal_nonzero_reference_gradients=comparison['bitwise_equal_nonzero_reference_tensors'],
         all_finite=True,initialization_bitwise_equal=True,raw_candidate_gradients_retained=False,optimizer_updates=0,
         numerical_bitwise_match=comparison['passed'],direct_bias_operator_checks_passed=operator_checks,acceptance_tolerance=None,resources=resources,
-        scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False)
+        scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False,
+        numerical_profile=profile)
     if paired is not None:
         report.update(chunking_gradient_relative_l2=paired['global_relative_l2'],chunking_gradient_cosine=paired['cosine'],
             chunking_gradient_gate_passed=paired['gradient_gate_passed'],chunking_control_loss=paired['baseline_loss'],

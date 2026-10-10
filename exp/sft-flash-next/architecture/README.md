@@ -176,3 +176,13 @@ CCE and does not separately prove full-model mask equivalence.
 See [CHUNKING.md](CHUNKING.md) for component boundaries, the <1% gradient gate,
 paired in-memory control and cumulative configurations. Use `configs/opt7.json`
 through `configs/opt10.json`; `--chunk-tokens` controls window size.
+
+Current replay and chunking configs also set `fla_numeric_profile="reference-v0"`.
+This pins one native FLA reverse-scan autotune entry and verifies the executed
+configuration after backward; see [REFERENCE.md](REFERENCE.md). A failed
+implementation gradient gate receives Astra review before a revision is promoted.
+
+`benchmark.py` measures two forward/backward passes without an optimizer,
+unchunked control or raw gradient archive. Its four cumulative Opt10 configs
+cover32,000/64,000/96,000/120,000 tokens. See [BENCHMARKS.md](BENCHMARKS.md);
+capacity runs require all preceding anchor qualification gates to pass first.

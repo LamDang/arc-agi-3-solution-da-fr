@@ -1,3 +1,25 @@
+# Native backward configuration replay — 2026-10-10 04:10 UTC
+
+* Native replay 20261010040404197-7f737faf (execution f624914), supervisor3166,
+  desktop watcher43413, running. All74472 initial adapters verified; forward
+  started after304s. Full loss/gradient equality gate still pending.
+* Correct export /tmp/reference-256-hf points to /tmp/reference-256-fold0-hf;
+  byte-verified original fold0 selection/index. Do not reuse smoke selection.
+* Previous corrected-export replay 20261010033254797-28be4e26 had exact native
+  loss but gradientL2 1.738071%; see restoredreferenceunpinned-rerun.json.
+* Astra reviewed the failed gate. Fixed-cotangent GDN diagnostic
+  20261010035123635-8cbdba35 isolated FLA reverse scan: default2warps repeats
+  exactly but differs from saved gradients;1warp matches all10 layer46 GDN
+  gradients bitwise. 2/4/8warps reproduce discrepancy; all forwards identical.
+* Production profile reference-v0 uses FLA's native strict exact-key JSON config
+  (B1,H48,BT64,IS_VARLENfalse,REVERSEtrue,FP32input/output),1warp/1CTA/3stages.
+  No package/callable mutation. Runtime verifies actual cache entry after backward.
+  Full-model equality remains required; isolated result is not full qualification.
+* Opt7v4 and Opt8–10, then32/64/96/120K two-pass benchmarks remain pending.
+  Main executes; user explicitly requires Astra review for each failed gate.
+  No optimizer/overfit/push; only original reference raw gradients retained.
+  Shutdown Jupyter only once all requested work is completed/collected/verified.
+
 # Verified restoration / replay — 2026-10-10 03:39 UTC
 
 * Correct fold0 export passed84 expert/router byte checks; original index SHA

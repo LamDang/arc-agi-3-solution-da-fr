@@ -23,11 +23,11 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreference','Replacement-server native reference check'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
- elif key not in {'opt7-rejected','wrongselectionreference'}:cases.append((label,None,None,False))
+ elif key not in {'opt7-rejected','wrongselectionreference','restoredreferenceunpinned'}:cases.append((label,None,None,False))
 for label,r,monitor,is_ref in cases:
  if r is None:
   lines.append('| '+' | '.join([label]+['pending']*10)+' |');continue
@@ -50,6 +50,22 @@ fixtures=ROOT/'reports/astra-opt7-fixtures.json'
 if fixtures.exists():
  r=read(fixtures);err=max(x['adapter_relative_l2'] for x in r['gradient_diagnostics'])
  values=['Opt7 Astra GPU component fixtures','fixed upstream cotangent','not a full-model comparison','bitwise forward/input/route/unroute',f'{err:.6%} adapter-only fixture / PASS','10 component tests',f"{r['suite_seconds']:.3f} total suite",'not measured','not measured','not measured','—']
+ lines.append('| '+' | '.join(values)+' |')
+isolation=ROOT/'reports/gdn-backward-isolation.json'
+if isolation.exists():
+ r=read(isolation)
+ for index,row in enumerate(r['resources']):
+  phase=row['phase'];prefix=['','','','','']
+  if index==0:prefix=[f'GDN layer46 isolation<br>wall {r["monitor"]["seconds"]:.2f}',f'{r["result"]["loss"]:.10f} (reference loss)','10 GDN tensors only','—','not a full-model gate']
+  if phase.startswith('gdn-vjp-'):
+   variant=r['variants'][int(phase.split('-')[-1])];comparison=variant['reference']
+   label='default' if variant['reverse_scan_warps'] is None else str(variant['reverse_scan_warps'])+' warp(s)'
+   prefix=[f'GDN fixed-cotangent replay: {label}','forward bitwise',f'{comparison["global_relative_l2"]:.9%} / {comparison["cosine"]:.10f}',f'{comparison["bitwise_equal_tensors"]}/10 nonzero','isolated match' if comparison['passed'] else 'isolated difference']
+  values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
+probe=ROOT/'results/20261010-reverse-scan-dispatch-probe'
+if probe.exists():
+ values=['Reverse-scan dispatch preflight','scan outputs only','warp1 differs from2/4/8','not gradient qualification','unseeded random diagnostic','4 direct JIT launches','unmeasured','unmeasured','unmeasured','unmeasured','—']
  lines.append('| '+' | '.join(values)+' |')
 for tokens in [32000,64000,96000,120000]:
  path=ROOT/'reports'/f'benchmark-{tokens}.json'

@@ -56,3 +56,24 @@ gradients finite. Forward/backward GPU allocated peaks48.260/55.636GiB; sampled
 tree PSS138.452/138.490GiB. See [reports/reference.md](reports/reference.md) for
 full counters, initialization scope, hashes and evidence. No optimizer state
 or130K capacity measurement is included.
+
+## Replaying on a replacement server
+
+The frozen model's expert selection is the original
+`../train/artifacts/keep-256-fold0.json`, not the REAP smoke selection. Current
+configs pin its semantic hash in addition to the model config and sample hashes.
+
+`fla_numeric_profile="reference-v0"` selects FLA's native strict configuration
+file for one reverse-scan key: B=1, H=48, BT=64, no variable lengths, reverse,
+FP32 input/output; one warp, one CTA and three stages. Forward and other kernel
+keys retain native autotuning. `numeric-profile.json` records the actual entry
+after backward. No installed package source or callable is replaced.
+
+On the replacement server, default autotuning picked two warps. Loss was exact
+but full gradients differed by1.738071%. With a fixed input and upstream
+cotangent, the isolated layer46 GDN matched all10 saved gradients using one
+warp; default/two/four/eight warps reproduced the discrepancy. The profile's
+full-model equality replay is pending; this isolated test does not qualify it.
+Use `configs/restored-reference-check.json` to check the saved reference without
+retaining another raw gradient archive. See `reports/gdn-backward-isolation.json`
+and `reports/astra-restored-reference-gradient-review.md`.
