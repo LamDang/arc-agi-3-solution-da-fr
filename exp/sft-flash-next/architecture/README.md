@@ -7,6 +7,11 @@ Retired runners, optimization trials and the earlier resume prototype are
 [source-only history](../experiments/legacy-training/README.md). Current
 architecture run evidence and reviewers remain here. New model work belongs here.
 
+Production training on the latest 58-trajectory, 1,334-turn dataset is documented
+in [TRAINING.md](TRAINING.md). Use `configs/train-trajectories.json` for five
+epochs, 48K target accumulation, fold-0 validation, TensorBoard and streaming
+DVC checkpoint recovery through the existing Jupyter utility.
+
 ## Layout
 
 ```text
@@ -110,11 +115,10 @@ its original context. No truncation or label reconstruction occurs in training.
 The diagnostic `prompt_tokens` fallback exists only in test mode. Diagnostic
 adapters cannot initialize `train.py`.
 
-Training accumulates whole samples weighted by their target counts, normalizes
-once by actual targets before clipping, and writes adapter/optimizer/RNG/cursor
-checkpoints. The current entry point starts fresh; durable resume and production
-data/fold qualification require a separate migration of the prototype preserved
-in `../experiments/legacy-training/`. No production training is claimed here.
+The PT-sample compatibility path starts fresh. Production configs have a
+`training` block and use the separate `training/` loader, loop, metrics,
+TensorBoard and durable checkpoint protocol. See [TRAINING.md](TRAINING.md) for
+commands, local mock qualification and remaining live GPU/data checks.
 
 ## Kaggle Jupyter execution and evidence
 

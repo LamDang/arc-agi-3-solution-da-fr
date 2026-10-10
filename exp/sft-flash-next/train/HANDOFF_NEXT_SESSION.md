@@ -2,8 +2,8 @@
 
 ## Repository and layout
 
-- Branch: `codex/flash-next-full-context-training`.
-- PR: https://github.com/LamDang/arc-agi-3-solution-da-fr/pull/24 (draft).
+- Architecture PR https://github.com/LamDang/arc-agi-3-solution-da-fr/pull/24
+  merged at `10e1168`. Production training work: `codex/trajectory-training`.
 - Active implementation: `../architecture/`; entry points `train.py`, `test.py`,
   `benchmark.py` share explicit configuration and component assembly.
 - This folder retains trajectory preparation/encoding and their tests.
@@ -93,7 +93,15 @@ GPU figures are peak allocated memory; RAM is sampled process-tree PSS.
 - Pinned capture runtime: Torch 2.11.0+cu128, Transformers 5.18.0, PEFT 0.20.0,
   AutoRound 0.15.0, FLA 0.5.2, causal-conv1d 1.7.0. Correct model selection and
   package/source hashes are pinned by configs, model code and saved evidence.
-- Remaining future work: final-stack optimizer-inclusive capacity, production
-  trajectory integration/resume, learning and held-out evaluation qualification.
-  Current `architecture/train.py` starts fresh; the previous resume prototype
-  is preserved as legacy source, not a qualified final-stack feature.
+- Production utilities: `architecture/TRAINING.md`, `architecture/training/`
+  and `configs/train-trajectories.json`. Latest dataset definition imported from
+  `ce2ba09`: 58 compaction trajectories, all 1,334 targets, max 129,169 tokens.
+  Fold 0 has 11 trajectories/277,426 targets; training has 47/1,122,317.
+  At most five epochs, AdamW 1e-4 with betas (0.9, 0.95), 49,152-target
+  accumulation with epoch-tail flush,
+  token-weighted validation, TensorBoard, acknowledged sharded DVC recovery.
+  Local CPU/transport/DVC utility tests qualify correctness, not GPU learning.
+- Remaining: actual dataset outputs/processor parity, live API and optimizer-
+  inclusive 130K capacity, then learning/validation. Kernel remains stopped.
+  Desktop checkpoint launch needs 46 GiB free; only ~15 GiB was available.
+  No production run, remote upload, or artifact deletion was performed.

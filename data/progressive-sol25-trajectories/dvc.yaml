@@ -1,0 +1,21 @@
+# Rebuild the 25-game, 130k-total-token trajectory dataset from archived runs.
+# Run `dvc repro data/progressive-sol25-trajectories/dvc.yaml` at repo root.
+stages:
+  build:
+    cmd: ../../ARC3-Inference/.venv/bin/python build.py
+    deps:
+      - build.py
+      - ../../ARC3-Inference/runs/think-progressive-sol25
+      - ../../ARC3-Inference/runs/gpt61sol-features-25games
+      - ../../ARC3-Inference/think_gen/progressive.py
+      - ../../ARC3-Inference/think_gen/context.py
+      - ../../ARC3-Inference/think_gen/logs.py
+      - ../sft-gpt61sol-features-25games/convert.py
+      - ../sft-gpt61sol-features-25games/build_index.py
+      - ../sft-gpt61sol-features-25games/qwen/tokenizer.json
+      - ../sft-gpt61sol-features-25games/qwen/chat_template.jinja
+    outs:
+      - trajectories.jsonl
+      - index.json
+      - summary.json
+      - ratios.csv

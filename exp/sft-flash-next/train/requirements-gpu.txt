@@ -8,3 +8,4 @@ flash-linear-attention==0.5.2
 fla-core==0.5.2
 causal-conv1d==1.7.0
 pytest==9.1.1
+tensorboard==2.20.0

@@ -20,15 +20,26 @@ def main(mode):
     parser.add_argument('--validate-only',action='store_true')
     args = parser.parse_args()
     overrides = {name:getattr(args,name) for name in ['head','chunk_tokens',*flags] if getattr(args,name) is not None}
-    config = load_config(args.config,mode,args.architecture,overrides)
+    production = mode == 'train' and 'training' in __import__('json').loads(Path(args.config).read_text())
+    if production:
+        from training.config import load
+        config,settings = load(args.config,args.architecture,overrides)
+    else:
+        config = load_config(args.config,mode,args.architecture,overrides)
     if args.validate_only:
-        print(__import__('json').dumps(config.as_dict(),indent=2));return
+        value = config.as_dict()
+        if production:value['training'] = settings.__dict__
+        print(__import__('json').dumps(value,indent=2));return
     os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
     configure_fla_environment(os.environ,mode,config.fla_numeric_profile,Path(__file__).resolve().parents[1])
-    from .loop import run
     try:
-        run(config,mode)
+        if production:
+            from training.run import run
+            run(config,settings)
+        else:
+            from .loop import run
+            run(config,mode)
     except BaseException as exc:
         output = Path(config.output)
         if output.exists():
