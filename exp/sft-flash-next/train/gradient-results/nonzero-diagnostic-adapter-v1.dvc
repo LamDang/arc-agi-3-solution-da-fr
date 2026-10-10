@@ -1,6 +1,0 @@
-outs:
-- md5: b1ad39ae55648844283af719136f08ef.dir
-  size: 134625412
-  nfiles: 4
-  hash: md5
-  path: nonzero-diagnostic-adapter-v1

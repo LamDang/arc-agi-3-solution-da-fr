@@ -1,6 +1,0 @@
-outs:
-- md5: 6ad2163c7fbb9a1909077c3aca82a67a.dir
-  size: 553007
-  nfiles: 21
-  hash: md5
-  path: reference-nonzero-ab-v2

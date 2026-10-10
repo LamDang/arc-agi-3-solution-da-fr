@@ -3,7 +3,7 @@ import ast
 from pathlib import Path
 import unittest
 ROOT=Path(__file__).resolve().parents[1]
-LEGACY=ROOT.parent/'train'
+LEGACY=ROOT.parent/'experiments/legacy-training'
 
 
 def definitions(path):
@@ -25,7 +25,7 @@ class ArithmeticPortTests(unittest.TestCase):
         for name,node in old.items():self.assertEqual(dump(node),dump(new[name]),name)
 
     def test_indexer_selection_prefix_preserved(self):
-        native=definitions(LEGACY/'gradient-results/liger-opt6-overfit-v9-stopped/launch-opt6-native-model.py')['Qwen4ExpTextQSAIndexer']
+        native=definitions(ROOT/'tests/fixtures/qsa_indexer_reference.py')['Qwen4ExpTextQSAIndexer']
         old=next(n for n in native.body if isinstance(n,ast.FunctionDef) and n.name=='forward')
         new=definitions(ROOT/'components/attention.py')['DirectBiasIndexer'].body[0]
         count=next(i for i,n in enumerate(old.body) if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='kv_length' for t in n.targets))

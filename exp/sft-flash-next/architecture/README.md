@@ -2,9 +2,10 @@
 
 This is the active architecture implementation. Detailed JSON reports are DVC
 data: follow [EVIDENCE.md](../EVIDENCE.md) to restore them before running reviewers
-or regenerating the statistics table. `../train/` preserves earlier
-experiments, their immutable sources, DVC evidence and the existing trajectory
-preparation/resume pipeline. New architecture work belongs here.
+or regenerating the statistics table. `../train/` contains the shared trajectory encoder and preparation code.
+Retired runners, optimization trials and the earlier resume prototype are
+[source-only history](../experiments/legacy-training/README.md). Current
+architecture run evidence and reviewers remain here. New model work belongs here.
 
 ## Layout
 
@@ -112,8 +113,8 @@ adapters cannot initialize `train.py`.
 Training accumulates whole samples weighted by their target counts, normalizes
 once by actual targets before clipping, and writes adapter/optimizer/RNG/cursor
 checkpoints. The current entry point starts fresh; durable resume and production
-data/fold qualification remain in the historical trajectory pipeline until a
-separate migration is verified. No production training is claimed here.
+data/fold qualification require a separate migration of the prototype preserved
+in `../experiments/legacy-training/`. No production training is claimed here.
 
 ## Kaggle Jupyter execution and evidence
 
@@ -145,14 +146,14 @@ The full16K legacy isolation replay passed with a clean exit: loss
 0.6256952285766602 and all744 raw gradients are bitwise identical to native v0.
 See `reports/refactor-iso.json`. The new all-expert reference completed separately with loss0.6244627833366394;
 see `reports/reference.md`. This legacy proof does not qualify its numerical changes.
-Small component checks do not replace that full-model isolation gate. Earlier
-v8/Opt6 results and their identities are preserved under `../train/`.
+Small component checks do not replace that full-model isolation gate. The accepted reference and
+cumulative Opt1–3/Opt7–10 reports remain; retired pre-refactor trial artifacts were removed.
 
 Historical full-sample and large hidden-state gradient archives were pruned at
-user request. Their compact comparisons, execution sources and original hashes
-remain; per-output retention records explain intentionally missing files.
-Frozen legacy pipeline dependency hashes are historical pins, so those retired
-stages should not be rerun. The current reference and `configs/optimized.json`
+user request. Architecture comparison reports, run sources and retention records
+remain; the retired pre-refactor experiment data was subsequently removed.
+Retired pipeline state and old experiment artifact pointers were removed;
+the legacy folder preserves source and configuration inputs only. The current reference and `configs/optimized.json`
 are the active comparison path. See `reports/gradient-retention*.json`.
 
 ## Active optimization reruns (2026-10-10)

@@ -50,7 +50,7 @@ def archive(seed_paths=None):
         paths.update(json.loads(Path(seed_paths).read_text()))
     # Run archives under results/ and current gradient-results outputs already
     # have their own DVC pointers. Here we collect derived reports and metrics.
-    for directory in ("architecture/reports", "train/reviews", "train/metrics"):
+    for directory in ("architecture/reports",):
         paths.update(p.relative_to(ROOT).as_posix()
                      for p in (ROOT / directory).iterdir()
                      if p.is_file() and p.suffix in DATA_SUFFIXES)

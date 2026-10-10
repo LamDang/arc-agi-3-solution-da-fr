@@ -20,3 +20,13 @@
 /train/artifacts/*.json
 /train/*.provenance.json
 /train/verification.json
+
+# Legacy experiments are source only.
+/experiments/legacy-training/**/*.pt
+/experiments/legacy-training/**/*.safetensors
+/experiments/legacy-training/**/*.jsonl
+/experiments/legacy-training/**/*.csv
+/experiments/legacy-training/**/*.log
+/experiments/legacy-training/**/*.xml
+/experiments/legacy-training/**/*.dvc
+/experiments/legacy-training/**/*.zip

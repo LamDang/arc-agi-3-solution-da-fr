@@ -1,7 +1,8 @@
 """Independently verify a collected refactor capture without importing Torch.
 
-Usage: python reports/verify_iso.py results/<attempt-id>
+Usage: python reports/verify_iso.py results/<attempt-id> --baseline <old-native-reference>
 Requires NumPy. Reads saved evidence only; no GPU job or network access.
+The old raw baseline was retired; supply it explicitly for a historical replay.
 """
 import argparse
 import collections
@@ -16,7 +17,6 @@ import zipfile
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-BASELINE = ROOT.parent/'train/gradient-results/reference-runner-v0'
 
 
 class Reader(pickle.Unpickler):
@@ -52,7 +52,9 @@ def sha(path):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('attempt')
+    parser.add_argument('--baseline',required=True,help='Historical native capture with raw gradients and initial adapter')
+    args=parser.parse_args();baseline=Path(args.baseline).resolve()
     job=Path(args.attempt).resolve();output=job/'output'
     read=lambda path:json.loads(path.read_text())
     config=read(job/'config.json');result=read(output/'result.json');monitor=read(job/'monitor.json')
@@ -76,12 +78,12 @@ def main():
     provenance=read(output/'provenance.json')
     for name,digest in provenance['source_hashes'].items():
         assert sha(output/'sources'/name)==sha(job/'source'/name)==digest,name
-    old_config=read(BASELINE/'resolved-config.json')
+    old_config=read(baseline/'resolved-config.json')
     for name in ('sample','adapter','model_config'):
         assert config['expected_sha256'][name]==old_config['expected_sha256'][name]
     verified={}
     for filename in ('initial-adapter.pt','gradients.pt'):
-        old=Tensors(BASELINE/filename);new=Tensors(output/filename)
+        old=Tensors(baseline/filename);new=Tensors(output/filename)
         assert set(old.state)==set(new.state) and len(new.state)==744
         nonzero=0
         for name in old.state:
@@ -91,7 +93,7 @@ def main():
             nonzero+=int(np.count_nonzero(b)>0)
         assert nonzero==744
         verified[filename]=dict(sha256=sha(output/filename),bitwise_equal_tensors=744,nonzero_tensors=744)
-    expected=read(BASELINE/'result.json')['measured_loss']
+    expected=read(baseline/'result.json')['measured_loss']
     assert struct.pack('<f',result['loss'])==struct.pack('<f',expected)
     comparison=read(output/'comparison.json')
     assert comparison['passed'] and comparison['global_relative_l2']==0.0 and comparison['cosine']>0.999999999999

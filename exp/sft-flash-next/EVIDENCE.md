@@ -1,55 +1,65 @@
 # Experiment evidence storage
 
 Code, run configurations and concise Markdown summaries belong in Git.
-Per-tensor statistics, comparison arrays, memory observations, detailed JSON
-reports, model-selection data and historical metrics belong in DVC.
+Per-tensor statistics, comparison arrays, memory observations and detailed JSON
+reports for the final architecture belong in DVC.
 
-`evidence-data.dvc` indexes a bundle of those detailed files. Its SHA256
-inventory preserves each original relative path and exact bytes. Raw run
-archives, reference tensors and benchmark inputs retain their separate existing
-DVC pointers; this bundle does not duplicate those archives.
+`evidence-data.dvc` indexes 43 architecture reports and two train-only expert-map
+metadata files. Its SHA256 inventory preserves original relative paths and exact
+bytes. Architecture run archives, raw reference tensors, benchmark inputs and
+restoration/diagnostic proof retain their separate DVC pointers under
+`architecture/results/`; this report bundle does not duplicate them.
 
-## Restore detailed reports
+Retired experiments keep source/configs/tests only under
+`experiments/legacy-training/`. Their artifacts, old data pointers and reports
+were removed. Historical removal inventories in architecture reports describe
+past operations; they do not imply those files remain available.
 
-From the repository root:
+## Restore and verify
+
+The retained data is currently local-only at user direction. The AWS session
+expired and no further upload is requested. A fresh clone cannot pull the new
+bundle from the remote yet: transfer the local bundle, or publish it when
+explicitly authorized. In this workspace:
+
+```sh
+python3 exp/sft-flash-next/manage_evidence.py restore
+python3 exp/sft-flash-next/manage_evidence.py verify
+```
+
+This restores ignored originals under `architecture/reports/` and
+`train/artifacts/`. Existing reviewers and the `v0.md` table generator continue
+reading their original report paths. Raw attempt files are separate inputs to
+those reviewers; they remain under architecture results in this workspace.
+
+Restoration validates the whole bundle before writing and refuses to overwrite
+a differing working file. `verify` checks bundle bytes and any existing copies.
+
+Once remote publication is authorized and completed, a new checkout can use:
 
 ```sh
 dvc pull exp/sft-flash-next/evidence-data.dvc
 python3 exp/sft-flash-next/manage_evidence.py restore
 ```
 
-This restores the original ignored paths under `architecture/reports/`,
-`train/metrics/`, `train/reviews/`, historical `train/gradient-results/`, and
-`train/artifacts/`. Existing review scripts and the `v0.md` table generator
-continue reading their original paths. Pull the separately referenced raw run
-archives when a verifier also needs them. The legacy model-selection input must
-be restored before using training commands that read `train/artifacts/`.
+## Archive new reports
 
-Restoration validates every bundle file before writing anything, and refuses
-to overwrite a differing working file. `verify` validates the bundle and any
-existing original copies without restoring missing files:
-
-```sh
-python3 exp/sft-flash-next/manage_evidence.py verify
-```
-
-## Publish new detailed results
-
-After producing or reviewing reports:
+After producing or reviewing final-architecture reports:
 
 ```sh
 python3 exp/sft-flash-next/manage_evidence.py archive
 dvc add exp/sft-flash-next/evidence-data
+```
+
+Archive refreshes existing inventory entries and includes new detailed data
+from `architecture/reports/`. `--paths-from paths.json` adds other evidence paths
+using a JSON list relative to this folder. Commit the `.dvc` pointer and concise
+Markdown conclusions; data stays ignored. Do not reintroduce retired experiment
+artifacts into this bundle. When an upload is authorized:
+
+```sh
 dvc push exp/sft-flash-next/evidence-data.dvc
 ```
 
-Archive includes new report/metric data from the three report directories and
-refreshes the files already in the inventory. `--paths-from paths.json` can add
-other evidence paths using a JSON list relative to `exp/sft-flash-next/`.
-Commit the updated `.dvc` pointer and concise Markdown conclusions; detailed
-files remain ignored. Historical frozen pipeline metrics are restored at their
-original paths but their complete data is stored in this bundle.
-
-The local DVC cache can be cleared after a successful push; it is disposable.
-Working-copy evidence is independent of remote availability. Do not claim old
-raw run archives are available remotely just because this report bundle is.
+The local cache is disposable; working-copy evidence and remote availability are
+separate. The old cache was cleared and the final run data remains locally.
