@@ -1,0 +1,1108 @@
+{
+  "evidence_checks_passed": true,
+  "attempt": "20261010055907158-538ba744",
+  "execution_commit": "4f5d13b43f6782463ac0b943a88759948d1886b6",
+  "monitor": {
+    "returncode": 0,
+    "timed_out": false,
+    "seconds": 239.80262072000005,
+    "pid": 6404
+  },
+  "result": {
+    "completed": true,
+    "mode": "diagnostic-hyperconnection",
+    "first_mismatching_module": null,
+    "focused_module": "base_model.model.model.language_model.layers.0.attn_hyper_connection",
+    "modules_checked": 1,
+    "variants": 7,
+    "shadow_scope": "first-module",
+    "optimizer_updates": 0,
+    "raw_gradients_retained": false,
+    "note": "Actual-input mixer forward and fixed-cotangent VJPs only; no full-model qualification."
+  },
+  "shadows": [
+    {
+      "module": "base_model.model.model.language_model.layers.0.attn_hyper_connection",
+      "ports": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_shape": [
+        1,
+        16249,
+        10240
+      ],
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    }
+  ],
+  "variants": [
+    {
+      "variant": "native",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "native-repeat",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "chunk-no-checkpoint",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "chunked",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "custom-unsplit",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "native-outer-offload",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    },
+    {
+      "variant": "chunk-outer-offload",
+      "input_stride": [
+        166389760,
+        10240,
+        1
+      ],
+      "outputs": [
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            2560
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      ],
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "reference_dtype": "torch.bfloat16",
+        "candidate_dtype": "torch.bfloat16"
+      },
+      "projections": {
+        "hc_norm": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_down": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            320
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "input_mix_weight_up": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            10240
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        },
+        "block_inject_weight": {
+          "bitwise_equal": true,
+          "relative_l2": 0.0,
+          "max_absolute_difference": 0.0,
+          "different_values": 0,
+          "finite": true,
+          "shape": [
+            1,
+            16249,
+            4
+          ],
+          "reference_dtype": "torch.bfloat16",
+          "candidate_dtype": "torch.bfloat16"
+        }
+      }
+    }
+  ],
+  "cotangent": {
+    "generator": "CPU FP32 randn * .001 then output dtype",
+    "ports": [
+      {
+        "port": 0,
+        "seed": 20271009,
+        "shape": [
+          1,
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16",
+        "sha256": "5bbefd1d37a8b0bee464a3431def909d3ba8a76a676a89a78c452b31da669971"
+      },
+      {
+        "port": 1,
+        "seed": 20271010,
+        "shape": [
+          1,
+          16249,
+          10240
+        ],
+        "dtype": "torch.bfloat16",
+        "sha256": "3c6fb24dcd4d0b252d3caa580eac78b647ade2438ce76405ebe677c8abe7e8ef"
+      },
+      {
+        "port": 2,
+        "seed": 20271011,
+        "shape": [
+          1,
+          16249,
+          4
+        ],
+        "dtype": "torch.bfloat16",
+        "sha256": "4269e0737007c6a68f96485ef97993257d97897d37151cce1167bf38f875adaf"
+      }
+    ],
+    "raw_values_retained": false
+  },
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 171.22743353899932,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94887288832,
+      "tree_pss_bytes": 95483784192,
+      "children_rss_bytes": 1148940288,
+      "host_used_bytes": 46411665408,
+      "samples": 215
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 8.910263296998892,
+      "cuda_peak_allocated_bytes": 10931468800,
+      "cuda_peak_reserved_bytes": 11148460032,
+      "rss_bytes": 95045099520,
+      "tree_pss_bytes": 95641578496,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 46225031168,
+      "samples": 14
+    },
+    {
+      "phase": "shadow_forward",
+      "seconds": 0.4911910760001774,
+      "cuda_peak_allocated_bytes": 12857312768,
+      "cuda_peak_reserved_bytes": 13182697472,
+      "rss_bytes": 95408381952,
+      "tree_pss_bytes": 96004856832,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 46561878016,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-native",
+      "seconds": 1.1364841169997817,
+      "cuda_peak_allocated_bytes": 15758081024,
+      "cuda_peak_reserved_bytes": 16915628032,
+      "rss_bytes": 97188290560,
+      "tree_pss_bytes": 97784765440,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 48337764352,
+      "samples": 3
+    },
+    {
+      "phase": "hyperconnection-vjp-native-repeat",
+      "seconds": 0.18999898599940934,
+      "cuda_peak_allocated_bytes": 15758081024,
+      "cuda_peak_reserved_bytes": 16915628032,
+      "rss_bytes": 98280550400,
+      "tree_pss_bytes": 98877025280,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49523380224,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-chunk-no-checkpoint",
+      "seconds": 0.19905659899995953,
+      "cuda_peak_allocated_bytes": 14413310976,
+      "cuda_peak_reserved_bytes": 15049162752,
+      "rss_bytes": 98280681472,
+      "tree_pss_bytes": 98877156352,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49497149440,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-chunked",
+      "seconds": 0.21129032899989397,
+      "cuda_peak_allocated_bytes": 14110772224,
+      "cuda_peak_reserved_bytes": 14923333632,
+      "rss_bytes": 98280681472,
+      "tree_pss_bytes": 98877156352,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49494728704,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-custom-unsplit",
+      "seconds": 0.20428348400128016,
+      "cuda_peak_allocated_bytes": 15758081024,
+      "cuda_peak_reserved_bytes": 16223567872,
+      "rss_bytes": 98280677376,
+      "tree_pss_bytes": 98877152256,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49514758144,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-native-outer-offload",
+      "seconds": 0.2864198530005524,
+      "cuda_peak_allocated_bytes": 15758081024,
+      "cuda_peak_reserved_bytes": 16894656512,
+      "rss_bytes": 98817572864,
+      "tree_pss_bytes": 99414047744,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49901727744,
+      "samples": 2
+    },
+    {
+      "phase": "hyperconnection-vjp-chunk-outer-offload",
+      "seconds": 0.22759712700099044,
+      "cuda_peak_allocated_bytes": 14410374144,
+      "cuda_peak_reserved_bytes": 15049162752,
+      "rss_bytes": 98817626112,
+      "tree_pss_bytes": 99414100992,
+      "children_rss_bytes": 1012936704,
+      "host_used_bytes": 49513963520,
+      "samples": 2
+    }
+  ],
+  "raw_gradients_retained": false,
+  "pushed_to_remote": false,
+  "scope": "Actual-input HC port/projection shadows and fixed-cotangent VJP diagnosis; not full-model qualification."
+}

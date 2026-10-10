@@ -74,17 +74,18 @@ if expert_diagnostic.exists():
    prefix=[f'Expert VJP: {variant["variant"]}','no scalar loss',f'{comp["global_relative_l2"]:.6%} / {comp["cosine"]:.10f}',f'{comp["bitwise_equal_tensors"]}/1536 adapters',f'dx {variant["input_gradient"]["relative_l2"]:.6%}; route {variant["routing_gradient"]["relative_l2"]:.6%}']
   values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   lines.append('| '+' | '.join(values)+' |')
-hyperconnection_diagnostic=ROOT/'reports/hyperconnection-replay-diagnostic.json'
-if hyperconnection_diagnostic.exists():
- r=read(hyperconnection_diagnostic);variants={v['variant']:v for v in r['variants']}
- for index,row in enumerate(r['resources']):
-  phase=row['phase'];prefix=['','','','','']
-  if index==0:prefix=[f'Hyperconnection isolation<br>wall {r["monitor"]["seconds"]:.2f}','no full backward','fixed-cotangent input VJP','frozen mixer; all output ports active','not a full-model gate']
-  if phase.startswith('hyperconnection-vjp-'):
-   variant=variants[phase.removeprefix('hyperconnection-vjp-')];comp=variant['input_gradient']
-   prefix=[f'Hyperconnection VJP: {variant["variant"]}','no scalar loss',f'{comp["relative_l2"]:.6%} / —','bitwise' if comp['bitwise_equal'] else 'different','diagnostic only']
-  values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
-  lines.append('| '+' | '.join(values)+' |')
+for diagnostic_name in ['hyperconnection-replay-diagnostic','hyperconnection-focus-diagnostic']:
+ hyperconnection_diagnostic=ROOT/'reports'/f'{diagnostic_name}.json'
+ if hyperconnection_diagnostic.exists():
+  r=read(hyperconnection_diagnostic);variants={v['variant']:v for v in r['variants']}
+  for index,row in enumerate(r['resources']):
+   phase=row['phase'];prefix=['','','','','']
+   if index==0:prefix=[f'Hyperconnection isolation<br>wall {r["monitor"]["seconds"]:.2f}','no full backward','fixed-cotangent input VJP','frozen mixer; all output ports active','not a full-model gate']
+   if phase.startswith('hyperconnection-vjp-'):
+    variant=variants[phase.removeprefix('hyperconnection-vjp-')];comp=variant['input_gradient']
+    prefix=[f'Hyperconnection VJP: {variant["variant"]}','no scalar loss',f'{comp["relative_l2"]:.6%} / —','bitwise' if comp['bitwise_equal'] else 'different','diagnostic only']
+   values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+   lines.append('| '+' | '.join(values)+' |')
 probe=ROOT/'results/20261010-reverse-scan-dispatch-probe'
 if probe.exists():
  values=['Reverse-scan dispatch preflight','scan outputs only','warp1 differs from2/4/8','not gradient qualification','unseeded random diagnostic','4 direct JIT launches','unmeasured','unmeasured','unmeasured','unmeasured','—']

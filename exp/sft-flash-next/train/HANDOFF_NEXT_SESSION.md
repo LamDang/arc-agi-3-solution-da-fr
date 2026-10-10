@@ -1,3 +1,15 @@
+# RevisedOpt9 actualmodule bitwise gate PASSED — 2026-10-10
+
+* Focus20261010055907158-538ba744 source4f5d13b completed239.8026s/return0.
+  Actual layer0 mixer3ports,4projectiontraces andinputVJP bitwise acrossnative/
+  repeat/no-checkpoint/current/custom-unsplit/nativeouter/chunkouter-offload.
+  reports/hyperconnection-focus-diagnostic.json validated, localDVC/cacheverified.
+* Revisedcandidate retainsfull-M GEMMs whilecheckpointingnorm/gatemixwindows and
+  residualinjection; entiremixercheckpointed. Fullnorm/projectiontemporaryremain.
+  Full cumulativeOpt9 gate next, stillpending; operatorproofnotfullqualification.
+* Threshold2%, Opt7/8accepted, Opt9v1failed preserved. No push/update/rawarchives;
+  keepJupyter untilOpt9/10+32/64/96/120K workcomplete.
+
 # Opt9 actual-value diagnosis / shape-preserving candidate — 2026-10-10
 
 * Diagnostic20261010054926240-23c21beb source5c21856 completed326.5655s/return0.

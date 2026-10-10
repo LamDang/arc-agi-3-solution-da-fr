@@ -49,6 +49,10 @@ def main():
         assert all(p['finite'] for p in row['projections'].values())
         assert len(row['outputs'])==len(variants[0]['outputs'])
     assert all(p['bitwise_equal'] for p in variants[1]['outputs']) and variants[1]['input_gradient']['bitwise_equal']
+    if result.get('shadow_scope')=='first-module':
+        assert mismatch is None
+        assert all(row['input_gradient']['bitwise_equal'] and all(p['bitwise_equal'] for p in row['outputs'])
+            and all(p['bitwise_equal'] for p in row['projections'].values()) for row in variants)
     cotangent=read(out/'cotangent.json')
     assert not cotangent['raw_values_retained'] and len(cotangent['ports'])==len(variants[0]['outputs'])
     for index,row in enumerate(cotangent['ports']):assert row['seed']==provenance['config']['seed']+10000+index
