@@ -1,3 +1,25 @@
+# Opt7v4 rejected / focused diagnostic prepared — 2026-10-10 04:40 UTC
+
+* Fullpaired20261010041736293-6ef871bc (bb7f154) FAILED: pairedgradientL2
+  1.783424%,111/74472exact (33nonzero). Candidate loss.6243785619735718,
+  control.6243783235549927. Candidate F/B153.128/192.152s,
+  GPU14.535/21.947GiB, treePSS108.578/108.586GiB. Control132.535/219.239s,
+  GPU16.980/27.425GiB/treePSS109.316GiB. All74472initialadapters exact;
+  gradientsfinite. Verifiedactualtest-onlyFLA1warpkey. Sources/artifacts localDVC.
+* Astra reviewed failedgate; report appended reports/astra-opt7-review.md.
+  Only6experts split in5layers, firstlayer15count9235. ActiveAutoRound base
+  dequantizesW then usesTorchmatmul; inspectcublasBF16GEMM shapes, notunused
+  fusedAutoRoundmatmul autotuner. No provenmissinggradient/stagerace yet.
+* Prepared diagnostics/expert_replay.py: candidate-primary forward shadows
+  nativeexperts atidenticalinputs/router; stopsfirstbitwise outputmismatch.
+  Retainsfirstsplitlayerifalloutputs exact. FixedCPUseededcotangent compares
+  native/repeat/chunked/custom-unsplit VJPs, separatesdx/router/adapters and
+  split/unsplit adaptererrors. RawvaluesRAMonly. Astra code review found no
+  blockingbugs; focuseddiagnosticGPUdispatch next. No furtherfullOpt7/Opt8–10
+  orbenchmarks yet. Ifallshadowoutputs match, itfinishesforwardlossonly.
+* User test-onlyFLApin requirement guarded byconfig/CLI/Jupyterlauncher;
+  trainingclearsinherited FLA config andusesnativeautotuning. No pushes.
+
 # Test-only FLA profile / Opt7 active — 2026-10-10 04:20 UTC
 
 * User explicitly restricts FLA1warpforcing to testing, NOT realtraining.

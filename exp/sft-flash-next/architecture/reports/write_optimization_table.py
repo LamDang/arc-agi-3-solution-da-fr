@@ -23,11 +23,11 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: expert slices (rejected)'),('opt7','Opt7: + expert chunks'),('opt8','Opt8: + QSA query chunks'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
- elif key not in {'opt7-rejected','wrongselectionreference','restoredreferenceunpinned'}:cases.append((label,None,None,False))
+ elif key not in {'opt7-rejected','opt7v4rejected','wrongselectionreference','restoredreferenceunpinned'}:cases.append((label,None,None,False))
 for label,r,monitor,is_ref in cases:
  if r is None:
   lines.append('| '+' | '.join([label]+['pending']*10)+' |');continue
