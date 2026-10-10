@@ -76,3 +76,9 @@ real quantized-expert fixture covers CPU FP32 LoRA and routing gradients through
 outer layer checkpointing and inner replay. Full model measurements and the
 chunking gate appear in the single `v0.md` table. Small CPU checks are preliminary;
 GPU fixtures execute before model loading. No 130K pass is implied by a 16K run.
+
+The accumulation distinction is visible in the pinned Torch2.11 CUDA sources:
+[native indexing backward](https://github.com/pytorch/pytorch/blob/v2.11.0/aten/src/ATen/native/cuda/Indexing.cu)
+and [BF16 sum reduction](https://github.com/pytorch/pytorch/blob/v2.11.0/aten/src/ATen/native/cuda/ReduceSumProdKernel.cu).
+The bounded unroute fixture compares the actual native gather VJP bitwise,
+including the model hidden width, rather than assuming a reduction ordering.

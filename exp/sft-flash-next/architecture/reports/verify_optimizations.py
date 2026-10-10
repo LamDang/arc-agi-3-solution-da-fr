@@ -104,6 +104,12 @@ def main():
         assert paired['gradient_gate_passed']==(paired['global_relative_l2']<.01)
         assert result['chunking_gradient_gate_passed']==paired['gradient_gate_passed']
         assert sum(r['bitwise_equal'] for r in paired['tensors'].values())==paired['bitwise_equal_tensors']
+        if 'reference_norm' in paired:
+            norms=sum(r['reference_norm']**2 for r in paired['tensors'].values())
+            errors=sum(r['reference_norm']**2*r['relative_l2']**2 if r['reference_norm'] else r['candidate_norm']**2 for r in paired['tensors'].values())
+            assert math.isclose(paired['global_relative_l2'],math.sqrt(errors/norms),rel_tol=1e-9)
+            assert math.isclose(paired['error_norm'],math.sqrt(errors),rel_tol=1e-9)
+            assert all(math.isclose(r['candidate_norm'],summary[n]['norm'],rel_tol=1e-9,abs_tol=1e-12) for n,r in paired['tensors'].items())
         assert 'unchunked_control_forward' in phases and 'unchunked_control_backward' in phases
         assert 'test_chunked_quantized_experts_recompute_all_gradients' in (job/'process.log').read_text()
         if opt.get('qsa_chunking'):

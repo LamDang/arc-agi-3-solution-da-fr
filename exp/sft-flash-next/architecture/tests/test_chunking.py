@@ -13,6 +13,19 @@ class ChunkingTests(unittest.TestCase):
         self.assertLess((ee/aa)**.5, .01)
         self.assertTrue(all(bool(torch.isfinite(x).all()) for x in actual))
 
+    def test_unroute_windows_preserve_native_gather_backward_bitwise(self):
+        import torch
+        from components.expert_chunks import unroute_native
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+        torch.manual_seed(419)
+        for tokens in (6,7,8,23):
+            x=torch.zeros((tokens,2560),device=device,dtype=torch.bfloat16,requires_grad=True)
+            rows=torch.arange(tokens,device=device).unsqueeze(1).expand(-1,8).reshape(-1)
+            slot_grad=torch.randn(tokens,8,2560,device=device,dtype=torch.bfloat16)
+            expected=torch.autograd.grad(x[rows],x,slot_grad.flatten(0,1))[0]
+            actual=unroute_native(slot_grad.cpu(),device,7)
+            self.assertTrue(torch.equal(actual,expected))
+
     def test_qsa_windows_preserve_selection_full_kv_and_gradients(self):
         import copy,torch
         from types import SimpleNamespace

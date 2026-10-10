@@ -103,6 +103,7 @@ def compare(gradients, loss, baseline):
         error += ee;norm += aa;other += bb;dot += ab
         rows[name] = dict(bitwise_equal=a.dtype==b.dtype and torch.equal(a.contiguous().view(torch.uint8),b.contiguous().view(torch.uint8)),
             reference_dtype=str(a.dtype),candidate_dtype=str(b.dtype),
+            reference_norm=aa**.5,candidate_norm=bb**.5,
             relative_l2=(ee/aa)**.5 if aa else None,max_absolute_difference=float((x-y).abs().max()),
             reference_zero=aa==0,candidate_zero=bb==0,finite=bool(torch.isfinite(b).all()))
     if set(rows) != set(gradients) or not rows:raise ValueError('Raw gradient keys/count differ')
@@ -112,6 +113,7 @@ def compare(gradients, loss, baseline):
     return dict(loss=loss,baseline_loss=expected,loss_bitwise_equal=loss_exact,
         loss_relative_change=(loss-expected)/expected,raw_tensors=len(rows),bitwise_equal_tensors=exact,
         global_relative_l2=(error/norm)**.5 if norm else None,cosine=dot/(norm*other)**.5 if norm and other else None,
+        reference_norm=norm**.5,candidate_norm=other**.5,error_norm=error**.5,
         nonzero_reference_tensors=sum(not row['reference_zero'] for row in rows.values()),
         bitwise_equal_nonzero_reference_tensors=sum(row['bitwise_equal'] and not row['reference_zero'] for row in rows.values()),
         passed=loss_exact and exact==len(rows),criterion=f'Bitwise loss and all {len(rows)} raw gradients',
