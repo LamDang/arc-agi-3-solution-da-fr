@@ -36,6 +36,29 @@ def won_games(source):
     return sorted(g for g, o in logs.game_outcomes(source).items() if o["state"] == "won")
 
 
+def finish(trajectory, student):
+    """../build.py's checks and token counts, then mask text-only turns.
+
+    A text-only reply (no tool call) is the teacher giving up on a board the
+    NVIDIA adapter froze ("RESET is not available..."). It stays in the context
+    exactly as the teacher saw it, but is not a loss target, and its tokens
+    count as input rather than supervised output.
+    """
+    trajectory = base.finish(trajectory, student)
+    targets = [t for t in trajectory["turns"] if not t["text_only"]]
+    if not targets:
+        raise ValueError(f"No supervised turn: {trajectory['trajectory_id']}")
+    output_tokens = sum(t["output_tokens"] for t in targets)
+    trajectory.update({
+        "loss_target_message_indices": [t["assistant_message_index"] for t in targets],
+        "masked_text_only_message_indices": [t["assistant_message_index"]
+                                             for t in trajectory["turns"] if t["text_only"]],
+        "output_tokens": output_tokens,
+        "input_tokens": trajectory["total_tokens"] - output_tokens,
+    })
+    return trajectory
+
+
 def main():
     manifest = json.loads((RUN / "manifest.json").read_text())
     sha256 = progressive.file_hash
@@ -94,7 +117,7 @@ def main():
                 if active is not None:
                     active["boundary_to_next"] = base.validate_boundary(previous, sample)
                     boundary_count += 1
-                    trajectories.append(base.finish(active, student))
+                    trajectories.append(finish(active, student))
                     retained = active["boundary_to_next"]
                 active = {
                     "trajectory_id": f"{rec.game}:chunk-{row['chunk']:02d}",
@@ -138,7 +161,7 @@ def main():
             all_ids.add(rec.key)
             history[row["ref"]] = row["thinking"]
             previous = sample
-        trajectories.append(base.finish(active, student))
+        trajectories.append(finish(active, student))
     if Counter(t["game_run"] for t in trajectories).keys() != set(won):
         raise ValueError("Missing a game")
 
@@ -173,9 +196,10 @@ def main():
         "games": len(won),
         "trajectories": len(trajectories),
         "compactions": boundary_count,
-        "supervised_targets": len(all_ids),
-        "text_only_targets": text_only,
-        "newly_included_from_old_120k_input_filter": len(all_ids) - old_eligible_checked,
+        "finalized_turns": len(all_ids),
+        "supervised_targets": len(all_ids) - text_only,
+        "masked_text_only_turns": text_only,
+        "not_in_120k_input_sft_export": len(all_ids) - old_eligible_checked,
         "max_trajectory_total_tokens": max(t["total_tokens"] for t in trajectories),
         "max_turn_total_tokens": max(turn["total_tokens"] for t in trajectories for turn in t["turns"]),
         "role_counts": dict(Counter(m["role"] for t in trajectories for m in t["messages"])),
