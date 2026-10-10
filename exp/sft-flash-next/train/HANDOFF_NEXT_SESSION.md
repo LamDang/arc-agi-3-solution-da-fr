@@ -1,3 +1,17 @@
+# Follow-up: scaling benchmark after qualification
+
+* User requests GPU/host RAM and timing at32K,64K,96K,120K after all retained
+  optimizations are folded in. Run ascending32000/64000/96000/120000-token
+  fixtures using cumulative Opt10, after each Opt7–10 anchor gradient gate passes.
+* See `../architecture/BENCHMARKS.md`: first F/B plus warm repeat; phase GPU
+  allocated/reserved and sampled RAM RSS/treePSS/worker/system peaks, actual
+  target fraction, loss/finite gradients, input/source hashes, DVC per attempt,
+  one existing v0 table. No optimizer updates, candidate raw archive or pushes.
+* Do not run the unchunked qualification control at long context. A dedicated
+  capacity path must avoid both that control and full gradient dictionary clones.
+* Encoded benchmark fixtures and GPU runs remain pending, behind connection
+  restoration and Opt7–10 qualification. No measured capacity results yet.
+
 # Connection unavailable — latest checkpoint 2026-10-10 00:20 UTC
 
 * Existing private Jupyter URL (/tmp/kaggle_probe_url) now returns404/timeouts.
