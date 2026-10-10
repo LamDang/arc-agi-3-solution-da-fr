@@ -97,7 +97,8 @@ GPU figures are peak allocated memory; RAM is sampled process-tree PSS.
   and `configs/train-trajectories.json`. Latest dataset definition imported from
   `ce2ba09`: 58 compaction trajectories, all 1,334 targets, max 129,169 tokens.
   Fold 0 has 11 trajectories/277,426 targets; training has 47/1,122,317.
-  Five epochs, AdamW 1e-4, 49,152-target accumulation with epoch-tail flush,
+  At most five epochs, AdamW 1e-4 with betas (0.9, 0.95), 49,152-target
+  accumulation with epoch-tail flush,
   token-weighted validation, TensorBoard, acknowledged sharded DVC recovery.
   Local CPU/transport/DVC utility tests qualify correctness, not GPU learning.
 - Remaining: actual dataset outputs/processor parity, live API and optimizer-

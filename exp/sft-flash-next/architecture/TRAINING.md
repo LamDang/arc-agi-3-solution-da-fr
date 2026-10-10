@@ -44,8 +44,16 @@ are rejected. Model component arithmetic is unchanged.
 Accumulate summed token-CE gradients until **49,152 targets**; normalize once
 by actual targets, then clip global norm to 1.0 and update. Whole trajectories
 may overshoot. Flush the short remainder at **every epoch**, then validate.
-AdamW: constant LR 1e-4, betas (0.9, 0.999), epsilon 1e-8, weight decay 0,
+AdamW: constant LR 1e-4, betas (0.9, 0.95), epsilon 1e-8, weight decay 0,
 `foreach=False`, `fused=False`. Maximum five epochs; no scheduler.
+
+Beta 2 is 0.95 because this dataset is expected to produce only about 18–20
+updates per epoch with the current accumulation budget. The shorter decay
+lets the squared-gradient estimate respond faster as training changes the
+gradients. Adam's bias correction already handles zero initialization; extra
+epochs are not required just to initialize its statistics. This setting is
+a training choice, not a measured improvement. Evaluate after the first epoch
+before deciding whether to continue toward the five-epoch maximum.
 
 Validation uses all fold-0 targets with `eval()`/no gradients. NLL and accuracy
 are target-weighted across the split. CCE supplies summed NLL; bounded target

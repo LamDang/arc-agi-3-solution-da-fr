@@ -17,7 +17,7 @@ class Training:
     learning_rate: float = 1e-4
     epochs: int = 5
     weight_decay: float = 0.0
-    betas: tuple = (.9, .999)
+    betas: tuple = (.9, .95)
     eps: float = 1e-8
     max_grad_norm: float = 1.0
     lookahead: int = 2
