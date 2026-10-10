@@ -136,7 +136,10 @@ def main() -> int:
     run_dir: Path = args.run_dir
     params = _load_params()
     make_vars = _with_overrides(params.get("make") or {}, args.make)
-    make_vars.update(ENVIRONMENTS_DIR="environment_files", EXPERIMENT_DIR=str(run_dir))
+    # --make ENVIRONMENTS_DIR=environment_files_community plays community games
+    # (scripts/build_community_envs.py); params.yaml leaves it to the default.
+    make_vars.setdefault("ENVIRONMENTS_DIR", "environment_files")
+    make_vars["EXPERIMENT_DIR"] = str(run_dir)
     settings = _with_overrides(params.get("env") or {}, args.env)
     env = _run_env(settings)
 
