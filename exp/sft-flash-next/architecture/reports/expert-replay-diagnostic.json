@@ -1,0 +1,1758 @@
+{
+  "evidence_checks_passed": true,
+  "attempt": "20261010044356417-24bc0932",
+  "execution_commit": "507af2c404545d1da315fa9f1a693c99e7d978eb",
+  "monitor": {
+    "returncode": 0,
+    "timed_out": false,
+    "seconds": 459.8301731170013,
+    "pid": 4024
+  },
+  "result": {
+    "completed": true,
+    "mode": "diagnostic-expert",
+    "first_mismatching_layer": null,
+    "focused_layer": 15,
+    "all_expert_outputs_bitwise": true,
+    "layers_checked": 48,
+    "variants": 4,
+    "optimizer_updates": 0,
+    "raw_gradients_retained": false,
+    "note": "Same-input expert outputs and fixed random-cotangent VJPs only; no full loss/gradient qualification."
+  },
+  "shadows": [
+    {
+      "layer": 0,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 1,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 2,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 3,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 4,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 5,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 6,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 7,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 8,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 9,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 10,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 11,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 12,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 13,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 14,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 15,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {
+        "147": 9235
+      },
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 16,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 17,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 18,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 19,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 20,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 21,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 22,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 23,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 24,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 25,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 26,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 27,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 28,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 29,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 30,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 31,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 32,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 33,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 34,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 35,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 36,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 37,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 38,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 39,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 40,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 41,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 42,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 43,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {},
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 44,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {
+        "29": 9694
+      },
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 45,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {
+        "86": 9173
+      },
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 46,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {
+        "170": 9383,
+        "183": 10061
+      },
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    },
+    {
+      "layer": 47,
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "split_experts": {
+        "120": 11948
+      },
+      "input_shape": [
+        16249,
+        2560
+      ],
+      "input_stride": [
+        2560,
+        1
+      ],
+      "input_dtype": "torch.bfloat16",
+      "routing_dtype": "torch.bfloat16",
+      "chunk_tokens": 8192
+    }
+  ],
+  "variants": [
+    {
+      "variant": "native",
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "routing_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          10
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "adapter_gradients": {
+        "raw_tensors": 1536,
+        "bitwise_equal_tensors": 1536,
+        "global_relative_l2": 0.0,
+        "cosine": 1.0,
+        "reference_norm": 0.22525349527733257,
+        "candidate_norm": 0.22525349527733257,
+        "error_norm": 0.0,
+        "nonzero_reference_tensors": 1536,
+        "bitwise_equal_nonzero_reference_tensors": 1536,
+        "passed": true,
+        "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+        "baseline_gradients_sha256": null
+      },
+      "adapter_partitions": {
+        "split": {
+          "raw_tensors": 6,
+          "bitwise_equal_tensors": 6,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.06404370193526643,
+          "candidate_norm": 0.06404370193526643,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 6,
+          "bitwise_equal_nonzero_reference_tensors": 6,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        },
+        "unsplit": {
+          "raw_tensors": 1530,
+          "bitwise_equal_tensors": 1530,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.21595726747919827,
+          "candidate_norm": 0.21595726747919827,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 1530,
+          "bitwise_equal_nonzero_reference_tensors": 1530,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        }
+      }
+    },
+    {
+      "variant": "native-repeat",
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "routing_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          10
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "adapter_gradients": {
+        "raw_tensors": 1536,
+        "bitwise_equal_tensors": 1536,
+        "global_relative_l2": 0.0,
+        "cosine": 1.0,
+        "reference_norm": 0.22525349527733257,
+        "candidate_norm": 0.22525349527733257,
+        "error_norm": 0.0,
+        "nonzero_reference_tensors": 1536,
+        "bitwise_equal_nonzero_reference_tensors": 1536,
+        "passed": true,
+        "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+        "baseline_gradients_sha256": null
+      },
+      "adapter_partitions": {
+        "split": {
+          "raw_tensors": 6,
+          "bitwise_equal_tensors": 6,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.06404370193526643,
+          "candidate_norm": 0.06404370193526643,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 6,
+          "bitwise_equal_nonzero_reference_tensors": 6,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        },
+        "unsplit": {
+          "raw_tensors": 1530,
+          "bitwise_equal_tensors": 1530,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.21595726747919827,
+          "candidate_norm": 0.21595726747919827,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 1530,
+          "bitwise_equal_nonzero_reference_tensors": 1530,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        }
+      }
+    },
+    {
+      "variant": "chunked",
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "routing_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          10
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "adapter_gradients": {
+        "raw_tensors": 1536,
+        "bitwise_equal_tensors": 1530,
+        "global_relative_l2": 0.0008741965513522961,
+        "cosine": 0.9999996178901289,
+        "reference_norm": 0.22525349527733257,
+        "candidate_norm": 0.2252534363560246,
+        "error_norm": 0.00019691582875149485,
+        "nonzero_reference_tensors": 1536,
+        "bitwise_equal_nonzero_reference_tensors": 1530,
+        "passed": false,
+        "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+        "baseline_gradients_sha256": null
+      },
+      "adapter_partitions": {
+        "split": {
+          "raw_tensors": 6,
+          "bitwise_equal_tensors": 0,
+          "global_relative_l2": 0.003074710280653855,
+          "cosine": 0.9999952730682848,
+          "reference_norm": 0.06404370193526643,
+          "candidate_norm": 0.06404349469786594,
+          "error_norm": 0.00019691582875149485,
+          "nonzero_reference_tensors": 6,
+          "bitwise_equal_nonzero_reference_tensors": 0,
+          "passed": false,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        },
+        "unsplit": {
+          "raw_tensors": 1530,
+          "bitwise_equal_tensors": 1530,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.21595726747919827,
+          "candidate_norm": 0.21595726747919827,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 1530,
+          "bitwise_equal_nonzero_reference_tensors": 1530,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        }
+      }
+    },
+    {
+      "variant": "custom-unsplit",
+      "output": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "input_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          2560
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "routing_gradient": {
+        "bitwise_equal": true,
+        "relative_l2": 0.0,
+        "max_absolute_difference": 0.0,
+        "different_values": 0,
+        "finite": true,
+        "shape": [
+          16249,
+          10
+        ],
+        "dtype": "torch.bfloat16"
+      },
+      "adapter_gradients": {
+        "raw_tensors": 1536,
+        "bitwise_equal_tensors": 1536,
+        "global_relative_l2": 0.0,
+        "cosine": 1.0,
+        "reference_norm": 0.22525349527733257,
+        "candidate_norm": 0.22525349527733257,
+        "error_norm": 0.0,
+        "nonzero_reference_tensors": 1536,
+        "bitwise_equal_nonzero_reference_tensors": 1536,
+        "passed": true,
+        "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+        "baseline_gradients_sha256": null
+      },
+      "adapter_partitions": {
+        "split": {
+          "raw_tensors": 6,
+          "bitwise_equal_tensors": 6,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.06404370193526643,
+          "candidate_norm": 0.06404370193526643,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 6,
+          "bitwise_equal_nonzero_reference_tensors": 6,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        },
+        "unsplit": {
+          "raw_tensors": 1530,
+          "bitwise_equal_tensors": 1530,
+          "global_relative_l2": 0.0,
+          "cosine": 1.0,
+          "reference_norm": 0.21595726747919827,
+          "candidate_norm": 0.21595726747919827,
+          "error_norm": 0.0,
+          "nonzero_reference_tensors": 1530,
+          "bitwise_equal_nonzero_reference_tensors": 1530,
+          "passed": true,
+          "criterion": "Bitwise all adapter gradients with fixed upstream cotangent",
+          "baseline_gradients_sha256": null
+        }
+      }
+    }
+  ],
+  "cotangent": {
+    "seed": 20261024,
+    "generator": "CPU torch.Generator",
+    "operation": "CPU FP32 randn * .001 then BF16",
+    "shape": [
+      16249,
+      2560
+    ],
+    "raw_values_retained": false
+  },
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 251.37028640800054,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94862598144,
+      "tree_pss_bytes": 95461297152,
+      "children_rss_bytes": 1173975040,
+      "host_used_bytes": 46235865088,
+      "samples": 347
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 14.574520512998788,
+      "cuda_peak_allocated_bytes": 10931468800,
+      "cuda_peak_reserved_bytes": 11150557184,
+      "rss_bytes": 95019147264,
+      "tree_pss_bytes": 95617762304,
+      "children_rss_bytes": 1004425216,
+      "host_used_bytes": 46136700928,
+      "samples": 21
+    },
+    {
+      "phase": "shadow_forward",
+      "seconds": 135.3789987479995,
+      "cuda_peak_allocated_bytes": 18232043520,
+      "cuda_peak_reserved_bytes": 18658361344,
+      "rss_bytes": 96853516288,
+      "tree_pss_bytes": 97122199552,
+      "children_rss_bytes": 1004941312,
+      "host_used_bytes": 48133955584,
+      "samples": 180
+    },
+    {
+      "phase": "expert-vjp-native",
+      "seconds": 2.4779364360001637,
+      "cuda_peak_allocated_bytes": 19575420928,
+      "cuda_peak_reserved_bytes": 20491272192,
+      "rss_bytes": 95657750528,
+      "tree_pss_bytes": 96256068608,
+      "children_rss_bytes": 1004941312,
+      "host_used_bytes": 47143448576,
+      "samples": 5
+    },
+    {
+      "phase": "expert-vjp-native-repeat",
+      "seconds": 2.467454595000163,
+      "cuda_peak_allocated_bytes": 19575420928,
+      "cuda_peak_reserved_bytes": 20491272192,
+      "rss_bytes": 95984259072,
+      "tree_pss_bytes": 96582577152,
+      "children_rss_bytes": 1004941312,
+      "host_used_bytes": 47404589056,
+      "samples": 5
+    },
+    {
+      "phase": "expert-vjp-chunked",
+      "seconds": 1.9941619540004467,
+      "cuda_peak_allocated_bytes": 14223291904,
+      "cuda_peak_reserved_bytes": 14422114304,
+      "rss_bytes": 96836313088,
+      "tree_pss_bytes": 97435319296,
+      "children_rss_bytes": 1004941312,
+      "host_used_bytes": 48329547776,
+      "samples": 4
+    },
+    {
+      "phase": "expert-vjp-custom-unsplit",
+      "seconds": 1.9654756559993984,
+      "cuda_peak_allocated_bytes": 15135055872,
+      "cuda_peak_reserved_bytes": 15491661824,
+      "rss_bytes": 96851062784,
+      "tree_pss_bytes": 97449380864,
+      "children_rss_bytes": 1004941312,
+      "host_used_bytes": 48343658496,
+      "samples": 4
+    }
+  ],
+  "raw_gradients_retained": false,
+  "pushed_to_remote": false,
+  "scope": "Same-input expert forward and fixed-cotangent VJP diagnosis; not full-model qualification."
+}

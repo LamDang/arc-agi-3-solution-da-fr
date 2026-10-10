@@ -1,3 +1,41 @@
+# Expert diagnostic completed — 2026-10-10
+
+* Attempt20261010044356417-24bc0932 execution507af2c completed459.830s/return0.
+  All48 same-input native/chunk expert forward shadows bitwise. Layer15 VJPs:
+  native repeat exact; chunk output/dx/drouter exact, all1536adapterL2 .087420%,
+  six split adapters .307471%; custom-unsplit all exact. Captures RAM only.
+  Reviewed reports/expert-replay-diagnostic.json; DVC inventory/cache verified.
+* Astra independently verified these results. Full Opt7 gate remains failed at
+  1.783424%; no acceptance from this operator diagnostic.
+* Next combined focused diagnostic: capture actual selected head states and all
+  five split expert layer inputs in RAM from one no-grad anchor forward. First
+  repeat unchanged CCE-exact loss/hidden VJP, then remaining fixed-cotangent
+  expert VJPs. Preserve original BF16 layout/target order/frozen head/CCE flags.
+  No raw tensors archived, full-model backward or optimizer update.
+* All74472 adapter initial values were bitwise verified; paired tests reuse the
+  same model without updates. Torch deterministic mode and cuBLAS setting are
+  global; custom Triton kernels are not universally covered. FLA exact-key pin
+  applies at every matching invocation, only in testing, never real training.
+* No push/shutdown. Opt8–10 and32/64/96/120K benchmarks remain pending.
+
+# Expert diagnostic running — 2026-10-10 04:47 UTC
+
+* Attempt `20261010044356417-24bc0932`, execution `507af2c`, supervisor4021,
+  desktop watcher47863. Entry `diagnostics/expert_replay.py`; loading model.
+* Astra reviewed this diagnostic and found no blocking correctness issue.
+  It compares native/chunk expert outputs on identical inputs, then compares
+  native, repeat-native, chunked and custom-unsplit VJPs with one seeded CPU
+  cotangent. Captures stay in RAM; only metrics/source/input hashes are retained.
+* If every shadow output matches, it finishes the forward loss, then replays the
+  first split expert layer. It never performs a full-model backward or update.
+* Prepared local reviewer `reports/verify_expert_diagnostic.py`; it verifies
+  sources/input/initialization and VJP statistics, writes a compact Git report
+  and SHA inventory. Refresh the DVC pointer after review; regenerate `v0.md`.
+* Opt7 v4 remains rejected at1.783424% versus the unchunked control. Do not run
+  Opt8–10 or long-context benchmarks until the full chunking gates pass.
+* Test-only FLA pin restriction is committed `f2ec8d6`; training rejects the
+  profile and clears inherited config overrides. No pushes or kernel shutdown.
+
 # Opt7v4 rejected / focused diagnostic prepared — 2026-10-10 04:40 UTC
 
 * Fullpaired20261010041736293-6ef871bc (bb7f154) FAILED: pairedgradientL2

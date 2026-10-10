@@ -63,6 +63,17 @@ if isolation.exists():
    prefix=[f'GDN fixed-cotangent replay: {label}','forward bitwise',f'{comparison["global_relative_l2"]:.9%} / {comparison["cosine"]:.10f}',f'{comparison["bitwise_equal_tensors"]}/10 nonzero','isolated match' if comparison['passed'] else 'isolated difference']
   values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   lines.append('| '+' | '.join(values)+' |')
+expert_diagnostic=ROOT/'reports/expert-replay-diagnostic.json'
+if expert_diagnostic.exists():
+ r=read(expert_diagnostic);variants={v['variant']:v for v in r['variants']}
+ for index,row in enumerate(r['resources']):
+  phase=row['phase'];prefix=['','','','','']
+  if index==0:prefix=[f'Expert isolation layer {r["result"].get("focused_layer","none")}<br>wall {r["monitor"]["seconds"]:.2f}','no full backward','fixed-cotangent VJP','1536 local adapters only','not a full-model gate']
+  if phase.startswith('expert-vjp-'):
+   variant=variants[phase.removeprefix('expert-vjp-')];comp=variant['adapter_gradients']
+   prefix=[f'Expert VJP: {variant["variant"]}','no scalar loss',f'{comp["global_relative_l2"]:.6%} / {comp["cosine"]:.10f}',f'{comp["bitwise_equal_tensors"]}/1536 adapters',f'dx {variant["input_gradient"]["relative_l2"]:.6%}; route {variant["routing_gradient"]["relative_l2"]:.6%}']
+  values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
 probe=ROOT/'results/20261010-reverse-scan-dispatch-probe'
 if probe.exists():
  values=['Reverse-scan dispatch preflight','scan outputs only','warp1 differs from2/4/8','not gradient qualification','unseeded random diagnostic','4 direct JIT launches','unmeasured','unmeasured','unmeasured','unmeasured','—']

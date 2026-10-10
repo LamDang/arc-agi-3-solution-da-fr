@@ -160,3 +160,42 @@ fused quantized-matmul M/N/K autotuner as if it executed this capture. Compare
 dequantized W bytes once to exclude that independent step, then use identical
 W/input/cotangent values for each GEMM comparison. Preserve actual native and
 chunked shapes/strides rather than constructing another9705-row synthetic case.
+
+## Verified actual-value shadow diagnostic — 2026-10-10
+
+Independently reviewed collected attempt `20261010044356417-24bc0932`, execution
+507af2c, including result.json, all48 expert-shadows.json rows, and all four
+expert-vjps.json variants. Every expert forward shadow is bitwise identical on
+the candidate's same hidden input, route IDs and route weights. No first forward
+mismatch was found. The retained VJP fixture is actual first-split layer15 with
+one CPU-seeded fixed random cotangent, not the full model's loss cotangent.
+
+| Layer15 variant | Output/dx/router | All1536 adapter relative L2 | Split6 adapter relative L2 | Unsplit1530 adapters |
+| --- | --- | --- | --- | --- |
+| Native repeat | bitwise | 0 | 0 | all exact |
+| Chunk8192 | bitwise | 0.0008741965513522961 | 0.003074710280653855 | all exact |
+| Custom unsplit | bitwise | 0 | 0 | all exact |
+
+This excludes a forward mismatch on the48 observed same-input expert calls and
+shows that the tested layer15 input/router VJP does not introduce upstream drift.
+Its adapter-only chunk error remains localized to the split expert. It does not
+explain the full1.7834% paired difference, does not prove equality for every
+possible cotangent, and does not test actual-value VJPs at split layers44–47.
+No Opt7 acceptance follows.
+
+The next proposed combined diagnostic is focused: capture actual inputs for the
+five split layers during one no-grad forward, then compare fixed-cotangent native
+and chunk VJPs on those values. Also capture the actual651x2560 selected head
+hidden states and repeat unchanged CCE exact scalar loss and hidden VJP. Give the
+CCE repeat priority once inputs are captured: paired full losses differ even
+though these expert shadows are exact, and widespread top-layer differences
+could originate in the shared head cotangent.
+
+For CCE repeats, use fresh identical leaves with the original selected-hidden
+dtype/contiguous layout, target order, frozen head weight, cce_exact implementation,
+filter_eps=None, mean denominator and autocast settings. Compare scalar bits and
+all hidden-cotangent bits, not just relative tolerance. Torch deterministic mode
+alone does not prove deterministic custom Triton execution. If identical-input
+CCE repeats drift, the previous paired result cannot be attributed entirely to
+Opt7; this still does not grant acceptance. Keep all activations and cotangents
+in RAM and save comparison metrics only. FLA profile remains test-only.
