@@ -72,8 +72,10 @@ after backward. No installed package source or callable is replaced.
 On the replacement server, default autotuning picked two warps. Loss was exact
 but full gradients differed by1.738071%. With a fixed input and upstream
 cotangent, the isolated layer46 GDN matched all10 saved gradients using one
-warp; default/two/four/eight warps reproduced the discrepancy. The profile's
-full-model equality replay is pending; this isolated test does not qualify it.
+warp; default/two/four/eight warps reproduced the discrepancy. Full-model replay
+`20261010040404197-7f737faf` then matched loss and all74,472 gradients bitwise,
+including all74,394 nonzero tensors. Its actual backward configuration was
+verified as one warp; see `reports/restoredreference-rerun.json`.
 Use `configs/restored-reference-check.json` to check the saved reference without
 retaining another raw gradient archive. See `reports/gdn-backward-isolation.json`
 and `reports/astra-restored-reference-gradient-review.md`.

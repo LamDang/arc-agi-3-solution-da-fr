@@ -1,3 +1,16 @@
+# Native restoration gate PASSED — 2026-10-10 04:17 UTC
+
+* Replay20261010040404197-7f737faf (executionf624914) completed cleanly.
+  Loss.6244627833366394 and all74472 gradients/all74394 nonzero tensors bitwise
+  identical to saved reference. Native FLA strict1warp key verified afterbackward.
+  Forward136.531s/GPU48.260GiB/treePSS138.619GiB;
+  backward222.493s/GPU55.636GiB/treePSS138.657GiB. Zero updates/clipping.
+* Reviewed sources/inputs/initialization/alltensor metrics/actual kernel profile;
+  reports/restoredreference-rerun.json. Candidate raw gradients never archived.
+* Next Opt7v4 fullpaired qualification, thenOpt8–10, then32/64/96/120K capacity
+  two-pass benchmark. Astra review eachfailed implementation gate. No pushes;
+  Jupyter shutdown only after allrequestedwork completed/collected/verified.
+
 # Native backward configuration replay — 2026-10-10 04:10 UTC
 
 * Native replay 20261010040404197-7f737faf (execution f624914), supervisor3166,
