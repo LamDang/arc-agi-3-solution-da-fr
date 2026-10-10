@@ -184,7 +184,10 @@ implementation gradient gate receives Astra review before a revision is promoted
 The profile is test-only: real training rejects it and clears inherited FLA
 configuration overrides so its kernels use native autotuning.
 
-`benchmark.py` measures two forward/backward passes without an optimizer,
+`benchmark.py` measures configured forward/backward passes without an optimizer,
 unchunked control or raw gradient archive. Its four cumulative Opt10 configs
 cover32,000/64,000/96,000/120,000 tokens. See [BENCHMARKS.md](BENCHMARKS.md);
-capacity runs require all preceding anchor qualification gates to pass first.
+Opt7–10 passed the anchor gates. Corrected GPU LoRA capacity passed at 96K
+(two passes) and 120K (one pass), after the user waived another numerical gate
+for allocation changes. Historical 32K/64K CPU LoRA profiles remain separately
+labeled. All measurements are in [v0.md](v0.md).

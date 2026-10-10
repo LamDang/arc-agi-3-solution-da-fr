@@ -1,0 +1,233 @@
+{
+  "evidence_checks_passed": true,
+  "attempt": "20261010100622729-a29599a0",
+  "tokens": 120000,
+  "fixture": {
+    "path": "sample-120000.pt",
+    "tokens": 120000,
+    "targets": 31261,
+    "target_fraction": 0.26051050425420214,
+    "images": 59,
+    "sha256": "2d84790fd5165f2ab4207e80e448bbc91094507688d29cffb6de21416bb69b43",
+    "bytes": 583838045,
+    "objective": "all assistant positions, interleaved with ignored context",
+    "complete_trajectory": false,
+    "purpose": "diagnostic capacity prefix only"
+  },
+  "execution_commit": "5b27162abe23322b3cf691eccde2332390c61f2e",
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 171.96418461299982,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 45747556352,
+      "tree_pss_bytes": 47065985024,
+      "children_rss_bytes": 1740664832,
+      "host_used_bytes": 7958556672,
+      "samples": 223,
+      "cgroup_memory_current_bytes": 100357820416,
+      "cgroup_anon_bytes": 5871919104,
+      "cgroup_file_bytes": 93456826368,
+      "cgroup_shmem_bytes": 34385809408,
+      "host_pinned_allocated_bytes": 34364096525
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 26.558707126001536,
+      "cuda_peak_allocated_bytes": 18481216000,
+      "cuda_peak_reserved_bytes": 18599641088,
+      "rss_bytes": 39026782208,
+      "tree_pss_bytes": 40374948864,
+      "children_rss_bytes": 1738645504,
+      "host_used_bytes": 7791304704,
+      "samples": 46,
+      "cgroup_memory_current_bytes": 117092253696,
+      "cgroup_anon_bytes": 5988007936,
+      "cgroup_file_bytes": 110074441728,
+      "cgroup_shmem_bytes": 34385809408,
+      "host_pinned_allocated_bytes": 34364096525
+    },
+    {
+      "phase": "forward-0",
+      "seconds": 771.8955397950012,
+      "cuda_peak_allocated_bytes": 47707661312,
+      "cuda_peak_reserved_bytes": 49134174208,
+      "rss_bytes": 164462411776,
+      "tree_pss_bytes": 165041171456,
+      "children_rss_bytes": 1036582912,
+      "host_used_bytes": 131350708224,
+      "samples": 1041,
+      "cgroup_memory_current_bytes": 187224182784,
+      "cgroup_anon_bytes": 129586229248,
+      "cgroup_file_bytes": 139011178496,
+      "cgroup_shmem_bytes": 35599421440,
+      "host_pinned_allocated_bytes": 34364096525
+    },
+    {
+      "phase": "backward-0",
+      "seconds": 1795.4499654489991,
+      "cuda_peak_allocated_bytes": 70434359808,
+      "cuda_peak_reserved_bytes": 81249959936,
+      "rss_bytes": 164518498304,
+      "tree_pss_bytes": 165132033024,
+      "children_rss_bytes": 1080090624,
+      "host_used_bytes": 131814371328,
+      "samples": 2401,
+      "cgroup_memory_current_bytes": 186767319040,
+      "cgroup_anon_bytes": 129681514496,
+      "cgroup_file_bytes": 56143917056,
+      "cgroup_shmem_bytes": 35599421440,
+      "host_pinned_allocated_bytes": 34364096525
+    },
+    {
+      "phase": "gradient_statistics-0",
+      "seconds": 7.814855118998821,
+      "cuda_peak_allocated_bytes": 26462910976,
+      "cuda_peak_reserved_bytes": 81249959936,
+      "rss_bytes": 40776724480,
+      "tree_pss_bytes": 41395908608,
+      "children_rss_bytes": 978690048,
+      "host_used_bytes": 8008343552,
+      "samples": 15,
+      "cgroup_memory_current_bytes": 62812114944,
+      "cgroup_anon_bytes": 5883301888,
+      "cgroup_file_bytes": 56144347136,
+      "cgroup_shmem_bytes": 35599421440,
+      "host_pinned_allocated_bytes": 34364096525
+    }
+  ],
+  "repeats": [
+    {
+      "repeat": 0,
+      "loss": 0.821954071521759,
+      "tokens": 120000,
+      "targets": 31261,
+      "target_fraction": 0.26051050425420214,
+      "forward_backward_seconds": 2567.3455052440004,
+      "input_tokens_per_second": 46.740884604308526,
+      "target_tokens_per_second": 12.176389946794075,
+      "adapter_tensors": 74472,
+      "nonzero_gradient_tensors": 74466,
+      "absent_unrouted_tensors": 0,
+      "gradient_norm": 0.12524297617654775,
+      "all_finite": true,
+      "raw_gradients_retained": false
+    }
+  ],
+  "benchmark_repeats": 1,
+  "loss_repeat_bitwise_equal": null,
+  "optimizer_updates": 0,
+  "raw_gradients_retained": false,
+  "unchunked_control_executed": false,
+  "measurement_scope": "Forward/backward only; no optimizer state or update",
+  "first_pass_cache_state": "Fresh process; OS/disk/compiled-kernel caches may already be warm",
+  "monitor": {
+    "returncode": 0,
+    "timed_out": false,
+    "seconds": 3438.1154574440006,
+    "pid": 10387
+  },
+  "pushed_to_remote": false,
+  "profile_label": "gpulora",
+  "expert_placement": {
+    "canonical_device": "cpu",
+    "frozen_canonical_device": "cpu",
+    "trainable_device": "cuda",
+    "gradient_device": "cuda",
+    "trainable_dtype": "torch.float32",
+    "parameter_devices": {
+      "cuda": 73728
+    },
+    "gradient_devices": {
+      "cuda": 73728
+    },
+    "frozen_cpu_bytes": 31661752320,
+    "max_staged_layers": 2
+  },
+  "numerical_profile": {
+    "profile": "reference-v0",
+    "mode": "native FLA strict exact-key configuration",
+    "autotune_key": [
+      1,
+      48,
+      64,
+      false,
+      true,
+      "torch.float32",
+      "torch.float32"
+    ],
+    "required_configuration": {
+      "num_warps": 1,
+      "num_ctas": 1,
+      "num_stages": 3
+    },
+    "observed_configuration": {
+      "num_warps": 1,
+      "num_ctas": 1,
+      "num_stages": 3
+    },
+    "backward_verified": true,
+    "cumsum_sha256": "0405701c46cee331088bfee395b3bf37f8384829dace0aa3a55a509844bcf4cb",
+    "config_sha256": "2d2d4f17e358323775264e8629c75d9b82af7733f8bc1379f7a62505bcba2f40",
+    "other_keys": "native autotuning; no fuzzy/default profile entry",
+    "package_sources_modified": false
+  },
+  "numerical_settings": {
+    "deterministic_algorithms": true,
+    "float32_matmul_precision": "highest",
+    "allow_tf32": false,
+    "allow_bf16_reduced_precision_reduction": true,
+    "allow_fp16_reduced_precision_reduction": true,
+    "cublas_workspace_config": ":4096:8",
+    "cuda_allocator_config": "expandable_segments:True"
+  },
+  "ple_preparation": {
+    "total_row_ids": 1920000,
+    "unique_rows": 329268,
+    "raw_unique_bytes": 105365760,
+    "lookup_bytes": 614400000,
+    "disk_read_passes": 1,
+    "index": 0,
+    "worker_pid": 10559,
+    "tokens": 120000,
+    "started_monotonic_ns": 27575082597082,
+    "finished_monotonic_ns": 28394575752320,
+    "input_ids_sha256": "9214dbf1bf430b564ce159bba98bdc5ab63490545de2293fd9879feac693c8c0",
+    "row_ids_sha256": "c29a6b4e0bee08c236a4a3b848ad656ac18f4a409660a27e9b496284efe3d519",
+    "payload_sha256": "712dc1711dcac8f7ab6fd15405e143493d2ed7305c52ac45370889f5f1c0da76",
+    "seconds": 819.493155238
+  },
+  "cgroup_first_observation": {
+    "memory.current": "54343680000\n",
+    "memory.peak": "187357286400\n",
+    "memory.max": "187904819200\n",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.stat": "anon 4020920320\nfile 49465683968\nkernel 851341312\nkernel_stack 6356992\npagetables 17743872\nsec_pagetables 0\npercpu 25200\nsock 28672\nvmalloc 65536\nshmem 26066944\nzswap 0\nzswapped 0\nfile_mapped 616026112\nfile_dirty 596398080\nfile_writeback 0\nswapcached 0\nanon_thp 31457280\nfile_thp 10485760\nshmem_thp 0\ninactive_anon 4046807040\nactive_anon 65536\ninactive_file 10884521984\nactive_file 38555037696\nunevictable 0\nslab_reclaimable 819955208\nslab_unreclaimable 5048656\nslab 825003864\nworkingset_refault_anon 0\nworkingset_refault_file 188837137\nworkingset_activate_anon 0\nworkingset_activate_file 61081308\nworkingset_restore_anon 0\nworkingset_restore_file 37339254\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgscan 251012668\npgsteal 250419058\npswpin 0\npswpout 0\npgscan_kswapd 234239055\npgscan_direct 16725541\npgscan_khugepaged 48072\npgscan_proactive 0\npgsteal_kswapd 233687841\npgsteal_direct 16683145\npgsteal_khugepaged 48072\npgsteal_proactive 0\npgfault 1954859032\npgmajfault 2065018\npgrefill 96751593\npgactivate 45706715\npgdeactivate 96068260\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20584\nthp_collapse_alloc 41\nthp_swpout 0\nthp_swpout_fallback 0\n",
+    "memory.swap.max": "0\n"
+  },
+  "cgroup_after_completion": {
+    "memory.current": "23356788736\n",
+    "memory.peak": "187365101568\n",
+    "memory.max": "187904819200\n",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.stat": "anon 654807040\nfile 22084608000\nkernel 610697216\nkernel_stack 1818624\npagetables 2473984\nsec_pagetables 0\npercpu 22000\nsock 0\nvmalloc 65536\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 8953856\nfile_dirty 12288\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 654774272\nactive_anon 32768\ninactive_file 6117335040\nactive_file 15967252480\nunevictable 0\nslab_reclaimable 604773784\nslab_unreclaimable 1526912\nslab 606300696\nworkingset_refault_anon 0\nworkingset_refault_file 201283508\nworkingset_activate_anon 0\nworkingset_activate_file 69348961\nworkingset_restore_anon 0\nworkingset_restore_file 39898310\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgscan 271342440\npgsteal 270692765\npswpin 0\npswpout 0\npgscan_kswapd 252574107\npgscan_direct 18720261\npgscan_khugepaged 48072\npgscan_proactive 0\npgsteal_kswapd 252004517\npgsteal_direct 18640176\npgsteal_khugepaged 48072\npgsteal_proactive 0\npgfault 2302392311\npgmajfault 2340885\npgrefill 111564458\npgactivate 46941029\npgdeactivate 110798214\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20924\nthp_collapse_alloc 41\nthp_swpout 0\nthp_swpout_fallback 0\n",
+    "memory.swap.max": "0\n"
+  },
+  "after_loading_memory": {
+    "pid": 10387,
+    "phase": "after loading and initial verification; waiting for PLE",
+    "cgroup": {
+      "memory.current": "111756906496\n",
+      "memory.peak": "187357286400\n",
+      "memory.max": "187904819200\n",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+      "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+      "memory.stat": "anon 5988007936\nfile 104738828288\nkernel 1024376832\nkernel_stack 6111232\npagetables 88420352\nsec_pagetables 0\npercpu 25200\nsock 12288\nvmalloc 65536\nshmem 34385809408\nzswap 0\nzswapped 0\nfile_mapped 34950459392\nfile_dirty 176128\nfile_writeback 0\nswapcached 0\nanon_thp 46137344\nfile_thp 10485760\nshmem_thp 0\ninactive_anon 40373731328\nactive_anon 65536\ninactive_file 20178661376\nactive_file 50174287872\nunevictable 0\nslab_reclaimable 922629160\nslab_unreclaimable 4966888\nslab 927596048\nworkingset_refault_anon 0\nworkingset_refault_file 193548043\nworkingset_activate_anon 0\nworkingset_activate_file 63045663\nworkingset_restore_anon 0\nworkingset_restore_file 39295740\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgscan 251012668\npgsteal 250419058\npswpin 0\npswpout 0\npgscan_kswapd 234239055\npgscan_direct 16725541\npgscan_khugepaged 48072\npgscan_proactive 0\npgsteal_kswapd 233687841\npgsteal_direct 16683145\npgsteal_khugepaged 48072\npgsteal_proactive 0\npgfault 1964377343\npgmajfault 2112522\npgrefill 96751593\npgactivate 46579091\npgdeactivate 96068260\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20591\nthp_collapse_alloc 41\nthp_swpout 0\nthp_swpout_fallback 0\n",
+      "memory.swap.max": "0\n"
+    },
+    "smaps_rollup": "00400000-7ffe903ce000 ---p 00000000 00:00 0                              [rollup]\nRss:            38112092 kB\nPss:            37923293 kB\nPss_Dirty:      37563370 kB\nPss_Anon:        3976748 kB\nPss_File:         366691 kB\nPss_Shmem:      33579854 kB\nShared_Clean:     371384 kB\nShared_Dirty:          4 kB\nPrivate_Clean:    177336 kB\nPrivate_Dirty:  37563368 kB\nReferenced:     38112092 kB\nAnonymous:       3976748 kB\nKSM:                   0 kB\nLazyFree:              0 kB\nAnonHugePages:         0 kB\nShmemPmdMapped:        0 kB\nFilePmdMapped:         0 kB\nShared_Hugetlb:        0 kB\nPrivate_Hugetlb:       0 kB\nSwap:                  0 kB\nSwapPss:               0 kB\nLocked:                0 kB\n"
+  }
+}

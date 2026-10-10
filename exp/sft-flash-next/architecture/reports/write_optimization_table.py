@@ -150,7 +150,8 @@ for tokens,suffix in [(32000,''),(64000,''),(96000,''),(96000,'-gpulora'),(12000
    prefix=[f'{profile} benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',repeat_status,'finite gradients; no long-context reference','—','—']
   if phase.startswith('forward-'):
    repeat=repeats[int(phase.split('-')[-1])]
-   prefix[0]=f'{profile} {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
+   pass_label='repeat' if len(repeats)>1 else 'pass'
+   prefix[0]=f'{profile} {tokens:,}: {pass_label} {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
    prefix[1]=f'{repeat["loss"]:.10f}';prefix[2]=f'all finite; norm {repeat["gradient_norm"]:.10f}'
    prefix[3]=f'{repeat["nonzero_gradient_tensors"]:,} nonzero; {repeat["absent_unrouted_tensors"]:,} absent'
   values=prefix+[phase,f"{row['seconds']:.3f}",

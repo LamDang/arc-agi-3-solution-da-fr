@@ -1,9 +1,11 @@
-# Full-context scaling benchmark — pending qualification
+# Full-context scaling benchmark
 
 Run this matrix after Opt7, Opt8, Opt9 and Opt10 pass their full-anchor gradient
 gate: bitwise equality or global relative L2 below 2% against the unchanged
 Opt3 control. Keep the native-reference comparison as well. Do not benchmark
-an unqualified composition as the accepted optimized architecture.
+an unqualified composition as the accepted optimized architecture. Opt7–10
+passed this gate; the user waived an additional numerical gate for the later
+GPU LoRA/shared pinned allocation correction.
 
 ## Matrix
 
@@ -30,8 +32,10 @@ Production full-trajectory preparation is unchanged.
 ## Measurement
 
 For each length use a fresh process, the same model/source/package pins and
-exact seeded adapter initialization. Collect a first F/B and one warm repeat
-without optimizer updates or clipping. Clear gradients with `set_to_none=True`
+exact seeded adapter initialization. The 32K/64K and corrected 96K captures
+include a first F/B and one warm repeat. The corrected 120K capture uses one
+full capacity pass, explicitly without a repeat comparison. No optimizer updates
+or clipping. Clear gradients with `set_to_none=True`
 between repetitions. Report both repetitions individually; compilation/cache
 effects on the first pass must remain visible. If RAM/disk caches persist across
 processes, record that state rather than calling the first pass disk-cold.
@@ -68,19 +72,27 @@ through the existing server connection and verify process exit where possible.
 Do not shut it down while qualification, benchmarks or collection remain pending.
 An unreachable connection alone is not proof of shutdown.
 
-## Current prerequisite
+## Completed captures
 
 The replacement server356919557 is connected. The original server's Opt7 attempt
 `20261010000620065-39a35a37` cannot be recovered there; its gate remains unknown.
 The corrected fold0 export was verified against the original checkpoint index
 and84 expert/router byte checks. Native replay20261010040404197-7f737faf passed
 bitwise loss and all74,472 gradients with the test-only FLA profile. Real training
-rejects that profile and uses native autotuning. Opt7–10 are not yet qualified.
+rejects that profile and uses native autotuning. Opt7–10 subsequently passed
+their full-anchor gates. Historical 32K/64K captures used CPU expert LoRA;
+the original 96K attempt was killed during forward. The corrected profile
+keeps all FP32 LoRA parameters/gradients on GPU and uses one shared pinned CPU
+allocation for frozen experts. Corrected 96K completed and passed evidence/DVC
+checks before 120K dispatch; corrected 120K also completed and passed.
+Both corrected runs have unchanged OOM counters. All 30 attempt caches were
+verified. Reports are `reports/benchmark-96000-gpulora.json` and
+`reports/benchmark-120000-gpulora.json`; all phase measurements and historical
+profiles are in the single `v0.md` table. No optimizer state was measured.
 The dedicated `benchmark.py` path omits paired-control, raw-gradient export and
 full gradient dictionary clones. Configuration requires `benchmark_tokens`,
 explicit labels, `benchmark_repeats` (default2) and the saved initial-adapter pin.
 Dispatch with `node jupyter.mjs --mode benchmark --config CONFIG --timeout-seconds SECONDS`
-only after qualification and immutable fixture preparation. This new path is
-prepared but has not yet executed on the restored GPU. The ready configs are
+only after qualification and immutable fixture preparation. The executed configs are
 `configs/benchmark-{32000,64000,96000,120000}.json`; each pins its exact fixture
 and the fold0 expert selection. Review captures with `reports/verify_benchmark.py`.

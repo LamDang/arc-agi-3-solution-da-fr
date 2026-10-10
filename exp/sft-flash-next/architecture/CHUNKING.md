@@ -235,8 +235,15 @@ including the model hidden width, rather than assuming a reduction ordering.
   finite and nonzero in both. F583.455/544.056s, B1281.113/1260.992s;
   GPU allocated peaks39.120/57.510GiB, maximum treePSS130.805GiB.
   See `reports/benchmark-96000-gpulora.json`. No raw repeat gradient comparison.
-- Corrected 120K: ready after verified96K capacity pass; config requests one
-  complete F/B capacity measurement, without repeat comparison. Not yet dispatched.
+- Corrected GPU-LoRA 120K: single full F/B capacity pass complete and verified.
+  Attempt20261010100622729-a29599a0, execution5b27162. Loss0.8219540715;
+  all74472 gradients finite,74466 nonzero,0 absent. F771.896s/B1795.450s;
+  GPU allocated44.431/65.597GiB, reserved45.760/75.670GiB; maximumtreePSS
+  153.791GiB. PLE819.493s on originalNFS. Source/input/init/chunk bounds and
+  all30 localDVC attempt caches verified. No repeat comparison, optimizer state,
+  update or raw candidate gradient archive. OOM counters unchanged across96/120K.
+  See `reports/benchmark-120000-gpulora.json`. Requested Jupyter shutdown follows
+  artifact verification; shutdown status is recorded separately.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

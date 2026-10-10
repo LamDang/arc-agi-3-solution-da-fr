@@ -1,3 +1,59 @@
+# Corrected 96K then 120K passed — 2026-10-10
+
+- The requested order was followed: the corrected 96K capture completed and
+  passed source/input/initialization/gradient/chunk/DVC checks before 120K.
+- 120K attempt `20261010100622729-a29599a0`, execution `5b27162`, returned 0
+  without timeout. Wall time 3,438.115457444 s; one full forward/backward pass.
+  Loss 0.821954071521759; all 74,472 gradients finite, 74,466 nonzero, none
+  absent. Gradient norm 0.12524297617654775.
+- 120K forward/backward: 771.895539795 / 1,795.449965449 s. GPU allocated
+  peaks 44.431221962 / 65.597109318 GiB; reserved peaks 45.759765625 /
+  75.669921875 GiB. Maximum tree PSS 153.791190147 GiB. Loading separately
+  peaked at 75.697265625 GiB reserved. Optimizer state was not allocated.
+- PLE preparation: 819.493155238 s; 614,400,000-byte CPU payload from 329,268
+  unique rows on the original NFS. All 74,472 initial adapters matched exactly.
+- Complete source/input hashes, numerical profile, execution order, chunk
+  bounds, finite gradients and file SHA inventory passed verification. Report:
+  `reports/benchmark-120000-gpulora.json`. All 30 DVC attempt caches verified.
+- Corrected 96K losses: 0.8578786253929138 / 0.8578787446022034. F times
+  583.455 / 544.056 s; B times 1,281.113 / 1,260.992 s. F/B GPU allocated
+  peaks 39.120 / 57.510 GiB; maximum tree PSS 130.805 GiB. OOM counters did
+  not increase across either corrected run. Historical 32K/64K CPU LoRA
+  profiles are labeled separately in `v0.md`.
+- No raw repeat-gradient comparison or 120K repeat test. The user waived
+  numerical requalification for allocation changes. Main executed all work.
+- Next: commit locally, then stop Jupyter as requested. Server PID 12 is the
+  parent of control kernel 91; command SHA256:
+  `b48cc4feeaf2de0796ca7749be81d8d64849efb084400ae565f812c7743baaeb`.
+  `/tmp/kaggle_shutdown_after_verified.py` checks completed 120K, absence of
+  architecture workers, and server identity before scheduling SIGTERM.
+  No further GPU experiments, optimizer updates, raw candidates or remote push.
+
+# Corrected 120K capacity running — 2026-10-10 10:06 UTC
+
+* Corrected96K two-pass capture PASSED and all29 DVC attempt caches verified
+  before this dispatch. Local commit5b27162 records96K and120K single-pass config.
+* Active120K attempt20261010100622729-a29599a0, execution5b27162,
+  supervisor10384, desktopwatcher83166. Jupyter HTTP/WS only. Timeout10800s.
+* Configbenchmark-120000: one full F/B capacity capture; no optimizer/control,
+  raw gradient archive or repeat comparison.120000tokens/31261targets/59images.
+  GPU FP32 LoRA masters/gradients, CPU frozen experts with shared32GiB pinned
+  slab and two-layer prefetch; Opt7–10 enabled. PLE original NFS peruser.
+* Progress helper/tmp/corrected_120k_progress.py records early cgroup baseline,
+  after-loading memory and post-completion counters. Childworkers10558/10559
+  initially observed. All74472 init exact; loadcomplete204.374s elapsed.
+  PLE completed819.493155238s,0.572GiB payload/329268unique rows.
+  First120K forward COMPLETE771.895539795s, GPU allocated47707661312bytes
+  (44.431221962GiB), treePSS165041171456bytes(153.706568718GiB). Backward
+  active atprocessage2558s (backward940s), sampledtreePSSpeak153.791190147GiB;
+  no fullF/B pass or loss/gradient result yet.
+* On completion, record post-cgroup counters, letwatchercollect, recollect if
+  needed, run reports/verify_benchmark.py results/ID --label gpulora, DVCadd SHA
+  inventory, appendID to all29 cachechecks, regeneratev0, updatehandoff/docs,
+  commit locally. No push. Kill Jupyter server only after successful120K capture
+  and allrequested artifacts/hash/cache verification complete; on failure ask
+  Astra source/evidence review before implementing a remedy. Main executes.
+
 # Corrected 96K PASSED — 2026-10-10
 
 * Attempt20261010084759860-6c853f57, executionb597fae, return0/no timeout;
