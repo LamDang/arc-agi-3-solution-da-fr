@@ -127,6 +127,10 @@ class ChunkingTests(unittest.TestCase):
                 with torch.autocast(device,dtype=torch.bfloat16):
                     a=ref(x);b=new(y)
                     if combine:
+                        self.assertTrue(all(torch.equal(u,v) for u,v in zip(a,b)))
+                        cotangents=tuple(torch.randn_like(v) for v in a)
+                        self.close_gradients(torch.autograd.grad(b,y,cotangents,retain_graph=True),
+                            torch.autograd.grad(a,x,cotangents,retain_graph=True))
                         # Independent block with trainable input: mixing/injection VJPs.
                         block=torch.randn_like(a[0],requires_grad=True);other=block.detach().clone().requires_grad_()
                         expected=(a[1]+(block.unsqueeze(-2)*a[2].unsqueeze(-1)).flatten(-2)).bfloat16()

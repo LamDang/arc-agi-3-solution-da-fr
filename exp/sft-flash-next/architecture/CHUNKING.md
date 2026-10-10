@@ -64,12 +64,25 @@ Current scope: one unpadded sample, SDPA, no cache, zero attention dropout.
 
 ## Opt9: hyperconnections
 
-Mixing/norm/gate work is checkpointed by token window. Injection is checkpointed
-separately after attention or MLP. Attention still receives the complete mixed
-sequence. Native FP32 injection coefficients retain their dtype; the injection
-result is converted at the same effective BF16 boundary as the reference (before
-the next mixing input or at decoder output). The final model stream mixer is
-chunked as well. Full residual inputs/outputs remain allocated.
+The first implementation changed the projection GEMM row counts and failed the
+cumulative gate at285.42%. Actual layer0 shadows identify changed BF16 down and
+injection projection outputs, despite bitwise normalization. Native repeat and
+custom-unsplit match exactly; checkpointing and CPU offload do not change the
+local0.2201% VJP discrepancy. This is direct operator evidence, not proof of the
+whole-model amplification mechanism.
+
+The revised candidate preserves all three full-sequence projection GEMM shapes.
+Normalization and sigmoid/product/mean internals use8192-token checkpoints;
+the entire mixer is also checkpointed so full norm/projection outputs are
+recomputed rather than retained across layers. Residual injection has separate
+8192-token checkpoints after attention or MLP. Full normalized sequence and
+expanded projection outputs still exist as temporary tensors: this is not a
+fully row-chunked mixer. Small low-rank and injection-coefficient arithmetic
+remains full-sequence. Coefficients retain the native dtype (observed BF16 in
+the actual layer0 diagnostic); native FP32 internal statistics are unchanged.
+Attention receives the complete mixed sequence. Full residual inputs/outputs
+remain allocated. The final model stream mixer uses the same scheme.
+**Revised implementation qualification is pending.**
 
 ## Opt10: PLE
 

@@ -137,3 +137,79 @@ This diagnostic isolates mixers; injection and composed decoder VJPs remain a
 follow-up only if mixer results leave the failure unexplained. Passing local
 checks would not qualify Opt9 or relax the2% full paired gate. Main agent handles
 GPU dispatch; this review ran none.
+
+## Verified actual-value mixer diagnostic and next design
+
+Independently reviewed collected attempt20261010054926240-23c21beb, source5c21856,
+including result.json, hyperconnection-shadows.json and all seven VJP rows.
+The first mismatch is layer0.attn_hyper_connection, input shape1x16249x10240,
+BF16, stride(166389760,10240,1). Its direct residual output is bitwise exact;
+mixed output relative L2 is0.0016851913654039531 and injection coefficients
+0.006161111243755292. Thus forward divergence starts before the first attention
+block, not only deep in backward.
+
+| Trace/VJP | Chunk versus native relative L2 |
+| --- | --- |
+| hc_norm output | 0 (bitwise) |
+| input_mix_weight_down output | 0.0025888739470308333 |
+| input_mix_weight_up output | 0.002780738285629223 |
+| block_inject_weight output | 0.0027445232536033983 |
+| Input VJP, all output ports probed | 0.0022013289513333335 |
+
+Native-repeat, custom-unsplit, and native-outer-offload are bitwise identical to
+native in all inspected projection outputs, module ports and input VJP. Chunk
+without inner checkpoint, current chunk checkpoint, and chunk with outer
+checkpoint/offload report the same projection and input-gradient errors against
+native. These statistics exclude nesting/offload as the cause for this actual
+module; they do not assert equivalence for every possible full decoder graph.
+
+The normalized projection input is exact, so the first proven arithmetic
+change is the down projection's full16249 rows versus8192/8057 rows. The injection
+projection independently changes on the exact normalized input. Up-projection
+error combines any kernel-shape change with the already changed down-projection
+input and must not be described as an independently isolated discrepancy.
+
+Preserving native full-M projection calls is therefore an evidence-backed next
+design. The smallest initial isolation is checkpointing the complete native mixer
+while retaining token-window injection. If greater elementwise memory reduction
+is needed, the proposed approach may window normalization and nonlinear/mean
+work while assembling native-shaped inputs for each of the three full-sequence
+projection calls. This retains full normalized/projection buffers as needed;
+do not claim all mixer memory is8192-bounded.
+
+Before another full qualification, replay this same actual module through the
+proposed implementation: compare all three output ports and fixed-cotangent input
+VJP, then the existing outer checkpoint/offload variants. Keep native dtype/cast
+boundaries, full GEMM shapes and strides. Reassembling windowed graphs can change
+BF16 branch-gradient accumulation order even when forward outputs match, so the
+VJP comparison remains necessary. If that gate fails, use the simpler globally
+checkpointed native mixer rather than changing precision speculatively.
+
+The evidence rejects the current row-chunked implementation and demonstrates
+its first shape-dependent numerical difference. It does not prove that every
+possible row-chunked kernel algorithm is incapable of meeting2%. No full Opt9
+acceptance follows; the revised cumulative paired gate and training-only native
+autotuning constraint remain in force.
+
+## Pre-dispatch review of the shape-preserving revision
+
+Reviewed revised components/hyperconnection_chunks.py,
+diagnostics/hyperconnection_focus.py, and the changed without_checkpoint helper.
+No blocking formula, dtype or stride discrepancy was found. The revision retains
+native down/divide/SiLU/up operations at full sequence length, performs
+sigmoid/product/stream mean per window, and retains the native coefficient
+expression. Concatenated normalized values provide contiguous full-M projection
+inputs. The mixed output is converted at the native BF16Residual output boundary;
+coefficient dtype remains native. The no-checkpoint variant now uses exactly the
+same arithmetic with inner checkpoints disabled and includes the input BF16 cast.
+The focus wrapper stops after the first visited module and records that limited
+shadow scope.
+
+The revision is ready for the proposed actual-module three-port/input-VJP test,
+not yet for acceptance. Slice/cat/checkpoint graph changes may still alter BF16
+cotangent accumulation where normalized input feeds multiple branches; that is
+an empirical question for the fixed-cotangent comparison, not evidence to change
+precision preemptively. Full normalized/projection buffers still exist, so the
+resource description must distinguish bounded elementwise work from full-M
+projection storage. No GPU job or execution-source edit was performed by this
+review.

@@ -17,7 +17,7 @@ def main():
     p.add_argument('--config',required=True)
     p.add_argument('--mode',choices=['test','train','benchmark'],default='test')
     p.add_argument('--timeout',type=int,default=1200)
-    p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py','diagnostics/expert_replay.py','diagnostics/expert_head_replay.py','diagnostics/hyperconnection_replay.py'])
+    p.add_argument('--entrypoint',choices=['diagnostics/gdn_backward.py','diagnostics/expert_replay.py','diagnostics/expert_head_replay.py','diagnostics/hyperconnection_replay.py','diagnostics/hyperconnection_focus.py'])
     args = p.parse_args()
     lock_path = Path('/tmp/flash-next-architecture.lock')
     # flock needs an open descriptor, not write access to an existing lock.

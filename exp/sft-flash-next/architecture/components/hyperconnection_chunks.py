@@ -1,6 +1,7 @@
 # Native arithmetic: pinned Transformers Qwen4Exp, Apache-2.0 (see model.py).
 """Opt9: checkpoint token-local mixing and injection, around contextual blocks."""
 import torch
+from torch.nn import functional as F
 from torch.utils.checkpoint import checkpoint
 from .precision import BF16Residual,BF16Decoder
 
@@ -10,16 +11,33 @@ class ChunkedResidual(BF16Residual):
         result=super().forward(x)
         return (result[0],result[2]) if isinstance(result,tuple) else result
 
+    def _gate_mix(self,logits,normed):
+        weights=torch.sigmoid(logits).unflatten(-1,(self.hc_count,self.hidden_size))
+        return (weights*normed.unflatten(-1,(self.hc_count,self.hidden_size))).mean(dim=-2)
+
+    def _shape_preserving_mix(self,x,checkpoint_windows=True):
+        # Native GEMM row counts are numerically significant in BF16. Keep all
+        # three projections full-sequence; bound norm/gate/product internals.
+        def apply(function,*args):
+            return checkpoint(function,*args,use_reentrant=False) if checkpoint_windows else function(*args)
+        normed=torch.cat([apply(self.hc_norm,x[:,s:s+self.chunk_tokens])
+            for s in range(0,x.shape[1],self.chunk_tokens)],dim=1)
+        lowrank=F.silu(self.input_mix_weight_down(normed)/self.hc_count)
+        logits=self.input_mix_weight_up(lowrank)
+        mixed=torch.cat([apply(self._gate_mix,logits[:,s:s+self.chunk_tokens],normed[:,s:s+self.chunk_tokens])
+            for s in range(0,x.shape[1],self.chunk_tokens)],dim=1).bfloat16()
+        if self.block_inject_weight is None:return mixed
+        weights=2*torch.sigmoid(self.block_inject_weight(normed)/self.hc_count)
+        return mixed,weights
+
     def forward(self,hyper_input):
         if not self.chunk_tokens:return super().forward(hyper_input)
-        x=hyper_input.bfloat16();outputs=[];weights=[]
-        for start in range(0,x.shape[1],self.chunk_tokens):
-            result=checkpoint(self._mix,x[:,start:start+self.chunk_tokens],use_reentrant=False)
-            if self.block_inject_weight is None:outputs.append(result)
-            else:outputs.append(result[0]);weights.append(result[1])
-        self.chunk_stats=dict(max_tokens=min(x.shape[1],self.chunk_tokens),chunks=len(outputs))
-        mixed=torch.cat(outputs,dim=1)
-        return (mixed,x,torch.cat(weights,dim=1)) if weights else mixed
+        x=hyper_input.bfloat16()
+        result=checkpoint(self._shape_preserving_mix,x,use_reentrant=False)
+        self.chunk_stats=dict(max_tokens=min(x.shape[1],self.chunk_tokens),
+            chunks=(x.shape[1]+self.chunk_tokens-1)//self.chunk_tokens,projection_tokens=x.shape[1],
+            projection_policy='native full-sequence GEMM; windowed norm and gate/product')
+        return (result[0],x,result[1]) if isinstance(result,tuple) else result
 
 
 def inject(x,residual,weights):

@@ -1,3 +1,27 @@
+# Opt9 actual-value diagnosis / shape-preserving candidate — 2026-10-10
+
+* Diagnostic20261010054926240-23c21beb source5c21856 completed326.5655s/return0.
+  First layer0 mixer norm exact; down/up/injection projections differ at changedM;
+  chunk/no-checkpoint/outer VJP identically0.220133%. Native repeat/unsplit/outer
+  bitwise. Reviewer reports/hyperconnection-replay-diagnostic.json, DVC/cacheverified.
+* Revisedcandidate keeps3 fullsequence GEMMs; windowsnorm/gate/product/mean
+  andinjection checkpointed; entiremixer checkpointed. Fullnorm/projectionoutputs
+  stilltemporary; notfully rowchunked. Astra code-reviewed, nativecasts/strides kept.
+  Firstactualmodule focusVJP must pass beforefull Opt9 gate. Local36tests18pass18skip.
+* User2% cumulativegate: Opt7/8accepted; Opt9v1rejected285.42%. No push/update/raw
+  archives. Opt10/bench remain; keepJupyter until requestedwork completed.
+
+# Opt9 focused diagnostic running — 2026-10-10 05:49 UTC
+
+* Attempt20261010054926240-23c21beb execution5c21856, supervisor5980, desktopwatcher82276.
+  Entrydiagnostics/hyperconnection_replay.py, actualinput port/projection shadows
+  then native/repeat/no-checkpoint/chunk/custom-unsplit/outer-offload fixedcotangent
+  VJPs. Astra reviewed source; direct BF16 cast coverage corrected. RAMonlycaptures,
+  no fullmodelbackward/update. GPUjobcollect before any retry.
+* Gate2%: Opt7 accepted1.783424%, Opt8 passed1.801111%; Opt9v1 failed285.419802%.
+  Astrareview reports/astra-opt9-review.md. Await diagnostic before implementation
+  changes orOpt10/bench. No push orJupytershutdown until all requestedwork done.
+
 # Opt9 FAILED2% gate / Astra review complete — 2026-10-10
 
 * Attempt20261010052326065-031fe094 execution4200f93 collected986.689s/return1.

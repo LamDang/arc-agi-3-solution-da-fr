@@ -50,12 +50,12 @@ def metrics(candidate,reference):
 
 def without_checkpoint(module,x,size):
     x=x.bfloat16()
-    values=[ports(module._mix(x[:,s:s+size])) for s in range(0,x.shape[1],size)]
-    mixed=torch.cat([value[0] for value in values],dim=1)
-    return (mixed,x,torch.cat([value[1] for value in values],dim=1)) if module.block_inject_weight is not None else mixed
+    assert module.chunk_tokens==size
+    value=module._shape_preserving_mix(x,checkpoint_windows=False)
+    return (value[0],x,value[1]) if isinstance(value,tuple) else value
 
 
-def main():
+def main(stop_after_first=False):
     parser=argparse.ArgumentParser();parser.add_argument('--config',required=True);args=parser.parse_args()
     config=load_config(args.config,'test');out=Path(config.output);out.mkdir(parents=True,exist_ok=False)
     assert config.optimizations.hyperconnection_chunking
@@ -95,7 +95,7 @@ def main():
                 event('hyperconnection_shadow',module=name,all_ports_bitwise=exact)
                 # Keep an actual mixer even when every forward is exact, to test VJPs.
                 if not saved or not exact:saved.update(module=module,name=name,x=x.detach().cpu().clone())
-                if not exact:raise FirstMismatch()
+                if not exact or stop_after_first:raise FirstMismatch()
             return shadow
         for name,module in model.named_modules():
             if isinstance(module,ChunkedResidual):handles.append(module.register_forward_hook(make_shadow(name)))
@@ -161,6 +161,7 @@ def main():
         mismatch=next((row['module'] for row in shadows if not all(v['bitwise_equal'] for v in row['ports'])),None)
         write(out/'result.json',dict(completed=True,mode='diagnostic-hyperconnection',first_mismatching_module=mismatch,
             focused_module=saved['name'],modules_checked=len(shadows),variants=len(results),
+            shadow_scope='first-module' if stop_after_first else 'until-first-mismatch-or-complete',
             optimizer_updates=0,raw_gradients_retained=False,note='Actual-input mixer forward and fixed-cotangent VJPs only; no full-model qualification.'))
     finally:
         for handle in handles:handle.remove()

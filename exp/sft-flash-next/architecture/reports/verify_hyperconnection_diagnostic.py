@@ -38,6 +38,7 @@ def main():
     mismatch=next((row['module'] for row in shadows if not all(p['bitwise_equal'] for p in row['ports'])),None)
     assert result['first_mismatching_module']==mismatch
     if mismatch:assert shadows[-1]['module']==mismatch==result['focused_module']
+    elif result.get('shadow_scope')=='first-module':assert len(shadows)==1
     else:assert len(shadows)==97
     variants=read(out/'hyperconnection-vjps.json')
     expected=['native','native-repeat','chunk-no-checkpoint','chunked','custom-unsplit','native-outer-offload','chunk-outer-offload']
@@ -58,7 +59,8 @@ def main():
         monitor=monitor,result=result,shadows=shadows,variants=variants,cotangent=cotangent,
         resources=resources,raw_gradients_retained=False,pushed_to_remote=False,
         scope='Actual-input HC port/projection shadows and fixed-cotangent VJP diagnosis; not full-model qualification.')
-    (ROOT/'reports/hyperconnection-replay-diagnostic.json').write_text(json.dumps(report,indent=2)+'\n')
+    label='hyperconnection-focus-diagnostic' if result.get('shadow_scope')=='first-module' else 'hyperconnection-replay-diagnostic'
+    (ROOT/'reports'/f'{label}.json').write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
     (job/'file-hashes.json').write_text(json.dumps(inventory,indent=2)+'\n')
