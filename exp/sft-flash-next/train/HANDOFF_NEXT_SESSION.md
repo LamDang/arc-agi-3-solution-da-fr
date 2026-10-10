@@ -1,3 +1,20 @@
+# Replacement Kaggle server and Astra review
+
+* User supplied a new private Jupyter URL for notebook356919557, stored only in
+  `/tmp/kaggle_probe_url`. Fresh RTXPRO6000Blackwell, idle at inspection;175GiB
+  host. No old architecture-runs, reference export, runtime or anchor survived.
+  Old Opt7v3 cannot be collected from this new server; keep its unknown status.
+* Restoring pinned runtime,256-expert export and14.47GiB reference/anchor via
+  Jupyter. Upload session16020, progress `/tmp/reference-upload-progress.jsonl`.
+  Check export/source/input hashes before new full-model work. CausalConv1d1.7.0
+  is building offline; sources/wheels are uploaded, no internet in Kaggle.
+* User now explicitly requests Astra review whenever an implementation fails
+  its numerical gate. Review subagent `astra_opt7_review` completed read-only;
+  see `../architecture/reports/astra-opt7-review.md`. Primary executes fixes.
+* Fixture corrections prepared: adapter-only gradient gate, fixed shared output
+  cotangent, unsplit uneven routing with an unused expert, production-size
+  route/unroute checks. GPU validation pending; all28localtests11pass17skip.
+
 # Follow-up: scaling benchmark after qualification
 
 * User authorizes shutting down the Kaggle kernel by killing its Jupyter server

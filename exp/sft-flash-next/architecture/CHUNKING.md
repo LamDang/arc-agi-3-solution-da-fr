@@ -7,6 +7,11 @@ or candidate raw gradient archive is permitted.
 
 ## Numerical qualification
 
+On every implementation gate failure, request a GPT-6 Astra subagent source and
+evidence review before accepting or continuing that implementation. The primary
+agent performs fixes and execution. Record findings and their disposition.
+The first Opt7 review is in `reports/astra-opt7-review.md`.
+
 User gate: bitwise gradients or **global gradient relative L2 < 1%**. Each capture
 first compares all 74,472 FP32 adapter gradients with the saved native-head
 reference, then executes one additional F/B on the same model with all chunk

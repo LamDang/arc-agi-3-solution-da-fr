@@ -14,7 +14,10 @@ class ExpertOffloadTests(unittest.TestCase):
     def test_real_size_split_expert_preserves_forward_and_gradients(self):
         self.check_quantized(8192,tokens=9705,hidden=2560,intermediate=640,experts=1)
 
-    def check_quantized(self,chunk_tokens,tokens=32,hidden=128,intermediate=64,experts=None):
+    def test_unsplit_uneven_routing_isolates_custom_dispatch(self):
+        self.check_quantized(8192,tokens=32,hidden=128,intermediate=64,experts=4,uneven=True)
+
+    def check_quantized(self,chunk_tokens,tokens=32,hidden=128,intermediate=64,experts=None,uneven=False):
         import copy,json
         from pathlib import Path
         import torch
@@ -55,12 +58,18 @@ class ExpertOffloadTests(unittest.TestCase):
         y=x.detach().clone().requires_grad_(True)
         k=canonical.num_experts
         indices=torch.arange(k,device='cuda').expand(tokens,-1);weights=torch.full((tokens,k),1/k,device='cuda',requires_grad=True);other_weights=weights.detach().clone().requires_grad_()
+        if uneven:
+            # Expert3 receives no rows; experts0/1/2 receive unequal counts.
+            indices=torch.tensor([[0,1],[0,2],[1,2],[0,1]],device='cuda').repeat(tokens//4,1)
+            weights=torch.rand(tokens,2,device='cuda');weights=(weights/weights.sum(-1,keepdim=True)).requires_grad_()
+            other_weights=weights.detach().clone().requires_grad_()
+        cotangent=torch.randn(tokens,hidden,device='cuda',dtype=torch.bfloat16)/tokens
         with torch.autocast('cuda',dtype=torch.bfloat16):
-            expected=resident(x,indices,weights);ref_loss=expected.float().square().mean()
+            expected=resident(x,indices,weights);ref_loss=(expected.float()*cotangent.float()).sum()
         with torch.autograd.graph.save_on_cpu(pin_memory=False):
             with torch.autocast('cuda',dtype=torch.bfloat16):
                 actual=checkpoint(staged,y,indices,other_weights,use_reentrant=False,context_fn=manager.checkpoint_contexts)
-                loss=actual.float().square().mean()
+                loss=(actual.float()*cotangent.float()).sum()
             loss.backward()
         ref_loss.backward()
         if tokens>8192:
@@ -97,6 +106,7 @@ class ExpertOffloadTests(unittest.TestCase):
             self.assertTrue(diagnostic['output_bitwise_equal'],
                 'Real-size expert split forward must be bitwise equal before full-model routing')
         if chunk_tokens:
+            if uneven:self.assertTrue(torch.equal(actual,expected),'Unsplit native GEMM shapes must preserve forward')
             torch.testing.assert_close(actual,expected,rtol=.03,atol=1e-5)
             torch.testing.assert_close(y.grad,x.grad,rtol=.05,atol=1e-5)
             torch.testing.assert_close(other_weights.grad,weights.grad,rtol=.05,atol=1e-5)
@@ -104,7 +114,7 @@ class ExpertOffloadTests(unittest.TestCase):
             self.assertTrue(torch.equal(expected,actual));self.assertTrue(torch.equal(x.grad,y.grad))
             self.assertTrue(torch.equal(other_weights.grad,weights.grad))
         reference=dict(resident.named_parameters());count=0
-        grad_pairs=[(y.grad,x.grad),(other_weights.grad,weights.grad)]
+        grad_pairs=[]
         for name,p in staged.named_parameters():
             if not p.requires_grad:continue
             self.assertEqual(p.device.type,'cpu');self.assertEqual(p.grad.dtype,torch.float32)
@@ -115,7 +125,12 @@ class ExpertOffloadTests(unittest.TestCase):
         if chunk_tokens:
             error=sum(float((a.double().cpu()-b.double().cpu()).square().sum()) for a,b in grad_pairs)
             norm=sum(float(b.double().cpu().square().sum()) for a,b in grad_pairs)
-            self.assertLess((error/norm)**.5,.01)
+            adapter_relative_l2=(error/norm)**.5
+            input_relative_l2=float((y.grad.double()-x.grad.double()).norm()/x.grad.double().norm())
+            routing_relative_l2=float((other_weights.grad.double()-weights.grad.double()).norm()/weights.grad.double().norm())
+            print('expert_gradient_diagnostic='+json.dumps(dict(adapter_relative_l2=adapter_relative_l2,
+                input_relative_l2=input_relative_l2,routing_relative_l2=routing_relative_l2)),flush=True)
+            self.assertLess(adapter_relative_l2,.01)
         manager.close()
         report=dict(passed=True,quantized_projection=True,loss_bitwise_equal=bool(torch.equal(loss,ref_loss)),
             output_and_input_gradient_bitwise_equal=True,fp32_cpu_adapter_gradient_tensors=count,

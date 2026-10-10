@@ -6,6 +6,30 @@ HAS_TORCH=importlib.util.find_spec('torch') is not None
 
 @unittest.skipUnless(HAS_TORCH,'Torch available in pinned runtime')
 class ChunkingTests(unittest.TestCase):
+    def test_production_size_native_route_and_unroute(self):
+        import torch
+        from components.expert_chunks import route_sum_native,unroute_native
+        if not torch.cuda.is_available():self.skipTest('Production-size CUDA launch fixture')
+        previous=torch.are_deterministic_algorithms_enabled()
+        torch.use_deterministic_algorithms(True)
+        try:
+            torch.manual_seed(552)
+            tokens,k,hidden,size=16249,10,2560,8192
+            values=torch.randn(tokens,k,hidden,device='cuda',dtype=torch.bfloat16)
+            weights=torch.rand(tokens,k,device='cuda',dtype=torch.bfloat16)
+            expected=(values*weights[:,:,None]).sum(dim=1)
+            actual=route_sum_native(values.cpu(),weights,'cuda',size)
+            self.assertTrue(torch.equal(actual,expected))
+            del expected,actual,weights
+            # Alternating signs exercise cancellation across repeated gathers.
+            values[:,1::2].neg_()
+            source=torch.zeros(tokens,hidden,device='cuda',dtype=torch.bfloat16,requires_grad=True)
+            rows=torch.arange(tokens,device='cuda')[:,None].expand(-1,k).reshape(-1)
+            expected=torch.autograd.grad(source[rows],source,values.flatten(0,1))[0]
+            actual=unroute_native(values.cpu(),'cuda',size)
+            self.assertTrue(torch.equal(actual,expected))
+        finally:torch.use_deterministic_algorithms(previous)
+
     def close_gradients(self,actual,expected):
         import torch
         aa=sum(float(x.double().square().sum()) for x in expected)
