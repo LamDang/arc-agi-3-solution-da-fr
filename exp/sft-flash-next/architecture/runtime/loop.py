@@ -11,6 +11,7 @@ from model import build
 from .evidence import compare, compare_initial, retain_raw_gradients, sha, snapshot, snapshot_imports, write
 from .resources import Resources
 from .events import event_row
+from .numeric_profile import verify_profile
 
 
 def prepare(raw, config, mode):
@@ -84,6 +85,7 @@ def run(config, mode):
     if config.adapter:actual['adapter'] = sha(config.adapter)
     if any(actual.get(key) != digest for key,digest in expected.items()):
         raise RuntimeError('Run input hash differs from configuration')
+    verify_profile(config,output)
     resources = Resources(output)
     loader = iterator = None
     if config.optimizations.disk_ple:
@@ -127,6 +129,7 @@ def run(config, mode):
                 event('loss',loss=value,targets=targets,tokens=labels.shape[1])
                 event('backward_start')
                 with resources.phase('backward'):loss.backward()
+                verify_profile(config,output,required=True)
                 del loss
             with resources.phase('gradient_export'):
                 absent=[name for name,p in model.named_parameters() if p.requires_grad and p.grad is None]
@@ -155,6 +158,7 @@ def run(config, mode):
                         control_loss=float(control.detach())
                         event('unchunked_control_backward_start',loss=control_loss)
                         with resources.phase('unchunked_control_backward'):control.backward()
+                        verify_profile(config,output,required=True)
                     del control
                     with resources.phase('unchunked_control_gradient_export'):
                         control_raw=gradients(model,config.adapter_tensors,config.optimizations.lora_routed_experts)

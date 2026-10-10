@@ -4,6 +4,7 @@ import math
 import torch
 
 from .evidence import write
+from .numeric_profile import verify_profile
 
 
 def gradient_statistics(model,expected,allow_unrouted):
@@ -42,6 +43,7 @@ def run_benchmark(architecture,config,output,resources,event,iterator,prepare):
             value=float(loss.detach())
             if not math.isfinite(value):raise RuntimeError('Nonfinite benchmark loss')
             with resources.phase(f'backward-{index}'):loss.backward()
+            verify_profile(config,output,required=True)
             del loss
         with resources.phase(f'gradient_statistics-{index}'):
             stats=gradient_statistics(model,config.adapter_tensors,config.optimizations.lora_routed_experts)

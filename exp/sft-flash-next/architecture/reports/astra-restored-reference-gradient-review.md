@@ -241,3 +241,60 @@ No historical selected-config, cubin, PTX, or Triton-cache artifact was found in
 the reviewed architecture/train capture directories. Thus a matching candidate
 config would diagnose compatibility with the archived gradients, not prove which
 configuration the original server selected without additional evidence.
+
+## Collected isolation result: reverse-scan warp choice is causal
+
+Independent review of local attempt `20261010035123635-8cbdba35` examined
+`output/result.json`, `kernel-identity.json`, and every `gdn-replays.json` row.
+The diagnostic completed six variants with no optimizer updates or persisted raw
+candidate gradients. The native scalar loss remains 0.6244627833366394 and every
+isolated forward output is bitwise identical.
+
+| Reverse-scan variant | Exact layer46 GDN gradients vs original | Relative L2 |
+| --- | --- | --- |
+| Default replay1 | 8/10 | 0.0000075453488670376175 |
+| Default replay2 | 8/10 | 0.0000075453488670376175 |
+| Existing1warp config | 10/10 | 0 |
+| Existing2warp config | 8/10 | 0.0000075453488670376175 |
+| Existing4warp config | 8/10 | 0.0000075453488670376175 |
+| Existing8warp config | 8/10 | 0.0000075453488670376175 |
+
+All10 reference gradients are nonzero. Both default replays are mutually exact;
+2/4/8warp gradients also match the default exactly. Default execution selected
+2warps,1CTA,3stages for cache key
+`(1, 48, 64, False, True, 'torch.float32', 'torch.float32')`.
+The1warp candidate retains1CTA and3stages. The scalar cumsum source SHA256 is
+`0405701c46cee331088bfee395b3bf37f8384829dace0aa3a55a509844bcf4cb`.
+
+This intervention isolates reverse-scan launch configuration as a cause of the
+observed layer46 in_proj_a mismatch: changing that configuration alone restores
+both affected gradients while inputs, upstream cotangent, parameters, and forward
+outputs remain fixed. This is stronger than the earlier localization hypothesis.
+It does not independently prove the original server selected1warp, since its
+historical autotune cache was not captured, and it does not yet prove that this
+pin restores every earlier layer or the full-model gradient archive.
+
+### Cache pin review
+
+For the next native qualification, prepopulating the existing autotuner cache
+entry with the existing1warp Config avoids changing either package files or
+kernel callables. The following checks bound this intervention:
+
+- Guard kernel source SHA, wrapper types, and key schema. Use the observed exact
+  tuple and preserve the Config's other fields (1CTA,3stages).
+- Leave the REVERSE=False forward entry unchanged. Do not clear or replace other
+  autotuner caches.
+- Require FLA_CACHE_MODE not ALWAYS. The reviewed CachedAutotuner.run reloads its
+  config file in ALWAYS mode even for present keys and could overwrite the pin.
+  Other reviewed modes check a prepopulated key before loading a fallback.
+- Record the installed entry before execution and confirm it remains1warp after
+  real backward. Record the explicit pin in provenance; package SHA alone does
+  not describe this runtime choice.
+- Different batch/head/chunk/dtype/variable-length keys are outside this isolated
+  result. Do not claim a generic pin or numerical qualification for them.
+- Run the full unchanged native loss/all74472-gradient equality gate against the
+  original archive. Do not promote a new reference or relax equality if another
+  residual discrepancy remains.
+
+At this report update, the main agent plans that full native replay. No full-model
+acceptance is claimed here.

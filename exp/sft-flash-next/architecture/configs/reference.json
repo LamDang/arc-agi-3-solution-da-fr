@@ -19,5 +19,6 @@
   },
   "baseline": null,
   "comparison_mode": "report",
-  "diagnostic_initialization": true
+  "diagnostic_initialization": true,
+  "fla_numeric_profile": "reference-v0"
 }

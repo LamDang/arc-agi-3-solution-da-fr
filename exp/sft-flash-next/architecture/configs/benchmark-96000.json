@@ -33,5 +33,6 @@
   "comparison_mode": "report",
   "diagnostic_initialization": true,
   "benchmark_tokens": 96000,
-  "benchmark_repeats": 2
+  "benchmark_repeats": 2,
+  "fla_numeric_profile": "reference-v0"
 }

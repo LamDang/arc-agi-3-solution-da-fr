@@ -29,5 +29,6 @@
     "initial_adapter": "/kaggle/working/architecture-runs/20261009221135477-25bf58fe/output/initial-adapter-manifest.json"
   },
   "comparison_mode": "report",
-  "diagnostic_initialization": true
+  "diagnostic_initialization": true,
+  "fla_numeric_profile": "reference-v0"
 }

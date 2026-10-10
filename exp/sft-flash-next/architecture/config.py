@@ -63,6 +63,7 @@ class Config:
     diagnostic_initialization: bool = False
     benchmark_repeats: int = 2
     benchmark_tokens: int | None = None
+    fla_numeric_profile: str | None = None
 
     @property
     def adapter_tensors(self):
@@ -71,6 +72,8 @@ class Config:
     def validate(self, mode):
         if mode not in {'test','train','benchmark'}:raise ValueError('Unknown execution mode')
         self.optimizations.validate()
+        if self.fla_numeric_profile not in {None,'reference-v0'}:
+            raise ValueError('Unknown FLA numerical profile')
         if self.comparison_mode not in {'report','exact'}:
             raise ValueError('Comparison mode must be report or exact')
         if self.architecture not in {'native','reference', 'optimized'}:
