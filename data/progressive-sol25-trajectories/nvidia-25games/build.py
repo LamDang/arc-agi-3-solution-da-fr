@@ -36,6 +36,25 @@ def won_games(source):
     return sorted(g for g, o in logs.game_outcomes(source).items() if o["state"] == "won")
 
 
+def extends(previous, messages):
+    """Does `messages` continue `previous`?
+
+    The one allowed difference: a text-only reply ending `previous` is kept in
+    later history with blank lines removed (the harness's normalization), so
+    the trajectory carries that history copy. Such turns are masked targets.
+    """
+    head = messages[:len(previous)]
+    if head == previous:
+        return True
+    last, copy = previous[-1], head[-1] if head else {}
+    return (head[:-1] == previous[:-1] and last["role"] == copy.get("role") == "assistant"
+            and not last.get("tool_calls") and not copy.get("tool_calls")
+            and {k: v for k, v in last.items() if k != "content"} ==
+            {k: v for k, v in copy.items() if k != "content"}
+            and isinstance(last.get("content"), str)
+            and context.normalize(last["content"]) == copy.get("content"))
+
+
 def finish(trajectory, student):
     """../build.py's checks and token counts, then mask text-only turns.
 
@@ -136,7 +155,7 @@ def main():
                     "boundary_to_next": None,
                 }
             else:
-                if messages[:len(previous["messages"])] != previous["messages"]:
+                if not extends(previous["messages"], messages):
                     raise ValueError(f"Non-prefix continuation: {rec.key}")
                 active["messages"] = messages
                 if active["tools"] != tools:
