@@ -131,6 +131,35 @@ The first64K F/B took1151.6877s, longer than620.0624s preparation, so lookahead
 could hide this cost after startup if the concurrent preparation keeps pace.
 Steady-state overlap has not been measured; one-sample benchmarks do not prove it.
 
+Disk inventory during96K startup confirmed17.323GiB available on the writable
+working volume (19.518GiB formatted capacity). `/tmp`, `/var/tmp`, `/root` and
+`/mnt` fail real write probes with `EROFS`, despite the overlay's reported rw
+flag and976GiB free. The8TiB ext4 snapshot mount also reports `emergency_ro`.
+A96GiB thin-pool backing device and1GiB metadata device are visible through
+sysfs, but their allocation and mapper status cannot be inspected from the
+container. Therefore the976GiB `df` value does not establish usable workspace
+capacity. The cause of the read-only state is unverified; kernel logs are
+inaccessible. The256GiB NVMe partition is exposed through read-only mounts.
+`/dev/shm` provides86.5GiB of writable RAM-backed space, charged to host RAM.
+No additional writable disk filesystem was found. Full table staging is not
+viable on the confirmed working volume; compact prepared rows fit its budget.
+
+### 96K capacity failure
+
+Attempt `20261010075533242-f30e823d` was killed during its first forward, after
+PLE preparation completed. There is no 96K loss or backward measurement. The
+last incomplete observation recorded 170.005 GiB tree PSS; the post-failure
+cgroup peak was 174.49 GiB against a 175 GiB limit, with no swap and oom_kill=1.
+No pre-run counter snapshot exists, and max/oom counters are zero: this strongly
+supports memory exhaustion but does not establish the exact OOM trigger.
+
+Astra's capacity review identifies 48 full decoder checkpoint inputs and the
+final mixer input, each BF16 `[1,T,10240]`. Their combined payload is 89.72 GiB
+at 96K and 112.15 GiB at 120K. Inner chunking does not remove these outer
+checkpoint boundaries. Do not dispatch 120K unchanged. A reviewed and qualified
+capacity remedy is needed; none has been implemented. See
+`reports/astra-capacity-review.md` and `reports/benchmark-96000-failure.json`.
+
 ## Evidence and limits
 
 `test_chunking.py` covers below/exactly/above chunk boundaries, multiple windows,
@@ -161,7 +190,8 @@ including the model hidden width, rather than assuming a reduction ordering.
 - Opt10: accepted at1.780845%, cumulative withOpt7–9.
 - 32K: twoF/B passes complete and verified; see `reports/benchmark-32000.json`.
 - 64K: twoF/B passes complete and verified; see `reports/benchmark-64000.json`.
-- 96K/120K: pending.
+- 96K: first forward killed before loss/backward; failure evidence verified.
+- 120K: not dispatched; blocked by host capacity pending a qualified remedy.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

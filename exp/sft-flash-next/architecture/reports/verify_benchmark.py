@@ -87,6 +87,9 @@ def main():
         counters=dict(line.split(': ',1) for line in storage['worker_io_snapshot'].splitlines())
         storage['worker_cumulative_read_bytes']=int(counters['read_bytes'])
         report['ple_storage_inspection']=storage
+    for filename,key in [('server-disk-inventory.json','server_disk_inventory'),
+                         ('server-block-details.json','server_block_details')]:
+        if (job/filename).exists():report[key]=read(job/filename)
     (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}

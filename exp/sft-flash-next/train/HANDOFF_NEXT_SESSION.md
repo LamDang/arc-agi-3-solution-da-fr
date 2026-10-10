@@ -1,3 +1,57 @@
+# 96K failed during forward; disk inventory complete — 2026-10-10
+
+* Attempt `20261010075533242-f30e823d`, execution `f5e78c4`: SIGKILL
+  (return code -9), no supervisor timeout, total wall 1284.5364 s. No GPU job
+  remains. All 74,472 initial adapters matched exactly. PLE preparation completed
+  in 691.1445 s; first forward did not finish. No loss or backward result exists.
+* Last incomplete forward observation: 556.7493 s, tree PSS 170.005 GiB.
+  No synchronized forward/backward CUDA peak was captured. Post-failure cgroup:
+  peak 174.49 GiB, limit 175 GiB, no swap, oom_kill=1, max=0, oom=0.
+  Strong evidence of memory exhaustion; no pre-run counters or kernel logs to
+  prove a memcg-limit trigger or attribution of the counter to this process.
+* Recollected post-failure cgroup and disk snapshots. Dedicated verifier
+  `reports/verify_benchmark_failure.py` checks sources, input identities, exact
+  initialization and incomplete-run evidence; it does NOT claim a gradient gate
+  or verified backward profile. Report: `reports/benchmark-96000-failure.json`.
+  SHA inventory and local DVC cache verified; v0 table includes the failure.
+* GPT-6 Astra reviewed: `reports/astra-capacity-review.md`. Do not dispatch 120K
+  unchanged. Full residual checkpoint inputs (48 layers + final mixer) account
+  for 89.72 GiB at 96K and 112.15 GiB at 120K before other memory. A capacity
+  remedy needs review and the existing 16K/2% qualification before new benchmarks.
+  No remedy has been implemented. 120K remains outstanding; keep Jupyter alive.
+* Confirmed writable disk: `/kaggle/working`, 19.518 GiB total / 17.323 GiB free.
+  Root/tmp writes fail EROFS despite df reporting 976 GiB free; snapshot reports
+  emergency_ro. Exposed NVMe mounts are read-only. `/dev/shm` is RAM, not disk.
+  Full 95.37 GiB PLE staging cannot fit; compact sample rows are proposed only.
+  Full adapter + AdamW checkpoint payload (~21.47 GiB) also exceeds this volume.
+* No optimizer update, raw candidate gradients, push, remount, or shutdown.
+
+# Server disk inventory / usable capacity — 2026-10-10
+
+* Useraskedavailabledisks (NFSunsuitable). Actualwriteprobes: workingext4loop20GB
+  formatted19.518GiB total/17.323GiBavailable passes; root/tmp/var/tmp/mnt/root
+  allEROFS despiteoverlay mountshowingrw anddf976GiBavailable. Snapshotmount
+  /dev/mapper/snap shows emergency_ro. NVMe256GiB partition /opt/bin147GiBfree
+  mountedreadonly. /dev/shm86.5GiB writableRAM, notdiskanddoesnotfit95.37GiBtable.
+* Additional96GiB loop1backing /var/lib/sdg_thin_pool_data,1GiBloop0metadata,
+ 8TiBnvme0n2readonly. Device nodes not exposedincontainer; dmesgEPERM.
+  Actualthinpoolallocation/causeofreadonly NOTverified. Explicitlycorrected
+  initialclaim976GiBwouldfitfullPLE: dfdoesNOTestablishusablebackingcapacity.
+  Onlyconfirmedwritabledisk17.323GiBworking; compactpreparedrows wouldfit.
+* Savedserver-disk-inventory.json andserver-block-details.json in active96Kattempt
+  forautomaticcollection/hash/DVC. Do notremountorwriteblockdevices.
+* Active96Kattempt20261010075533242-f30e823d watcher22177 stillwaitingNFSprep,
+  init74472exact. Then96KtwoF/B→120Kpending; no push/shutdownuntilallcomplete.
+
+# Benchmark96K running — 2026-10-10 07:55 UTC
+
+* Attempt20261010075533242-f30e823d executionf5e78c4, supervisor8708,
+  desktopwatcher22177. Configbenchmark-96000, timeout10800, twoF/Bpasses.
+  Realprefix96000tokens/23937targets/48images. No optimizer/control/rawarchive.
+* 32K and64K completed/verified/localDVCcache, all25attemptcacheinventoriesvalid.
+  Nextcollect96K then120K. No push; killJupyteronlyafterallfourcompleted,
+  collectedandhash/cacheverified. PLEslowNFSdiagnosed/proposedofflinecacheNOTimplemented.
+
 # Benchmark64K complete / 96K next — 2026-10-10
 
 * Attempt20261010070441843-1f403905 sourcef897ddd completed2914.85206s/return0.

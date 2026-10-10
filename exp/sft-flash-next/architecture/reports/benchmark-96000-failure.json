@@ -1,0 +1,308 @@
+{
+  "failure_evidence_checks_passed": true,
+  "completed": false,
+  "numerical_gate_passed": null,
+  "attempt": "20261010075533242-f30e823d",
+  "tokens": 96000,
+  "fixture": {
+    "path": "sample-96000.pt",
+    "tokens": 96000,
+    "targets": 23937,
+    "target_fraction": 0.24934634735778496,
+    "images": 48,
+    "sha256": "d0cbd58e9f120710165e5ebd2aed3faab0eb9d2422ca4c95b7d5429d521bfa5e",
+    "bytes": 474935377,
+    "objective": "all assistant positions, interleaved with ignored context",
+    "complete_trajectory": false,
+    "purpose": "diagnostic capacity prefix only"
+  },
+  "execution_commit": "f5e78c458d5d42a836b90475791df37eb5d77759",
+  "monitor": {
+    "returncode": -9,
+    "timed_out": false,
+    "seconds": 1284.5364016620006,
+    "pid": 8711
+  },
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 316.7097324660026,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94853103616,
+      "tree_pss_bytes": 96092984320,
+      "children_rss_bytes": 1678434304,
+      "host_used_bytes": 46903959552,
+      "samples": 448
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 11.79748697100149,
+      "cuda_peak_allocated_bytes": 10931468800,
+      "cuda_peak_reserved_bytes": 11148460032,
+      "rss_bytes": 95006875648,
+      "tree_pss_bytes": 96276378624,
+      "children_rss_bytes": 1679708160,
+      "host_used_bytes": 46721830912,
+      "samples": 17
+    }
+  ],
+  "incomplete_forward": {
+    "phase": "forward-0",
+    "completed": false,
+    "seconds": 556.7492712599997,
+    "rss_bytes": 181993091072,
+    "tree_pss_bytes": 182541534208,
+    "children_rss_bytes": 1026351104,
+    "host_used_bytes": 132275933184,
+    "samples": 585
+  },
+  "events": [
+    {
+      "event": "load_start",
+      "elapsed_seconds": 1.8258415490017796
+    },
+    {
+      "trainable_tensors": 74472,
+      "event": "load_complete",
+      "elapsed_seconds": 338.17447711299974
+    },
+    {
+      "repeat": 0,
+      "tokens": 96000,
+      "targets": 23937,
+      "event": "benchmark_repeat_start",
+      "elapsed_seconds": 698.4675686779992
+    }
+  ],
+  "loss": null,
+  "gradients": null,
+  "cuda_forward_backward_peak_bytes": null,
+  "optimizer_updates": 0,
+  "raw_gradients_retained": false,
+  "pushed_to_remote": false,
+  "numerical_profile": {
+    "profile": "reference-v0",
+    "mode": "native FLA strict exact-key configuration",
+    "autotune_key": [
+      1,
+      48,
+      64,
+      false,
+      true,
+      "torch.float32",
+      "torch.float32"
+    ],
+    "required_configuration": {
+      "num_warps": 1,
+      "num_ctas": 1,
+      "num_stages": 3
+    },
+    "observed_configuration": null,
+    "backward_verified": false,
+    "cumsum_sha256": "0405701c46cee331088bfee395b3bf37f8384829dace0aa3a55a509844bcf4cb",
+    "config_sha256": "2d2d4f17e358323775264e8629c75d9b82af7733f8bc1379f7a62505bcba2f40",
+    "other_keys": "native autotuning; no fuzzy/default profile entry",
+    "package_sources_modified": false
+  },
+  "numerical_settings": {
+    "deterministic_algorithms": true,
+    "float32_matmul_precision": "highest",
+    "allow_tf32": false,
+    "allow_bf16_reduced_precision_reduction": true,
+    "allow_fp16_reduced_precision_reduction": true,
+    "cublas_workspace_config": ":4096:8",
+    "cuda_allocator_config": "expandable_segments:True"
+  },
+  "ple_preparation": {
+    "total_row_ids": 1536000,
+    "unique_rows": 282970,
+    "raw_unique_bytes": 90550400,
+    "lookup_bytes": 491520000,
+    "disk_read_passes": 1,
+    "index": 0,
+    "worker_pid": 8883,
+    "tokens": 96000,
+    "started_monotonic_ns": 19725437152851,
+    "finished_monotonic_ns": 20416581649661,
+    "input_ids_sha256": "5f56cf7f9e9bd812e3cb50afa9e477ee646dfaf6b3c96789d9320dc60dd22e10",
+    "row_ids_sha256": "021f9d58f951be36d7087e12e0b86fee43ead75acc4a2f214e7925f503d470b2",
+    "payload_sha256": "f285f7c1f0b7c75265602ab7627aa96dead1e6d75759d4204e63003d1a66d501",
+    "seconds": 691.14449681
+  },
+  "ple_storage_inspection": {
+    "table_files": 22,
+    "table_tensors": 128,
+    "table_root": "/tmp/reference-256-fold0-hf",
+    "backing_file_paths": [
+      "/kaggle/input/models/dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1/model-ple-00001-of-00022.safetensors",
+      "/kaggle/input/models/dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1/model-ple-00002-of-00022.safetensors"
+    ],
+    "filesystem_type": "nfs",
+    "mount_point": "/kaggle/input/models/dfranzen/intel-qwen3.8-flash-next-w4a16-autoround/transformers/default/1",
+    "nfs_version": "3",
+    "nfs_rsize_bytes": 524288,
+    "storage_format": "Original safetensors, BF16, 128 table tensors in 22 files",
+    "row_width": 160,
+    "row_bytes": 320,
+    "worker_io_snapshot": "rchar: 723589834\nwchar: 81582\nsyscr: 24824\nsyscw: 60\nread_bytes: 26509111296\nwrite_bytes: 8192\ncancelled_write_bytes: 4096\n",
+    "worker_io_scope": "Cumulative worker startup + sample preparation; not a lookup-only counter",
+    "local_working_filesystem": "ext4 /dev/loop2",
+    "local_working_capacity_GiB": 20,
+    "local_working_available_GiB_rounded": 18,
+    "worker_cumulative_read_bytes": 26509111296
+  },
+  "server_disk_inventory": {
+    "paths": [
+      {
+        "path": "/",
+        "resolved": "/",
+        "total_GiB": 8156.881748199463,
+        "available_GiB": 976.0926170349121,
+        "mount_read_only": false,
+        "write_test": {
+          "errno": 30,
+          "reason": "Read-only file system"
+        }
+      },
+      {
+        "path": "/tmp",
+        "resolved": "/tmp",
+        "total_GiB": 8156.881748199463,
+        "available_GiB": 976.0926170349121,
+        "mount_read_only": false,
+        "write_test": {
+          "errno": 30,
+          "reason": "Read-only file system"
+        }
+      },
+      {
+        "path": "/var/tmp",
+        "resolved": "/var/tmp",
+        "total_GiB": 8156.881748199463,
+        "available_GiB": 976.0926170349121,
+        "mount_read_only": false,
+        "write_test": {
+          "errno": 30,
+          "reason": "Read-only file system"
+        }
+      },
+      {
+        "path": "/kaggle/working",
+        "resolved": "/kaggle/working",
+        "total_GiB": 19.518142700195312,
+        "available_GiB": 17.322547912597656,
+        "mount_read_only": false,
+        "write_test": "passed"
+      },
+      {
+        "path": "/dev/shm",
+        "resolved": "/dev/shm",
+        "total_GiB": 86.5,
+        "available_GiB": 86.49995422363281,
+        "mount_read_only": false,
+        "write_test": "passed"
+      },
+      {
+        "path": "/mnt",
+        "resolved": "/mnt",
+        "total_GiB": 8156.881748199463,
+        "available_GiB": 976.0926170349121,
+        "mount_read_only": false,
+        "write_test": {
+          "errno": 30,
+          "reason": "Read-only file system"
+        }
+      },
+      {
+        "path": "/root",
+        "resolved": "/root",
+        "total_GiB": 8156.881748199463,
+        "available_GiB": 976.0926170349121,
+        "mount_read_only": false,
+        "write_test": {
+          "errno": 30,
+          "reason": "Read-only file system"
+        }
+      }
+    ],
+    "mounts": [
+      [
+        "overlay",
+        "/",
+        "overlay",
+        "rw,relatime,lowerdir=l/B4GME7MZEOMIOZLOHJQFGWFDFH:l/SA5ICTNTRDX6GCNXC4QG7743ZU:l/43NRJG3DEA4AZBIAPVU7DH2POB:l/4YYRJO7YH5VPJYASMB2INI4QHG:l/PI34A4Y5N4E6H4LEHZTIBYRDTQ:l/NENFWFMFQKDVHZKY7JF7AWLHLP:l/ROF3444CUMJDWJE4JIYWOIS7NX:l/6TJF5NHDAX6SJNB7MOTD7CCI7S:l/COVF2YQJP5TXY5SA6JS43SNOS7:l/D2G4UYJOKUGM3FWHFKL26PVXFF:l/QWV7SZQQIK753S6AMEQVKOWLPB:l/JRGCIPP6Z6USQ3NJETKUABZ7BP:l/UM2RPNJG3BR476E7ADPAHZEC2A:l/7HDX6COEB3PAG4RMZ62PRA5RXQ:l/GCAKFDF7KYOZL2SXYMTFAMG5FT:l/CVI7YIR5RSZJ3LF4U3O6JWWTI5:l/BU2PZIJIBIT2Y7RNYSPEGFC4L3:l/2BO3YR65NUT6G6STYY3DIBTY2J:l/3IRS3CRBQQQLDXSIK63CQEEQ6G:l/OIQRJQAJ44BHEL7GAJXLT2CKSE:l/BEN2ZXSDNZAC4FUZDC4UW643YC:l/2NYD3INKXLCZA5FLTOPQGAOM76:l/4D5R32JRQPASJOLEDSXU6GURHF:l/ZOK26DEZB7D4JE72RUQJSWJD3L:l/JIDSPPOY4QFPRP77WLM7YYOU33:l/AVXBHFQ5RY64QHZ2XC4M4U4C6E:l/22TMRO64RTFMVEHWDY5CHVBM4L:l/SYYULMLHLIDVPBEEOYQHWGOKF5:l/JPYYANFLDLVZYR2IVVFHGAHP2A:l/Y6P5UKS7WP5VEWKK5SFB6P2O6P:l/GTPJQFMVSBC45CXOHG3MXH2I7B:l/Y63ECCT5ONUPTN3XHTV76LZPJT:l/JQ652TANUYQIDJCOH7ZUYM7JZ5:l/JQ2KMPF5CGYO6URVRL35U6OYK4:l/YJQJPFAJNMVLPGSS7U3E5A5FTN:l/57RL3LN6HH5VL4PBPDE6E7M7KY:l/JUPUPGLZWDQRE522QQK7H3FAXO:l/DIX76ABYPOU4F56CUP65WGA7E4:l/CVX3PIASSKBINR25MCWKMQ76Z7:l/D4VMOWNYSJCVFYX5D4VXJWJK25:l/MHSDQ6KBNNPQVQF3LLZ66P2OH4:l/B5PLUIZ5KA5IOOHUFFIZBUX65W:l/XCX7EUAS3SFNJL2TIRZLGTEMTM:l/ZFHQMZHD6LRKLFJARUIF7K47UU:l/KUE6QFP4GXNGTP2P2VFC7Z2ZBR:l/JV3E6KDSAHOLGSDE7RVDDCOQZF:l/5XYZM6GEXYCQ2NTIE5ULEUCIWI:l/QZCQTMJKAJFLGHQWFS2Z37IARY:l/HHJPDYZVI3OZIKWXJGAW2MHKIN:l/TNBOL543FIWIKDBH2WAFO33FAI:l/FY4DFWEHMGQWPDUYSDINU3EYNU:l/IPBXMI36GDY6PNY7ICJXOOW54S:l/HHUUK6JDLKWPDBDPBTAJLCTBUB:l/W4EUO25DW74ZII2RPKMPIXGBSP:l/X4PDIANR2IMWD4YD26J2EJ3SOQ:l/CVWA2WOB4LVEABQMX2WEJXT4YC:l/FAQ5OGABC623RWYEAY36CEZXZB:l/QGUSMJPFCYNXXUUDYZN4TO6MMS:l/OYNYUZRN2KGRCYTG2PVVBEV3B6:l/VE4ZIONE3GZH272ZBXGO34DVLL:l/2MOSK2K2QJJFJDQ2FALHGVKAYP:l/TWTTEUX3Z2KYNI7FB3BCXXMLH5:l/B5BLXP3KUEINMY7XW45BO4QWHO:l/W6GBSSMSKCID4TUBXB4M5YRU3R:l/VO6E2OQG742QACVKMFBV4BG3NS:l/KSUHKO42HMDQXV3FISRHDWE7PG:l/SPV54BPFDJJSAKI4ZUFUJAG3FK:l/B53XCFNOMHPYB7THVDACBHUUOY:l/YKZGEDOQ45NO3Q2X3BNSW5FMGU:l/RWQK7I6BHBGE5S6V4RP5ZKN3MG:l/Y2ZZEVYDXZLRSXBNG2UKZKCG5U:l/BXTH33D44Z5BEQCX6YGXEG5NND:l/3AZMANNPIEMEI34UZZQOCUF4D3:l/PRSFGLX5FK4GVDYUDRVXPFEMPK:l/3EUSTD2QMYETI5C4MMGUML7R64:l/LACCHNXCY6FEOVOCPL626OMR4T:l/6SM2WBEI2A3CUVQQWD7N4OYIJF:l/A7X74Y4E66GN2L5NLVX2LLDG22:l/PXCO4T4ODSCYK4SRMIWDPGMEUU:l/WFLYOPANZDDHCJZGCGIMUXBTWC:l/4ITZANG2HKOGNTVNQNOUEONSAC:l/NJAY5Z4HIEWLTT5XOOO2OQ7NNB:l/IU7RAWPRA7YB2225S23FLT476H:l/R4N3RLGUIGIF2T4UERTPDAIJPB:l/PZDQJJTEYFATXBFOZUAKDWI7VX:l/2JVV2ZGJOIALS2HECRSXYQSQ6L:l/VUO4IQCJUFRJ32IM6QVFAHPUTF:l/G636S74OTNMIYI2XDO3BI4EPKX:l/MYV7PWXLLRHQSUE5ZQXLOKZIRY:l/6QWTB53ZVVVNPGCAQLXNRAULSU:l/AAAC4Z6SEMQNWWNKE3SAOGV2MJ:l/2TU246A2BOIE2FE6QF4J6K55YW,upperdir=cd46f84e1428652252caf514e195ac9f4b0ce244dd5df7c329454a9a31679610/diff,workdir=cd46f84e1428652252caf514e195ac9f4b0ce244dd5df7c329454a9a31679610/work"
+      ],
+      [
+        "shm",
+        "/dev/shm",
+        "tmpfs",
+        "rw,nosuid,nodev,noexec,relatime,size=90701824k"
+      ],
+      [
+        "/dev/nvme0n1p1",
+        "/opt/bin",
+        "ext4",
+        "ro,nosuid,nodev,relatime,commit=30"
+      ],
+      [
+        "/dev/loop2",
+        "/kaggle/working",
+        "ext4",
+        "rw,relatime"
+      ],
+      [
+        "/dev/mapper/snap",
+        "/etc/hosts",
+        "ext4",
+        "rw,relatime,discard,emergency_ro"
+      ]
+    ],
+    "lsblk": "NAME         TYPE   SIZE FSTYPE MOUNTPOINTS                                         ROTA RO\nloop0        loop     1G                                                               0  0\nloop1        loop    96G                                                               0  0\nloop2        loop    20G        /etc/secrets/kaggle                                    0  0\n                                /kaggle/working                                          \n                                /kaggle/input                                            \n                                /kaggle/lib                                              \nnvme0n1      disk   256G                                                               0  0\n\u251c\u2500nvme0n1p1  part 251.8G        /usr/local/cuda-12.8/targets/x86_64-linux/lib/stubs    0  0\n\u2502                               /usr/local/nvidia/lib64                                  \n\u2502                               /opt/bin                                                 \n\u251c\u2500nvme0n1p2  part    32M                                                               0  0\n\u251c\u2500nvme0n1p3  part     2G                                                               0  0\n\u251c\u2500nvme0n1p4  part    32M                                                               0  0\n\u251c\u2500nvme0n1p5  part     2G                                                               0  0\n\u251c\u2500nvme0n1p6  part   512B                                                               0  0\n\u251c\u2500nvme0n1p7  part   512B                                                               0  0\n\u251c\u2500nvme0n1p8  part    16M                                                               0  0\n\u251c\u2500nvme0n1p9  part   512B                                                               0  0\n\u251c\u2500nvme0n1p10 part   512B                                                               0  0\n\u251c\u2500nvme0n1p11 part     8M                                                               0  0\n\u2514\u2500nvme0n1p12 part    64M                                                               0  0\nnvme0n2      disk     8T                                                               0  1\n"
+  },
+  "server_block_details": {
+    "devices": [
+      {
+        "device": "loop0",
+        "device_node_exists": false,
+        "ro": "0",
+        "size": "2097152",
+        "loop/backing_file": "/var/lib/sdg_thin_pool_data_meta"
+      },
+      {
+        "device": "loop1",
+        "device_node_exists": false,
+        "ro": "0",
+        "size": "201326592",
+        "loop/backing_file": "/var/lib/sdg_thin_pool_data"
+      },
+      {
+        "device": "loop2",
+        "device_node_exists": false,
+        "ro": "0",
+        "size": "41943040",
+        "loop/backing_file": "/tmp/fs/kaggle_27xnMLcjxuM8dcchmv1FzguWCsKBcnz2O0bDynkLU-356919557-webtier/srcfile"
+      },
+      {
+        "device": "nvme0n2",
+        "device_node_exists": false,
+        "ro": "1",
+        "size": "17179869184"
+      }
+    ],
+    "kernel_diagnostics_returncode": 1,
+    "kernel_diagnostics_error": "dmesg: read kernel buffer failed: Operation not permitted",
+    "thin_pool_allocation_verified": false
+  },
+  "cgroup_after_failure": {
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.events.local": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 1\noom_group_kill 0\n",
+    "memory.max": "187904819200\n",
+    "memory.peak": "187357286400\n",
+    "memory.current": "2692427776\n",
+    "memory.swap.max": "0\n",
+    "memory.stat": "anon 807219200\nfile 1294852096\nkernel 584941568\nkernel_stack 3588096\npagetables 3796992\nsec_pagetables 0\npercpu 23600\nsock 28672\nvmalloc 65536\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 10567680\nfile_dirty 8192\nfile_writeback 0\nswapcached 0\nanon_thp 0\nfile_thp 0\nshmem_thp 0\ninactive_anon 807149568\nactive_anon 40960\ninactive_file 1276932096\nactive_file 17920000\nunevictable 0\nslab_reclaimable 574623896\nslab_unreclaimable 2798040\nslab 577421936\nworkingset_refault_anon 0\nworkingset_refault_file 152414092\nworkingset_activate_anon 0\nworkingset_activate_file 59029916\nworkingset_restore_anon 0\nworkingset_restore_file 37232826\nworkingset_nodereclaim 0\npgdemote_kswapd 0\npgdemote_direct 0\npgdemote_khugepaged 0\npgdemote_proactive 0\npgscan 225000134\npgsteal 224549153\npswpin 0\npswpout 0\npgscan_kswapd 210414965\npgscan_direct 14537097\npgscan_khugepaged 48072\npgscan_proactive 0\npgsteal_kswapd 210000639\npgsteal_direct 14500442\npgsteal_khugepaged 48072\npgsteal_proactive 0\npgfault 1428141194\npgmajfault 1736789\npgrefill 91726536\npgactivate 33185724\npgdeactivate 91109499\npglazyfree 0\npglazyfreed 0\nswpin_zero 0\nswpout_zero 0\nzswpin 0\nzswpout 0\nzswpwb 0\nthp_fault_alloc 20226\nthp_collapse_alloc 38\nthp_swpout 0\nthp_swpout_fallback 0\n"
+  },
+  "failure_interpretation": "SIGKILL with strong host-memory-exhaustion evidence.",
+  "attribution_limits": "No pre-run cgroup counters; oom_kill=1 with max=0/oom=0 does not prove this process incremented the counter or a memcg-limit-triggered kill. Incomplete forward samples are lower observations, not completed phase peaks."
+}

@@ -102,8 +102,34 @@ if prelaunch.exists():
  lines.append('| '+' | '.join(values)+' |')
 for tokens in [32000,64000,96000,120000]:
  path=ROOT/'reports'/f'benchmark-{tokens}.json'
+ failure=ROOT/'reports'/f'benchmark-{tokens}-failure.json'
+ if not path.exists() and failure.exists():
+  r=read(failure);wall=r['monitor']['seconds']
+  for index,row in enumerate(r['resources']):
+   prefix=['','','','','']
+   if index==0:prefix=[f'Opt10 benchmark {tokens:,}: FAILED SIGKILL<br>wall {wall:.2f}','no loss','no backward','—','capacity failure; no numerical gate']
+   values=prefix+[row['phase'],f"{row['seconds']:.3f}",
+       f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
+       f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
+       f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+   lines.append('| '+' | '.join(values)+' |')
+  row=r['incomplete_forward']
+  values=[f'Opt10 {tokens:,}: last incomplete observation','not reached','not run','—','not a completed phase peak',
+      row['phase']+' (incomplete)',f">= {row['seconds']:.3f}",'unavailable',
+      f">= {row['rss_bytes']/g:.3f} / >= {row['tree_pss_bytes']/g:.3f}",
+      f">= {row['children_rss_bytes']/g:.3f} / >= {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
+  prep=r['ple_preparation'];storage=r['ple_storage_inspection']
+  values=[f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)',
+      '—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}',
+      'not measured','not measured for this worker phase','not measured for this worker phase','—']
+  lines.append('| '+' | '.join(values)+' |')
+  continue
  if not path.exists():
-  lines.append('| '+' | '.join([f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10)+' |');continue
+  if tokens==120000 and (ROOT/'reports/benchmark-96000-failure.json').exists():
+   values=[f'Opt10 benchmark: {tokens:,} tokens','not run','not run','—','blocked by 96K host capacity failure','not dispatched',*['—']*5]
+  else:values=[f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10
+  lines.append('| '+' | '.join(values)+' |');continue
  r=read(path);wall=r['monitor']['seconds'];repeats=r['repeats']
  for index,row in enumerate(r['resources']):
   phase=row['phase'];prefix=['','','','','']
@@ -162,6 +188,10 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'All 16K qualification candidates compare directly with the same saved native-head reference.',
 'Long-context benchmarks check finite gradients and repeat losses/norms; they have no long-context gradient reference.',
 'PLE table reads currently resolve to the original BF16 safetensors on Kaggle NFS; see CHUNKING.md for the observed startup bottleneck.',
+'The 96K first forward was killed without loss/backward; partial RAM observations are not completed phase peaks.',
+'Post-failure cgroup peak was 174.49 GiB against a 175 GiB limit, with oom_kill=1 but max=0/oom=0 and no pre-run counter snapshot.',
+'This strongly supports memory exhaustion; the exact OOM trigger is not proven. Astra reviewed the failure in reports/astra-capacity-review.md.',
+'120K remains unrun because the unchanged configuration would increase host pressure; a capacity remedy needs qualification first.',
 'Opt3 includes CCE, so its difference from reference cannot be attributed solely',
 'to mask construction. Small native/direct-bias selection and SDPA forward/',
 'backward fixtures passed independently before the Opt2/Opt3 model passes.','',
