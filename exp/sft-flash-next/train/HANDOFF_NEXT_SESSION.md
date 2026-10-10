@@ -1,3 +1,29 @@
+# Corrected 96K benchmark running — 2026-10-10 08:47 UTC
+
+* User explicitly said no numerical requalification for tensor allocation; focus
+  on making RAM work. Stopped 16K qualification `20261010084526506-a610f0b0`
+  during loading with SIGTERM (return -15), collected partial artifacts and
+  user-cancellation.json. This is user cancellation, NOT an implementation gate
+  failure. No full forward/backward or numerical acceptance is claimed.
+* User then explicitly directed 96K before 120K. Active corrected 96K attempt
+  `20261010084759860-6c853f57`, execution `b597fae`, supervisor 9929,
+  desktop watcher session 26928. Config benchmark-96000, timeout10800,
+  two F/B passes, all Opt7–10, GPU FP32 LoRA and shared pinned slab.
+* Use `/tmp/corrected_96k_progress.py` through Jupyter HTTP/WS helper. It preserves
+  first-observation cgroup counters and records post-completion counters when
+  monitor appears. Resource samples now include cgroup current/anon/file/shmem
+  and host allocator allocated_bytes.current. File includes shmem; maxima are
+  sampled at potentially different times, do not sum individual peaks.
+* PLE stays on original NFS per user; no compact cache work. Next finish 96K,
+  collect/hash/DVC/record new profile separately from original failed96K, then
+  120K only if 96K passes. No optimizer updates, numerical qualification retry,
+  raw candidate archives, push or shutdown until requested work complete.
+* Corrected load completed169.116s; exact74472 init in10.696s. Pinned allocator
+  measured32.004GiB versusold48.004GiB. Init treePSS37.528GiB versusold96K89.663GiB
+  (~52.13GiB lower). No completed forward/backward yet. PLE stillpreparing at
+  process age418s; worker10104 reads10.572GiB cumulative. after-loading-memory.json
+  savedremote forautomaticcollection; earlycgroup counters savedbeforeheavyload.
+
 # RAM diagnosis complete / GPU LoRA correction prepared — 2026-10-10
 
 * User: keep PLE on its original NFS mount; GPU compute can hide preparation.

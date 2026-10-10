@@ -14,7 +14,7 @@ def sha(path):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('attempt');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('attempt');parser.add_argument('--label',choices=['gpulora']);args=parser.parse_args()
     job=Path(args.attempt).resolve();out=job/'output'
     config=read(job/'config.json');monitor=read(job/'monitor.json')
     profile=numerical_profile(job,config)
@@ -51,6 +51,10 @@ def main():
         for phase in [f'forward-{i}',f'backward-{i}',f'gradient_statistics-{i}']:
             assert phases[phase]['seconds']>0 and phases[phase]['samples']>0
     staging=read(out/'expert-prefetch.json');assert staging['max_staged_layers']<=2
+    if args.label=='gpulora':
+        assert staging['trainable_device']==staging['gradient_device']=='cuda'
+        assert staging['parameter_devices']=={'cuda':73728}
+        assert staging['gradient_devices'].get('cuda',0)>0 and set(staging['gradient_devices'])=={'cuda'}
     executes=[r for r in staging['records'] if r['event']=='execute']
     assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))*2
     assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))*2
@@ -79,7 +83,8 @@ def main():
         repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
         optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
         measurement_scope=result['measurement_scope'],first_pass_cache_state=result['first_pass_cache_state'],
-        monitor=monitor,pushed_to_remote=False,
+        monitor=monitor,pushed_to_remote=False,profile_label=args.label or 'historical-cpu-lora',
+        expert_placement={k:v for k,v in staging.items() if k!='records'} if args.label else None,
         numerical_profile=profile,numerical_settings=settings,ple_preparation=preparation)
     inspection=job/'ple-storage-inspection.json'
     if inspection.exists():
@@ -90,7 +95,8 @@ def main():
     for filename,key in [('server-disk-inventory.json','server_disk_inventory'),
                          ('server-block-details.json','server_block_details')]:
         if (job/filename).exists():report[key]=read(job/filename)
-    (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
+    suffix='-'+args.label if args.label else ''
+    (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}{suffix}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}
     (job/'file-hashes.json').write_text(json.dumps(inventory,indent=2)+'\n')

@@ -101,55 +101,65 @@ if prelaunch.exists():
  r=read(prelaunch)
  values=['Opt8 first dispatch: read-only /tmp','not run','not run','—','—','prelaunch failure','not measured','not measured','not measured','not measured','—']
  lines.append('| '+' | '.join(values)+' |')
-for tokens in [32000,64000,96000,120000]:
- path=ROOT/'reports'/f'benchmark-{tokens}.json'
- failure=ROOT/'reports'/f'benchmark-{tokens}-failure.json'
+cancelled=ROOT/'reports/gpu-lora-qualification-cancelled.json'
+if cancelled.exists():
+ r=read(cancelled);row=r['incomplete_phase']
+ values=[f'GPU LoRA 16K qualification: stopped by user<br>wall {r["monitor"]["seconds"]:.2f}',
+     'not run','not run','—','user waived numerical requalification for allocation changes',
+     row['phase']+' (incomplete)',f'>= {row["seconds"]:.3f}','unavailable',
+     f'>= {row["rss_bytes"]/g:.3f} / >= {row["tree_pss_bytes"]/g:.3f}',
+     f'>= {row["children_rss_bytes"]/g:.3f} / >= {row["host_used_bytes"]/g:.3f}',str(row['samples'])]
+ lines.append('| '+' | '.join(values)+' |')
+for tokens,suffix in [(32000,''),(64000,''),(96000,''),(96000,'-gpulora'),(120000,'-gpulora')]:
+ profile='Opt10 GPU LoRA' if suffix else 'Opt10 CPU LoRA'
+ path=ROOT/'reports'/f'benchmark-{tokens}{suffix}.json'
+ failure=ROOT/'reports'/f'benchmark-{tokens}{suffix}-failure.json'
  if not path.exists() and failure.exists():
   r=read(failure);wall=r['monitor']['seconds']
   for index,row in enumerate(r['resources']):
    prefix=['','','','','']
-   if index==0:prefix=[f'Opt10 benchmark {tokens:,}: FAILED SIGKILL<br>wall {wall:.2f}','no loss','no backward','—','capacity failure; no numerical gate']
+   if index==0:prefix=[f'{profile} benchmark {tokens:,}: FAILED SIGKILL<br>wall {wall:.2f}','no loss','no backward','—','capacity failure; no numerical gate']
    values=prefix+[row['phase'],f"{row['seconds']:.3f}",
        f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
        f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
        f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
    lines.append('| '+' | '.join(values)+' |')
   row=r['incomplete_forward']
-  values=[f'Opt10 {tokens:,}: last incomplete observation','not reached','not run','—','not a completed phase peak',
+  values=[f'{profile} {tokens:,}: last incomplete observation','not reached','not run','—','not a completed phase peak',
       row['phase']+' (incomplete)',f">= {row['seconds']:.3f}",'unavailable',
       f">= {row['rss_bytes']/g:.3f} / >= {row['tree_pss_bytes']/g:.3f}",
       f">= {row['children_rss_bytes']/g:.3f} / >= {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   lines.append('| '+' | '.join(values)+' |')
   prep=r['ple_preparation'];storage=r['ple_storage_inspection']
-  values=[f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)',
+  values=[f'{profile} {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)',
       '—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}',
       'not measured','not measured for this worker phase','not measured for this worker phase','—']
   lines.append('| '+' | '.join(values)+' |')
   continue
  if not path.exists():
-  if tokens==120000 and (ROOT/'reports/benchmark-96000-failure.json').exists():
-   values=[f'Opt10 benchmark: {tokens:,} tokens','not run','not run','—','blocked by 96K host capacity failure','not dispatched',*['—']*5]
-  else:values=[f'Opt10 benchmark: {tokens:,} tokens']+['pending']*10
+  if tokens==120000 and not (ROOT/'reports/benchmark-96000-gpulora.json').exists():
+   values=[f'{profile} benchmark: {tokens:,} tokens','not run','not run','—','awaiting corrected 96K capacity pass','not dispatched',*['—']*5]
+  else:values=[f'{profile} benchmark: {tokens:,} tokens']+['pending']*10
   lines.append('| '+' | '.join(values)+' |');continue
  r=read(path);wall=r['monitor']['seconds'];repeats=r['repeats']
  for index,row in enumerate(r['resources']):
   phase=row['phase'];prefix=['','','','','']
   if index==0:
    fixture=r['fixture']
-   prefix=[f'Opt10 benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',f'loss repeats equal: {r["loss_repeat_bitwise_equal"]}','finite gradients; no long-context reference','—','—']
+   prefix=[f'{profile} benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',f'loss repeats equal: {r["loss_repeat_bitwise_equal"]}','finite gradients; no long-context reference','—','—']
   if phase.startswith('forward-'):
    repeat=repeats[int(phase.split('-')[-1])]
-   prefix[0]=f'Opt10 {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
+   prefix[0]=f'{profile} {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
    prefix[1]=f'{repeat["loss"]:.10f}';prefix[2]=f'all finite; norm {repeat["gradient_norm"]:.10f}'
    prefix[3]=f'{repeat["nonzero_gradient_tensors"]:,} nonzero; {repeat["absent_unrouted_tensors"]:,} absent'
   values=prefix+[phase,f"{row['seconds']:.3f}",
       f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
-      f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
-      f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+      f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}"+(f"<br>cgroup current {row['cgroup_memory_current_bytes']/g:.3f}" if 'cgroup_memory_current_bytes' in row else ''),
+      f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}"+(f"<br>anon {row['cgroup_anon_bytes']/g:.3f}; file {row['cgroup_file_bytes']/g:.3f}; shmem {row['cgroup_shmem_bytes']/g:.3f}; pinned {row['host_pinned_allocated_bytes']/g:.3f}" if 'cgroup_anon_bytes' in row else ''),str(row['samples'])]
   lines.append('| '+' | '.join(values)+' |')
  if 'ple_preparation' in r:
   prep=r['ple_preparation']
-  detail=f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows'
+  detail=f'{profile} {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows'
   if 'ple_storage_inspection' in r:
    storage=r['ple_storage_inspection']
    detail+=f'<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)'
@@ -210,7 +220,8 @@ lines+=['','GPU peaks are synchronized CUDA allocator counters; reserved include
 'The 96K first forward was killed without loss/backward; partial RAM observations are not completed phase peaks.',
 'Post-failure cgroup peak was 174.49 GiB against a 175 GiB limit, with oom_kill=1 but max=0/oom=0 and no pre-run counter snapshot.',
 'This strongly supports memory exhaustion; the exact OOM trigger is not proven. Astra reviewed the failure in reports/astra-capacity-review.md.',
-'120K remains unrun because the unchanged configuration would increase host pressure; a capacity remedy needs qualification first.',
+'GPU LoRA and shared-slab allocation changes are measured in separate rows; the user waived another numerical gate and directed 96K capacity before 120K.',
+'New rows include sampled cgroup current/anon/file/shmem and host allocator allocated_bytes.current. File includes shmem; separate category peaks need not coincide.',
 'Opt3 includes CCE, so its difference from reference cannot be attributed solely',
 'to mask construction. Small native/direct-bias selection and SDPA forward/',
 'backward fixtures passed independently before the Opt2/Opt3 model passes.','',

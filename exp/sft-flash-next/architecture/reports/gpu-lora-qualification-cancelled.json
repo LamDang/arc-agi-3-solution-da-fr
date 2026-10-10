@@ -1,0 +1,36 @@
+{
+  "attempt": "20261010084526506-a610f0b0",
+  "execution_commit": "b597faee9983a464f912157f5312054c5462d639",
+  "monitor": {
+    "returncode": -15,
+    "timed_out": false,
+    "seconds": 118.67587891799849,
+    "pid": 9510
+  },
+  "cancellation": {
+    "reason": "User stopped numerical qualification: tensor allocation does not need a new gradient test; focus on RAM capacity.",
+    "optimizer_updates": 0,
+    "requested_action": "Stop qualification and benchmark corrected 120K capacity directly"
+  },
+  "incomplete_phase": {
+    "phase": "loading",
+    "completed": false,
+    "seconds": 104.8559755440001,
+    "rss_bytes": 8279314432,
+    "tree_pss_bytes": 9042151424,
+    "children_rss_bytes": 1154793472,
+    "host_used_bytes": 5626294272,
+    "samples": 125,
+    "cgroup_memory_current_bytes": 101101551616,
+    "cgroup_anon_bytes": 4470456320,
+    "cgroup_file_bytes": 95778279424,
+    "cgroup_shmem_bytes": 26071040,
+    "host_pinned_allocated_bytes": 4358157
+  },
+  "source_and_input_hashes_verified": true,
+  "forward_executed": false,
+  "backward_executed": false,
+  "numerical_gate_passed": null,
+  "optimizer_updates": 0,
+  "raw_gradients_retained": false
+}
