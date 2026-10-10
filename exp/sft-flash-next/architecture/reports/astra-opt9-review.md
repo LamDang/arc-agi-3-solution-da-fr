@@ -110,3 +110,30 @@ The eventual fix still requires cumulative Opt9 paired qualification below2%
 against unchanged Opt3. Test-only FLA numerical configuration must remain absent
 from real training. No acceptance or production promotion follows from this
 review.
+
+## Pre-dispatch review of hyperconnection_replay.py
+
+Read-only review of the prepared diagnostic and launcher whitelist found no
+blocking issue for BF16 captured inputs. Native shadow execution disables only
+the target module's chunk size and guards recursive hooks, then restores it in
+finally. Cotangents independently exercise mixed output, direct residual, and
+injection-coefficient output. Frozen mixer weights are asserted. Native-repeat
+checks both output ports and input VJP; each variant builds a fresh graph.
+Projection hooks are removed before checkpoint recomputation, avoiding duplicate
+trace collection. Function closures are consumed synchronously before advancing
+the variant. Outer variants combine non-reentrant checkpointing and CPU saved
+tensors. The whitelist addition is restricted to the explicit test entrypoint;
+no raw candidate tensor writes or full-model backward/optimizer were introduced.
+
+One concrete conditional correction is needed for full dtype fidelity:
+without_checkpoint() omits the leading x.bfloat16() in ChunkedResidual.forward.
+For FP32 captured input this changes the direct residual port and its cast path,
+confounding checkpoint isolation. Add x=x.bfloat16() inside that helper or assert
+that the captured input is BF16 before all variants. Other variants use the
+actual module boundary. This is not evidence that the Opt9 implementation itself
+has that bug; it is a possible discrepancy in the diagnostic variant.
+
+This diagnostic isolates mixers; injection and composed decoder VJPs remain a
+follow-up only if mixer results leave the failure unexplained. Passing local
+checks would not qualify Opt9 or relax the2% full paired gate. Main agent handles
+GPU dispatch; this review ran none.
