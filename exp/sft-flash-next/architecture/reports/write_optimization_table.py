@@ -46,6 +46,15 @@ for label,r,monitor,is_ref in cases:
        f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
   assert len(values)==len(columns)
   lines.append('| '+' | '.join(values)+' |')
+partial=ROOT/'reports/opt7-interrupted.json'
+if partial.exists():
+ r=read(partial)
+ for index,row in enumerate(r['resources']):
+  prefix=['','','','','']
+  if index==0:prefix=[f"Opt7 v2: interrupted<br>wall {r['monitor']['seconds']:.2f}",'not completed','not run','—','—']
+  phase=row['phase']+(' (interrupted)' if row['phase']=='forward' else '')
+  values=prefix+[phase,f"{row['seconds']:.3f}",f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
 for attempt,reason in [('20261009233104571-623698fb','dispatch commit corrected'),('20261009233157982-16930101','new 1% gate/control added')]:
  job=ROOT/'results'/attempt
  if (job/'monitor.json').exists():

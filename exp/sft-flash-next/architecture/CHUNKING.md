@@ -43,8 +43,10 @@ query window and accumulates shared K/V gradients in FP32, then casts once to
 the original BF16 gradient dtype. Each query uses its absolute position and full-context
 keys. The bias is allocated inside replay, including its sentinel column and
 alignment padding, with at most chunk_tokens query rows. Frozen indexer q/raw
-keys are projected over the full sequence; selection is nondifferentiable as in
-the native implementation. Selected sets are checked bitwise against native
+keys are projected over the full sequence. Selected row IDs are retained,
+selection is nondifferentiable as in the native implementation, and backward
+rebuilds only each window bias from those IDs. It does not run selection a third
+time. The outer decoder checkpoint still repeats selection as in the reference. Selected sets are checked bitwise against native
 selection in fixtures. K/V gradients receive contributions from every window.
 Current scope: one unpadded sample, SDPA, no cache, zero attention dropout.
 

@@ -1,0 +1,50 @@
+{
+  "attempt": "20261009235340267-57a2caf2",
+  "status": "interrupted forward; no completed loss/backward",
+  "reason": "Interrupted forward: replace excessive whole-layer per-expert state binding; fix input-gradient accumulation to replay native BF16 gather backward rather than FP32 sum. No optimizer update.",
+  "monitor": {
+    "returncode": 1,
+    "timed_out": false,
+    "seconds": 745.0395122420014,
+    "pid": 21843
+  },
+  "resources": [
+    {
+      "phase": "loading",
+      "seconds": 193.01056050800253,
+      "cuda_peak_allocated_bytes": 49869371904,
+      "cuda_peak_reserved_bytes": 81279320064,
+      "rss_bytes": 94770229248,
+      "tree_pss_bytes": 95323282432,
+      "children_rss_bytes": 1187012608,
+      "host_used_bytes": 46742675456,
+      "samples": 253
+    },
+    {
+      "phase": "initialization_verification",
+      "seconds": 9.378781598003116,
+      "cuda_peak_allocated_bytes": 10931468800,
+      "cuda_peak_reserved_bytes": 11148460032,
+      "rss_bytes": 94924742656,
+      "tree_pss_bytes": 95476812800,
+      "children_rss_bytes": 999727104,
+      "host_used_bytes": 46522220544,
+      "samples": 15
+    },
+    {
+      "phase": "forward",
+      "seconds": 491.3077872130016,
+      "cuda_peak_allocated_bytes": 15607069696,
+      "cuda_peak_reserved_bytes": 16747855872,
+      "rss_bytes": 111608606720,
+      "tree_pss_bytes": 112160994304,
+      "children_rss_bytes": 999727104,
+      "host_used_bytes": 63165595648,
+      "samples": 587
+    }
+  ],
+  "source_hashes_verified": true,
+  "initialization_bitwise_equal": true,
+  "raw_candidate_gradients_retained": false,
+  "pushed_to_remote": false
+}

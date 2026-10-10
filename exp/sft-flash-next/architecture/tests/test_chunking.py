@@ -20,8 +20,8 @@ class ChunkingTests(unittest.TestCase):
         torch.manual_seed(419)
         for tokens in (6,7,8,23):
             x=torch.zeros((tokens,2560),device=device,dtype=torch.bfloat16,requires_grad=True)
-            rows=torch.arange(tokens,device=device).unsqueeze(1).expand(-1,8).reshape(-1)
-            slot_grad=torch.randn(tokens,8,2560,device=device,dtype=torch.bfloat16)
+            rows=torch.arange(tokens,device=device).unsqueeze(1).expand(-1,10).reshape(-1)
+            slot_grad=torch.randn(tokens,10,2560,device=device,dtype=torch.bfloat16)
             expected=torch.autograd.grad(x[rows],x,slot_grad.flatten(0,1))[0]
             actual=unroute_native(slot_grad.cpu(),device,7)
             self.assertTrue(torch.equal(actual,expected))

@@ -60,6 +60,7 @@ No full expanded gradient is allocated on CUDA.
             grad=slot_grad[start:stop].to(device).reshape(n*k,hidden)
             local=torch.autograd.grad(expanded,source,grad)[0]
         dx[start:stop]=local
+        del source,rows,expanded,grad,local
     return dx
 
 

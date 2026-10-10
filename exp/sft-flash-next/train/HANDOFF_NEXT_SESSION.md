@@ -1,3 +1,33 @@
+# Opt7–10 active — 2026-10-10
+
+* Work directly; no new subagents. No Git/DVC push. Only current reference raw
+  gradients retained; all candidates/control gradients stay in memory only.
+* User gate for chunking: bitwise or global relative L2 <1% against an unchanged
+  Opt3 control. Native-head reference comparison is also reported, including
+  existing CCE/direct-bias drift. Every phase goes in `../architecture/v0.md`.
+* Opt7 input-token chunk attempt `20261009233337155-c92c57e2` completed but FAILED:
+  loss0.6313864589, paired gradient relativeL2 60.1983%; evidence in local DVC.
+* Global-sort per-expert v2 `20261009235340267-57a2caf2` was interrupted in forward:
+  excessive whole-layer state binding and a known non-native FP32 input-gradient
+  accumulation. Partial resources/source/stop reason preserved; no complete loss.
+* Current Opt7 v3 `20261010000620065-39a35a37`, execution e20fc3d, is running via
+  Jupyter. Source frozen under architecture-runs; supervisor22325. GPU fixtures
+  passed, including bitwise native gather-gradient replay. Wait/review its paired
+  gate before Opt8. Desktop watch session79474 collects and DVC-adds automatically.
+* V3 routes globally with native argsort; gathers bounded per-expert slices;
+  binds only each projection; CPU per-slot input cotangents replay native gather
+  backward in token windows. This scratch is temporary: top_k10, hidden2560,
+  0.775GiB at16,249 tokens /6.199GiB at130K; not a saved gradient archive.
+* Opt8 code now preserves native full Q/K/V/O projection shapes, constructs only
+  window biases, accumulates shared K/V VJPs in FP32 and casts once. Selection IDs
+  are reused in SDPA backward; mask construction remains inside replay. Latest
+  selection-reuse changes are prepared locally after e20fc3d, awaiting commit/test.
+* Opt9/10 prepared: separate mixing/injection windows; whole PLE windows with
+  native nine-token halo and full-context prepared n-gram lookup. All cumulative
+  configs7–10 use8192 tokens. Small GPU fixtures passed the earlier versions;
+  latest source gets GPU fixtures automatically before each model capture.
+* No Opt8–10 full capture yet. Keep one table and record rejected/interrupted runs.
+
 # Opt1–3 reruns complete — 2026-10-10
 
 * Active single statistics table: `../architecture/v0.md`. It contains reference
