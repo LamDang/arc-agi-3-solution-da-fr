@@ -101,14 +101,14 @@ def run(config, mode):
         write(output/'components.json',architecture.inventory)
         write(output/'loading.json',architecture.loading)
         if architecture.ple_manifest:write(output/'ple-manifest.json',architecture.ple_manifest)
-        initial = {name:value.detach().cpu() if mode=='benchmark' else value.detach().cpu().clone()
-                   for name,value in get_peft_model_state_dict(model).items()}
         if mode in {'test','benchmark'} and config.baseline and config.baseline.get('initial_adapter'):
+            initial = {name:value.detach() for name,value in get_peft_model_state_dict(model).items()}
             with resources.phase('initialization_verification'):
                 initial_comparison=compare_initial(initial,config.baseline)
             write(output/'initial-comparison.json',initial_comparison)
             if not initial_comparison['passed']:raise RuntimeError('Reference initialization differs; no forward/backward run')
         else:
+            initial = {name:value.detach().cpu().clone() for name,value in get_peft_model_state_dict(model).items()}
             save_tensors(initial,output,'initial-adapter')
         del initial
         event('load_complete',trainable_tensors=config.adapter_tensors)

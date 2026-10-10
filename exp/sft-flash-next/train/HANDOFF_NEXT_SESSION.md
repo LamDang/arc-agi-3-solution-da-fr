@@ -1,3 +1,28 @@
+# RAM diagnosis complete / GPU LoRA correction prepared — 2026-10-10
+
+* User: keep PLE on its original NFS mount; GPU compute can hide preparation.
+  User corrected: LoRA masters must remain on GPU. Main executes; no push.
+* Load-only diagnostic `20261010083338834-292581ae`, execution `4b9de56`, finished
+  in 422.061 s, exact 74,472 initialization, no F/B/PLE prep/updates/raw gradients.
+  `reports/host-memory-diagnostic.json` verifies identity/source hashes; local
+  SHA inventory and all 27 attempt DVC caches verified.
+* Missing RAM measured: 29.488 GiB frozen payload occupies 48.004 GiB pinned
+  allocations. Post-init PSS 88.434 GiB -> 59.325 GiB after diagnostic-only
+  malloc_trim: 29.109 GiB unused resident allocator pages released with identical
+  live model/pinned storage. Python GC alone did not release it. Cgroup file
+  includes shmem; don't sum both. Diagnostic does NOT install trimming in training.
+* Prepared reviewed change: all FP32 LoRA parameters/gradients GPU; only frozen
+  experts CPU. One shared pinned allocation with layer views (expected 32 vs48
+  GiB, unmeasured); direct GPU -> pinned copy avoids pageable whole-model staging;
+  initial reference comparison streams current tensors instead of full CPU clone.
+  Existing expert arithmetic/FP32 accumulation unchanged. Astra found no blocking
+  issue; `reports/astra-gpu-lora-ram-review.md` records review.
+* Next: full 16K cumulative Opt10 original-reference + same-model unchunked
+  control qualification at 2%, source commit before execution. Label result
+  GPULoRA so historical CPU-master Opt10/benchmarks remain immutable. No raw
+  candidate archive. Then remeasure capacity on corrected profile; do not claim
+  earlier 32/64K measurements cover GPU masters or AdamW. Keep Jupyter alive.
+
 # 96K failed during forward; disk inventory complete — 2026-10-10
 
 * Attempt `20261010075533242-f30e823d`, execution `f5e78c4`: SIGKILL

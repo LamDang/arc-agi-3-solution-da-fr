@@ -19,7 +19,7 @@ architecture/
     mlp.py                 optional shared/routed Liger SwiGLU
     ple.py                 frozen disk lookup and bounded CPU preparation
     precision.py           BF16 activation ports; native statistics preserved
-    expert_offload.py      CPU expert masters and bounded layer prefetch
+    expert_offload.py      CPU frozen buffers, GPU LoRA and bounded layer prefetch
     expert_chunks.py       bounded globally routed expert replay
     qsa_chunks.py          query windows with full-context K/V
     hyperconnection_chunks.py  local mixing/injection replay
@@ -63,7 +63,7 @@ components is source-pinned and reviewed separately.
 | `bf16_activations` | Opt5 declared model activation ports; statistics stay native |
 | `liger_rmsnorm` | Opt6 normalization kernels, independently selectable |
 | `liger_swiglu` | Opt6 shared/routed activation kernels, independently selectable |
-| `offload_routed_experts` | CPU canonical expert state; at most two GPU layers |
+| `offload_routed_experts` | CPU frozen expert buffers; GPU FP32 LoRA masters/gradients; at most two frozen GPU layers |
 | `lora_routed_experts` | LoRA on every routed expert gate/up/down projection |
 | `expert_chunking` | Opt7 global routing, bounded per-expert assigned rows |
 | `qsa_chunking` | Opt8 query-window replay with full-context keys/values |

@@ -105,6 +105,9 @@ def compare_initial(state, baseline):
     for name,a in reference_tensors(path):
         seen.add(name)
         b=state.get(name)
+        # GPU masters stay resident. Stream one current tensor to CPU alongside
+        # the reference shard instead of cloning the entire adapter onto CPU.
+        if b is not None:b=b.detach().cpu()
         if b is None or a.shape!=b.shape or a.dtype!=b.dtype or not torch.equal(a.contiguous().view(torch.uint8),b.contiguous().view(torch.uint8)):different.append(name)
     if seen != set(state) or not seen:raise ValueError('Initial adapter keys/count differ')
     return dict(passed=not different,raw_tensors=len(seen),bitwise_equal_tensors=len(seen)-len(different),

@@ -1,8 +1,8 @@
-"""CPU canonical experts/adapters; bounded layer prefetch with differentiable copies.
+"""CPU frozen expert buffers; GPU FP32 LoRA masters and gradients.
 
-Frozen quantized buffers use one pinned byte slab per layer. FP32 trainable
-parameters retain their original CPU Parameter objects and receive CPU FP32
-.grad through cat/copy backward. Only current and next layer GPU states exist.
+Frozen quantized buffers use layer views into one shared pinned allocation. FP32 trainable
+parameters retain their original CUDA Parameter objects and CUDA FP32 gradients.
+Only current and next layer frozen GPU states exist.
 Native expert routing, quantized projections and activation arithmetic are used.
 """
 from contextlib import contextmanager
@@ -48,15 +48,27 @@ class LayerPrefetch:
             for name,value in module.named_buffers():
                 size=(size+7)//8*8;count=value.numel()*value.element_size()
                 layout.append((name,size,count,value.shape,value.dtype));size+=count
-            slab=torch.empty(size,dtype=torch.uint8,device='cpu',pin_memory=pin)
+            self.layouts.append(layout)
+            self.slabs.append((size+7)//8*8)
+        # CUDA's pinned allocator rounds allocation sizes. One ~0.614 GiB
+        # allocation per layer reserved ~48 GiB for ~29.49 GiB of data. A single
+        # backing allocation avoids 48 independent rounding gaps; layer views
+        # still support exactly the same two-layer GPU prefetch window.
+        self.backing=torch.empty(sum(self.slabs),dtype=torch.uint8,device='cpu',pin_memory=pin)
+        sizes=self.slabs;self.slabs=[];offset=0
+        for module,layout,size in zip(modules,self.layouts,sizes):
+            slab=self.backing[offset:offset+size];offset+=size
             buffers=dict(module.named_buffers())
             for name,start,count,shape,dtype in layout:
                 view=slab[start:start+count].view(dtype).reshape(shape)
-                view.copy_(buffers[name].cpu())
+                # Copy GPU -> pinned CPU directly: do not allocate a pageable
+                # CPU copy of every frozen weight before populating the slab.
+                view.copy_(buffers[name])
                 parent,_,key=name.rpartition('.')
                 module.get_submodule(parent)._buffers[key]=view
-            self.slabs.append(slab);self.layouts.append(layout)
-            assert all(p.device.type=='cpu' for p in module.parameters())
+            self.slabs.append(slab)
+            assert all(p.device.type=='cuda' for p in module.parameters())
+            assert all(p.dtype==torch.float32 for p in module.parameters() if p.requires_grad)
 
     @contextmanager
     def phase(self,direction):
@@ -75,18 +87,12 @@ class LayerPrefetch:
             gpu=self.slabs[index].to('cuda',non_blocking=True)
             state={name:gpu[start:start+count].view(dtype).reshape(shape)
                    for name,start,count,shape,dtype in self.layouts[index]}
-            parameters=list(module.named_parameters())
-            if parameters:
-                # Cat/copy are differentiable; never detach the CPU master LoRA.
-                flat=torch.cat([p.reshape(-1) for _,p in parameters]).to('cuda',non_blocking=True)
-                offset=0
-                for name,p in parameters:
-                    state[name]=flat[offset:offset+p.numel()].view_as(p);offset+=p.numel()
             ready=torch.cuda.Event();ready.record(self.stream)
         self.cache[index]=(state,ready)
         self.max_staged_layers=max(self.max_staged_layers,len(self.cache))
         self.records.append(dict(event='prefetch',layer=index,direction=self.direction,
-            frozen_bytes=self.slabs[index].numel(),parameter_bytes=sum(p.numel()*p.element_size() for _,p in parameters),
+            frozen_bytes=self.slabs[index].numel(),parameter_bytes=0,
+            resident_parameter_bytes=sum(p.numel()*p.element_size() for p in module.parameters()),
             host_dispatch_seconds=time.monotonic()-started,staged_layers=len(self.cache)))
 
     def acquire(self,module,input_dtype,parameter_flat=None,event='execute'):
@@ -101,12 +107,15 @@ class LayerPrefetch:
         current.wait_event(ready)
         for value in state.values():value.record_stream(current)
         self.prefetch(index+self.direction)
+        state=dict(state)
         if parameter_flat is not None:
-            state=dict(state);offset=0
+            offset=0
             for name,p in module.named_parameters():
                 state[name]=parameter_flat[offset:offset+p.numel()].view_as(p).to(p.dtype)
                 offset+=p.numel()
             assert offset==parameter_flat.numel()
+        else:
+            state.update(module.named_parameters())
         self.records.append(dict(event=event,layer=index,direction=self.direction,input_dtype=str(input_dtype)))
         return state
 
@@ -129,7 +138,12 @@ class LayerPrefetch:
         self.stream.synchronize()
 
     def report(self):
-        return dict(canonical_device='cpu',trainable_dtype='torch.float32',
+        from collections import Counter
+        parameters=[p for module in self.modules for p in module.parameters() if p.requires_grad]
+        return dict(canonical_device='cpu',frozen_canonical_device='cpu',
+            trainable_device='cuda',gradient_device='cuda',trainable_dtype='torch.float32',
+            parameter_devices=dict(Counter(p.device.type for p in parameters)),
+            gradient_devices=dict(Counter(p.grad.device.type for p in parameters if p.grad is not None)),
             frozen_cpu_bytes=sum(s.numel() for s in self.slabs),max_staged_layers=self.max_staged_layers,
             records=self.records)
 
@@ -140,7 +154,7 @@ def install(model,inventory,chunk_tokens=0):
         old=layer.mlp.experts
         if type(old) not in CLASSES:raise TypeError('Unsupported expert component '+type(old).__name__)
         module=adopt(old,CLASSES[type(old)])
-        layer.mlp.experts=module;module.to('cpu');module.chunk_tokens=chunk_tokens;modules.append(module)
+        layer.mlp.experts=module;module.chunk_tokens=chunk_tokens;modules.append(module)
         inventory.append(dict(name=f'model.language_model.layers.{index}.mlp.experts',
             original=type(old).__name__,implementation=type(module).__name__))
     return LayerPrefetch(modules)

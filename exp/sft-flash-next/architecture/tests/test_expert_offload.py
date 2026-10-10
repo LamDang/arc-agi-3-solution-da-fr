@@ -3,7 +3,7 @@ import os
 import unittest
 
 
-@unittest.skipUnless(os.environ.get('FLASH_NEXT_CHECK_EXPERT_OFFLOAD')=='1','Enabled for CPU expert reference jobs only')
+@unittest.skipUnless(os.environ.get('FLASH_NEXT_CHECK_EXPERT_OFFLOAD')=='1','Enabled for frozen expert offload jobs only')
 class ExpertOffloadTests(unittest.TestCase):
     def test_quantized_prefetch_preserves_loss_and_fp32_adapter_gradients(self):
         self.check_quantized(0)
@@ -53,7 +53,7 @@ class ExpertOffloadTests(unittest.TestCase):
                 self.assertEqual(p.dtype,torch.float32)
                 with torch.no_grad():p.normal_(0,.002 if tokens>8192 else .01)
         resident=copy.deepcopy(canonical).cuda()
-        staged=adopt(canonical,Staged);manager=LayerPrefetch([staged]);self.addCleanup(manager.close);staged.chunk_tokens=chunk_tokens
+        staged=adopt(canonical.cuda(),Staged);manager=LayerPrefetch([staged]);self.addCleanup(manager.close);staged.chunk_tokens=chunk_tokens
         x=torch.randn(tokens,hidden,device='cuda',dtype=torch.bfloat16,requires_grad=True)
         y=x.detach().clone().requires_grad_(True)
         k=canonical.num_experts
@@ -117,12 +117,11 @@ class ExpertOffloadTests(unittest.TestCase):
         grad_pairs=[]
         for name,p in staged.named_parameters():
             if not p.requires_grad:continue
-            self.assertEqual(p.device.type,'cpu');self.assertEqual(p.grad.dtype,torch.float32)
+            self.assertEqual(p.device.type,'cuda');self.assertEqual(p.grad.device.type,'cuda');self.assertEqual(p.grad.dtype,torch.float32)
             reference_grad=reference[name].grad
             if reference_grad is None:
                 self.assertTrue(uneven and name.startswith('3.'),'Only the unused expert may lack a native gradient')
                 reference_grad=torch.zeros_like(p)
-            else:reference_grad=reference_grad.cpu()
             if chunk_tokens:torch.testing.assert_close(p.grad,reference_grad,rtol=.05,atol=1e-5,msg=name)
             else:self.assertTrue(torch.equal(p.grad,reference_grad),name)
             grad_pairs.append((p.grad,reference_grad))
@@ -138,7 +137,7 @@ class ExpertOffloadTests(unittest.TestCase):
             self.assertLess(adapter_relative_l2,.01)
         manager.close()
         report=dict(passed=True,quantized_projection=True,loss_bitwise_equal=bool(torch.equal(loss,ref_loss)),
-            output_and_input_gradient_bitwise_equal=True,fp32_cpu_adapter_gradient_tensors=count,
+            output_and_input_gradient_bitwise_equal=True,fp32_cuda_adapter_gradient_tensors=count,
             checkpoint_recomputation=True,max_staged_layers=manager.max_staged_layers)
         if not chunk_tokens and os.environ.get('FLASH_NEXT_EXPERT_CHECK_RESULT'):
             Path(os.environ['FLASH_NEXT_EXPERT_CHECK_RESULT']).write_text(json.dumps(report,indent=2)+'\n')

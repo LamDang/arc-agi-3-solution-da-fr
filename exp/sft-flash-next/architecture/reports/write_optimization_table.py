@@ -14,7 +14,8 @@ lines=['# v0 — current all-expert reference and optimizations','',
 'completed run has finite gradients, zero optimizer updates and no clipping.',
 'Opt4–6 are dropped as separate experiments.',
 'Each run has 1,920,915,456 trainable parameters: FP32 masters and gradients',
-'are 7.155968 GiB each. There are 744 CUDA and 73,728 CPU parameter tensors.',
+'are 7.155968 GiB each. Historical captures used 744 CUDA and 73,728 CPU parameter tensors.',
+'The separately labeled GPU LoRA correction keeps all 74,472 parameter/gradient tensors on CUDA.',
 'Expert staging is bounded to two layers; all observed expert inputs are BF16.','',
 '**One table contains the run comparisons and every measured phase statistic.**',
 'Run-level loss/gradient results appear once on the first row of each experiment.',
@@ -23,7 +24,7 @@ lines=['# v0 — current all-expert reference and optimizations','',
 '| '+' | '.join(columns)+' |','| '+' | '.join(['---']+['---:']*4+['---']+['---:']*5)+' |']
 reports=[]
 cases=[('Reference',ref,ROOT/'results'/ref['attempt']/'monitor.json',True)]
-for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: original 1% gate (failed)'),('opt7','Opt7: + expert chunks (accepted at 2%)'),('opt8','Opt8: + QSA query chunks'),('opt9rejected','Opt9 v1: hyperconnection chunks (rejected at 2%)'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows')]:
+for key,label in [('opt1','Opt1: target-only logits'),('opt2','Opt2: CCE exact'),('opt3','Opt3: CCE exact + direct bias'),('wrongselectionreference','Restoration with smoke selection (rejected)'),('restoredreferenceunpinned','Restored native: unpinned scan (rejected)'),('restoredreference','Restored native: reference scan profile'),('opt7-rejected','Opt7 v1: input chunks (rejected)'),('opt7v4rejected','Opt7 v4: original 1% gate (failed)'),('opt7','Opt7: + expert chunks (accepted at 2%)'),('opt8','Opt8: + QSA query chunks'),('opt9rejected','Opt9 v1: hyperconnection chunks (rejected at 2%)'),('opt9','Opt9: + hyperconnection chunks'),('opt10','Opt10: + PLE windows'),('gpulora','GPU LoRA: all Opt7–10 + shared pinned slab')]:
  path=ROOT/'reports'/f'{key}-rerun.json'
  if path.exists():
   r=read(path);reports.append(r);cases.append((label,r,ROOT/'results'/r['attempt']/'monitor.json',False))
@@ -153,6 +154,24 @@ for tokens in [32000,64000,96000,120000]:
    storage=r['ple_storage_inspection']
    detail+=f'<br>{storage["filesystem_type"]}; worker cumulative reads {storage["worker_cumulative_read_bytes"]/g:.3f} GiB (includes startup/sample loading)'
   values=[detail,'—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}','not measured','not measured for this worker phase','not measured for this worker phase','—']
+  lines.append('| '+' | '.join(values)+' |')
+host_diagnostic=ROOT/'reports/host-memory-diagnostic.json'
+if host_diagnostic.exists():
+ r=read(host_diagnostic)
+ for index,row in enumerate(r['resources']):
+  prefix=['','','','','']
+  if index==0:prefix=[f'Load-only host RAM diagnostic<br>wall {r["monitor"]["seconds"]:.2f}','no forward','no backward','initial adapters exact','no optimizer / PLE lookup']
+  values=prefix+[row['phase'],f"{row['seconds']:.3f}",
+      f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
+      f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
+      f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
+ for observation in r['observations']:
+  values=[f'Host RAM snapshot: {observation["label"]}','no loss','no gradients','—',
+      f'cgroup current {int(observation["cgroup"]["memory.current"])/g:.3f} GiB',
+      'instantaneous snapshot','—',
+      f'{observation["cuda_allocated_bytes"]/g:.3f} / {observation["cuda_reserved_bytes"]/g:.3f}',
+      'see mapping breakdown in report','not a phase peak','1']
   lines.append('| '+' | '.join(values)+' |')
 partial=ROOT/'reports/opt7-interrupted.json'
 if partial.exists():

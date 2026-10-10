@@ -53,7 +53,12 @@ def main():
     assert result['optimizer_updates']==0 and not result['clipping_applied']
     assert result['raw_gradient_tensors']==74472 and result['all_finite']
     assert result['gradient_dtypes']==result['parameter_dtypes']=={'torch.float32':74472}
-    assert result['trainable_parameter_devices']=={'cuda':744,'cpu':73728}
+    staged=read(out/'expert-prefetch.json')
+    gpu_masters=staged.get('trainable_device')=='cuda'
+    assert result['trainable_parameter_devices']==({'cuda':74472} if gpu_masters else {'cuda':744,'cpu':73728})
+    if gpu_masters:
+        assert staged['gradient_device']=='cuda' and staged['parameter_devices']=={'cuda':73728}
+        assert staged['gradient_devices']=={'cuda':73728}
     assert result['raw_gradients_retained'] is False and result['gradient_archive'] is None
     assert not (out/'gradients').exists() and not list(out.glob('gradients*.pt'))
     assert not (out/'initial-adapter').exists() and not (out/'initial-adapter.pt').exists()
@@ -153,7 +158,7 @@ def main():
         all_finite=True,initialization_bitwise_equal=True,raw_candidate_gradients_retained=False,optimizer_updates=0,
         numerical_bitwise_match=comparison['passed'],direct_bias_operator_checks_passed=operator_checks,acceptance_tolerance=None,resources=resources,
         scope='Metrics/source review; candidate raw gradients intentionally never archived. No numerical tolerance invented.',pushed_to_remote=False,
-        numerical_profile=profile)
+        numerical_profile=profile,trainable_parameter_devices=result['trainable_parameter_devices'])
     if paired is not None:
         acceptance_limit=args.acceptance_limit if args.acceptance_limit is not None else execution_limit
         report.update(chunking_gradient_relative_l2=paired['global_relative_l2'],chunking_gradient_cosine=paired['cosine'],

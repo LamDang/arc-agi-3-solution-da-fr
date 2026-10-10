@@ -4,7 +4,8 @@
 The global native argsort order is preserved before slicing. Only row/slot IDs
 are expanded; hidden vectors are gathered for the current expert slice. Native
 routing multiplication and sum run in original top-k order in token windows,
-using temporary CPU slot-output scratch to avoid a full expanded CUDA buffer. CPU master LoRA objects receive FP32 gradients through cat.
+using temporary CPU slot-output scratch to avoid a full expanded CUDA buffer.
+GPU master LoRA objects receive GPU FP32 gradients through cat.
 """
 import torch
 

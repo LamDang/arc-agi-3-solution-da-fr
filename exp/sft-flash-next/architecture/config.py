@@ -31,7 +31,7 @@ class Optimizations:
         if type(self.chunk_tokens) is not int or self.chunk_tokens < 1:
             raise ValueError('chunk_tokens must be a positive integer')
         if self.expert_chunking and not self.offload_routed_experts:
-            raise ValueError('Expert chunks currently require CPU canonical experts')
+            raise ValueError('Expert chunks currently require offloaded frozen expert buffers')
         if self.qsa_chunking and not self.direct_attention_bias:
             raise ValueError('QSA chunks require direct bias selection')
         if self.ple_chunking and not self.disk_ple:
@@ -91,7 +91,7 @@ class Config:
         if self.optimizations.offload_routed_experts and not self.checkpointing:
             raise ValueError('Expert prefetch requires non-reentrant layer checkpointing')
         if self.optimizations.offload_routed_experts and self.optimizations.bf16_lora:
-            raise ValueError('CPU expert masters and gradients must remain FP32')
+            raise ValueError('Expert LoRA masters and gradients must remain FP32')
         if not self.samples or len(set(self.samples)) != len(self.samples):
             raise ValueError('Require distinct, complete encoded sample paths')
         if mode in {'test','benchmark'} and len(self.samples) != 1:

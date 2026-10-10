@@ -197,6 +197,8 @@ def build(config, output):
         torch.cuda.empty_cache()
     if not config.optimizations.bf16_lora and any(p.dtype!=torch.float32 for p in parameters.values()):
         raise RuntimeError('Reference LoRA master dtype must be FP32')
+    if any(p.device.type!='cuda' for p in parameters.values()):
+        raise RuntimeError('All trainable LoRA masters must remain on GPU')
     model.train()
     if config.checkpointing:
         kwargs={'use_reentrant':False}

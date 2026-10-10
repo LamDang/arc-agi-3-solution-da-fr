@@ -1,6 +1,6 @@
 # Opt7–10: bounded activation replay
 
-The reference is unchanged. These are cumulative optimized configurations on top
+The saved numerical reference is unchanged. These are cumulative optimized configurations on top
 of Opt3 (CCE exact, filters disabled, direct dense bias). Default chunk size is
 8192 tokens. No context truncation, detach at a chunk boundary, optimizer update
 or candidate raw gradient archive is permitted.
@@ -40,7 +40,9 @@ that expert already has fewer than 8192 rows. The first input-sequence chunking
 implementation is retained as rejected evidence if its paired gate fails. Backward stages the layer again, replays one
 chunk, consumes its VJP immediately and releases that graph. It returns input
 and routing-weight gradients plus accumulated FP32 adapter gradients through a
-CPU concatenation into the original CPU LoRA Parameters. Trainable expert LoRA
+CUDA concatenation into the original CUDA LoRA Parameters. The historical
+qualification captures used CPU LoRA masters; the user's 2026-10-10 correction
+keeps all FP32 masters and gradients on GPU. Trainable expert LoRA
 adapters are included; only packed base weights are frozen. No staged GPU state
 is captured by a deferred Python closure. Current/next frozen expert staging
 remains bounded to two layers. Full input/output and routing decisions remain.
@@ -160,12 +162,41 @@ checkpoint boundaries. Do not dispatch 120K unchanged. A reviewed and qualified
 capacity remedy is needed; none has been implemented. See
 `reports/astra-capacity-review.md` and `reports/benchmark-96000-failure.json`.
 
+### Measured RAM overhead and GPU LoRA correction
+
+Load-only diagnostic `20261010083338834-292581ae` used the historical CPU LoRA
+placement, with no forward/backward or PLE preparation. Exact initialization,
+source/input hashes and local DVC cache were verified. Its post-initialization
+PSS was 88.434 GiB. Frozen expert payload was 29.488 GiB, but 48 independent
+pinned allocations reserved 48.004 GiB. Returning unused glibc arena pages in
+the diagnostic reduced PSS to 59.325 GiB while model storage and pinned
+allocation remained identical: 29.109 GiB was unused resident allocator memory.
+Python garbage collection alone did not return it. This does not establish
+every page's allocation history, but proves it was not required live tensor
+storage. Cgroup `file` includes `shmem`; do not add those fields together.
+
+The reviewed correction keeps all 74,472 FP32 LoRA master/gradient tensors on
+GPU. Expert frozen buffers alone remain on CPU. One shared pinned backing
+allocation replaces 48 independently rounded allocations, with the same layer
+views and two-layer GPU prefetch window. Copies go directly GPU -> pinned CPU,
+avoiding the old whole-model pageable staging path. Initialization comparison
+streams one current tensor alongside a reference shard rather than cloning all
+adapters onto CPU. The diagnostic `malloc_trim` call is not installed in training.
+
+Expected changes, pending measurement: about 16 GiB less pinned reservation,
+7.03125 GiB expert master relocation from CPU to GPU, and avoidance of the large
+pageable arena retention. GPU backward also gains up to 7.03125 GiB expert
+gradients; AdamW state now follows GPU parameters. The original raw numerical
+reference remains available. A new 16K original-reference and paired 2% gate is
+required before retrying capacity benchmarks. PLE remains on the original NFS
+mount as requested. See `reports/astra-gpu-lora-ram-review.md`.
+
 ## Evidence and limits
 
 `test_chunking.py` covers below/exactly/above chunk boundaries, multiple windows,
 QSA full-key selection, all attention adapter gradients, mixing/injection input
 gradients, EOS-sensitive PLE preparation and convolution halo gradients. A small
-real quantized-expert fixture covers CPU FP32 LoRA and routing gradients through
+real quantized-expert fixture covers GPU FP32 LoRA and routing gradients through
 outer layer checkpointing and inner replay. Full model measurements and the
 chunking gate appear in the single `v0.md` table. Small CPU checks are preliminary;
 GPU fixtures execute before model loading. No 130K pass is implied by a 16K run.
