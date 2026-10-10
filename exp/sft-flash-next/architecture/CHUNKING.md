@@ -242,8 +242,9 @@ including the model hidden width, rather than assuming a reduction ordering.
   153.791GiB. PLE819.493s on originalNFS. Source/input/init/chunk bounds and
   all30 localDVC attempt caches verified. No repeat comparison, optimizer state,
   update or raw candidate gradient archive. OOM counters unchanged across96/120K.
-  See `reports/benchmark-120000-gpulora.json`. Requested Jupyter shutdown follows
-  artifact verification; shutdown status is recorded separately.
+  See `reports/benchmark-120000-gpulora.json`. Jupyter acknowledged SIGTERM
+  after all artifact/cache checks and the API then returned404; details in
+  `reports/kaggle-shutdown.json`. No independent post-shutdown process query.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

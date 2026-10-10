@@ -96,3 +96,11 @@ Dispatch with `node jupyter.mjs --mode benchmark --config CONFIG --timeout-secon
 only after qualification and immutable fixture preparation. The executed configs are
 `configs/benchmark-{32000,64000,96000,120000}.json`; each pins its exact fixture
 and the fold0 expert selection. Review captures with `reports/verify_benchmark.py`.
+
+## Shutdown observation
+
+After all captures and all 30 local DVC caches passed verification, Jupyter
+server PID 12 acknowledged SIGTERM at 11:09:41 UTC. Its API returned HTTP 404
+at 11:10:20 UTC. The identified server was the control kernel's parent and its
+command hash was rechecked before signalling. An independent process query
+after shutdown was unavailable. See `reports/kaggle-shutdown.json`.

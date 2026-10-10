@@ -1,4 +1,4 @@
-# Corrected 96K then 120K passed — 2026-10-10
+# Benchmarks complete; Kaggle Jupyter stopped — 2026-10-10
 
 - The requested order was followed: the corrected 96K capture completed and
   passed source/input/initialization/gradient/chunk/DVC checks before 120K.
@@ -22,12 +22,14 @@
   profiles are labeled separately in `v0.md`.
 - No raw repeat-gradient comparison or 120K repeat test. The user waived
   numerical requalification for allocation changes. Main executed all work.
-- Next: commit locally, then stop Jupyter as requested. Server PID 12 is the
-  parent of control kernel 91; command SHA256:
-  `b48cc4feeaf2de0796ca7749be81d8d64849efb084400ae565f812c7743baaeb`.
-  `/tmp/kaggle_shutdown_after_verified.py` checks completed 120K, absence of
-  architecture workers, and server identity before scheduling SIGTERM.
-  No further GPU experiments, optimizer updates, raw candidates or remote push.
+- Results and DVC pointers committed locally as `bfb5c7c`; no remote push.
+  Jupyter server PID 12 acknowledged SIGTERM at 11:09:41 UTC after all capture
+  checks and local commits. The API returned HTTP 404 at 11:10:20 UTC.
+  `reports/kaggle-shutdown.json` records the acknowledged signal, verified server
+  identity and API observation. Process exit could not be queried independently
+  after the server stopped; the conclusion uses signal acknowledgement and
+  the endpoint observation together. The saved connection is no longer usable.
+  No further GPU experiments, optimizer updates or raw candidate archives.
 
 # Corrected 120K capacity running — 2026-10-10 10:06 UTC
 

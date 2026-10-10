@@ -1,0 +1,45 @@
+{
+  "shutdown_request": {
+    "attempt": "20261010100622729-a29599a0",
+    "benchmark_returncode": 0,
+    "server_pid": 12,
+    "server_cmdline_sha256": "b48cc4feeaf2de0796ca7749be81d8d64849efb084400ae565f812c7743baaeb",
+    "signal": "SIGTERM",
+    "signal_delivered": true,
+    "utc": "2026-10-10T11:09:41.436647+00:00"
+  },
+  "verified_benchmark_evidence_commit": "bfb5c7c",
+  "verified_attempt_caches": 30,
+  "git_or_dvc_remote_push": false,
+  "probe_time_utc": "2026-10-10T11:10:20.540Z",
+  "process_exit_independently_observed": false,
+  "http_status": 404,
+  "server_api_healthy": false,
+  "server_identity_inventory": {
+    "servers": [
+      {
+        "pid": 12,
+        "name": "jupyter-server",
+        "server_entrypoints": [
+          "jupyter-server"
+        ],
+        "cmdline_sha256": "b48cc4feeaf2de0796ca7749be81d8d64849efb084400ae565f812c7743baaeb"
+      }
+    ],
+    "control_kernel_ancestry": [
+      {
+        "pid": 91,
+        "name": "python3"
+      },
+      {
+        "pid": 12,
+        "name": "jupyter-server"
+      },
+      {
+        "pid": 1,
+        "name": "sh"
+      }
+    ]
+  },
+  "shutdown_script_sha256": "44c7580abfbc352e36830d7245b08bbc0ca67b4650e69a5e34c2856b5007cc72"
+}
