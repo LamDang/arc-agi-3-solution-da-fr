@@ -76,7 +76,7 @@ async function main(){
   if(action==='run'){
     config=JSON.parse(fs.readFileSync(path.resolve(args.config),'utf8'));
     const mode=args.mode ?? 'test';
-    if(!['test','train'].includes(mode))throw new Error('Unknown mode');
+    if(!['test','train','benchmark'].includes(mode))throw new Error('Unknown mode');
     attempt=new Date().toISOString().replace(/[-:.TZ]/g,'')+'-'+crypto.randomBytes(4).toString('hex');
     job='/kaggle/working/architecture-runs/'+attempt;
     const large=config.optimizations?.lora_routed_experts||config.architecture==='reference';

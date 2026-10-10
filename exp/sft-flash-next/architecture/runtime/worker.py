@@ -14,7 +14,7 @@ import time
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--config',required=True)
-    p.add_argument('--mode',choices=['test','train'],default='test')
+    p.add_argument('--mode',choices=['test','train','benchmark'],default='test')
     p.add_argument('--timeout',type=int,default=1200)
     args = p.parse_args()
     lock = open('/tmp/flash-next-architecture.lock','w')

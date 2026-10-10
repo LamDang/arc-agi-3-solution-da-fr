@@ -50,7 +50,7 @@ def snapshot(output, config, mode):
         sample_hashes={path:sha(path) for path in config.samples},
         adapter_sha256=sha(config.adapter) if config.adapter else None,
         model_config_sha256=sha(Path(config.model)/'config.json'),python=sys.version,
-        optimizer_updates=0 if mode == 'test' else None,pushed_to_remote=False)
+        optimizer_updates=0 if mode in {'test','benchmark'} else None,pushed_to_remote=False)
     write(Path(output)/'provenance.json',provenance)
     return provenance
 

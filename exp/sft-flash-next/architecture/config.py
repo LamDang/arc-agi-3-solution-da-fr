@@ -61,12 +61,15 @@ class Config:
     dispatch_commit: str | None = None
     comparison_mode: str = 'report'
     diagnostic_initialization: bool = False
+    benchmark_repeats: int = 2
+    benchmark_tokens: int | None = None
 
     @property
     def adapter_tensors(self):
         return 744 + (48*256*3*2 if self.optimizations.lora_routed_experts else 0)
 
     def validate(self, mode):
+        if mode not in {'test','train','benchmark'}:raise ValueError('Unknown execution mode')
         self.optimizations.validate()
         if self.comparison_mode not in {'report','exact'}:
             raise ValueError('Comparison mode must be report or exact')
@@ -82,14 +85,22 @@ class Config:
             raise ValueError('CPU expert masters and gradients must remain FP32')
         if not self.samples or len(set(self.samples)) != len(self.samples):
             raise ValueError('Require distinct, complete encoded sample paths')
-        if mode == 'test' and len(self.samples) != 1:
-            raise ValueError('test.py captures exactly one sample')
+        if mode in {'test','benchmark'} and len(self.samples) != 1:
+            raise ValueError('Capture/benchmark requires exactly one sample')
         if self.optimizations.disk_ple and self.epochs != 1:
             raise ValueError('Disk PLE loader currently supports one complete epoch')
         if mode == 'train' and self.adapter is not None:
             raise ValueError('Production training starts fresh; diagnostic adapters are test-only')
-        if self.diagnostic_initialization and (mode != 'test' or self.adapter is not None):
+        if self.diagnostic_initialization and (mode not in {'test','benchmark'} or self.adapter is not None):
             raise ValueError('Nonzero diagnostic initialization is test-only and excludes an adapter file')
+        if type(self.benchmark_repeats) is not int or self.benchmark_repeats<1:
+            raise ValueError('benchmark_repeats must be a positive integer')
+        if mode == 'benchmark':
+            if type(self.benchmark_tokens) is not int or not 1<self.benchmark_tokens<=self.max_tokens:
+                raise ValueError('Benchmark requires an exact token count within max_tokens')
+            if self.prompt_tokens is not None:raise ValueError('Benchmark requires explicit interleaved labels')
+            if not self.baseline or not self.baseline.get('initial_adapter'):
+                raise ValueError('Benchmark requires the saved reference initialization pin')
         if self.prompt_tokens is not None and self.prompt_tokens < 1:
             raise ValueError('Invalid diagnostic prompt length')
         if min(self.max_tokens, self.target_tokens_per_update, self.epochs) < 1:

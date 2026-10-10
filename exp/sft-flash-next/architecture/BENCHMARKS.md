@@ -66,5 +66,9 @@ An unreachable connection alone is not proof of shutdown.
 
 The Jupyter connection is unavailable. Reconnect and collect Opt7 attempt
 `20261010000620065-39a35a37` before any new GPU job. Opt7–10 are not yet qualified.
-The benchmark execution path must omit paired-control and raw-gradient export;
-the current qualification `test.py` path is not a capacity benchmark runner.
+The dedicated `benchmark.py` path omits paired-control, raw-gradient export and
+full gradient dictionary clones. Configuration requires `benchmark_tokens`,
+explicit labels, `benchmark_repeats` (default2) and the saved initial-adapter pin.
+Dispatch with `node jupyter.mjs --mode benchmark --config CONFIG --timeout-seconds SECONDS`
+only after qualification and immutable fixture preparation. This new path is
+prepared but has not yet executed on the restored GPU.

@@ -28,4 +28,14 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(c.diagnostic_initialization)
         with self.assertRaises(ValueError):c.validate('train')
 
+    def test_benchmark_requires_exact_length_labels_and_initial_pin(self):
+        from dataclasses import replace
+        c=self.config(benchmark_tokens=32000,baseline={'initial_adapter':'/reference.json'},
+                      diagnostic_initialization=True)
+        c.validate('benchmark')
+        for bad in [replace(c,benchmark_tokens=None),replace(c,prompt_tokens=10),
+                    replace(c,baseline=None),replace(c,benchmark_repeats=0)]:
+            with self.assertRaises(ValueError):bad.validate('benchmark')
+        with self.assertRaises(ValueError):c.validate('train')
+
 if __name__ == '__main__':unittest.main()

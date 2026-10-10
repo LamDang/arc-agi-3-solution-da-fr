@@ -118,9 +118,14 @@ class ExpertOffloadTests(unittest.TestCase):
         for name,p in staged.named_parameters():
             if not p.requires_grad:continue
             self.assertEqual(p.device.type,'cpu');self.assertEqual(p.grad.dtype,torch.float32)
-            if chunk_tokens:torch.testing.assert_close(p.grad,reference[name].grad.cpu(),rtol=.05,atol=1e-5,msg=name)
-            else:self.assertTrue(torch.equal(p.grad,reference[name].grad.cpu()),name)
-            grad_pairs.append((p.grad,reference[name].grad.cpu()))
+            reference_grad=reference[name].grad
+            if reference_grad is None:
+                self.assertTrue(uneven and name.startswith('3.'),'Only the unused expert may lack a native gradient')
+                reference_grad=torch.zeros_like(p)
+            else:reference_grad=reference_grad.cpu()
+            if chunk_tokens:torch.testing.assert_close(p.grad,reference_grad,rtol=.05,atol=1e-5,msg=name)
+            else:self.assertTrue(torch.equal(p.grad,reference_grad),name)
+            grad_pairs.append((p.grad,reference_grad))
             count+=1
         if chunk_tokens:
             error=sum(float((a.double().cpu()-b.double().cpu()).square().sum()) for a,b in grad_pairs)
