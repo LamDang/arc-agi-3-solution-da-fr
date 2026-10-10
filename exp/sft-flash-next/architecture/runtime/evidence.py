@@ -2,6 +2,7 @@
 import hashlib
 import importlib.metadata
 import json
+import os
 from pathlib import Path
 import struct
 import shutil
@@ -38,6 +39,7 @@ def retain_raw_gradients(config, mode):
 
 
 def snapshot(output, config, mode):
+    import torch
     root = Path(__file__).resolve().parents[1]
     destination = Path(output)/'sources'
     destination.mkdir()
@@ -64,6 +66,13 @@ def snapshot(output, config, mode):
         sample_hashes={path:sha(path) for path in config.samples},
         adapter_sha256=sha(config.adapter) if config.adapter else None,
         model_config_sha256=sha(Path(config.model)/'config.json'),model_identity=model_identity(config.model),python=sys.version,
+        numerical_settings=dict(deterministic_algorithms=torch.are_deterministic_algorithms_enabled(),
+            float32_matmul_precision=torch.get_float32_matmul_precision(),
+            allow_tf32=torch.backends.cuda.matmul.allow_tf32,
+            allow_bf16_reduced_precision_reduction=torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction,
+            allow_fp16_reduced_precision_reduction=torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction,
+            cublas_workspace_config=os.environ.get('CUBLAS_WORKSPACE_CONFIG'),
+            cuda_allocator_config=os.environ.get('PYTORCH_CUDA_ALLOC_CONF')),
         optimizer_updates=0 if mode in {'test','benchmark'} else None,pushed_to_remote=False)
     write(Path(output)/'provenance.json',provenance)
     return provenance

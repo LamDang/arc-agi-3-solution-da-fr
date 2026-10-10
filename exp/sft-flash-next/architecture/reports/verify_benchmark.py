@@ -48,6 +48,12 @@ def main():
         for phase in [f'forward-{i}',f'backward-{i}',f'gradient_statistics-{i}']:
             assert phases[phase]['seconds']>0 and phases[phase]['samples']>0
     staging=read(out/'expert-prefetch.json');assert staging['max_staged_layers']<=2
+    executes=[r for r in staging['records'] if r['event']=='execute']
+    assert [r['layer'] for r in executes if r['direction']==1]==list(range(48))*2
+    assert [r['layer'] for r in executes if r['direction']==-1]==list(range(47,-1,-1))*2
+    assert all(r['input_dtype']=='torch.bfloat16' for r in executes)
+    replay=[r for r in staging['records'] if r['event']=='chunk_backward']
+    assert [r['layer'] for r in replay]==list(range(47,-1,-1))*2
     chunks=read(out/'chunking.json');size=config['optimizations']['chunk_tokens'];tokens=config['benchmark_tokens']
     attentions=[r for n,r in chunks.items() if n.endswith('.self_attn')]
     assert attentions and all(r['max_query_tokens']<=size and r['key_tokens']==tokens for r in attentions)

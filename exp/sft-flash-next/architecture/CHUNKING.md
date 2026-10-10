@@ -84,6 +84,14 @@ Attention receives the complete mixed sequence. Full residual inputs/outputs
 remain allocated. The final model stream mixer uses the same scheme.
 **Revised cumulative implementation passed at1.770794% against unchunkedOpt3.**
 
+The measured16K backward GPU allocated peak is19.4697GiB versus21.9467GiB
+in the earlierOpt8 capture (2.4770GiB/~11.3% lower); forward remains14.5352GiB.
+These are separate captures, not a paired HC-only memory experiment. At130K,
+each full normalized stream or expanded projection output is2.47955GiB BF16;
+an8192-row tensor of the same width is0.15625GiB. The projection temporaries
+remain full length, while norm/gate/product/injection scratch is windowed and
+recomputed. Full residual inputs/outputs remain too. No130K peak is implied.
+
 ## Opt10: PLE
 
 Prepared CPU embedding rows come from the complete sample, including original
@@ -121,7 +129,8 @@ including the model hidden width, rather than assuming a reduction ordering.
   projection traces and input VJP are bitwise in all seven replay variants,
   including nested checkpointing andCPU offload. Full-model qualification is
   passed at1.770794% against unchunkedOpt3; operator proof preceded this full gate.
-- Opt10 and32K/64K/96K/120K benchmarks: pending.
+- Opt10: accepted at1.780845%, cumulative withOpt7–9.
+- 32K/64K/96K/120K benchmarks: pending.
 
 See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
 full-model comparisons. Rejected/interrupted/disconnected attempts remain

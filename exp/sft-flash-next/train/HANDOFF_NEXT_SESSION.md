@@ -1,3 +1,32 @@
+# CumulativeOpt10 fullgate PASSED — 2026-10-10
+
+* Attempt20261010062128722-9fddd21f execution2d2062b completed977.991s/return0.
+  PairedL2 1.780845123%, loss.624378502368927/control.6243785619735718.
+  Init74472exact/allFP32finite, no updates/clipping/rawcandidatearchives.
+  F113.0148s GPU14.5352GiB/PSS105.8363; B189.8721s GPU17.5307/PSS105.8363.
+  ControlF140.2582/B236.0530 GPU16.9799/27.4251 PSS109.2565.
+* reports/opt10-rerun.json source/input/alltensor/FLA/boundsverified; localDVC
+  SHAinventory/cachechecked, v0table updated. Opt7/8/9/10 allaccepted2%.
+* Next32K→64K→96K→120K two-F/B benchmarks, no control/rawclone/update.
+  FixturesvalidatedDVC/remote readable. Added futureactualmatmulprecisionflag
+  metadata only (no settingchange),benchmarkreviewer verifieschunk/stagingbounds.
+  PLEdiagnosticpreparedbutneverneeded/executed. No push/shutdownuntilallcomplete.
+
+# CumulativeOpt10 running — 2026-10-10 06:21 UTC
+
+* Attempt20261010062128722-9fddd21f execution2d2062b supervisor7239, desktopwatcher93329.
+  Cumulativeexpert/QSA/revisedHC/PLE windows8192 withPLE9-tokenhalo. Gate2%
+  againstsame-model unchunkedOpt3. Awaitcollectbeforeanyretry. Astra anyfailedgate.
+* RevisedOpt9passed1.770794%, measuredB19.4697GiB versusOpt8B21.9467 (~11% less);
+  Fsame14.5352. Full-M HCnorm/projectiontempsremain: each2.47955GiBBF16at130K,
+  notallmixerwork8Kbounded. No130Kmeasurementyet. Allreports+localDVCverified.
+* Latestuseraskedwhyshapechangesrounding andwhetherfull-M stillsavesmemory.
+  AnsweredmathematicallyindependentrowscanhavechangedGEMMkernel/reduction; exact
+  cublasalgorithmuntraced. PyTorch numericalaccuracyofficialdocs cited; annotation1
+  directiveincluded. Mustretainuncertainty: observedshapeeffect, specifickernelnotproven.
+* NextOpt10qualifythen32/64/96/120K2F/Bbench. PreparedPLEdiagnostic2d2062bifneeded
+  butnotyetwhitelisted. No push/update/rawcandidatearchives/shutdownuntilallcomplete.
+
 # RevisedOpt9 full gate PASSED — 2026-10-10
 
 * Attempt20261010060411959-bd346551 sourceb6e993a completed955.2677s/return0.
