@@ -22,14 +22,15 @@ REASONING_KEYS = ("reasoning", "reasoning_content", "reasoning_details")
 
 def message_ref(msg: dict) -> str:
     """Identifies an assistant turn across requests: its first tool call id,
-    else a hash of its text."""
+    else a hash of its text. The text is hashed as the harness stores it in
+    history (blank lines removed), so a reply and its later copy agree."""
     calls = msg.get("tool_calls") or []
     if calls and calls[0].get("id"):
         return calls[0]["id"]
     content = msg.get("content") or ""
     if not isinstance(content, str):
         content = json.dumps(content, sort_keys=True)
-    return "text:" + hashlib.sha1(content.strip().encode()).hexdigest()[:16]
+    return "text:" + hashlib.sha1(normalize(content).encode()).hexdigest()[:16]
 
 
 def normalize(text: str) -> str:

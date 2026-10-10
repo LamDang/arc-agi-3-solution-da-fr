@@ -141,3 +141,11 @@ def test_copy_of_stated_reasoning_is_rejected():
     c = checks.check(reasoning, reply, min_words=100)
     assert c["copied_reasoning"] == 1.0 and c["too_short"] and not c["ok"]
     assert checks.check(reasoning, reply)["ok"]
+
+
+def test_text_reply_ref_matches_its_history_copy():
+    # The harness drops blank lines when it keeps a text reply in history.
+    reply = {"role": "assistant", "content": "Stuck on level 1.\n\nPlease reset.\n"}
+    stored = {"role": "assistant", "content": "Stuck on level 1.\nPlease reset."}
+    assert context.message_ref(reply) == context.message_ref(stored)
+    assert context.message_ref({"role": "assistant", "content": "a"}) != context.message_ref(stored)
