@@ -48,6 +48,16 @@ def main():
         for phase in [f'forward-{i}',f'backward-{i}',f'gradient_statistics-{i}']:
             assert phases[phase]['seconds']>0 and phases[phase]['samples']>0
     staging=read(out/'expert-prefetch.json');assert staging['max_staged_layers']<=2
+    chunks=read(out/'chunking.json');size=config['optimizations']['chunk_tokens'];tokens=config['benchmark_tokens']
+    attentions=[r for n,r in chunks.items() if n.endswith('.self_attn')]
+    assert attentions and all(r['max_query_tokens']<=size and r['key_tokens']==tokens for r in attentions)
+    names={r['name'] for r in read(out/'components.json') if r['implementation']=='ChunkedResidual'}
+    mixers=[r for n,r in chunks.items() if any(n.endswith(name) for name in names)]
+    assert len(mixers)==97 and all(r['max_tokens']<=size and r['projection_tokens']==tokens for r in mixers)
+    decoders=[r for r in chunks.values() if 'max_injection_tokens' in r]
+    assert len(decoders)==48 and all(r['max_injection_tokens']<=size for r in decoders)
+    ple=[r for n,r in chunks.items() if n.endswith('.ple')]
+    assert len(ple)==1 and ple[0]['halo_tokens']==9 and ple[0]['max_window_tokens']<=size+9
     report=dict(evidence_checks_passed=True,attempt=job.name,tokens=config['benchmark_tokens'],
         fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
         repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],

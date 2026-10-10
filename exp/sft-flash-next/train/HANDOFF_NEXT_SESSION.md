@@ -1,3 +1,27 @@
+# RevisedOpt9 full gate PASSED — 2026-10-10
+
+* Attempt20261010060411959-bd346551 sourceb6e993a completed955.2677s/return0.
+  Full cumulativepairedL2 1.770793905%, loss.6243786215782166/control.6243785619735718.
+  All74472 initialexact andfiniteFP32grads; no update/clipping/rawcandidatearchive.
+  F124.8358s GPU14.5352GiB/treePSS105.7894; B195.8443s GPU19.4697/treePSS105.7894.
+  ControlF132.9700/B242.8696 GPU16.9799/27.4251 PSS109.2089.
+* Reviewer reports/opt9-rerun.json verified sources/input/alltensor/profile/bounds
+  for97mixers/48decoderinjections. LocalDVC/cache verified, v0table regenerated.
+  Original285.42% rowchunkfailure preserved. RevisedHC full-M projectionstemporary
+  withnorm/gatemix/injectionwindow checkpoints; notfully rowchunkedGEMMs.
+* Next cumulativeOpt10 fullgate then32/64/96/120K two-F/B benchmarks. Prepared
+  diagnostics/ple_replay.py onlyifOpt10needsactual-inputisolation. Astra anyfailedgate.
+  User2% threshold, no push/update/rawarchives. KeepJupyter untilallrequestedwork done.
+
+# RevisedOpt9 full cumulative gate running — 2026-10-10 06:04 UTC
+
+* Attempt20261010060411959-bd346551 executionb6e993a, supervisor6813,
+  desktopwatcher58512. Fullcandidate andsame-model unchunkedOpt3 F/B.
+  Prior actual layer0 module allports/projection/inputVJP bitwise inclouteroffload.
+* Nativefull-M HC projections retained; norm/gatemix/injectionwindows8192.
+  Gate2% cumulative. Awaitcollect beforeany newGPUjob. Opt10 andbenchremain.
+  No push/update/rawcandidatearchives/shutdown.
+
 # RevisedOpt9 actualmodule bitwise gate PASSED — 2026-10-10
 
 * Focus20261010055907158-538ba744 source4f5d13b completed239.8026s/return0.

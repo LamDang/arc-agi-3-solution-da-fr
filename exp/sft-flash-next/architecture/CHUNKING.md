@@ -82,7 +82,7 @@ remains full-sequence. Coefficients retain the native dtype (observed BF16 in
 the actual layer0 diagnostic); native FP32 internal statistics are unchanged.
 Attention receives the complete mixed sequence. Full residual inputs/outputs
 remain allocated. The final model stream mixer uses the same scheme.
-**Revised implementation qualification is pending.**
+**Revised cumulative implementation passed at1.770794% against unchunkedOpt3.**
 
 ## Opt10: PLE
 
@@ -110,15 +110,22 @@ and [BF16 sum reduction](https://github.com/pytorch/pytorch/blob/v2.11.0/aten/sr
 The bounded unroute fixture compares the actual native gather VJP bitwise,
 including the model hidden width, rather than assuming a reduction ordering.
 
-## Prepared diagnostics after the connection failure
+## Current qualification status
 
-Opt7 v3 observed loss0.6211259365 still differs from its expected unchunked
-control. Its detached backward/control result has not been collected because
-the Jupyter connection stopped responding. Do not promote it as numerically
-qualified. The next revision adds native-order routed reduction and zero-padding
-only terminal slices of split experts to8192 rows. Zero-padding does not introduce
-extra routed tokens; discarded padded rows have zero output cotangents. Its
-real-size fixture uses hidden2560/intermediate640/rank16 and9705 assigned rows
-against an8192-row chunk, with a bitwise forward gate and <1% gradient gate.
-**That revision and new fixture are prepared, not GPU-validated yet.** Reconnect
-and collect the existing attempt first. Opt8–10 full-model captures are pending.
+- Opt7 v4: accepted at1.783424% against same-model unchunkedOpt3, under the
+  user's revised2% gate. The original1% failure is immutable evidence.
+- Opt8: accepted at1.801111%, cumulative withOpt7.
+- Opt9 first row-chunked mixer: rejected at285.419802%. Its actual-input
+  diagnostic and Astra review identify changed projection arithmetic.
+- Opt9 revised projection-preserving mixer: actual layer0 three-port outputs,
+  projection traces and input VJP are bitwise in all seven replay variants,
+  including nested checkpointing andCPU offload. Full-model qualification is
+  passed at1.770794% against unchunkedOpt3; operator proof preceded this full gate.
+- Opt10 and32K/64K/96K/120K benchmarks: pending.
+
+See `v0.md` for every measured phase and `reports/*-rerun.json` for reviewed
+full-model comparisons. Rejected/interrupted/disconnected attempts remain
+recorded in that table and localDVC; their historical implementation sources
+travel with each immutable attempt. Only the original native-reference raw
+adapter gradients are retained. No optimizer update or push is part of these
+qualification runs.

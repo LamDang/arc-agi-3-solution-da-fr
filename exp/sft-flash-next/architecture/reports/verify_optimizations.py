@@ -81,6 +81,8 @@ def main():
     for name,digest in read(job/'source-hashes.json').items():assert sha(job/'source'/name)==digest,name
     provenance=read(out/'provenance.json');assert provenance['script_commit']==config['dispatch_commit']
     assert provenance['model_config_sha256']==config['expected_sha256']['model_config']
+    for name,digest in config['expected_sha256'].items():
+        if name!='sample':assert provenance['model_identity'][name]==digest
     for name,digest in provenance['source_hashes'].items():assert sha(out/'sources'/name)==sha(job/'source'/name)==digest,name
     for original,row in provenance['archived_inputs'].items():assert sha(out/row['path'])==row['sha256']==config['expected_sha256']['sample']
     staged=read(out/'expert-prefetch.json');assert staged['max_staged_layers']<=2
@@ -133,6 +135,16 @@ def main():
             ple=[r for n,r in chunks.items() if n.endswith('.ple')]
             assert len(ple)==1 and ple[0]['halo_tokens']==9
             assert ple[0]['max_window_tokens']<=8201
+        if opt.get('hyperconnection_chunking'):
+            chunks=read(out/'chunking.json')
+            # The final stream mixer name is sourced from the actual inventory.
+            mixer_names={r['name'] for r in read(out/'components.json') if r['implementation']=='ChunkedResidual'}
+            mixers=[r for n,r in chunks.items() if any(n.endswith(name) for name in mixer_names)]
+            assert len(mixers)==97 and all(r['max_tokens']<=8192 and r['chunks']==2 for r in mixers)
+            revised='_shape_preserving_mix' in (job/'source/components/hyperconnection_chunks.py').read_text()
+            if revised:assert all(r['projection_tokens']==16249 and 'native full-sequence GEMM' in r['projection_policy'] for r in mixers)
+            decoders=[r for n,r in chunks.items() if 'max_injection_tokens' in r]
+            assert len(decoders)==48 and all(r['max_injection_tokens']<=8192 and r['chunks']==2 for r in decoders)
     report=dict(evidence_checks_passed=True,attempt=job.name,optimization=label,execution_commit=config['dispatch_commit'],
         loss=result['loss'],reference_loss=comparison['baseline_loss'],loss_relative_change=comparison['loss_relative_change'],
         loss_bitwise_equal=comparison['loss_bitwise_equal'],gradient_relative_l2=comparison['global_relative_l2'],gradient_cosine=comparison['cosine'],
