@@ -248,6 +248,13 @@ def test_conversation_is_the_last_request_without_system_and_opener(tmp_path: Pa
     assert mgr.restored_conversation(log.with_name(log.name + ".xz")) == conversation
 
 
+def test_a_broken_line_before_the_end_is_an_error(tmp_path: Path) -> None:
+    log = tmp_path / "g_p0_requests.jsonl"
+    log.write_text('{"event": "request", "messages": []}\n{"torn\n{"event": "response"}\n')
+    with pytest.raises(mgr.MidGameResumeError, match="line 2"):
+        mgr.restored_conversation(log)
+
+
 def test_a_mid_turn_tail_ending_in_tool_results_is_kept(tmp_path: Path) -> None:
     log = tmp_path / "g_p0_requests.jsonl"
     messages = [

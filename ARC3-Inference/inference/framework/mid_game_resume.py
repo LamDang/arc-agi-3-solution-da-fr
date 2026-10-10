@@ -27,7 +27,7 @@ import shutil
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 import arcengine
 
@@ -108,23 +108,26 @@ def request_log_path(old_dir: Path, stem: str) -> Path | None:
     return existing_log(Path(old_dir) / f"{stem}_requests.jsonl")
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    """Every complete record; a torn last line (the process died mid-write) is skipped."""
+def _iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
+    """Every complete record, streamed (a request log runs to hundreds of MB).
+
+    A torn last line (the process died mid-write) is skipped; an unreadable
+    line with more after it is an error.
+    """
+    bad_line: int | None = None
     with open_log(path) as handle:
-        lines = handle.read().split("\n")
-    records: list[dict[str, Any]] = []
-    for index, line in enumerate(lines):
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            if not any(rest.strip() for rest in lines[index + 1 :]):
-                break
-            raise MidGameResumeError(f"{path}: line {index + 1} is not JSON") from None
-        if isinstance(record, dict):
-            records.append(record)
-    return records
+        for number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            if bad_line is not None:
+                raise MidGameResumeError(f"{path}: line {bad_line} is not JSON")
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                bad_line = number
+                continue
+            if isinstance(record, dict):
+                yield record
 
 
 def copy_log_for_continuation(source: Path, destination: Path) -> Path:
@@ -205,7 +208,7 @@ def recorded_actions(old_dir: Path, stem: str) -> dict[str, Any]:
     path = events_path(old_dir, stem)
     if not path.is_file():
         raise MidGameResumeError(f"no {state_path.name} or {path.name} in {Path(old_dir) / 'artifacts'}")
-    events = _read_jsonl(path)
+    events = list(_iter_jsonl(path))
     initial = next((e for e in events if e.get("type") == "initial"), None)
     if initial is None or not isinstance(initial.get("board"), list):
         raise MidGameResumeError(f"{path}: no initial board")
@@ -270,7 +273,7 @@ def restored_conversation(requests_log: Path) -> dict[str, Any]:
     included, the way the agent accumulates them: that sum is the analyzer's
     generated_tokens at the moment of the kill.
     """
-    records = _read_jsonl(requests_log)
+    records = _iter_jsonl(requests_log)
     last_request: dict[str, Any] | None = None
     generated = 0
     total = 0
