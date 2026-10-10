@@ -36,3 +36,12 @@ fi
 if ! timeout 300 uv run --no-sync python scripts/fetch_games.py >&2; then
   echo "session-start: game files not downloaded; see ARC3-Inference/LOCAL_EVAL.md" >&2
 fi
+
+# Best effort: community games (submodules) for runs with
+# ENVIRONMENTS_DIR=environment_files_community; see LOCAL_EVAL.md.
+if timeout 300 git -C "${CLAUDE_PROJECT_DIR}" submodule update --init ARC3-Inference/community_games >&2; then
+  uv run --no-sync python scripts/build_community_envs.py >/dev/null 2>&1 \
+    || echo "session-start: community games not built; see ARC3-Inference/LOCAL_EVAL.md" >&2
+else
+  echo "session-start: community game submodules not cloned; see ARC3-Inference/LOCAL_EVAL.md" >&2
+fi

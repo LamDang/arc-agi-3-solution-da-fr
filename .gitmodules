@@ -1,0 +1,6 @@
+[submodule "ARC3-Inference/community_games/arc-interactive"]
+	path = ARC3-Inference/community_games/arc-interactive
+	url = https://github.com/theredbluepill/arc-interactive.git
+[submodule "ARC3-Inference/community_games/arc3-synthetic-games"]
+	path = ARC3-Inference/community_games/arc3-synthetic-games
+	url = https://github.com/Felix561/arc3-synthetic-games.git

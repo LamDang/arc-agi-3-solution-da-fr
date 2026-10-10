@@ -90,13 +90,36 @@ def _resolve_requested_game(
     if game_id in available:
         return game_id
     if fallback_available is not None:
-        fallback_prefix_map = {
-            gid.split("-")[0].lower(): gid for gid in fallback_available
-        }
-        fallback_game_id = fallback_prefix_map.get(lowered, requested)
-        if fallback_game_id in fallback_available:
-            return fallback_game_id
+        if requested in fallback_available:
+            return requested
+        matches = [gid for gid in fallback_available if gid.split("-")[0].lower() == lowered]
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise ValueError(
+                f"Ambiguous ARC-AGI3 game {requested!r}: {', '.join(matches)}. Pass the full id."
+            )
     raise ValueError(f"Unknown ARC-AGI3 game: {requested}")
+
+
+def _local_game_ids(environments_dir: str | None) -> list[str]:
+    """Game ids under a local ENVIRONMENTS_DIR, found as arc_agi finds them:
+    every metadata.json below it. Lets --game name community games
+    (scripts/build_community_envs.py) besides the official ones."""
+    if not environments_dir or environments_dir == "__auto__":
+        return []
+    root = Path(environments_dir)
+    if not root.is_dir():
+        return []
+    game_ids: list[str] = []
+    for metadata_file in sorted(root.rglob("metadata.json")):
+        try:
+            game_id = json.loads(metadata_file.read_text(encoding="utf-8")).get("game_id")
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(game_id, str) and game_id and game_id not in game_ids:
+            game_ids.append(game_id)
+    return game_ids
 
 
 def _apply_share_version_overrides(args: argparse.Namespace) -> None:
@@ -136,9 +159,12 @@ def _resolve_game_ids(args: argparse.Namespace) -> list[str]:
         )
     selected_game_ids = official_game_ids if include_tags else []
     if requested_games:
+        local_game_ids = _local_game_ids(getattr(args, "environments_dir", None))
         resolved: list[str] = []
         for requested in requested_games:
-            game_id = _resolve_requested_game(requested, official_game_ids)
+            game_id = _resolve_requested_game(
+                requested, official_game_ids, fallback_available=local_game_ids
+            )
             if game_id not in resolved:
                 resolved.append(game_id)
         return resolved

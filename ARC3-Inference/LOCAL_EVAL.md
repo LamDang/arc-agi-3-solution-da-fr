@@ -130,6 +130,42 @@ make interactive <same settings as the earlier run> RESUME_FROM=runs/<run>
   to 10 minutes behind and is replayed even if it had just finished.
 - If every run in the earlier directory finished, nothing runs.
 
+## Play community games
+
+Public community games in the same arcengine format are git submodules under
+`community_games/`:
+
+| Submodule | Source | Games |
+| --- | --- | --- |
+| `arc-interactive` | [theredbluepill/arc-interactive](https://github.com/theredbluepill/arc-interactive) (MIT) | 249, plus old copies of ft09, ls20 and vc33 that are skipped |
+| `arc3-synthetic-games` | [Felix561/arc3-synthetic-games](https://github.com/Felix561/arc3-synthetic-games) (MIT) | 50 Studio games (sg01-sg30, v201-v220) |
+| same, `third_party/nvidia/` | [NVIDIA DreamTeam](https://github.com/NVIDIA/dream-team) games vendored there (Apache-2.0) | 25 |
+
+```bash
+git submodule update --init community_games   # once per clone
+uv run --no-sync python scripts/build_community_envs.py
+export PYTHONPATH="$PWD/community_games/arc3-synthetic-games/third_party/nvidia/runtime_support"
+make interactive CONFIG_PATH=configs/inference.openrouter.json \
+  MODEL=qwen/qwen3.6-27b GAME=mm01,v201,cc2048 GAME_TAGS=[] \
+  N_PASSES=1 ENVIRONMENTS_DIR=environment_files_community EXPERIMENTS_DIR=runs
+```
+
+- `scripts/build_community_envs.py` links the official games and every
+  community game into `environment_files_community/` (git-ignored), loads and
+  RESETs each community game, and writes `catalog.json` there: id, source,
+  title, tags, level count, baselines and load check.
+- With that `ENVIRONMENTS_DIR`, `GAME` takes community ids or prefixes along
+  with official ones. `sg01` and `sg04` exist in both collections: pass the
+  full id, such as `sg01-4ac0337b8857411e`.
+- The NVIDIA games import `arc_agi_3.game_creator.arcengine_adapter`, which the
+  `PYTHONPATH` above provides. The other games need only `arcengine`.
+- Baselines: taaf needs one baseline action count per level. 201 of the
+  arc-interactive games list a different number, so the build drops their
+  baselines; the Studio games have none. These games play normally but score 0
+  whatever levels they finish, so compare them on levels completed, not score.
+  The official and NVIDIA games keep their baselines.
+- Community games are not ARC Prize games: their quality and difficulty vary.
+
 ## Let the agent read the game code
 
 For experiments, the agent can be given read access to its game's source code:
