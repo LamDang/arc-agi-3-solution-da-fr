@@ -1,6 +1,8 @@
 # Flash-Next architecture and training
 
-This is the active architecture implementation. `../train/` preserves earlier
+This is the active architecture implementation. Detailed JSON reports are DVC
+data: follow [EVIDENCE.md](../EVIDENCE.md) to restore them before running reviewers
+or regenerating the statistics table. `../train/` preserves earlier
 experiments, their immutable sources, DVC evidence and the existing trajectory
 preparation/resume pipeline. New architecture work belongs here.
 
@@ -133,7 +135,9 @@ only derived model-view symlinks, never copying the full model accidentally.
 Each capture records loss/gradient statistics and comparison, initialization, input/source/package
 identities, phase timings, exact CUDA allocated/reserved peaks and sampled parent
 RSS/treePSS/childRSS/host-used RAM. Raw attempts are automatically cached locally with DVC after collection;
-small comparison reports are kept in Git. No Git or DVC pushes are authorized.
+detailed comparison reports are stored in the separate DVC evidence bundle.
+See [evidence storage](../EVIDENCE.md) for restore and publish commands.
+Git contains code, configurations, DVC pointers and concise Markdown summaries.
 
 ## Refactor qualification
 

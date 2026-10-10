@@ -1,3 +1,14 @@
+# Detailed evidence moved from Git to DVC — 2026-10-10
+
+- Per-tensor statistics, JSON diagnostics, metrics and historical report data
+  are stored in `../evidence-data.dvc`, with original paths and SHA256 hashes.
+- Follow `../EVIDENCE.md` to pull and restore before running review scripts or
+  table regeneration. Code, configs and Markdown summaries remain in Git.
+- The 122 migrated data files were verified byte-for-byte against their prior
+  Git versions, and a fresh-directory restore passed all SHA256 checks.
+- Historical entries below describe storage and push status at their time;
+  consult the PR for the latest remote publication status.
+
 # Benchmarks complete; Kaggle Jupyter stopped — 2026-10-10
 
 - The requested order was followed: the corrected 96K capture completed and

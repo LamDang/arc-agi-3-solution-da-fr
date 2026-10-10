@@ -1,2 +1,22 @@
-build/
-artifacts/
+# Detailed experiment data is published through evidence-data.dvc.
+/evidence-data/
+/architecture/reports/*.json
+/architecture/reports/*.jsonl
+/architecture/reports/*.csv
+/architecture/reports/*.log
+/architecture/reports/*.xml
+/train/reviews/*.json
+/train/reviews/*.jsonl
+/train/reviews/*.csv
+/train/reviews/*.log
+/train/reviews/*.xml
+/train/metrics/*.json
+/train/metrics/*.jsonl
+/train/metrics/*.csv
+/train/metrics/*.log
+/train/metrics/*.xml
+/train/gradient-results/**/*.json
+/train/gradient-results/**/*.jsonl
+/train/artifacts/*.json
+/train/*.provenance.json
+/train/verification.json

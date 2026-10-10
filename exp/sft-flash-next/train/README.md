@@ -1,3 +1,10 @@
+# Evidence storage
+
+Detailed statistics, JSON reports and the model-selection artifact are stored
+in DVC. Follow [EVIDENCE.md](../EVIDENCE.md) to restore their original paths
+before running historical reviewers or commands that read `artifacts/`.
+Code, configurations and Markdown summaries remain in Git.
+
 > **Architecture work has moved to [../architecture/](../architecture/README.md).**
 > This folder preserves historical experiment runners, immutable evidence and
 > the existing trajectory data/resume pipeline. Use the new `train.py` / `test.py`
