@@ -53,6 +53,15 @@ Save configuration, executed source/input hashes, environment, resource records,
 loss and supervisor status in local DVC for every attempt, including OOM/timeouts.
 Add all results to the existing single `v0.md` table. No Git/DVC push.
 
+## Completion shutdown
+
+The user authorizes killing the Kaggle Jupyter server after all requested work
+is complete. First collect every required attempt, verify artifact hashes and
+local DVC cache, and save the final statistics. Then stop the Jupyter server
+through the existing server connection and verify process exit where possible.
+Do not shut it down while qualification, benchmarks or collection remain pending.
+An unreachable connection alone is not proof of shutdown.
+
 ## Current prerequisite
 
 The Jupyter connection is unavailable. Reconnect and collect Opt7 attempt

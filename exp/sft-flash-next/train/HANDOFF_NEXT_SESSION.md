@@ -1,5 +1,12 @@
 # Follow-up: scaling benchmark after qualification
 
+* User authorizes shutting down the Kaggle kernel by killing its Jupyter server
+  ONLY after all requested optimization qualification and32K/64K/96K/120K
+  benchmarks are complete, artifacts collected, hashes/localDVC verified and
+  statistics documented. Preserve the server while any required work remains.
+  Perform shutdown through Jupyter after collection; confirm server exit through
+  a process supervisor/exit record where possible. Connection loss alone does
+  not establish successful shutdown. No Git/DVC push is authorized.
 * User requests GPU/host RAM and timing at32K,64K,96K,120K after all retained
   optimizations are folded in. Run ascending32000/64000/96000/120000-token
   fixtures using cumulative Opt10, after each Opt7–10 anchor gradient gate passes.
