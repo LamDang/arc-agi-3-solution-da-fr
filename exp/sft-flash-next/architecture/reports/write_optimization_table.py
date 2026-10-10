@@ -109,15 +109,20 @@ for tokens in [32000,64000,96000,120000]:
   phase=row['phase'];prefix=['','','','','']
   if index==0:
    fixture=r['fixture']
-   prefix=[f'Opt10 benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})','—','finite gradients; no long-context reference','—','—']
+   prefix=[f'Opt10 benchmark {tokens:,}<br>wall {wall:.2f}<br>{fixture["targets"]:,} targets ({fixture["target_fraction"]:.2%})',f'loss repeats equal: {r["loss_repeat_bitwise_equal"]}','finite gradients; no long-context reference','—','—']
   if phase.startswith('forward-'):
    repeat=repeats[int(phase.split('-')[-1])]
    prefix[0]=f'Opt10 {tokens:,}: repeat {repeat["repeat"]}<br>{repeat["input_tokens_per_second"]:.2f} input tok/s; {repeat["target_tokens_per_second"]:.2f} target tok/s'
-   prefix[1]=f'{repeat["loss"]:.10f}';prefix[2]='all finite'
+   prefix[1]=f'{repeat["loss"]:.10f}';prefix[2]=f'all finite; norm {repeat["gradient_norm"]:.10f}'
+   prefix[3]=f'{repeat["nonzero_gradient_tensors"]:,} nonzero; {repeat["absent_unrouted_tensors"]:,} absent'
   values=prefix+[phase,f"{row['seconds']:.3f}",
       f"{row['cuda_peak_allocated_bytes']/g:.3f} / {row['cuda_peak_reserved_bytes']/g:.3f}",
       f"{row['rss_bytes']/g:.3f} / {row['tree_pss_bytes']/g:.3f}",
       f"{row['children_rss_bytes']/g:.3f} / {row['host_used_bytes']/g:.3f}",str(row['samples'])]
+  lines.append('| '+' | '.join(values)+' |')
+ if 'ple_preparation' in r:
+  prep=r['ple_preparation']
+  values=[f'Opt10 {tokens:,}: PLE CPU preparation<br>{prep["lookup_bytes"]/g:.3f} GiB payload; {prep["unique_rows"]:,} unique rows','—','—','—','not a gradient gate','DataLoader preparation; overlaps loading',f'{prep["seconds"]:.3f}','not measured','not measured for this worker phase','not measured for this worker phase','—']
   lines.append('| '+' | '.join(values)+' |')
 partial=ROOT/'reports/opt7-interrupted.json'
 if partial.exists():

@@ -19,6 +19,9 @@ def main():
     config=read(job/'config.json');monitor=read(job/'monitor.json')
     profile=numerical_profile(job,config)
     result=read(out/'result.json');provenance=read(out/'provenance.json')
+    settings=provenance['numerical_settings']
+    assert settings['deterministic_algorithms'] and settings['cublas_workspace_config']==':4096:8'
+    assert settings['cuda_allocator_config']=='expandable_segments:True'
     assert monitor['returncode']==0 and not monitor['timed_out']
     assert result['completed'] and result['mode']=='benchmark'
     assert result['optimizer_updates']==0 and not result['clipping_applied']
@@ -64,12 +67,19 @@ def main():
     assert len(decoders)==48 and all(r['max_injection_tokens']<=size for r in decoders)
     ple=[r for n,r in chunks.items() if n.endswith('.ple')]
     assert len(ple)==1 and ple[0]['halo_tokens']==9 and ple[0]['max_window_tokens']<=size+9
+    preparations=[json.loads(line) for line in (out/'ple-events.jsonl').read_text().splitlines()]
+    assert len(preparations)==1
+    preparation=preparations[0]
+    assert preparation['tokens']==tokens and preparation['lookup_bytes']==tokens*2560*2
+    assert preparation['disk_read_passes']==1 and 0<preparation['unique_rows']<=preparation['total_row_ids']
+    preparation['seconds']=(preparation['finished_monotonic_ns']-preparation['started_monotonic_ns'])/1e9
+    assert preparation['seconds']>0
     report=dict(evidence_checks_passed=True,attempt=job.name,tokens=config['benchmark_tokens'],
         fixture=expected,execution_commit=config['dispatch_commit'],resources=resources,
         repeats=repeats,loss_repeat_bitwise_equal=repeats[0]['loss']==repeats[1]['loss'],
         optimizer_updates=0,raw_gradients_retained=False,unchunked_control_executed=False,
         measurement_scope=result['measurement_scope'],monitor=monitor,pushed_to_remote=False,
-        numerical_profile=profile)
+        numerical_profile=profile,numerical_settings=settings,ple_preparation=preparation)
     (ROOT/'reports'/f"benchmark-{config['benchmark_tokens']}.json").write_text(json.dumps(report,indent=2)+'\n')
     inventory={str(p.relative_to(job)):dict(bytes=p.stat().st_size,sha256=sha(p))
         for p in sorted(job.rglob('*')) if p.is_file() and p.name!='file-hashes.json'}

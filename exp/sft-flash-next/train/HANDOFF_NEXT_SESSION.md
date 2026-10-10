@@ -1,3 +1,29 @@
+# Benchmark32K complete / 64K next — 2026-10-10
+
+* Attempt20261010063855991-e75f0edd source1a142fa completed1444.62996s/return0.
+  Bothlosses.9259335398674011/all74472finite. Norms.2178866895/.2181128218;
+  equal losses are not a bitwise gradient repeatability proof. No rawarchive/update.
+  F0/B0 218.3363/342.5800s; F1/B1 182.8539/315.7327s.
+  GPU18.0416/22.1643GiB bothpasses; PSSpeak121.1751GiB.
+* reports/benchmark-32000.json source/input/init/numerics/FLA/chunkbounds verified;
+  localDVC/cache hashverified, v0table updated. PLE prep334.8589s/.15259GiB.
+* Next64K then96K then120K sequential twoF/B captures. Use Jupyter HTTP/WS only,
+  no push/update/rawcandidatearchive. FLA1warp testingonly. Keep server alive until
+  all4 benchmark evidence collected and hash/cacheverified, then requestedshutdown.
+* Latestuserasksfull-M HCprojectionwhethermemorysaved. Yes partial: 16KBpeak
+  Opt8 21.9467→Opt9 19.4697GiB (~11%). Fullnorm/projection temps each2.47955GiB
+  at130K remain; notallHCwork8Kbounded. No130Kmeasurement. Alreadyexplained.
+
+# Benchmark32K running — 2026-10-10 06:38 UTC
+
+* Attempt20261010063855991-e75f0edd execution1a142fa, supervisor7662,
+  desktopwatcher34602. Configbenchmark-32000, twoF/Bpasses, nooptimizer/control/
+  rawgradientclone/archive. Realprefixfixture32000tokens/5816targets/16images.
+  AllOpt7–10 fullgates accepted2%; latestOpt10loss.6243785024/paired1.780845%.
+* Nextcollectverifybenchmark/DVCcache/v0 then64K→96K→120K. Sourcemetadata now
+  recordsactualTorch matmulprecisionflags, withoutchangingthem.
+  No push/shutdown untilall4 benchmarks collected+verified.
+
 # CumulativeOpt10 fullgate PASSED — 2026-10-10
 
 * Attempt20261010062128722-9fddd21f execution2d2062b completed977.991s/return0.
