@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -53,6 +54,46 @@ def extends(previous, messages):
             {k: v for k, v in copy.items() if k != "content"}
             and isinstance(last.get("content"), str)
             and context.normalize(last["content"]) == copy.get("content"))
+
+
+def validate_boundary(previous, current):
+    """Check where a new trajectory starts and describe the cut.
+
+    note_compaction: ../build.py's check, with the retained turn count read
+    from the notice. When ten turns would not fit, the harness keeps fewer and
+    says so ("your last 9 turns"); the official games always kept ten.
+
+    context_trim: the harness's budget trimmer dropped the oldest history
+    mid-turn, with no notice (fw4821 only). The new trajectory is the system
+    prompt followed by an exact suffix of the previous one, then new messages.
+    """
+    notices = [m["content"] for m in current["messages"]
+               if m["role"] == "user" and isinstance(m.get("content"), str)
+               and m["content"].startswith("Context notice:")]
+    if notices and notices[-1] in [m.get("content") for m in previous["messages"][-2:]]:
+        notice = notices[-1]
+        match = re.search(r"last (\d+) turns", notice)
+        if not match or not 1 <= int(match.group(1)) <= 10:
+            raise ValueError(f"Unexpected compaction retention: {current['id']}")
+        kept = int(match.group(1))
+        stated = notice.replace(f"last {kept} turns", "last 10 turns", 1)
+        def restate(sample):
+            return {**sample, "messages": [{**m, "content": stated} if m.get("content") == notice else m
+                                           for m in sample["messages"]]}
+        boundary = base.validate_boundary(restate(previous), restate(current))
+        boundary.update({"kind": "note_compaction", "retained_game_turns": kept})
+        return boundary
+    old, new = previous["messages"], current["messages"]
+    if new[0] != old[0] or new[0]["role"] != "system":
+        raise ValueError(f"Trim changed the system prompt: {current['id']}")
+    for start in range(2, len(old)):
+        if extends(old[start:], new[1:]):
+            retained = len(old) - start
+            return {"kind": "context_trim", "dropped_messages": start - 1,
+                    "retained_messages": retained,
+                    "retained_assistant_messages": sum(m["role"] == "assistant" for m in new[1:1 + retained]),
+                    "first_new_message_index": 1 + retained}
+    raise ValueError(f"New trajectory is neither a compaction nor a trimmed suffix: {current['id']}")
 
 
 def finish(trajectory, student):
@@ -134,7 +175,7 @@ def main():
             if active is None or row["chunk"] != active["chunk"]:
                 retained = None
                 if active is not None:
-                    active["boundary_to_next"] = base.validate_boundary(previous, sample)
+                    active["boundary_to_next"] = validate_boundary(previous, sample)
                     boundary_count += 1
                     trajectories.append(finish(active, student))
                     retained = active["boundary_to_next"]
@@ -214,7 +255,9 @@ def main():
         "max_total_tokens": LIMIT,
         "games": len(won),
         "trajectories": len(trajectories),
-        "compactions": boundary_count,
+        "boundaries": boundary_count,
+        "boundary_kinds": dict(Counter(t["boundary_to_next"]["kind"] for t in trajectories
+                                       if t["boundary_to_next"])),
         "finalized_turns": len(all_ids),
         "supervised_targets": len(all_ids) - text_only,
         "masked_text_only_turns": text_only,

@@ -1,0 +1,68 @@
+schema: '2.0'
+stages:
+  build:
+    cmd: ../../../ARC3-Inference/.venv/bin/python build.py
+    deps:
+    - path: ../../../ARC3-Inference/runs/gpt61sol-nvidia-25games-resume2
+      hash: md5
+      md5: fd9404abf158aacf4e302f590c725388.dir
+      size: 25697596
+      nfiles: 153
+    - path: ../../../ARC3-Inference/runs/think-progressive-nvidia22
+      hash: md5
+      md5: 5762cd1b4e66f74fe53f6df828f678f9.dir
+      size: 450256299
+      nfiles: 12562
+    - path: ../../../ARC3-Inference/think_gen/context.py
+      hash: md5
+      md5: e3389a8c661570d767dcf6e9f3585a99
+      size: 6240
+    - path: ../../../ARC3-Inference/think_gen/logs.py
+      hash: md5
+      md5: b0f20d258eb503d5a1fb0196ee628735
+      size: 5458
+    - path: ../../../ARC3-Inference/think_gen/progressive.py
+      hash: md5
+      md5: e7129616bde36cfb18c35b6bfac32f92
+      size: 41653
+    - path: ../../sft-gpt61sol-features-25games/build_index.py
+      hash: md5
+      md5: 4312243237d8110d69c2c10f9854fdf9
+      size: 6456
+    - path: ../../sft-gpt61sol-features-25games/convert.py
+      hash: md5
+      md5: bc224dc92121441e1d8d710e2cde7077
+      size: 9317
+    - path: ../../sft-gpt61sol-features-25games/qwen/chat_template.jinja
+      hash: md5
+      md5: 519239a4908bb1f805bbce5fa8c8a242
+      size: 8952
+    - path: ../../sft-gpt61sol-features-25games/qwen/tokenizer.json
+      hash: md5
+      md5: 085e10165f24499bb9d8fcee7e17f9ee
+      size: 12809320
+    - path: ../build.py
+      hash: md5
+      md5: e0e7fa6396dc1a0db5d7dd1d0ec3f92a
+      size: 13042
+    - path: build.py
+      hash: md5
+      md5: 9759f7defe81c3dd617bd75a808413d9
+      size: 14090
+    outs:
+    - path: index.json
+      hash: md5
+      md5: 39cff0b2fdb0fd15f5c243ea6719458f
+      size: 32151
+    - path: ratios.csv
+      hash: md5
+      md5: febda24c9015f0fc86b61608feede233
+      size: 4198
+    - path: summary.json
+      hash: md5
+      md5: 20542b6ded3a0a15e4f9e9c2266e39bf
+      size: 799
+    - path: trajectories.jsonl
+      hash: md5
+      md5: ded3bc49b43872fa84ee27ae653179b9
+      size: 25978672

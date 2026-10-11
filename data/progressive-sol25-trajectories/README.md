@@ -8,6 +8,10 @@ limit** for every complete trajectory and every constituent response. All
 1,334 finalized assistant responses fit, including the ten omitted by the old
 input-only filter. The largest trajectory is 129,169 tokens.
 
+The subfolder [`nvidia-25games/`](nvidia-25games/README.md) holds the same
+format for the 22 NVIDIA DreamTeam community games gpt-6.1-sol won (58
+trajectories, 1,187 supervised responses), with text-only give-up turns masked.
+
 ## Files
 
 - `trajectories.jsonl` is the dataset (27.5 MB, a DVC pipeline output). One UTF-8 JSON
